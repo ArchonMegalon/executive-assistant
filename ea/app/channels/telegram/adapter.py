@@ -10,35 +10,45 @@ class TelegramObservationAdapter:
     def _message_text_and_kind(msg: dict[str, object]) -> tuple[str, str, dict[str, object]]:
         text = str(msg.get("text") or msg.get("caption") or "")
         metadata: dict[str, object] = {}
-        if text:
-            return text, "text", metadata
         if isinstance(msg.get("voice"), dict):
             voice = dict(msg.get("voice") or {})
             metadata["file_id"] = voice.get("file_id")
             metadata["duration"] = voice.get("duration")
+            if text:
+                metadata["caption"] = text
             return "Voice Message", "voice", metadata
         if isinstance(msg.get("audio"), dict):
             audio = dict(msg.get("audio") or {})
             metadata["file_id"] = audio.get("file_id")
             metadata["duration"] = audio.get("duration")
             metadata["file_name"] = audio.get("file_name")
+            if text:
+                metadata["caption"] = text
             return "Audio Message", "audio", metadata
         if isinstance(msg.get("photo"), list) and msg.get("photo"):
             photos = list(msg.get("photo") or [])
             last = dict(photos[-1] or {}) if photos else {}
             metadata["file_id"] = last.get("file_id")
-            return "Photo", "photo", metadata
+            if text:
+                metadata["caption"] = text
+            return text or "Photo", "photo", metadata
         if isinstance(msg.get("video"), dict):
             video = dict(msg.get("video") or {})
             metadata["file_id"] = video.get("file_id")
             metadata["duration"] = video.get("duration")
-            return "Video Message", "video", metadata
+            if text:
+                metadata["caption"] = text
+            return text or "Video Message", "video", metadata
         if isinstance(msg.get("document"), dict):
             document = dict(msg.get("document") or {})
             filename = str(document.get("file_name") or "").strip()
             metadata["file_id"] = document.get("file_id")
             metadata["file_name"] = filename
-            return (f"Document: {filename}" if filename else "Document"), "document", metadata
+            if text:
+                metadata["caption"] = text
+            return text or (f"Document: {filename}" if filename else "Document"), "document", metadata
+        if text:
+            return text, "text", metadata
         return "", "unknown", metadata
 
     def to_observation_fields(self, update: dict[str, object]) -> dict[str, object]:

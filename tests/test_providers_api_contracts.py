@@ -2837,6 +2837,129 @@ def test_telegram_resolve_message_payload_transcribes_voice(monkeypatch: pytest.
     assert dict(resolved["transcript_metadata"] or {})["telegram_file_id"] == "voice-file-123"
 
 
+def test_telegram_photo_adapter_preserves_media_kind_with_caption() -> None:
+    from app.channels.telegram.adapter import TelegramObservationAdapter
+
+    text, kind, metadata = TelegramObservationAdapter._message_text_and_kind(
+        {
+            "caption": "What do you see here?",
+            "photo": [
+                {"file_id": "photo-small"},
+                {"file_id": "photo-large"},
+            ],
+        }
+    )
+
+    assert text == "What do you see here?"
+    assert kind == "photo"
+    assert metadata["file_id"] == "photo-large"
+    assert metadata["caption"] == "What do you see here?"
+
+
+def test_telegram_resolve_message_payload_analyzes_photo(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import telegram_session_service
+
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda **kwargs: "https://api.telegram.org/file/bot-token/photos/file-123.jpg",
+    )
+    monkeypatch.setattr(
+        telegram_session_service.photo_signal_analysis,
+        "analyze_photo_url",
+        lambda **kwargs: {
+            "summary": "A living room with large windows and a couch.",
+            "notable_details": ["large windows", "couch", "wood floor"],
+            "suggestions": ["This is useful for interior-layout review."],
+            "status": "analyzed",
+        },
+    )
+
+    resolved = telegram_session_service.resolve_telegram_message_payload(
+        payload={
+            "text": "Please inspect this.",
+            "kind": "photo",
+            "message_metadata": {"file_id": "photo-file-123", "caption": "Please inspect this."},
+            "message_id": 46,
+        },
+        bot_token="tg-token",
+    )
+
+    assert resolved["photo_analysis_status"] == "analyzed"
+    assert dict(resolved["photo_analysis"] or {})["summary"] == "A living room with large windows and a couch."
+    assert dict(resolved["message_metadata"] or {})["download_url"].endswith("/photos/file-123.jpg")
+    assert "A living room with large windows and a couch." in str(resolved["text"])
+
+
+def test_telegram_ingest_replies_from_photo_analysis_instead_of_generic_blind_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-photo")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-photo")
+    from app.api.routes import channels as channels_route
+    from app.services import telegram_session_service
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeTelegramSendResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9902}}).encode("utf-8")
+
+    def _fake_send_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeTelegramSendResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_send_urlopen)
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda **kwargs: "https://api.telegram.org/file/bot-photo/photos/file-777.jpg",
+    )
+    monkeypatch.setattr(
+        telegram_session_service.photo_signal_analysis,
+        "analyze_photo_url",
+        lambda **kwargs: {
+            "summary": "A family photo in a hospital room.",
+            "notable_details": ["two people", "hospital bed"],
+            "suggestions": ["This likely belongs in the family memorial thread."],
+            "status": "analyzed",
+        },
+    )
+
+    client = _client(principal_id="exec-telegram-photo")
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "message": {
+                "message_id": 9001,
+                "date": 123456,
+                "chat": {"id": 1354554303, "type": "private"},
+                "caption": "Can you identify this?",
+                "photo": [{"file_id": "small-1"}, {"file_id": "large-1"}],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply_sent"] is True
+    assert "I got the photo." in body["reply_text"]
+    assert "A family photo in a hospital room." in body["reply_text"]
+    assert "can't see it" not in body["reply_text"].lower()
+    assert sent
+    assert "A family photo in a hospital room." in str(sent[-1]["text"])
+
+
 def test_telegram_resolve_message_payload_sanitizes_transcription_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import telegram_session_service
 

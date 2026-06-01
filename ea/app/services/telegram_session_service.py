@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 
 from app.product import service as product_service
+from app.services import photo_signal_analysis
 
 
 @dataclasses.dataclass(frozen=True)
@@ -128,6 +129,47 @@ def resolve_telegram_message_payload(*, payload: dict[str, object], bot_token: s
     resolved = dict(payload or {})
     kind = str(resolved.get("kind") or "").strip().lower()
     metadata = dict(resolved.get("message_metadata") or {})
+    if kind == "photo":
+        file_id = str(metadata.get("file_id") or "").strip()
+        caption = str(metadata.get("caption") or resolved.get("text") or "").strip()
+        if not file_id or not str(bot_token or "").strip():
+            return resolved
+        try:
+            image_url = _telegram_file_download_url(bot_token=bot_token, file_id=file_id)
+            analysis = photo_signal_analysis.analyze_photo_url(
+                image_url=image_url,
+                title=caption or "Telegram photo",
+                summary=caption,
+                mime_type="image/jpeg",
+            )
+        except Exception as exc:
+            raw_error = str(exc or "").strip()
+            error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "photo_analysis_failed"
+            resolved["photo_analysis_status"] = "failed"
+            resolved["photo_analysis_error_code"] = error_code[:80]
+            return resolved
+        analysis_dict = dict(analysis or {})
+        summary = str(analysis_dict.get("summary") or "").strip()
+        notable_details = [
+            str(value).strip()
+            for value in list(analysis_dict.get("notable_details") or [])
+            if str(value).strip()
+        ]
+        resolved["message_metadata"] = {**metadata, "download_url": image_url}
+        resolved["photo_analysis"] = analysis_dict
+        resolved["photo_analysis_status"] = str(analysis_dict.get("status") or "ok").strip() or "ok"
+        if summary:
+            resolved["analysis_summary"] = summary
+        if caption or summary or notable_details:
+            text_parts: list[str] = []
+            if caption:
+                text_parts.append(caption)
+            if summary and summary.lower() != caption.lower():
+                text_parts.append(summary)
+            if notable_details:
+                text_parts.append("Details: " + "; ".join(notable_details[:3]))
+            resolved["text"] = "\n".join(part for part in text_parts if part).strip() or resolved.get("text") or "Photo"
+        return resolved
     if kind not in {"voice", "audio"}:
         return resolved
     file_id = str(metadata.get("file_id") or "").strip()

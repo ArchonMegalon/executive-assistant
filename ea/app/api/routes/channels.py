@@ -854,6 +854,35 @@ def _telegram_general_reply_text(*, container: AppContainer, principal_id: str, 
     return ""
 
 
+def _telegram_photo_reply_text(payload: dict[str, object] | None = None) -> str:
+    payload_dict = dict(payload or {})
+    if str(payload_dict.get("kind") or "").strip().lower() != "photo":
+        return ""
+    analysis = dict(payload_dict.get("photo_analysis") or {})
+    status = str(payload_dict.get("photo_analysis_status") or "").strip().lower()
+    summary = str(payload_dict.get("analysis_summary") or analysis.get("summary") or "").strip()
+    notable_details = [
+        str(value).strip()
+        for value in list(analysis.get("notable_details") or [])
+        if str(value).strip()
+    ]
+    suggestions = [
+        str(value).strip()
+        for value in list(analysis.get("suggestions") or [])
+        if str(value).strip()
+    ]
+    if summary:
+        parts = [f"I got the photo. {summary}"]
+        if notable_details:
+            parts.append("Notable details: " + "; ".join(notable_details[:3]) + ".")
+        if suggestions:
+            parts.append(suggestions[0].rstrip(".") + ".")
+        return " ".join(part.strip() for part in parts if part.strip()).strip()
+    if status == "failed":
+        return "I got the photo, but the image analysis failed on my side. Send it again or add a short caption and I’ll retry."
+    return "I got the photo and saved it, but I do not have enough analyzed detail yet to say something useful about it."
+
+
 def _telegram_weather_code_label(code: int) -> str:
     mapping = {
         0: "clear",
@@ -4943,6 +4972,9 @@ def _telegram_command_reply_text(
     link_decision = _telegram_link_turn_decision(ctx)
     if link_decision.reply_text or link_decision.schedule_async:
         return link_decision.reply_text, link_decision.schedule_async
+    photo_reply = _telegram_photo_reply_text(ctx.payload)
+    if photo_reply:
+        return photo_reply, False
     if ctx.normalized:
         probe_reply = _telegram_probe_reply_text(ctx.normalized)
         if probe_reply:
