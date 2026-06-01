@@ -1,0 +1,22 @@
+{
+  "forbidden": [
+    "premium tiers",
+    "subscriptions",
+    "render credits",
+    "feature unlocks",
+    "card data storage",
+    "webhook secrets in git"
+  ],
+  "integration_mode": "test_only",
+  "local_integration": "Bounded $1 Billing Test adapter with no-op entitlement ledger.",
+  "receipts": [
+    "fleet/_completion/payfunnels/PAYFUNNELS_PROVIDER_VERIFICATION.generated.json",
+    "fleet/_completion/payfunnels/PAYFUNNELS_TEST_CHECKOUT_RECEIPT.generated.json",
+    "fleet/_completion/payfunnels/PAYFUNNELS_WEBHOOK_RECEIPT.generated.json",
+    "fleet/_completion/payfunnels/PAYFUNNELS_ENTITLEMENT_NOOP_PROOF.generated.json"
+  ],
+  "service": "PayFunnels",
+  "status": "owned",
+  "tier": "Tier 3",
+  "verified_at_utc": "2026-06-01T21:03:10.878637+00:00"
+}
