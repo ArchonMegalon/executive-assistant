@@ -4399,6 +4399,76 @@ def test_pocket_api_sync_dismisses_subminute_recordings_from_continuous_archive(
     assert body["archive_failed_total"] == 0
 
 
+def test_pocket_api_sync_dismisses_completed_recording_when_audio_is_unavailable(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-sync-audio-unavailable"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    monkeypatch.setenv("EA_POCKET_AUDIO_ARCHIVE_ENABLED", "1")
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_list_recordings",
+        lambda *, limit, page=1: {
+            "success": True,
+            "data": [
+                {"id": "sample-1", "title": "Getting Started with Pocket", "state": "completed"},
+            ],
+            "pagination": {"total": 1, "has_more": False},
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Getting Started with Pocket",
+                "state": "completed",
+                "duration": 120.0,
+                "language": "en",
+                "recording_at": "2026-05-01T09:00:00Z",
+                "created_at": "2026-05-01T09:00:10Z",
+                "updated_at": "2026-05-01T09:00:20Z",
+                "tags": ["sample"],
+                "transcript": {
+                    "text": "Welcome to Pocket.",
+                    "segments": [{"start": 0.0, "end": 2.0, "text": "Welcome to Pocket."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_archive_pocket_recording_audio",
+        lambda self, *, principal_id, actor, payload: (_ for _ in ()).throw(RuntimeError("pocket_recording_audio_unavailable")),
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_sync_pocket_audio_archive_index_to_teable",
+        lambda self, *, principal_id, rows: {
+            "status": "synced",
+            "sync_attempted": True,
+            "row_total": len(rows),
+            "blocked_reason": "",
+        },
+    )
+
+    synced = client.post("/app/api/signals/pocket/sync", params={"limit": 5})
+    assert synced.status_code == 200
+    body = synced.json()
+    assert body["archive_dismissed_total"] == 1
+    assert body["archive_failed_total"] == 0
+    assert body["teable_index_row_total"] == 1
+
+    product_events = client.get("/app/api/events", params={"channel": "product", "event_type": "pocket_recording_archive_indexed"})
+    assert product_events.status_code == 200
+    indexed = next(item for item in product_events.json()["items"] if item["payload"]["recording_id"] == "sample-1")
+    assert indexed["payload"]["archive_status"] == "dismissed"
+
+
 def test_pocket_api_sync_executes_assistant_shopping_list_trigger(monkeypatch) -> None:
     principal_id = "exec-product-pocket-sync-trigger"
     client = build_product_client(principal_id=principal_id)
@@ -6030,6 +6100,97 @@ def test_pocket_api_backfill_ignores_cursor_but_preserves_incremental_position(m
     assert events.status_code == 200
     source_ids = {item["source_id"] for item in events.json()["items"]}
     assert {"pocket-recording:new-1", "pocket-recording:old-1", "pocket-recording:old-2"} <= source_ids
+
+
+def test_pocket_api_backfill_limit_zero_drains_all_pages(monkeypatch) -> None:
+    principal_id = "exec-product-pocket-backfill-all"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    seen_pages: list[int] = []
+
+    def _list_recordings(*, limit, page=1):
+        seen_pages.append(page)
+        assert limit == 25
+        if page == 1:
+            return {
+                "success": True,
+                "data": [
+                    {
+                        "id": "all-1",
+                        "title": "Pocket first item",
+                        "state": "completed",
+                        "created_at": "2026-05-01T09:10:00Z",
+                        "updated_at": "2026-05-01T09:11:00Z",
+                        "recording_at": "2026-05-01T09:10:00Z",
+                    }
+                ],
+                "pagination": {"total": 3, "has_more": True},
+            }
+        if page == 2:
+            return {
+                "success": True,
+                "data": [
+                    {
+                        "id": "all-2",
+                        "title": "Pocket second item",
+                        "state": "completed",
+                        "created_at": "2026-05-01T09:00:00Z",
+                        "updated_at": "2026-05-01T09:01:00Z",
+                        "recording_at": "2026-05-01T09:00:00Z",
+                    },
+                    {
+                        "id": "all-3",
+                        "title": "Pocket third item",
+                        "state": "completed",
+                        "created_at": "2026-05-01T08:50:00Z",
+                        "updated_at": "2026-05-01T08:51:00Z",
+                        "recording_at": "2026-05-01T08:50:00Z",
+                    },
+                ],
+                "pagination": {"total": 3, "has_more": False},
+            }
+        return {"success": True, "data": [], "pagination": {"total": 3, "has_more": False}}
+
+    def _detail(recording_id: str):
+        return {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": f"Pocket {recording_id}",
+                "state": "completed",
+                "duration": 180.0,
+                "language": "en",
+                "recording_at": "2026-05-01T09:00:00Z",
+                "created_at": "2026-05-01T09:00:10Z",
+                "updated_at": "2026-05-01T09:01:00Z",
+                "tags": ["ops"],
+                "transcript": {
+                    "text": "Review the notes and send the follow-up today.",
+                    "segments": [{"start": 0.0, "end": 1.0, "text": "Review the notes."}],
+                    "metadata": {"source": "api"},
+                },
+                "summarizations": {
+                    f"summary-{recording_id}": {
+                        "id": f"summary-{recording_id}",
+                        "v2": {"summary": {"markdown": "Review the notes and send the follow-up today."}},
+                    }
+                },
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_pocket_list_recordings", _list_recordings)
+    monkeypatch.setattr(product_service, "_pocket_get_recording_details", _detail)
+
+    backfill = client.post("/app/api/signals/pocket/backfill", params={"limit": 0})
+    assert backfill.status_code == 200
+    body = backfill.json()
+    assert seen_pages == [1, 2]
+    assert body["mode"] == "backfill"
+    assert body["cursor_used"] is False
+    assert body["cursor_persisted"] is False
+    assert body["recording_total"] == 3
+    assert body["total"] == 3
+    assert body["scan_truncated"] is False
 
 
 def test_pocket_api_reset_cursor_allows_historical_rescan(monkeypatch) -> None:

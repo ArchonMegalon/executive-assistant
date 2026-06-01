@@ -13576,7 +13576,8 @@ class ProductService:
         completion_event_type: str,
     ) -> dict[str, object]:
         max_limit = 250 if not use_cursor else 100
-        bounded_limit = max(1, min(int(limit or 5), max_limit))
+        drain_all_pages = not use_cursor and int(limit or 0) <= 0
+        bounded_limit = 0 if drain_all_pages else max(1, min(int(limit or 5), max_limit))
         self._maybe_auto_import_google_location_history(principal_id=principal_id, actor=actor)
         previous_cursor = self._pocket_sync_cursor(principal_id=principal_id)
         previous_cursor_updated_at = str(previous_cursor.get("updated_at") or "").strip()
@@ -13590,7 +13591,7 @@ class ProductService:
         cursor_reached = False
         scan_truncated = False
         while pages_scanned < _POCKET_SYNC_MAX_SCAN_PAGES:
-            page_size = min(25, bounded_limit - len(rows)) if not cursor_configured else 25
+            page_size = 25 if (cursor_configured or drain_all_pages) else min(25, bounded_limit - len(rows))
             if page_size <= 0:
                 break
             response = _pocket_list_recordings(limit=page_size, page=page)
@@ -13606,12 +13607,12 @@ class ProductService:
                     cursor_reached = True
                     break
                 rows.append(row)
-                if not cursor_configured and len(rows) >= bounded_limit:
+                if not cursor_configured and not drain_all_pages and len(rows) >= bounded_limit:
                     break
             pagination = dict(response.get("pagination") or {}) if isinstance(response.get("pagination"), dict) else {}
             has_more = bool(pagination.get("has_more"))
             pages_scanned += 1
-            if cursor_reached or (not cursor_configured and len(rows) >= bounded_limit):
+            if cursor_reached or (not cursor_configured and not drain_all_pages and len(rows) >= bounded_limit):
                 break
             if not has_more or not page_rows:
                 break
@@ -13699,23 +13700,47 @@ class ProductService:
                         payload=detail,
                     )
                 except RuntimeError as exc:
-                    archive_failed_total += 1
-                    archive_result = {
-                        **archive_result,
-                        "archive_status": "failed",
-                        "archive_reason": str(exc or "unknown_error"),
-                    }
-                    self._record_product_event(
-                        principal_id=principal_id,
-                        event_type="pocket_recording_audio_archive_failed",
-                        payload={
-                            "recording_id": recording_id,
-                            "title": title,
-                            "actor": str(actor or "").strip() or "office_api",
-                            "error": str(exc or "unknown_error"),
-                        },
-                        source_id=f"pocket-recording:{recording_id}",
-                    )
+                    error_text = str(exc or "unknown_error")
+                    if error_text == "pocket_recording_audio_unavailable":
+                        archive_dismissed_total += 1
+                        archive_result = {
+                            **archive_result,
+                            "archive_status": "dismissed",
+                            "archive_reason": "audio_unavailable",
+                        }
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="pocket_recording_audio_archive_dismissed",
+                            payload={
+                                "recording_id": recording_id,
+                                "title": title,
+                                "actor": str(actor or "").strip() or "office_api",
+                                "reason": "audio_unavailable",
+                                "duration_seconds": archive_result.get("duration_seconds"),
+                                "min_duration_seconds": archive_result.get("min_duration_seconds"),
+                                "archive_root": str(_pocket_audio_archive_root()),
+                            },
+                            source_id=f"pocket-recording:{recording_id}",
+                            dedupe_key=f"{principal_id}|pocket-recording-audio-dismissed|{recording_id}|audio_unavailable",
+                        )
+                    else:
+                        archive_failed_total += 1
+                        archive_result = {
+                            **archive_result,
+                            "archive_status": "failed",
+                            "archive_reason": error_text,
+                        }
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="pocket_recording_audio_archive_failed",
+                            payload={
+                                "recording_id": recording_id,
+                                "title": title,
+                                "actor": str(actor or "").strip() or "office_api",
+                                "error": error_text,
+                            },
+                            source_id=f"pocket-recording:{recording_id}",
+                        )
                 else:
                     if str(archive_result.get("archive_status") or "").strip() in {"archived", "already_archived"}:
                         archived_total += 1
@@ -13780,7 +13805,8 @@ class ProductService:
                 tags=tags,
             )
             archive_status = str(archive_result.get("archive_status") or "").strip()
-            if archive_status == "dismissed" and not should_stage_commitments:
+            archive_reason = str(archive_result.get("archive_reason") or "").strip()
+            if archive_status == "dismissed" and archive_reason == "duration_below_minimum" and not should_stage_commitments:
                 suppressed_total += 1
                 continue
             suppress_candidate_staging = not should_stage_commitments

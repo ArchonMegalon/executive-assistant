@@ -307,7 +307,7 @@ def sync_pocket_recordings(
 
 @router.post("/signals/pocket/backfill", response_model=PocketSignalSyncOut)
 def backfill_pocket_recordings(
-    limit: int = Query(default=25, ge=1, le=250),
+    limit: int = Query(default=0, ge=0, le=250),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PocketSignalSyncOut:
