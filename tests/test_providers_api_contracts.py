@@ -7077,7 +7077,10 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
     assert "Decision Summary" in page.text
     assert "Preference-to-Property Matrix" in page.text
     assert "Tune what future properties should pass" in page.text
+    assert "Hard blocks and must-haves" in page.text
+    assert "Soft ranking signals" in page.text
     assert "Research Log" in page.text
+    assert "How this compares to your learned pattern" in page.text
     assert "The district matches your preferred areas" in page.text
     assert "Fernwaerme avoids your excluded heating types." in page.text
     assert "The nearest playground is about 140 m away." in page.text
@@ -7292,6 +7295,7 @@ def test_public_tour_filter_update_changes_preference_filters(
     assert second_page.status_code == 200
     assert "Avoid gas heating" in second_page.text
     assert "Active filters" in second_page.text
+    assert "Hard blocks and must-haves" in second_page.text
 
 
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(

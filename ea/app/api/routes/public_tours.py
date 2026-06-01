@@ -532,12 +532,24 @@ def _filter_panel_context(*, facts: dict[str, object]) -> dict[str, object]:
     nodes = _preference_snapshot_nodes(facts)
     filters: list[dict[str, object]] = []
     active_labels: list[str] = []
+    hard_filters: list[dict[str, object]] = []
+    soft_filters: list[dict[str, object]] = []
     for spec in _public_filter_specs(facts=facts):
         active = _filter_node_active(nodes, key=str(spec.get("node_key") or ""), category=str(spec.get("category") or ""))
-        filters.append({**spec, "active": active})
+        enriched = {**spec, "active": active}
+        filters.append(enriched)
+        if str(spec.get("category") or "").strip().lower() == "aversion" or str(spec.get("strength") or "").strip().lower() == "high":
+            hard_filters.append(enriched)
+        else:
+            soft_filters.append(enriched)
         if active:
             active_labels.append(str(spec.get("label") or "").strip())
-    return {"filters": filters, "active_labels": active_labels[:8]}
+    return {
+        "filters": filters,
+        "hard_filters": hard_filters,
+        "soft_filters": soft_filters,
+        "active_labels": active_labels[:8],
+    }
 
 
 def _live_property_feedback_context(
@@ -1167,6 +1179,26 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             )
             for row in recent_feedback_rows[:6]
         )
+        comparison_positive = (personalized_positive or good_fit_reasons or highlight_lines)[:3]
+        comparison_conflicts = (personalized_caution or bad_fit_reasons or concern_lines)[:3]
+        comparison_hard = learned_hard_rules[:3]
+        comparison_panel = (
+            '<section class="panel">'
+            '<div class="eyebrow">Pattern Compare</div>'
+            '<h2>How this compares to your learned pattern</h2>'
+            '<div class="summary-grid" style="margin-top:0;">'
+            '<div class="summary-card"><h3>Matches your pattern</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No strong positive pattern match is clear yet.</li>"}'
+            '</ul></div>'
+            '<div class="summary-card"><h3>Breaks your pattern</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_conflicts) or "<li>No strong learned conflict is visible yet.</li>"}'
+            '</ul></div>'
+            '<div class="summary-card"><h3>Hard-rule pressure</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_hard) or "<li>No hard-rule pressure is stored yet.</li>"}'
+            '</ul></div>'
+            '</div>'
+            '</section>'
+        )
         detail_request_button = ""
         if str(payload.get("principal_id") or "").strip() and str(payload.get("property_url") or listing_url).strip():
             detail_request_button = (
@@ -1176,7 +1208,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 '</div>'
             )
         active_filter_labels = [str(item or "").strip() for item in list(filter_context.get("active_labels") or []) if str(item or "").strip()]
-        filter_button_html = "".join(
+        hard_filter_button_html = "".join(
             (
                 f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
                 f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
@@ -1184,7 +1216,18 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 f'{html.escape(str(spec.get("label") or ""))}'
                 '</button>'
             )
-            for spec in list(filter_context.get("filters") or [])
+            for spec in list(filter_context.get("hard_filters") or [])
+            if isinstance(spec, dict)
+        )
+        soft_filter_button_html = "".join(
+            (
+                f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
+                f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
+                f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}">'
+                f'{html.escape(str(spec.get("label") or ""))}'
+                '</button>'
+            )
+            for spec in list(filter_context.get("soft_filters") or [])
             if isinstance(spec, dict)
         )
         active_filter_html = "".join(f"<li>{html.escape(label)}</li>" for label in active_filter_labels[:8])
@@ -1200,7 +1243,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 f'{active_filter_html or "<li>No explicit property filters are active yet.</li>"}'
                 '</ul></div>'
                 '<div class="summary-card"><h3>Quick toggles</h3>'
-                f'<div class="reason-chip-row filter-chip-row">{filter_button_html}</div>'
+                '<div class="filter-group"><b>Hard blocks and must-haves</b>'
+                f'<div class="reason-chip-row filter-chip-row">{hard_filter_button_html or "<span class=\"subtle\">No hard filters available here.</span>"}</div></div>'
+                '<div class="filter-group"><b>Soft ranking signals</b>'
+                f'<div class="reason-chip-row filter-chip-row">{soft_filter_button_html or "<span class=\"subtle\">No soft filters available here.</span>"}</div></div>'
                 '</div></div>'
                 '<div class="request-row"><span id="filter-status" class="request-status"></span></div>'
                 '</section>'
@@ -1449,6 +1495,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         flex-wrap: wrap;
       }}
       .filter-chip-row {{ align-items: stretch; }}
+      .filter-group {{ display: grid; gap: 10px; margin-top: 12px; }}
+      .filter-group b {{ font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }}
       .feedback-groups {{ flex-direction: column; margin-top: 14px; }}
       .reaction-btn, .reason-chip {{
         display: inline-flex;
@@ -1706,6 +1754,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <h2>What can still break the decision</h2>
             <ul>{risks_html}</ul>
           </section>
+          {comparison_panel}
           <section id="research" class="panel">
             <div class="eyebrow">Research Log</div>
             <h2>Confirmed, inferred, and open</h2>
