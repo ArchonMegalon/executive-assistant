@@ -6867,6 +6867,67 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert audio.headers["content-type"].startswith("audio/mpeg")
 
 
+def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "person_name": "Manfred Hoza",
+                "audio_clips": [],
+                "memory_cards": [{"source_label": "Archiv", "title": "Schach", "body": "Das Schach bleibt in der Familie."}],
+                "source_grounded_profile": [{"trait": "Gerechtigkeit", "evidence": "Opferschutz war ein wiederkehrendes Thema."}],
+                "external_sources": [{"label": "RIS Suche", "url": "https://www.ris.bka.gv.at/Suchergebnis.wxe?Suchworte=Manfred%20Hoza"}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    private_dir = tmp_path / "private" / slug
+    private_dir.mkdir(parents=True)
+    (private_dir / "llm_profile_notes.json").write_text(
+        json.dumps(
+            {
+                "visibility": "private_llm_context_only_not_public_page",
+                "family_context_notes": [
+                    {
+                        "label": "narcissistic_and_adhd_like_traits_private_hypothesis",
+                        "confidence": "family_observation_no_diagnosis",
+                        "note": "Private style hint only.",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(tmp_path / "private"))
+
+    client = _client(principal_id="exec-public-memorial-chat")
+    page = client.get(f"/memorials/{slug}", headers={"host": "myexternalbrain.com"})
+    assert page.status_code == 200
+    assert "narcissistic" not in page.text.lower()
+    assert "adhd" not in page.text.lower()
+    assert "/memorials/manfred/chat" in page.text
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ging er mit Kritik um?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "memorial_memory_chat_not_person_simulation"
+    assert body["private_context_used"] is True
+    assert "Ich bin nicht Manfred Hoza" in body["answer"]
+    assert "keine klinische Diagnose" in body["answer"]
+    assert "ADHS" not in body["answer"]
+    assert "narcissistic" not in body["answer"].lower()
+
+
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_SIDE_SURFACES", "0")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_RESULTS", "0")

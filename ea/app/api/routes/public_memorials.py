@@ -22,6 +22,10 @@ def _resolved_memorial_root() -> Path:
     return _memorial_dir().resolve()
 
 
+def _private_profile_dir() -> Path:
+    return Path(str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "/mnt/pcloud/EA/private_memorial_profiles")).expanduser()
+
+
 def _safe_slug(slug: str) -> str:
     safe = str(slug or "").strip()
     if not safe or "/" in safe or ".." in safe:
@@ -75,6 +79,92 @@ def _text(value: object, fallback: str = "") -> str:
 
 def _list_of_dicts(value: object) -> list[dict[str, object]]:
     return [dict(item) for item in (value or []) if isinstance(item, dict)]
+
+
+def _load_private_profile(slug: str) -> dict[str, object]:
+    safe = _safe_slug(slug)
+    root = _private_profile_dir().resolve()
+    path = (root / safe / "llm_profile_notes.json").resolve()
+    if root not in path.parents or not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _compact_public_facts(payload: dict[str, object]) -> list[str]:
+    facts: list[str] = []
+    for card in _list_of_dicts(payload.get("memory_cards")):
+        title = _text(card.get("title"))
+        body = _text(card.get("body"))
+        if title and body:
+            facts.append(f"{title}: {body}")
+    for note in _list_of_dicts(payload.get("source_grounded_profile")):
+        trait = _text(note.get("trait"))
+        evidence = _text(note.get("evidence"))
+        if trait and evidence:
+            facts.append(f"{trait}: {evidence}")
+    return facts[:8]
+
+
+def _memorial_chat_answer(payload: dict[str, object], question: str, private_profile: dict[str, object]) -> dict[str, object]:
+    person_name = _text(payload.get("person_name"), "Manfred")
+    normalized_question = " ".join(str(question or "").strip().split())
+    if not normalized_question:
+        raise HTTPException(status_code=400, detail="question_missing")
+    if len(normalized_question) > 1200:
+        raise HTTPException(status_code=400, detail="question_too_long")
+    lowered = normalized_question.lower()
+    facts = _compact_public_facts(payload)
+    private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
+    source_labels = ["Originalaufnahme: Hanusch Krankenhaus"] + [
+        _text(source.get("label"))
+        for source in _list_of_dicts(payload.get("external_sources"))
+        if _text(source.get("label"))
+    ][:4]
+    lead = f"Ich bin nicht {person_name}. Ich formuliere eine Erinnerungsantwort aus freigegebenen Quellen und Familienkontext."
+    if any(token in lowered for token in ("bist du", "sprichst du", "lebst du", "wirklich")):
+        body = (
+            f"Nein. {person_name} spricht hier nicht live. Du kannst seine echte Stimme in Originalaufnahmen hoeren; "
+            "Textantworten bleiben eine transparente Rekonstruktion aus Archiv, Quellen und Erinnerungen."
+        )
+    elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
+        body = (
+            "Fuer deine Mutter sollte die Antwort besonders behutsam bleiben: erst anerkennen, dass sie ihn vermisst, "
+            "dann auf echte Erinnerungen verweisen, und keine neuen Saetze als seine wirklichen Worte ausgeben."
+        )
+    elif any(token in lowered for token in ("schach", "familie")):
+        body = (
+            "Ein belegter Erinnerungsanker ist das Schach und der Wunsch, dass es in der Familie bleibt. "
+            "Daraus laesst sich vorsichtig formulieren: Familie, Weitergabe und ein bleibendes Zeichen waren wichtig."
+        )
+    elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
+        body = (
+            "Dazu gibt es private Familienkontext-Notizen, aber keine klinische Diagnose. Ich wuerde Antworten deshalb indirekt halten: "
+            "Es kann um Schutz des Selbstbildes, alte Verletzungen und schwierige Bindungen gehen, ohne es als Tatsache oder Diagnose zu behaupten."
+        )
+    elif any(token in lowered for token in ("quelle", "belegt", "wahr", "echt")):
+        body = (
+            "Belegt sind derzeit die freigegebene Originalaufnahme, die oeffentlichen Quellen auf der Seite und die separat markierten Familienerinnerungen. "
+            "Alles, was darueber hinausgeht, muss als unsicher oder als Interpretation gekennzeichnet bleiben."
+        )
+    else:
+        fact_line = facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen."
+        body = (
+            f"Aus dem vorhandenen Material wuerde ich vorsichtig so antworten: {fact_line} "
+            "Wenn du eine persoenlichere Antwort willst, stelle die Frage konkreter und ich bleibe bei Quellen und Unsicherheiten."
+        )
+    return {
+        "person_name": person_name,
+        "mode": "memorial_memory_chat_not_person_simulation",
+        "question": normalized_question,
+        "answer": f"{lead}\n\n{body}",
+        "sources": [item for item in source_labels if item],
+        "private_context_used": bool(private_notes),
+        "safety_note": "Keine echte Live-Kommunikation, keine Diagnose, keine synthetische Stimmnachbildung.",
+    }
 
 
 def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
@@ -174,7 +264,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <h2>Oeffentliche Quellen</h2>
         <ul class="sources">{sources_html}</ul>
       </section>"""
-    prompts_html = "\n".join(f"<button type=\"button\">{html.escape(prompt)}</button>" for prompt in suggested_prompts)
+    prompts_html = "\n".join(f"<button type=\"button\" data-prompt=\"{html.escape(prompt)}\">{html.escape(prompt)}</button>" for prompt in suggested_prompts)
     if not prompts_html:
         prompts_html = "<button type=\"button\">Was ist wirklich belegt?</button>"
     return f"""<!doctype html>
@@ -257,6 +347,29 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .sources span {{ color: var(--muted); }}
       .chat {{ background: #eef3ef; border-color: rgba(83,104,91,.24); }}
       .prompt-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }}
+      .chat-form {{ display: grid; gap: 12px; margin-top: 18px; }}
+      textarea {{
+        width: 100%;
+        min-height: 112px;
+        resize: vertical;
+        border: 1px solid rgba(46,82,102,.28);
+        border-radius: 8px;
+        padding: 12px;
+        background: #fffaf2;
+        color: var(--ink);
+        font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .chat-actions {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
+      .chat-answer {{
+        margin-top: 16px;
+        padding: 16px;
+        border: 1px solid rgba(83,104,91,.24);
+        border-radius: 8px;
+        background: rgba(255,250,242,.72);
+        white-space: pre-wrap;
+        color: var(--ink);
+      }}
+      .chat-answer:empty {{ display: none; }}
       button {{
         border: 1px solid rgba(46,82,102,.28);
         background: #fffaf2;
@@ -303,11 +416,54 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <h2>Nicht er selbst. Nur sorgfaeltig aus dem Archiv formuliert.</h2>
         <p>Antworten sollten immer zeigen, welche Aufnahme, Notiz oder Erinnerung zugrunde liegt. Wenn etwas nicht belegt ist, bleibt die Antwort ehrlich unsicher.</p>
         <div class="prompt-row">{prompts_html}</div>
+        <form class="chat-form" id="memorial-chat-form">
+          <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
+          <div class="chat-actions">
+            <button type="submit">Antwort formulieren</button>
+            <span id="memorial-chat-status"></span>
+          </div>
+        </form>
+        <div class="chat-answer" id="memorial-chat-answer"></div>
       </section>
     </main>
     <footer>
       <div class="wrap">Hosted on myexternalbrain.com · Originalstimme nur aus freigegebenen Aufnahmen.</div>
     </footer>
+    <script>
+      const form = document.getElementById("memorial-chat-form");
+      const question = document.getElementById("memorial-chat-question");
+      const answer = document.getElementById("memorial-chat-answer");
+      const statusNode = document.getElementById("memorial-chat-status");
+      async function askMemorialChat(value) {{
+        const text = String(value || "").trim();
+        if (!text) return;
+        statusNode.textContent = "Formuliere...";
+        answer.textContent = "";
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/chat", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ question: text }})
+          }});
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "chat_failed");
+          answer.textContent = payload.answer + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          statusNode.textContent = "";
+        }} catch (error) {{
+          statusNode.textContent = "Antwort konnte nicht erstellt werden.";
+        }}
+      }}
+      form.addEventListener("submit", (event) => {{
+        event.preventDefault();
+        askMemorialChat(question.value);
+      }});
+      document.querySelectorAll("[data-prompt]").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          question.value = button.getAttribute("data-prompt") || "";
+          askMemorialChat(question.value);
+        }});
+      }});
+    </script>
   </body>
 </html>"""
 
@@ -322,6 +478,19 @@ def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
     path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type, filename=path.name)
+
+
+@router.post("/memorials/{slug}/chat")
+async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_json")
+    payload = _load_memorial(slug)
+    answer = _memorial_chat_answer(payload, _text(body.get("question")), _load_private_profile(slug))
+    return JSONResponse(answer)
 
 
 @router.get("/memorials/{slug}", response_class=HTMLResponse)
