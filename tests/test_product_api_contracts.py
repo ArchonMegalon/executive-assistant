@@ -6817,6 +6817,84 @@ def test_pocket_recording_deliver_telegram_route_sends_audio_and_records_event(m
     assert event["payload"]["telegram_message_ids"] == ["tg-audio-1"]
 
 
+def test_pocket_recording_enhance_audio_keeps_original_and_records_policy(monkeypatch, tmp_path) -> None:
+    principal_id = "exec-product-pocket-audio-enhance"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    original_path = tmp_path / "recording.mp3"
+    original_path.write_bytes(b"original-audio")
+    original_path.with_suffix(".json").write_text(
+        json.dumps({"recording_id": "rec-enhance", "archive_path": str(original_path), "archive_sha256": "orig-sha"})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_recording_details",
+        lambda recording_id: {
+            "success": True,
+            "data": {
+                "id": recording_id,
+                "title": "Hospital medical discussion and care",
+                "state": "completed",
+                "duration": 120.0,
+                "language": "de",
+                "recording_at": "2026-05-01T07:00:00Z",
+                "created_at": "2026-05-01T07:00:10Z",
+                "updated_at": "2026-05-01T07:00:20Z",
+                "tags": ["hospital"],
+                "transcript": {"text": "Bitte verbessere die Aufnahme.", "segments": [], "metadata": {"source": "api"}},
+                "summarizations": {},
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_get_audio_download_url",
+        lambda recording_id: {
+            "success": True,
+            "data": {"signed_url": f"https://audio.example/{recording_id}.mp3"},
+        },
+    )
+    monkeypatch.setattr(
+        product_service.ProductService,
+        "_archive_pocket_recording_audio",
+        lambda self, *, principal_id, actor, payload: {
+            "archive_status": "already_archived",
+            "archive_path": str(original_path),
+            "archive_sha256": "orig-sha",
+            "recording_id": "rec-enhance",
+            "title": "Hospital medical discussion and care",
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_audio_enhance_ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
+
+    def _fake_run(command, **kwargs):
+        Path(command[-1]).write_bytes(b"enhanced-audio")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
+
+    enhanced = client.post("/app/api/signals/pocket/recordings/rec-enhance/enhance-audio")
+    assert enhanced.status_code == 200
+    body = enhanced.json()
+    assert body["enhancement_status"] == "enhanced"
+    assert body["original_audio_path"] == str(original_path)
+    assert body["enhanced_audio_path"].endswith("__enhanced.mp3")
+    assert Path(body["enhanced_audio_path"]).read_bytes() == b"enhanced-audio"
+    assert body["voice_profile_status"] == "not_supported"
+    assert body["voice_profile_reason"] == "voice_cloning_real_person_not_supported"
+    original_metadata = json.loads(original_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert original_metadata["enhanced_audio"]["enhanced_audio_path"] == body["enhanced_audio_path"]
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "pocket_recording_audio_enhanced"})
+    assert events.status_code == 200
+    event = next(item for item in events.json()["items"] if item["source_id"] == "pocket-recording:rec-enhance")
+    assert event["payload"]["policy"]["original_preserved"] is True
+    assert event["payload"]["policy"]["voice_cloning"] == "not_supported"
+
+
 def test_pocket_recording_deliver_telegram_route_falls_back_to_local_upload_when_remote_audio_is_unreachable(monkeypatch) -> None:
     principal_id = "exec-product-pocket-telegram-delivery-fallback"
     client = build_product_client(principal_id=principal_id)

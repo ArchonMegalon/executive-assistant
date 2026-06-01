@@ -1203,6 +1203,22 @@ class PocketRecordingTelegramDeliveryOut(BaseModel):
     telegram_chat_ref: str = ""
     audio_download_url: str = ""
     audio_expires_at: str = ""
+    audio_ref: str = ""
+    audio_enhancement: dict[str, object] = Field(default_factory=dict)
+
+
+class PocketRecordingAudioEnhanceOut(BaseModel):
+    recording_id: str
+    title: str = ""
+    enhancement_status: str = ""
+    original_audio_path: str = ""
+    original_audio_sha256: str = ""
+    enhanced_audio_path: str = ""
+    enhanced_audio_sha256: str = ""
+    enhanced_metadata_path: str = ""
+    filters_applied: list[str] = Field(default_factory=list)
+    voice_profile_status: str = ""
+    voice_profile_reason: str = ""
 
 
 class PocketRecordingQueryTelegramDeliveryOut(PocketRecordingTelegramDeliveryOut):

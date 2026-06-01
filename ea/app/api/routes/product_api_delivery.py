@@ -32,6 +32,7 @@ from app.api.routes.product_api_contracts import (
     PocketSignalCursorResetIn,
     PocketSignalCursorResetOut,
     PocketRecordingDetailOut,
+    PocketRecordingAudioEnhanceOut,
     PocketRecordingSearchOut,
     PocketRecordingTelegramDeliveryOut,
     PocketRecordingQueryTelegramDeliveryOut,
@@ -419,6 +420,7 @@ def retranscribe_pocket_recording(
 @router.post("/signals/pocket/recordings/{recording_id}/deliver-telegram", response_model=PocketRecordingTelegramDeliveryOut)
 def deliver_pocket_recording_to_telegram(
     recording_id: str,
+    enhanced: bool = Query(default=False),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> PocketRecordingTelegramDeliveryOut:
@@ -429,6 +431,7 @@ def deliver_pocket_recording_to_telegram(
             principal_id=context.principal_id,
             actor=actor,
             recording_id=recording_id,
+            prefer_enhanced=enhanced,
         )
     except RuntimeError as exc:
         detail = str(exc)
@@ -442,6 +445,36 @@ def deliver_pocket_recording_to_telegram(
             status_code = 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return PocketRecordingTelegramDeliveryOut(**payload)
+
+
+@router.post("/signals/pocket/recordings/{recording_id}/enhance-audio", response_model=PocketRecordingAudioEnhanceOut)
+def enhance_pocket_recording_audio(
+    recording_id: str,
+    force: bool = Query(default=False),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PocketRecordingAudioEnhanceOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "office_api").strip()
+    try:
+        payload = service.enhance_pocket_recording_audio(
+            principal_id=context.principal_id,
+            actor=actor,
+            recording_id=recording_id,
+            force=force,
+        )
+    except RuntimeError as exc:
+        detail = str(exc)
+        if detail == "pocket_recording_not_found":
+            status_code = 404
+        elif detail.startswith("pocket_api_http_429:"):
+            status_code = 429
+        elif detail in {"pocket_recording_audio_unavailable", "pocket_recording_audio_archive_missing", "ffmpeg_unavailable"}:
+            status_code = 409
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return PocketRecordingAudioEnhanceOut(**payload)
 
 
 @router.post("/signals/pocket/recordings/deliver-telegram", response_model=PocketRecordingQueryTelegramDeliveryOut)

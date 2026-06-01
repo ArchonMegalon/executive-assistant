@@ -2724,6 +2724,46 @@ def _pocket_audio_archive_min_duration_seconds() -> float:
         return 60.0
 
 
+def _pocket_audio_enhance_filter_chain() -> str:
+    raw = str(os.environ.get("EA_POCKET_AUDIO_ENHANCE_FILTERS") or "").strip()
+    if raw:
+        return raw
+    return ",".join(
+        (
+            "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-45dB:stop_periods=1:stop_duration=1:stop_threshold=-45dB",
+            "highpass=f=80",
+            "lowpass=f=8500",
+            "afftdn=nf=-25",
+            "loudnorm=I=-16:TP=-1.5:LRA=11",
+            "acompressor=threshold=-18dB:ratio=2.5:attack=10:release=200",
+            "alimiter=limit=0.95",
+        )
+    )
+
+
+def _pocket_audio_enhance_ffmpeg_bin() -> str:
+    configured = str(os.environ.get("EA_FFMPEG_BIN") or "").strip()
+    candidates = [configured] if configured else []
+    candidates.extend(("/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"))
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if path.is_absolute() and path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+        if not path.is_absolute():
+            return candidate
+    raise RuntimeError("ffmpeg_unavailable")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _pocket_duration_seconds(value: object) -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return max(float(value), 0.0)
@@ -13139,6 +13179,7 @@ class ProductService:
         principal_id: str,
         actor: str,
         recording_id: str,
+        prefer_enhanced: bool = False,
     ) -> dict[str, object]:
         payload = self.get_pocket_recording_detail(
             recording_id=recording_id,
@@ -13172,6 +13213,23 @@ class ProductService:
         audio_ref = audio_download_url
         if str(archive.get("archive_status") or "") in {"archived", "already_archived"} and str(archive.get("archive_path") or "").strip():
             audio_ref = str(archive.get("archive_path") or "").strip()
+        enhancement: dict[str, object] = {}
+        if prefer_enhanced:
+            try:
+                enhancement = self.enhance_pocket_recording_audio(
+                    principal_id=principal_id,
+                    actor=actor,
+                    recording_id=recording_id,
+                    force=False,
+                    payload=payload,
+                    archive_result=archive,
+                )
+            except RuntimeError as exc:
+                enhancement = {"enhancement_status": "failed", "enhancement_error": str(exc or "audio_enhancement_failed")}
+            if str(enhancement.get("enhancement_status") or "").strip() in {"enhanced", "already_enhanced"}:
+                enhanced_path = str(enhancement.get("enhanced_audio_path") or "").strip()
+                if enhanced_path:
+                    audio_ref = enhanced_path
         try:
             receipt = send_telegram_audio_for_principal(
                 self._container.tool_runtime,
@@ -13210,6 +13268,8 @@ class ProductService:
             "audio_download_url": audio_download_url,
             "audio_expires_at": str(payload.get("audio_expires_at") or "").strip(),
             "audio_archive": archive,
+            "audio_ref": audio_ref,
+            "audio_enhancement": enhancement,
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -13224,6 +13284,9 @@ class ProductService:
                 "audio_expires_at": str(payload.get("audio_expires_at") or "").strip(),
                 "audio_archive_status": str(archive.get("archive_status") or "").strip(),
                 "audio_archive_path": str(archive.get("archive_path") or "").strip(),
+                "audio_ref": audio_ref,
+                "audio_enhancement_status": str(enhancement.get("enhancement_status") or "").strip(),
+                "enhanced_audio_path": str(enhancement.get("enhanced_audio_path") or "").strip(),
             },
             source_id=f"pocket-recording:{recording_id}",
             dedupe_key=f"{principal_id}|pocket-recording-telegram-sent|{recording_id}|{receipt.chat_id}",
@@ -13267,6 +13330,159 @@ class ProductService:
             "location_address": str(best_match.get("location_address") or "").strip(),
             "location_match_status": str(best_match.get("location_match_status") or "").strip(),
             "location_confidence": float(best_match.get("location_confidence") or 0.0),
+        }
+
+    def enhance_pocket_recording_audio(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        recording_id: str,
+        force: bool = False,
+        payload: dict[str, object] | None = None,
+        archive_result: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        detail = dict(payload or {})
+        if not detail:
+            detail = self.get_pocket_recording_detail(
+                recording_id=recording_id,
+                include_audio=True,
+                prefer_audio_fallback=False,
+                principal_id=principal_id,
+                actor=actor,
+            )
+        archive = dict(archive_result or {})
+        if not str(archive.get("archive_path") or "").strip():
+            archive = self._archive_pocket_recording_audio(
+                principal_id=principal_id,
+                actor=actor,
+                payload=detail,
+            )
+        original_path = Path(str(archive.get("archive_path") or "").strip())
+        if not original_path.is_file():
+            raise RuntimeError("pocket_recording_audio_archive_missing")
+        enhanced_path = original_path.with_name(f"{original_path.stem}__enhanced.mp3")
+        metadata_path = original_path.with_name(f"{original_path.stem}__enhanced.json")
+        filter_chain = _pocket_audio_enhance_filter_chain()
+        if enhanced_path.is_file() and metadata_path.is_file() and not force:
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                metadata = {}
+            return {
+                "recording_id": str(recording_id or "").strip(),
+                "title": str(detail.get("title") or archive.get("title") or "").strip(),
+                "enhancement_status": "already_enhanced",
+                "original_audio_path": str(original_path),
+                "original_audio_sha256": str(metadata.get("original_audio_sha256") or archive.get("archive_sha256") or "").strip(),
+                "enhanced_audio_path": str(enhanced_path),
+                "enhanced_audio_sha256": str(metadata.get("enhanced_audio_sha256") or _sha256_file(enhanced_path)).strip(),
+                "enhanced_metadata_path": str(metadata_path),
+                "filters_applied": list(metadata.get("filters_applied") or [filter_chain]),
+                "voice_profile_status": "not_supported",
+                "voice_profile_reason": "voice_cloning_real_person_not_supported",
+            }
+        ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+        temp_output = enhanced_path.with_name(f".{enhanced_path.stem}.{uuid4().hex}.mp3")
+        command = [
+            ffmpeg_bin,
+            "-hide_banner",
+            "-nostdin",
+            "-y",
+            "-i",
+            str(original_path),
+            "-vn",
+            "-map",
+            "0:a:0",
+            "-af",
+            filter_chain,
+            "-ac",
+            "1",
+            "-ar",
+            "48000",
+            "-b:a",
+            "96k",
+            str(temp_output),
+        ]
+        try:
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=900)
+        except FileNotFoundError as exc:
+            raise RuntimeError("ffmpeg_unavailable") from exc
+        except subprocess.TimeoutExpired as exc:
+            try:
+                temp_output.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError("audio_enhancement_timeout") from exc
+        if result.returncode != 0:
+            try:
+                temp_output.unlink(missing_ok=True)
+            except OSError:
+                pass
+            detail_text = compact_text(str(result.stderr or result.stdout or ""), fallback="ffmpeg_failed", limit=240)
+            raise RuntimeError(f"audio_enhancement_failed:{detail_text}") from None
+        temp_output.replace(enhanced_path)
+        original_sha256 = str(archive.get("archive_sha256") or "").strip() or _sha256_file(original_path)
+        enhanced_sha256 = _sha256_file(enhanced_path)
+        metadata = {
+            "recording_id": str(recording_id or "").strip(),
+            "title": str(detail.get("title") or archive.get("title") or "").strip(),
+            "principal_id": principal_id,
+            "actor": str(actor or "").strip() or "office_api",
+            "original_audio_path": str(original_path),
+            "original_audio_sha256": original_sha256,
+            "enhanced_audio_path": str(enhanced_path),
+            "enhanced_audio_sha256": enhanced_sha256,
+            "enhanced_at": _now_iso(),
+            "filters_applied": [filter_chain],
+            "ffmpeg_bin": ffmpeg_bin,
+            "ffmpeg_args": command[1:-1],
+            "policy": {
+                "original_preserved": True,
+                "voice_cloning": "not_supported",
+                "speaker_profiles": "speaker_labeling_only_no_tts_voice_clone",
+            },
+        }
+        metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        original_metadata_path = original_path.with_suffix(".json")
+        if original_metadata_path.is_file():
+            try:
+                original_metadata = json.loads(original_metadata_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                original_metadata = {}
+            original_metadata["enhanced_audio"] = {
+                "enhanced_audio_path": str(enhanced_path),
+                "enhanced_audio_sha256": enhanced_sha256,
+                "enhanced_metadata_path": str(metadata_path),
+                "enhanced_at": metadata["enhanced_at"],
+            }
+            try:
+                original_metadata_path.write_text(json.dumps(original_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="pocket_recording_audio_enhanced",
+            payload={
+                **metadata,
+                "voice_profile_status": "not_supported",
+                "voice_profile_reason": "voice_cloning_real_person_not_supported",
+            },
+            source_id=f"pocket-recording:{recording_id}",
+            dedupe_key=f"{principal_id}|pocket-recording-audio-enhanced|{recording_id}|{enhanced_sha256}",
+        )
+        return {
+            "recording_id": str(recording_id or "").strip(),
+            "title": str(detail.get("title") or archive.get("title") or "").strip(),
+            "enhancement_status": "enhanced",
+            "original_audio_path": str(original_path),
+            "original_audio_sha256": original_sha256,
+            "enhanced_audio_path": str(enhanced_path),
+            "enhanced_audio_sha256": enhanced_sha256,
+            "enhanced_metadata_path": str(metadata_path),
+            "filters_applied": [filter_chain],
+            "voice_profile_status": "not_supported",
+            "voice_profile_reason": "voice_cloning_real_person_not_supported",
         }
 
     def _archive_pocket_recording_audio(
