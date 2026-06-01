@@ -1,0 +1,21 @@
+version: 1
+surface: chummer6_public_guide
+policy_key: public_guide_image_curation
+page_image_policy_source: .codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml
+assets:
+  assets/hero/chummer6-hero.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: products/chummer/public-guide-curated-assets/assets/hero/chummer6-hero.png
+  assets/parts/ui.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: products/chummer/public-guide-curated-assets/assets/parts/ui.png
+  assets/horizons/runsite.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: products/chummer/public-guide-curated-assets/assets/horizons/runsite.png
+  assets/pages/parts-index.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: products/chummer/public-guide-curated-assets/assets/pages/parts-index.png
