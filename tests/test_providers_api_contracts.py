@@ -7002,13 +7002,13 @@ def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(
     response = client.post(
         f"/memorials/{slug}/speech-transcribe",
         content=b"fake-webm-audio",
-        headers={"content-type": "audio/webm;codecs=opus"},
+        headers={"content-type": "audio/wav"},
     )
 
     assert response.status_code == 200
     assert response.json()["transcript_text"] == "Was war ihm bei Familie wichtig?"
     assert seen["payload"] == b"fake-webm-audio"
-    assert seen["content_type"] == "audio/webm;codecs=opus"
+    assert seen["content_type"] == "audio/wav"
 
 
 def test_public_memorial_speech_transcribe_normalizes_json_text_payload(
@@ -7049,11 +7049,102 @@ def test_public_memorial_speech_transcribe_normalizes_json_text_payload(
     response = client.post(
         f"/memorials/{slug}/speech-transcribe",
         content=b"fake-webm-audio",
-        headers={"content-type": "audio/webm"},
+        headers={"content-type": "audio/wav"},
     )
 
     assert response.status_code == 200
     assert response.json()["transcript_text"] == "Was war ihm bei Familie wichtig?"
+
+
+def test_public_memorial_speech_transcribe_converts_browser_webm_before_upload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: b"converted-wav")
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+
+    def _upload(**kwargs):
+        seen.update(kwargs)
+        return {"fileContent": {"path": "asset/audio.wav"}}
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _upload)
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
+                }
+            }
+        },
+    )
+    client = _client(principal_id="exec-public-memorial-speech-webm-convert")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"browser-webm",
+        headers={"content-type": "audio/webm;codecs=opus"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["transcript_text"] == "Was war ihm bei Familie wichtig?"
+    assert seen["filename"] == "memorial-speech.wav"
+    assert seen["content_type"] == "audio/wav"
+    assert seen["payload"] == b"converted-wav"
+
+
+def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_audio_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"fileContent": {"path": "asset/audio.webm"}})
+
+    def _audio_error(**kwargs):
+        raise RuntimeError('onemin_transcribe_http_400:{"errorCode":"AUDIO_FORMAT_NOT_SUPPORTED"}')
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _audio_error)
+    client = _client(principal_id="exec-public-memorial-speech-provider-error")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"fake-webm-audio",
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcription_status"] == "no_speech"
+    assert body["transcript_text"] == ""
+    assert body["retryable"] is True
+    assert "AUDIO_FORMAT_NOT_SUPPORTED" in body["detail"]
 
 
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

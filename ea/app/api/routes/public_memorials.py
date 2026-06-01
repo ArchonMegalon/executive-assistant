@@ -4,6 +4,8 @@ import html
 import json
 import mimetypes
 import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -14,6 +16,15 @@ from app.services.public_clickrank import clickrank_head_snippet, request_hostna
 router = APIRouter(tags=["public-memorials"])
 
 _MAX_SPEECH_UPLOAD_BYTES = 12 * 1024 * 1024
+_ONEMIN_SPEECH_AUDIO_TYPES = {
+    "audio/x-m4a",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/wav",
+    "audio/wave",
+    "audio/x-wav",
+    "audio/flac",
+}
 
 
 def _memorial_dir() -> Path:
@@ -233,14 +244,30 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         keys = product_service._pocket_onemin_api_keys()
         if not keys:
             raise HTTPException(status_code=503, detail="speech_transcriber_unavailable")
+        upload_payload = payload
+        upload_content_type = normalized_content_type
+        upload_extension = extension
+        if normalized_content_type not in _ONEMIN_SPEECH_AUDIO_TYPES:
+            try:
+                upload_payload = _convert_audio_to_wav(payload=payload, extension=extension)
+            except Exception as exc:
+                return {
+                    "transcription_status": "no_speech",
+                    "transcript_text": "",
+                    "transcriber": "ffmpeg",
+                    "retryable": True,
+                    "detail": str(exc)[:180],
+                }
+            upload_content_type = "audio/wav"
+            upload_extension = ".wav"
         last_error: Exception | None = None
         for api_key in keys:
             try:
                 uploaded = product_service._onemin_asset_upload(
                     api_key=api_key,
-                    filename=f"memorial-speech{extension}",
-                    content_type=normalized_content_type,
-                    payload=payload,
+                    filename=f"memorial-speech{upload_extension}",
+                    content_type=upload_content_type,
+                    payload=upload_payload,
                 )
                 asset = dict(uploaded.get("asset") or {}) if isinstance(uploaded.get("asset"), dict) else {}
                 file_content = dict(uploaded.get("fileContent") or {}) if isinstance(uploaded.get("fileContent"), dict) else {}
@@ -272,11 +299,52 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
             except Exception as exc:
                 last_error = exc
                 continue
-        raise RuntimeError(str(last_error or "speech_transcription_failed"))
+        detail = str(last_error or "speech_transcription_failed")[:180]
+        return {
+            "transcription_status": "no_speech",
+            "transcript_text": "",
+            "transcriber": "1min.ai/whisper-1",
+            "retryable": True,
+            "detail": detail,
+        }
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"speech_transcription_failed:{str(exc)[:120]}") from exc
+
+
+def _convert_audio_to_wav(*, payload: bytes, extension: str) -> bytes:
+    suffix = extension if str(extension or "").startswith(".") else ".webm"
+    with tempfile.TemporaryDirectory(prefix="ea-memorial-stt-") as tmp_dir:
+        input_path = Path(tmp_dir) / f"input{suffix}"
+        output_path = Path(tmp_dir) / "output.wav"
+        input_path.write_bytes(payload)
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(input_path),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-f",
+                "wav",
+                str(output_path),
+            ],
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+        if proc.returncode != 0 or not output_path.exists():
+            stderr = proc.stderr.decode("utf-8", errors="ignore").strip()
+            raise RuntimeError(f"speech_audio_convert_failed:{stderr[:160]}")
+        return output_path.read_bytes()
 
 
 def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
