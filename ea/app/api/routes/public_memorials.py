@@ -190,8 +190,8 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
         )
     elif any(token in lowered for token in ("schach", "familie")):
         body = (
-            "Ein belegter Erinnerungsanker ist das Schach und der Wunsch, dass es in der Familie bleibt. "
-            "Daraus laesst sich vorsichtig formulieren: Familie, Weitergabe und ein bleibendes Zeichen waren wichtig."
+            "Familie war wichtig, auch wenn nicht alles einfach war. Das Schach ist ein belegter Erinnerungsanker: "
+            "Es sollte in der Familie bleiben, als Zeichen, das weitergegeben wird."
         )
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
         body = (
@@ -206,8 +206,8 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
     else:
         fact_line = facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen."
         body = (
-            f"Aus dem vorhandenen Material wuerde ich vorsichtig so antworten: {fact_line} "
-            "Wenn du eine persoenlichere Antwort willst, stelle die Frage konkreter und ich bleibe bei Quellen und Unsicherheiten."
+            f"Aus dem vorhandenen Material klingt als Erinnerungsantwort vor allem das durch: {fact_line} "
+            "Frag konkreter, dann kann die Antwort naeher an den vorhandenen Quellen bleiben."
         )
     return {
         "person_name": person_name,
@@ -255,6 +255,13 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                 ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
                 ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
                 text = product_service._extract_transcript_text(ai_detail.get("responseObject")) or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                if text.startswith("{") and text.endswith("}"):
+                    try:
+                        parsed_text = json.loads(text)
+                    except json.JSONDecodeError:
+                        parsed_text = {}
+                    if isinstance(parsed_text, dict):
+                        text = product_service._extract_transcript_text(parsed_text.get("text")) or text
                 if not text:
                     raise RuntimeError("speech_transcript_empty")
                 return {
