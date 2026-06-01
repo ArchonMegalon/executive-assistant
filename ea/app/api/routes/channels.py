@@ -953,6 +953,34 @@ def _telegram_pocket_audio_query_candidate(text: str) -> bool:
     return False
 
 
+def _telegram_audio_upload_announcement_reply_text(text: str) -> str:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return ""
+    upload_verbs = (
+        "ich schicke",
+        "ich sende",
+        "ich lade",
+        "i am sending",
+        "i'm sending",
+        "i will send",
+        "i upload",
+        "i am uploading",
+        "i'm uploading",
+    )
+    audio_markers = ("audio", "aufnahme", "recording", "voice", "sprachmemo", "sprachnachricht")
+    if not any(phrase in normalized for phrase in upload_verbs):
+        return ""
+    if not any(marker in normalized for marker in audio_markers):
+        return ""
+    if any(marker in normalized for marker in ("ich ", "schicke", "sende", "aufnahme", "gespräch", "vater")):
+        return (
+            "Ja, schick die Audioaufnahme hier in Telegram. Wenn sie von dir und deinem Vater ist, kann EA sie "
+            "entgegennehmen, transkribieren und als private Gesprächsnotiz einordnen."
+        )
+    return "Yes, send the audio recording here in Telegram. EA can receive it, transcribe it, and file it as a private conversation note."
+
+
 def _telegram_parse_relative_date_filter(text: str, *, keyword: str) -> str:
     normalized = " ".join(str(text or "").strip().lower().split())
     month_names = "|".join(sorted((re.escape(name) for name in _TELEGRAM_MONTH_ALIASES.keys()), key=len, reverse=True))
@@ -4480,6 +4508,8 @@ def _telegram_local_tool_priority(ctx: TelegramTurnContext) -> bool:
     )
     if _telegram_pocket_candidate_selection(ctx.normalized) > 0:
         return True
+    if _telegram_audio_upload_announcement_reply_text(ctx.normalized):
+        return True
     if _telegram_pocket_audio_query_candidate(ctx.normalized):
         return True
     if _telegram_answerly_document_query_candidate(ctx.normalized):
@@ -4624,6 +4654,9 @@ def _telegram_local_reply_allowed(ctx: TelegramTurnContext, reply_text: str) -> 
 
 
 def _telegram_local_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    audio_upload_reply = _telegram_audio_upload_announcement_reply_text(ctx.normalized)
+    if audio_upload_reply:
+        return TelegramTurnDecision(reply_text=audio_upload_reply)
     pocket_audio_reply = _telegram_pocket_audio_reply_text(
         container=ctx.container,
         principal_id=ctx.principal_id,

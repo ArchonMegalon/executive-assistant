@@ -656,6 +656,13 @@ def test_telegram_codex_human_audit_simulation_checks_calendar_pocket_semantic_f
     assert "Hospital medical discussion and care" in exact_pocket["reply_text"]
     assert "Hanusch Spital" in exact_pocket["reply_text"]
 
+    upload_announcement = agent.ask(
+        "Ich schicke mir die Audioaufnahme vom Gespräch im Hanusch Krankenhaus zwischen mir und meinem Vater."
+    )
+    assert upload_announcement["reply_sent"] is True
+    assert "schick die Audioaufnahme" in upload_announcement["reply_text"]
+    assert "Pocket recording" not in upload_announcement["reply_text"]
+
     vague_memory = agent.ask(
         "I am looking for the conversation with my father in the hospital where he talked about his chessboard and his mother being a power person before May 23."
     )
