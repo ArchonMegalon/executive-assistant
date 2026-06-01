@@ -6869,6 +6869,11 @@ def test_pocket_recording_enhance_audio_keeps_original_and_records_policy(monkey
         },
     )
     monkeypatch.setattr(product_service, "_pocket_audio_enhance_ffmpeg_bin", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_audio_probe_duration_seconds",
+        lambda path: 120.0 if Path(path) == original_path else 119.5,
+    )
 
     def _fake_run(command, **kwargs):
         Path(command[-1]).write_bytes(b"enhanced-audio")
@@ -6883,6 +6888,7 @@ def test_pocket_recording_enhance_audio_keeps_original_and_records_policy(monkey
     assert body["original_audio_path"] == str(original_path)
     assert body["enhanced_audio_path"].endswith("__enhanced.mp3")
     assert Path(body["enhanced_audio_path"]).read_bytes() == b"enhanced-audio"
+    assert not any("stop_periods" in item for item in body["filters_applied"])
     assert body["voice_profile_status"] == "not_supported"
     assert body["voice_profile_reason"] == "voice_cloning_real_person_not_supported"
     original_metadata = json.loads(original_path.with_suffix(".json").read_text(encoding="utf-8"))

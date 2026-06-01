@@ -2730,7 +2730,7 @@ def _pocket_audio_enhance_filter_chain() -> str:
         return raw
     return ",".join(
         (
-            "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-45dB:stop_periods=1:stop_duration=1:stop_threshold=-45dB",
+            "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-55dB",
             "highpass=f=80",
             "lowpass=f=8500",
             "afftdn=nf=-25",
@@ -2754,6 +2754,53 @@ def _pocket_audio_enhance_ffmpeg_bin() -> str:
         if not path.is_absolute():
             return candidate
     raise RuntimeError("ffmpeg_unavailable")
+
+
+def _pocket_audio_probe_duration_seconds(path: Path) -> float | None:
+    if not path.is_file():
+        return None
+    ffprobe_candidates = []
+    configured = str(os.environ.get("EA_FFPROBE_BIN") or "").strip()
+    if configured:
+        ffprobe_candidates.append(configured)
+    ffprobe_candidates.extend(("/usr/bin/ffprobe", "/usr/local/bin/ffprobe", "ffprobe"))
+    for candidate in ffprobe_candidates:
+        try:
+            result = subprocess.run(
+                [
+                    candidate,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(path),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode != 0:
+            continue
+        try:
+            duration = float(str(result.stdout or "").strip())
+        except ValueError:
+            continue
+        if duration > 0:
+            return duration
+    return None
+
+
+def _pocket_audio_enhanced_duration_is_valid(original_duration: float | None, enhanced_duration: float | None) -> bool:
+    if not original_duration or not enhanced_duration:
+        return True
+    if original_duration <= 120:
+        return enhanced_duration >= max(original_duration - 10, original_duration * 0.75)
+    return enhanced_duration >= (original_duration * 0.9)
 
 
 def _sha256_file(path: Path) -> str:
@@ -13364,24 +13411,27 @@ class ProductService:
         enhanced_path = original_path.with_name(f"{original_path.stem}__enhanced.mp3")
         metadata_path = original_path.with_name(f"{original_path.stem}__enhanced.json")
         filter_chain = _pocket_audio_enhance_filter_chain()
+        original_duration_seconds = _pocket_audio_probe_duration_seconds(original_path)
         if enhanced_path.is_file() and metadata_path.is_file() and not force:
             try:
                 metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 metadata = {}
-            return {
-                "recording_id": str(recording_id or "").strip(),
-                "title": str(detail.get("title") or archive.get("title") or "").strip(),
-                "enhancement_status": "already_enhanced",
-                "original_audio_path": str(original_path),
-                "original_audio_sha256": str(metadata.get("original_audio_sha256") or archive.get("archive_sha256") or "").strip(),
-                "enhanced_audio_path": str(enhanced_path),
-                "enhanced_audio_sha256": str(metadata.get("enhanced_audio_sha256") or _sha256_file(enhanced_path)).strip(),
-                "enhanced_metadata_path": str(metadata_path),
-                "filters_applied": list(metadata.get("filters_applied") or [filter_chain]),
-                "voice_profile_status": "not_supported",
-                "voice_profile_reason": "voice_cloning_real_person_not_supported",
-            }
+            enhanced_duration_seconds = _pocket_audio_probe_duration_seconds(enhanced_path)
+            if _pocket_audio_enhanced_duration_is_valid(original_duration_seconds, enhanced_duration_seconds):
+                return {
+                    "recording_id": str(recording_id or "").strip(),
+                    "title": str(detail.get("title") or archive.get("title") or "").strip(),
+                    "enhancement_status": "already_enhanced",
+                    "original_audio_path": str(original_path),
+                    "original_audio_sha256": str(metadata.get("original_audio_sha256") or archive.get("archive_sha256") or "").strip(),
+                    "enhanced_audio_path": str(enhanced_path),
+                    "enhanced_audio_sha256": str(metadata.get("enhanced_audio_sha256") or _sha256_file(enhanced_path)).strip(),
+                    "enhanced_metadata_path": str(metadata_path),
+                    "filters_applied": list(metadata.get("filters_applied") or [filter_chain]),
+                    "voice_profile_status": "not_supported",
+                    "voice_profile_reason": "voice_cloning_real_person_not_supported",
+                }
         ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
         temp_output = enhanced_path.with_name(f".{enhanced_path.stem}.{uuid4().hex}.mp3")
         command = [
@@ -13421,6 +13471,15 @@ class ProductService:
                 pass
             detail_text = compact_text(str(result.stderr or result.stdout or ""), fallback="ffmpeg_failed", limit=240)
             raise RuntimeError(f"audio_enhancement_failed:{detail_text}") from None
+        enhanced_duration_seconds = _pocket_audio_probe_duration_seconds(temp_output)
+        if not _pocket_audio_enhanced_duration_is_valid(original_duration_seconds, enhanced_duration_seconds):
+            try:
+                temp_output.unlink(missing_ok=True)
+            except OSError:
+                pass
+            original_duration_text = f"{original_duration_seconds:.3f}" if original_duration_seconds else "unknown"
+            enhanced_duration_text = f"{enhanced_duration_seconds:.3f}" if enhanced_duration_seconds else "unknown"
+            raise RuntimeError(f"audio_enhancement_duration_mismatch:original={original_duration_text}:enhanced={enhanced_duration_text}") from None
         temp_output.replace(enhanced_path)
         original_sha256 = str(archive.get("archive_sha256") or "").strip() or _sha256_file(original_path)
         enhanced_sha256 = _sha256_file(enhanced_path)
@@ -13433,6 +13492,8 @@ class ProductService:
             "original_audio_sha256": original_sha256,
             "enhanced_audio_path": str(enhanced_path),
             "enhanced_audio_sha256": enhanced_sha256,
+            "original_duration_seconds": original_duration_seconds,
+            "enhanced_duration_seconds": enhanced_duration_seconds,
             "enhanced_at": _now_iso(),
             "filters_applied": [filter_chain],
             "ffmpeg_bin": ffmpeg_bin,
