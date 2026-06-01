@@ -23,6 +23,7 @@ def test_generated_release_artifact_normalizer_ignores_host_runner_execution_fie
     head = {
         "status": "pass",
         "source_backed_journey_proof": {
+            "as_of": "2026-05-31",
             "command": ".venv/bin/python -m pytest -q tests/test_product_browser_journeys.py",
             "cwd": "/docker/EA",
             "python_bin": ".venv/bin/python",
@@ -33,6 +34,7 @@ def test_generated_release_artifact_normalizer_ignores_host_runner_execution_fie
     hosted = {
         "status": "pass",
         "source_backed_journey_proof": {
+            "as_of": "2026-06-01",
             "command": "/opt/hostedtoolcache/Python/3.12.*/bin/python -m pytest -q tests/test_product_browser_journeys.py",
             "cwd": "/home/runner/work/executive-assistant/executive-assistant",
             "python_bin": "/opt/hostedtoolcache/Python/3.12.*/bin/python",

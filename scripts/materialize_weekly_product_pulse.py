@@ -95,6 +95,7 @@ def _normalize_release_value(value: Any) -> Any:
         for key, item in value.items():
             if key in {
                 "generated_at",
+                "as_of",
                 "created_at",
                 "mtime_utc",
                 "size_bytes",

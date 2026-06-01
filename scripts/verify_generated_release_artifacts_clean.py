@@ -16,6 +16,7 @@ GENERATED_ARTIFACTS = (
 )
 VOLATILE_KEYS = {
     "generated_at",
+    "as_of",
     "created_at",
     "mtime_utc",
     "size_bytes",
