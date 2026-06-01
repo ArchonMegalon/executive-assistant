@@ -6934,15 +6934,19 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "narcissistic" not in page.text.lower()
     assert "adhd" not in page.text.lower()
     assert "/memorials/manfred/chat" in page.text
+    assert "/memorials/manfred/speech-transcribe" in page.text
     assert "memorial-speech-listen" in page.text
+    assert "memorial-server-stt" in page.text
     assert "memorial-speech-speak" in page.text
     assert "SpeechRecognition" in page.text
+    assert "MediaRecorder" in page.text
     assert "SpeechSynthesisUtterance" in page.text
     assert "Austauschbare synthetische Stimme" in page.text
     assert "Mikrofonzugriff braucht HTTPS" in page.text
     assert "not-allowed" in page.text
     assert "no-speech" in page.text
     assert "speechHadError" in page.text
+    assert "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten." in page.text
 
     voice = client.get(f"/memorials/{slug}/voice-config")
     assert voice.status_code == 200
@@ -6959,10 +6963,48 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     body = response.json()
     assert body["mode"] == "memorial_memory_chat_not_person_simulation"
     assert body["private_context_used"] is True
-    assert "Ich bin nicht Manfred Hoza" in body["answer"]
+    assert "Ich bin nicht Manfred Hoza" not in body["answer"]
     assert "keine klinische Diagnose" in body["answer"]
     assert "ADHS" not in body["answer"]
     assert "narcissistic" not in body["answer"].lower()
+
+
+def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+
+    def _fake_transcribe(*, payload, content_type):
+        seen["payload"] = payload
+        seen["content_type"] = content_type
+        return {"transcription_status": "transcribed", "transcript_text": "Was war ihm bei Familie wichtig?", "transcriber": "test"}
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe)
+    client = _client(principal_id="exec-public-memorial-speech")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"fake-webm-audio",
+        headers={"content-type": "audio/webm;codecs=opus"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["transcript_text"] == "Was war ihm bei Familie wichtig?"
+    assert seen["payload"] == b"fake-webm-audio"
+    assert seen["content_type"] == "audio/webm;codecs=opus"
 
 
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

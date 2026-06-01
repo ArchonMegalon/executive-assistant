@@ -13,6 +13,8 @@ from app.services.public_clickrank import clickrank_head_snippet, request_hostna
 
 router = APIRouter(tags=["public-memorials"])
 
+_MAX_SPEECH_UPLOAD_BYTES = 12 * 1024 * 1024
+
 
 def _memorial_dir() -> Path:
     return Path(str(os.getenv("EA_PUBLIC_MEMORIAL_DIR") or "/mnt/pcloud/EA/public_memorials")).expanduser()
@@ -176,11 +178,10 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
         for source in _list_of_dicts(payload.get("external_sources"))
         if _text(source.get("label"))
     ][:4]
-    lead = f"Ich bin nicht {person_name}. Ich formuliere eine Erinnerungsantwort aus freigegebenen Quellen und Familienkontext."
     if any(token in lowered for token in ("bist du", "sprichst du", "lebst du", "wirklich")):
         body = (
-            f"Nein. {person_name} spricht hier nicht live. Du kannst seine echte Stimme in Originalaufnahmen hoeren; "
-            "Textantworten bleiben eine transparente Rekonstruktion aus Archiv, Quellen und Erinnerungen."
+            "Du kannst hier mit einer Erinnerungsseite sprechen, die Originalaufnahmen, Quellen und Familienkontext nutzt. "
+            "Die echten Aufnahmen bleiben als Stimme erhalten; neue Textantworten bleiben Erinnerungsantworten."
         )
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
         body = (
@@ -212,11 +213,63 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
         "person_name": person_name,
         "mode": "memorial_memory_chat_not_person_simulation",
         "question": normalized_question,
-        "answer": f"{lead}\n\n{body}",
+        "answer": body,
         "sources": [item for item in source_labels if item],
         "private_context_used": bool(private_notes),
-        "safety_note": "Keine echte Live-Kommunikation, keine Diagnose, keine synthetische Stimmnachbildung.",
+        "safety_note": "Erinnerungsmodus: keine Diagnose und keine synthetische Stimmnachbildung der verstorbenen Person.",
     }
+
+
+def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
+    if not payload:
+        raise HTTPException(status_code=400, detail="audio_missing")
+    if len(payload) > _MAX_SPEECH_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="audio_too_large")
+    normalized_content_type = str(content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+    extension = mimetypes.guess_extension(normalized_content_type) or ".webm"
+    try:
+        from app.product import service as product_service
+
+        keys = product_service._pocket_onemin_api_keys()
+        if not keys:
+            raise HTTPException(status_code=503, detail="speech_transcriber_unavailable")
+        last_error: Exception | None = None
+        for api_key in keys:
+            try:
+                uploaded = product_service._onemin_asset_upload(
+                    api_key=api_key,
+                    filename=f"memorial-speech{extension}",
+                    content_type=normalized_content_type,
+                    payload=payload,
+                )
+                asset = dict(uploaded.get("asset") or {}) if isinstance(uploaded.get("asset"), dict) else {}
+                file_content = dict(uploaded.get("fileContent") or {}) if isinstance(uploaded.get("fileContent"), dict) else {}
+                audio_path = str(file_content.get("path") or asset.get("key") or "").strip()
+                if not audio_path:
+                    raise RuntimeError("speech_asset_missing_path")
+                transcribed = product_service._onemin_speech_to_text(
+                    api_key=api_key,
+                    audio_path=audio_path,
+                    language="de",
+                )
+                ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
+                ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
+                text = product_service._extract_transcript_text(ai_detail.get("responseObject")) or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                if not text:
+                    raise RuntimeError("speech_transcript_empty")
+                return {
+                    "transcription_status": "transcribed",
+                    "transcript_text": text,
+                    "transcriber": "1min.ai/whisper-1",
+                }
+            except Exception as exc:
+                last_error = exc
+                continue
+        raise RuntimeError(str(last_error or "speech_transcription_failed"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"speech_transcription_failed:{str(exc)[:120]}") from exc
 
 
 def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
@@ -474,6 +527,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <div class="prompt-row">{prompts_html}</div>
         <div class="speech-row">
           <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
+          <button type="button" id="memorial-server-stt">Server-STT starten</button>
           <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
           <button type="button" id="memorial-speech-stop">Stopp</button>
           <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, {voice_label}.</span>
@@ -497,11 +551,14 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const answer = document.getElementById("memorial-chat-answer");
       const statusNode = document.getElementById("memorial-chat-status");
       const listenButton = document.getElementById("memorial-speech-listen");
+      const serverSttButton = document.getElementById("memorial-server-stt");
       const speakButton = document.getElementById("memorial-speech-speak");
       const stopButton = document.getElementById("memorial-speech-stop");
       const speechNote = document.getElementById("memorial-speech-note");
       let lastAnswerText = "";
       let activeRecognition = null;
+      let activeRecorder = null;
+      let recorderChunks = [];
       let speechHadError = false;
       let memorialVoiceConfig = {{
         tts_mode: "browser_speech_synthesis",
@@ -610,7 +667,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
             "service-not-allowed": "Spracherkennungsdienst vom Browser blockiert. Bitte Chrome/Edge oder Texteingabe verwenden.",
             "no-speech": "Keine Sprache erkannt. Bitte naeher ans Mikrofon sprechen und erneut starten.",
             "audio-capture": "Kein Mikrofon gefunden oder vom System blockiert.",
-            "network": "Spracherkennung hat ein Netzwerkproblem. Bitte erneut versuchen oder tippen.",
+            "network": "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten.",
             "aborted": "Spracherkennung gestoppt."
           }};
           speechNote.textContent = messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode);
@@ -632,11 +689,74 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           speechNote.textContent = "Mikrofon konnte nicht gestartet werden. Bitte Seite neu laden oder Frage tippen.";
         }}
       }}
+      async function startServerSpeechInput() {{
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
+          speechNote.textContent = "Server-STT braucht MediaRecorder und Mikrofonzugriff. Bitte Chrome/Edge verwenden oder tippen.";
+          return;
+        }}
+        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
+          speechNote.textContent = "Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.";
+          return;
+        }}
+        if (activeRecorder && activeRecorder.state === "recording") {{
+          activeRecorder.stop();
+          return;
+        }}
+        try {{
+          const stream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+          const recorder = new MediaRecorder(stream, {{ mimeType }});
+          activeRecorder = recorder;
+          recorderChunks = [];
+          recorder.ondataavailable = (event) => {{
+            if (event.data && event.data.size > 0) recorderChunks.push(event.data);
+          }};
+          recorder.onstart = () => {{
+            serverSttButton.textContent = "Server-STT stoppen";
+            listenButton.disabled = true;
+            speechNote.textContent = "Server-STT hoert zu. Zum Senden erneut klicken oder Stopp.";
+          }};
+          recorder.onerror = () => {{
+            speechNote.textContent = "Audioaufnahme fehlgeschlagen. Bitte Berechtigung pruefen oder tippen.";
+          }};
+          recorder.onstop = async () => {{
+            stream.getTracks().forEach((track) => track.stop());
+            serverSttButton.textContent = "Server-STT starten";
+            listenButton.disabled = false;
+            activeRecorder = null;
+            const blob = new Blob(recorderChunks, {{ type: mimeType }});
+            recorderChunks = [];
+            if (!blob.size) {{
+              speechNote.textContent = "Keine Audioaufnahme erhalten. Bitte erneut versuchen.";
+              return;
+            }}
+            speechNote.textContent = "Transkribiere Audio...";
+            try {{
+              const response = await fetch("/memorials/{html.escape(slug)}/speech-transcribe", {{
+                method: "POST",
+                headers: {{ "Content-Type": blob.type || "application/octet-stream" }},
+                body: blob
+              }});
+              const payload = await response.json();
+              if (!response.ok) throw new Error(payload.detail || "speech_transcription_failed");
+              question.value = String(payload.transcript_text || "").trim();
+              speechNote.textContent = question.value ? "Audio transkribiert." : "Keine Sprache im Audio erkannt.";
+              if (question.value) askMemorialChat(question.value);
+            }} catch (error) {{
+              speechNote.textContent = "Server-STT fehlgeschlagen: " + String(error.message || error);
+            }}
+          }};
+          recorder.start();
+        }} catch (error) {{
+          speechNote.textContent = "Mikrofon nicht verfuegbar oder nicht erlaubt.";
+        }}
+      }}
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
         askMemorialChat(question.value);
       }});
       listenButton.addEventListener("click", startSpeechInput);
+      serverSttButton.addEventListener("click", startServerSpeechInput);
       speakButton.addEventListener("click", () => speakText(lastAnswerText || answer.textContent));
       stopButton.addEventListener("click", () => {{
         if (activeRecognition) {{
@@ -644,9 +764,14 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           try {{ activeRecognition.stop(); }} catch (error) {{}}
           activeRecognition = null;
         }}
+        if (activeRecorder && activeRecorder.state === "recording") {{
+          try {{ activeRecorder.stop(); }} catch (error) {{}}
+        }}
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         speechNote.textContent = "Gestoppt.";
         listenButton.disabled = false;
+        serverSttButton.disabled = false;
+        serverSttButton.textContent = "Server-STT starten";
         stopButton.disabled = false;
       }});
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
@@ -689,6 +814,14 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     payload = _load_memorial(slug)
     answer = _memorial_chat_answer(payload, _text(body.get("question")), _load_private_profile(slug))
     return JSONResponse(answer)
+
+
+@router.post("/memorials/{slug}/speech-transcribe")
+async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    payload = await request.body()
+    content_type = str(request.headers.get("content-type") or "application/octet-stream")
+    return JSONResponse(_memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
 
 
 @router.get("/memorials/{slug}", response_class=HTMLResponse)
