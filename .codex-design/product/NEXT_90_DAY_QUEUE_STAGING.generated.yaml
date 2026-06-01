@@ -667,7 +667,7 @@ items:
       budget metadata stay release-bound and explainable.
     - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions
       and import aggregate coverage fail closed.
-    - /docker/chummercomplete/chummer-core-engine commit 1b53f23f tightens M104 task-local machine-status proof guards across registry,
+    - /docker/chummercomplete/chummer-core-engine commit 7f3f90aa tightens M104 task-local machine-status proof guards across registry,
       Fleet queue, design queue, closeout, and checked-in receipt proof.
   allowed_paths:
     - src

@@ -813,7 +813,7 @@ milestones:
           - /docker/chummercomplete/chummer6-core commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
           - /docker/chummercomplete/chummer6-core commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
           - /docker/chummercomplete/chummer6-core commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
-          - /docker/chummercomplete/chummer6-core commit 1b53f23f tightens M104 task-local machine-status proof guards across registry, Fleet queue, design queue, closeout, and checked-in receipt proof.
+          - /docker/chummercomplete/chummer6-core commit 7f3f90aa tightens M104 task-local machine-status proof guards across registry, Fleet queue, design queue, closeout, and checked-in receipt proof.
           - dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll exits 0.
           - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0 for load, explain, diff/apply, import, and export-prep workloads.
       - id: 104.3
