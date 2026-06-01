@@ -5264,6 +5264,23 @@ def test_google_location_history_import_reindexes_existing_pocket_archive_with_t
         topic_keywords_csv="vater, krankenhaus",
         tags=["hospital", "family"],
     )
+    service.ingest_office_signal(
+        principal_id=principal_id,
+        signal_type="audio_recording",
+        channel="pocket",
+        title="Talk with father",
+        summary="Gespräch mit dem Vater im Krankenhaus.",
+        text="Gespräch mit dem Vater im Krankenhaus.",
+        source_ref="pocket-recording:hospital-reindex-1",
+        external_id="hospital-reindex-1",
+        counterparty="Pocket",
+        payload={
+            "recording_id": "hospital-reindex-1",
+            "summary_markdown": "Gespräch mit dem Vater im Krankenhaus.",
+            "transcript_excerpt": "Mein Vater spricht über seinen Zustand.",
+        },
+        actor="operator-office",
+    )
 
     timeline_path = tmp_path / "Records.json"
     timeline_path.write_text(

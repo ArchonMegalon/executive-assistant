@@ -6014,9 +6014,15 @@ class ProductService:
                 continue
             payload = dict(getattr(row, "payload", {}) or {})
             recording_id = str(payload.get("recording_id") or source_id.removeprefix("pocket-recording:")).strip()
-            if not recording_id or recording_id in projection:
+            if not recording_id:
                 continue
-            projection[recording_id] = payload
+            if recording_id not in projection:
+                projection[recording_id] = payload
+                continue
+            existing = projection[recording_id]
+            for key, value in payload.items():
+                if existing.get(key) in (None, "", [], {}):
+                    existing[key] = value
         return projection
 
     def _record_pocket_archive_index(
