@@ -6968,11 +6968,37 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert body["mode"] == "memorial_first_person_memory_chat"
     assert body["private_context_used"] is True
     assert "Ich bin nicht Manfred Hoza" not in body["answer"]
-    assert "Ich habe Kritik oft nicht gut ausgehalten" in body["answer"]
-    assert "Das tut mir leid" in body["answer"]
+    assert "Ich lasse mir nicht einreden" in body["answer"]
+    assert "immer ich schuld" in body["answer"]
+    assert "Das tut mir leid" not in body["answer"]
     assert "ADHS" not in body["answer"]
     assert "narcissistic" not in body["answer"].lower()
     assert "Erinnerungsanker" not in body["answer"]
+
+    discipline = client.post(f"/memorials/{slug}/chat", json={"question": "Was dachte er ueber Kinder schlagen?"})
+    assert discipline.status_code == 200
+    discipline_body = discipline.json()
+    assert discipline_body["private_context_used"] is True
+    assert "Ein Kind muss lernen" in discipline_body["answer"]
+    assert "nicht so tun" in discipline_body["answer"]
+
+    household = client.post(f"/memorials/{slug}/chat", json={"question": "Was war seine Haltung zu Haushalt, Hemden und Kindererziehung?"})
+    assert household.status_code == 200
+    household_body = household.json()
+    assert "Ich habe meinen Teil getan" in household_body["answer"]
+    assert "Aufgabe der Frau" in household_body["answer"]
+
+    politics = client.post(f"/memorials/{slug}/chat", json={"question": "Warum war er bei MFG und gegen Auslaender?"})
+    assert politics.status_code == 200
+    politics_body = politics.json()
+    assert "nicht gern von oben" in politics_body["answer"]
+    assert "Bei Zuwanderung war ich hart" in politics_body["answer"]
+
+    covid = client.post(f"/memorials/{slug}/chat", json={"question": "Warum wollte er keine Covid Impfung und was dachte er ueber Aerzte und Pharma?"})
+    assert covid.status_code == 200
+    covid_body = covid.json()
+    assert "Aerzten und Pharmafirmen" in covid_body["answer"]
+    assert "ich sehe da klarer" in covid_body["answer"]
 
 
 def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(

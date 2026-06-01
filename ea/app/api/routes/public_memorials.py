@@ -197,9 +197,9 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
         )
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
         body = (
-            "Sag deiner Mutter bitte nicht, sie soll stark sein, wenn sie gerade nicht stark sein kann. "
-            "Ich wuerde wollen, dass sie weiss: Sie war nicht allein mit dem, was schwer war. "
-            "Und wenn sie meine Stimme hoert, dann darf das ein Trost sein, kein Zwang, irgendetwas richtig zu fuehlen."
+            "Deine Mutter hat gewusst, was in einem Haushalt zu tun ist. Ich war der, der draussen Verantwortung getragen hat, "
+            "und daheim musste eben auch Ordnung sein. Hemden buegeln, Fenster putzen, Kinder, das faellt nicht von allein. "
+            "Heute wird so getan, als waere das alles gleich verteilt gewesen. So habe ich das nicht gesehen."
         )
     elif any(token in lowered for token in ("schach", "familie")):
         body = (
@@ -207,12 +207,41 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
             "sondern weil daran etwas von mir haengt. Behalt es. Gib darauf acht. "
             "Familie war nie einfach, aber manche Dinge sollen nicht verlorengehen."
         )
+    elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes:
+        body = (
+            "Ich habe meinen Teil getan, indem ich fuer die Familie gesorgt habe. "
+            "Im Haus muss jemand schauen, dass die Dinge ordentlich sind, und das war fuer mich die Aufgabe der Frau. "
+            "Kindererziehung, Hemden, Fenster, der ganze Haushalt: Das war nicht der Bereich, in dem ich mich dauernd erklaeren wollte. "
+            "Wenn man versorgt wird, kann man auch erwarten, dass daheim etwas funktioniert."
+        )
+    elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes:
+        if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
+            body = (
+                "Bei Corona habe ich mir nicht von Aerzten und Pharmafirmen vorschreiben lassen wollen, was richtig ist. "
+                "Die haben ihre Interessen, und ich war nicht bereit, einfach brav zu nicken, nur weil ein Arzt es sagt. "
+                "Ich habe mir eingebildet, ich sehe da klarer als viele andere. Wenn mir jemand damit kam, dass die Experten es besser wissen, "
+                "dann war fuer mich das Gespraech meistens schon erledigt."
+            )
+        else:
+            body = (
+                "Ich habe mir nicht gern von oben erklaeren lassen, was ich zu denken habe. "
+                "Diese ganzen Institutionen, Parteien und Experten, da war viel dabei, dem ich nicht getraut habe. "
+                "Bei Zuwanderung war ich hart, ja. Ich habe oft zuerst gesehen, was mich stoert und was sich fuer mich falsch entwickelt. "
+                "Und wenn mir jemand deswegen Vorhaltungen gemacht hat, dann habe ich erst recht zugemacht."
+            )
+    elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes:
+        body = (
+            "Ein Kind muss lernen, wo die Grenze ist. So haette ich das gesehen. "
+            "Wenn es so weit kommt, dann ist vorher schon genug passiert, und dann soll man nicht so tun, "
+            "als waere der Erwachsene aus heiterem Himmel der Schuldige. Heute reden alle schnell von Gewalt, "
+            "aber keiner fragt, was das Kind vorher aufgefuehrt hat. Das war meine Haltung, und davon waere ich nicht leicht abgerueckt."
+        )
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
         body = (
-            "Ich habe Kritik oft nicht gut ausgehalten. Das ist nicht schoen zu sagen, aber es stimmt wahrscheinlich. "
-            "Ich habe vieles weggeschoben und mir lieber erklaert, warum die anderen falsch liegen. "
-            "Als Kind habe ich Dinge mitbekommen, die man nicht einfach abschuettelt. Ich habe daraus Haerte gemacht, "
-            "und manchmal hat diese Haerte euch getroffen. Das tut mir leid, auch wenn ich es damals vielleicht nicht so gesagt haette."
+            "Jetzt fang nicht wieder damit an, mir alles umzudrehen. Ich habe getan, was notwendig war, "
+            "und wenn jemand ein Problem damit hatte, dann haette er vielleicht einmal genauer hinschauen sollen, "
+            "was die anderen beigetragen haben. Kritik ist leicht, wenn man selber nicht in meiner Haut gesteckt ist. "
+            "Ich lasse mir nicht einreden, dass immer ich schuld gewesen sein soll."
         )
     elif any(token in lowered for token in ("quelle", "belegt", "wahr", "echt")):
         body = (
