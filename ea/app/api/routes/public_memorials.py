@@ -501,6 +501,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const stopButton = document.getElementById("memorial-speech-stop");
       const speechNote = document.getElementById("memorial-speech-note");
       let lastAnswerText = "";
+      let activeRecognition = null;
+      let speechHadError = false;
       let memorialVoiceConfig = {{
         tts_mode: "browser_speech_synthesis",
         voice_label: "Austauschbare synthetische Stimme",
@@ -567,17 +569,29 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!Recognition) {{
-          speechNote.textContent = "Speech-to-Text wird von diesem Browser nicht unterstuetzt.";
+          speechNote.textContent = "Speech-to-Text wird von diesem Browser nicht unterstuetzt. Bitte Chrome/Edge verwenden oder die Frage tippen.";
           return;
+        }}
+        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
+          speechNote.textContent = "Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.";
+          return;
+        }}
+        if (activeRecognition) {{
+          try {{ activeRecognition.stop(); }} catch (error) {{}}
+          activeRecognition = null;
         }}
         window.speechSynthesis && window.speechSynthesis.cancel();
         const recognition = new Recognition();
+        activeRecognition = recognition;
+        speechHadError = false;
         recognition.lang = "de-AT";
         recognition.interimResults = true;
         recognition.continuous = false;
         let finalText = "";
         recognition.onstart = () => {{
           speechNote.textContent = "Hoere zu...";
+          listenButton.disabled = true;
+          stopButton.disabled = false;
         }};
         recognition.onresult = (event) => {{
           let interim = "";
@@ -588,15 +602,35 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           }}
           question.value = (finalText || interim || "").trim();
         }};
-        recognition.onerror = () => {{
-          speechNote.textContent = "Mikrofon oder Spracherkennung nicht verfuegbar.";
+        recognition.onerror = (event) => {{
+          speechHadError = true;
+          const errorCode = String(event.error || "unknown");
+          const messages = {{
+            "not-allowed": "Mikrofon nicht erlaubt. Bitte Browser-Berechtigung fuer myexternalbrain.com aktivieren.",
+            "service-not-allowed": "Spracherkennungsdienst vom Browser blockiert. Bitte Chrome/Edge oder Texteingabe verwenden.",
+            "no-speech": "Keine Sprache erkannt. Bitte naeher ans Mikrofon sprechen und erneut starten.",
+            "audio-capture": "Kein Mikrofon gefunden oder vom System blockiert.",
+            "network": "Spracherkennung hat ein Netzwerkproblem. Bitte erneut versuchen oder tippen.",
+            "aborted": "Spracherkennung gestoppt."
+          }};
+          speechNote.textContent = messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode);
         }};
         recognition.onend = () => {{
+          listenButton.disabled = false;
+          stopButton.disabled = false;
+          if (activeRecognition === recognition) activeRecognition = null;
+          if (speechHadError) return;
           const text = String(question.value || finalText || "").trim();
-          speechNote.textContent = text ? "Frage erkannt." : "Keine Frage erkannt.";
+          speechNote.textContent = text ? "Frage erkannt." : "Keine Frage erkannt. Bitte lauter sprechen, Mikrofon pruefen oder die Frage tippen.";
           if (text) askMemorialChat(text);
         }};
-        recognition.start();
+        try {{
+          recognition.start();
+        }} catch (error) {{
+          activeRecognition = null;
+          listenButton.disabled = false;
+          speechNote.textContent = "Mikrofon konnte nicht gestartet werden. Bitte Seite neu laden oder Frage tippen.";
+        }}
       }}
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
@@ -605,8 +639,15 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       listenButton.addEventListener("click", startSpeechInput);
       speakButton.addEventListener("click", () => speakText(lastAnswerText || answer.textContent));
       stopButton.addEventListener("click", () => {{
+        if (activeRecognition) {{
+          speechHadError = true;
+          try {{ activeRecognition.stop(); }} catch (error) {{}}
+          activeRecognition = null;
+        }}
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         speechNote.textContent = "Gestoppt.";
+        listenButton.disabled = false;
+        stopButton.disabled = false;
       }});
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{

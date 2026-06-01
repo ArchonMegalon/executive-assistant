@@ -6939,6 +6939,10 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "SpeechRecognition" in page.text
     assert "SpeechSynthesisUtterance" in page.text
     assert "Austauschbare synthetische Stimme" in page.text
+    assert "Mikrofonzugriff braucht HTTPS" in page.text
+    assert "not-allowed" in page.text
+    assert "no-speech" in page.text
+    assert "speechHadError" in page.text
 
     voice = client.get(f"/memorials/{slug}/voice-config")
     assert voice.status_code == 200
