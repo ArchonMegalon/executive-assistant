@@ -8790,6 +8790,254 @@ def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch
     assert len(sent) <= 1
 
 
+def test_google_property_sync_reranks_digest_using_learned_feedback_conflicts(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Feedback Ranked Property Office")
+
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title='"Mietwohnungen Wien" hat 2 neue Anzeigen fuer dich gefunden',
+                    summary="Recent mail from willhaben-Suchagent.",
+                    text=(
+                        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/doebling/conflict-flat-1 "
+                        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/good-flat-2"
+                    ),
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:feedback-rank-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:feedback-rank-1",
+                    counterparty="willhaben-Suchagent",
+                    due_at=None,
+                    payload={
+                        "from_email": "no-reply@agent.willhaben.at",
+                        "from_name": "willhaben-Suchagent",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "body_text_excerpt": (
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/doebling/conflict-flat-1 "
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/good-flat-2"
+                        ),
+                        "labels": ["CATEGORY_UPDATES", "INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": ("conflict-flat-1" if "conflict-flat-1" in url else "good-flat-2"),
+            "title": ("Conflict flat" if "conflict-flat-1" in url else "Good flat"),
+            "property_facts_json": (
+                {
+                    "district": "Doebling",
+                    "postal_name": "Doebling",
+                    "heating_type": "Gasheizung",
+                    "has_floorplan": False,
+                    "lift": False,
+                    "nearest_subway_m": 1500,
+                }
+                if "conflict-flat-1" in url
+                else {
+                    "district": "Waehring",
+                    "postal_name": "Waehring",
+                    "heating_type": "Fernwaerme",
+                    "has_floorplan": True,
+                    "lift": True,
+                    "nearest_subway_m": 280,
+                }
+            ),
+            "media_urls_json": ["https://cdn.example.com/property.jpg"],
+            "floorplan_urls_json": ([] if "conflict-flat-1" in url else ["https://cdn.example.com/floorplan.jpg"]),
+            "tour_variants_json": [],
+        },
+    )
+
+    def _flat_high_assessment(**kwargs):
+        return {
+            "fit_score": 91.0,
+            "confidence": 0.95,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Base model score is high."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _flat_high_assessment)
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": f"https://myexternalbrain.com/tours/{kwargs['property_url'].rsplit('/', 1)[-1]}",
+            "vendor_tour_url": "",
+            "blocked_reason": "",
+        },
+    )
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["1"], chat_id="chat"),
+    )
+
+    profile = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+            "high_stakes_domains_enabled": True,
+        },
+    )
+    assert profile.status_code == 200
+    for node_payload in (
+        {"domain": "willhaben", "category": "aversion", "key": "avoid_heating_types", "value_json": ["Gasheizung"], "confidence": 1.0},
+        {"domain": "willhaben", "category": "constraint", "key": "require_floorplan", "value_json": True, "confidence": 1.0},
+        {"domain": "willhaben", "category": "soft_preference", "key": "prefer_lift", "value_json": True, "confidence": 1.0},
+        {"domain": "willhaben", "category": "soft_preference", "key": "prefer_subway_nearby", "value_json": True, "confidence": 1.0},
+    ):
+        node = client.post("/app/api/people/self/preference-profile/nodes", json=node_payload)
+        assert node.status_code == 200
+
+    synced = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_created"})
+    assert events.status_code == 200
+    created = [item for item in events.json()["items"] if "feedback-rank-1" in str(item.get("payload", {}).get("source_ref") or "")]
+    assert len(created) == 2
+    primary = next(item for item in created if item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-rank-1")
+    assert primary["payload"]["property_url"].endswith("good-flat-2")
+    if sent:
+        assert "good-flat-2" in sent[0]["kwargs"]["text"]
+        assert "conflict-flat-1" not in sent[0]["kwargs"]["text"]
+
+
+def test_google_property_sync_suppresses_high_raw_score_when_learned_conflicts_stack(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Feedback Suppression Property Office")
+
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/doebling/stacked-conflict-flat-1"
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title='"Mietwohnungen Wien" hat 1 neue Anzeige fuer dich gefunden',
+                    summary="Recent mail from willhaben-Suchagent.",
+                    text=listing_url,
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:feedback-suppress-1",
+                    counterparty="willhaben-Suchagent",
+                    due_at=None,
+                    payload={
+                        "from_email": "no-reply@agent.willhaben.at",
+                        "from_name": "willhaben-Suchagent",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "body_text_excerpt": listing_url,
+                        "labels": ["CATEGORY_UPDATES", "INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "stacked-conflict-flat-1",
+            "title": "Stacked conflict flat",
+            "property_facts_json": {
+                "district": "Doebling",
+                "postal_name": "Doebling",
+                "heating_type": "Gasheizung",
+                "has_floorplan": False,
+                "lift": False,
+                "nearest_subway_m": 1800,
+            },
+            "media_urls_json": ["https://cdn.example.com/property.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [],
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 92.0,
+            "confidence": 0.95,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Base model score is high."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["1"], chat_id="chat"),
+    )
+
+    profile = client.post(
+        "/app/api/people/self/preference-profile",
+        json={
+            "display_name": "Tibor",
+            "consent_mode": "behavioral_learning",
+            "learning_enabled": True,
+            "high_stakes_domains_enabled": True,
+        },
+    )
+    assert profile.status_code == 200
+    for node_payload in (
+        {"domain": "willhaben", "category": "aversion", "key": "avoid_heating_types", "value_json": ["Gasheizung"], "confidence": 1.0},
+        {"domain": "willhaben", "category": "constraint", "key": "require_floorplan", "value_json": True, "confidence": 1.0},
+        {"domain": "willhaben", "category": "soft_preference", "key": "prefer_lift", "value_json": True, "confidence": 1.0},
+        {"domain": "willhaben", "category": "soft_preference", "key": "prefer_subway_nearby", "value_json": True, "confidence": 1.0},
+    ):
+        node = client.post("/app/api/people/self/preference-profile/nodes", json=node_payload)
+        assert node.status_code == 200
+
+    synced = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+    assert sent == []
+
+    events = client.get("/app/api/events", params={"channel": "product"})
+    assert events.status_code == 200
+    created = [item for item in events.json()["items"] if item["event_type"] == "property_alert_review_created"]
+    assert any(item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1" for item in created)
+    suppressed = [item for item in events.json()["items"] if item["event_type"] == "property_alert_review_telegram_suppressed"]
+    assert any(item["payload"]["source_ref"] == "gmail-thread:elisabeth.girschele@gmail.com:feedback-suppress-1" for item in suppressed)
+
+
 def test_resolve_primary_telegram_binding_prefers_real_numeric_chat_ref() -> None:
     class _Runtime:
         def list_connector_bindings(self, principal_id: str, limit: int = 200):

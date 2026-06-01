@@ -1904,20 +1904,32 @@ def _property_alert_priority_from_fit(assessment: dict[str, object] | None) -> s
 def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
     if not isinstance(assessment, dict):
         return ""
-    try:
-        fit_score = float(assessment.get("fit_score") or 0.0)
-    except Exception:
-        fit_score = 0.0
+    fit_score = _property_alert_fit_score(assessment)
     recommendation = str(assessment.get("recommendation") or "").strip().replace("_", " ")
     reasons = [str(item or "").strip() for item in list(assessment.get("match_reasons_json") or []) if str(item or "").strip()]
     mismatches = [str(item or "").strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item or "").strip()]
+    upstream = dict(assessment.get("upstream_personalization") or {}) if isinstance(assessment.get("upstream_personalization"), dict) else {}
+    learned_conflicts = [
+        str(item or "").strip()
+        for item in list(upstream.get("conflicts") or [])
+        if str(item or "").strip()
+    ]
+    learned_matches = [
+        str(item or "").strip()
+        for item in list(upstream.get("matches") or [])
+        if str(item or "").strip()
+    ]
     parts: list[str] = []
     if fit_score > 0.0:
         parts.append(f"Personal fit {int(round(fit_score)):d}/100")
     if recommendation:
         parts.append(recommendation)
-    if reasons:
+    if learned_conflicts:
+        parts.append(compact_text(learned_conflicts[0], fallback="", limit=110))
+    elif reasons:
         parts.append(compact_text(reasons[0], fallback="", limit=110))
+    elif learned_matches:
+        parts.append(compact_text(learned_matches[0], fallback="", limit=110))
     elif mismatches:
         parts.append(compact_text(mismatches[0], fallback="", limit=110))
     return " · ".join(part for part in parts if part).strip()
@@ -1926,10 +1938,239 @@ def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
 def _property_alert_fit_score(assessment: dict[str, object] | None) -> float:
     if not isinstance(assessment, dict):
         return 0.0
+    upstream = dict(assessment.get("upstream_personalization") or {}) if isinstance(assessment.get("upstream_personalization"), dict) else {}
     try:
+        if upstream.get("adjusted_fit_score") not in (None, ""):
+            return max(0.0, min(100.0, float(upstream.get("adjusted_fit_score") or 0.0)))
         return max(0.0, min(100.0, float(assessment.get("fit_score") or 0.0)))
     except Exception:
         return 0.0
+
+
+def _property_alert_facts_for_url(property_url: str) -> tuple[dict[str, object], str]:
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
+        return {}, ""
+    if _is_willhaben_property_url(normalized_url):
+        packet = _load_willhaben_property_packet(normalized_url)
+        property_facts_json = dict(packet.get("property_facts_json") or {})
+        property_facts_json.update(
+            {
+                "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
+                "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
+            }
+        )
+        return property_facts_json, str(packet.get("listing_id") or "").strip() or normalized_url
+    preview = _property_scout_page_preview(normalized_url)
+    property_facts_json = _property_scout_candidate_payload_from_preview(
+        property_url=normalized_url,
+        preview=preview,
+    )
+    return property_facts_json, str(preview.get("listing_id") or "").strip() or normalized_url
+
+
+def _property_alert_upstream_personalization(
+    *,
+    preference_profiles: object,
+    principal_id: str,
+    person_id: str,
+    property_facts: dict[str, object],
+    domain: str,
+    assessment: dict[str, object] | None,
+) -> dict[str, object]:
+    def _normalized_token(value: object) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+    get_profile_bundle = getattr(preference_profiles, "get_profile_bundle", None)
+    if not callable(get_profile_bundle):
+        return {}
+    bundle = get_profile_bundle(
+        principal_id=principal_id,
+        person_id=str(person_id or "").strip() or "self",
+    )
+    nodes = [
+        dict(row)
+        for row in list(dict(bundle or {}).get("preference_nodes") or [])
+        if isinstance(row, dict)
+        and str(row.get("status") or "").strip().lower() == "active"
+        and str(row.get("domain") or "").strip().lower() == str(domain or "").strip().lower()
+    ]
+    if not nodes:
+        return {}
+    facts = dict(property_facts or {})
+    district = str(facts.get("district") or facts.get("postal_name") or facts.get("location") or "").strip()
+    heating = str(facts.get("heating") or facts.get("heating_type") or "").strip()
+    has_floorplan = bool(facts.get("has_floorplan") or facts.get("floorplan_count") or facts.get("floorplan_urls_json"))
+    has_360 = bool(facts.get("has_360") or facts.get("source_virtual_tour_url"))
+    has_lift = bool(facts.get("lift"))
+    has_balcony = bool(facts.get("balcony") or facts.get("terrace") or facts.get("terrace_area_sqm"))
+    total_rent = _float_or_none(facts.get("total_rent_eur"))
+    area_sqm = _float_or_none(facts.get("area_sqm"))
+    nearest_subway = _float_or_none(facts.get("nearest_subway_m"))
+    nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
+    nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
+    nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    lease_term_years = _float_or_none(facts.get("lease_term_years_max"))
+    matches: list[str] = []
+    conflicts: list[str] = []
+    unknowns: list[str] = []
+    learned_axes: list[str] = []
+    hard_conflict_count = 0
+    score_delta = 0.0
+
+    def _list_value(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        text = str(value or "").strip()
+        return [text] if text else []
+
+    for row in nodes:
+        key = str(row.get("key") or "").strip().lower()
+        category = str(row.get("category") or "").strip().lower()
+        value = row.get("value_json")
+        if key == "preferred_districts":
+            preferred = {_normalized_token(item) for item in _list_value(value)}
+            if district and _normalized_token(district) in preferred:
+                matches.append(f"Matches your learned district preference for {district}.")
+                learned_axes.append("district_preference")
+                score_delta += 4.0
+            elif district and preferred:
+                conflicts.append(f"Outside your learned preferred districts ({district}).")
+                learned_axes.append("district_preference")
+                score_delta -= 3.0
+        elif key == "avoided_districts":
+            avoided = {_normalized_token(item) for item in _list_value(value)}
+            if district and _normalized_token(district) in avoided:
+                conflicts.append(f"In a district you have been avoiding ({district}).")
+                learned_axes.append("district_avoidance")
+                hard_conflict_count += 1
+                score_delta -= 8.0
+        elif key == "avoid_heating_types":
+            avoided_heating = {_normalized_token(item) for item in _list_value(value)}
+            if heating and _normalized_token(heating) in avoided_heating:
+                conflicts.append(f"Conflicts with your learned heating aversion ({heating}).")
+                learned_axes.append("heating_aversion")
+                hard_conflict_count += 1
+                score_delta -= 12.0
+        elif key in {"require_floorplan", "requires_floorplan_for_remote_review"} and bool(value):
+            learned_axes.append("floorplan")
+            if has_floorplan:
+                matches.append("Has a floor plan, which matches your review workflow.")
+                score_delta += 4.0
+            else:
+                conflicts.append("Missing floor plan, which you usually reject for remote review.")
+                hard_conflict_count += 1 if key == "require_floorplan" else 0
+                score_delta -= 10.0 if key == "require_floorplan" else 6.0
+        elif key in {"prefer_lift", "require_lift"} and bool(value):
+            learned_axes.append("lift")
+            if has_lift:
+                matches.append("Lift access matches your learned accessibility preference.")
+                score_delta += 4.0
+            else:
+                conflicts.append("No clear lift access, which conflicts with your learned preference.")
+                hard_conflict_count += 1 if key == "require_lift" else 0
+                score_delta -= 9.0 if key == "require_lift" else 5.0
+        elif key == "prefer_360_for_remote_review" and bool(value):
+            learned_axes.append("360_remote_review")
+            if has_360:
+                matches.append("Includes a live 360 source, which supports your remote review workflow.")
+                score_delta += 4.0
+            else:
+                conflicts.append("No live 360 source, which makes remote review weaker than you usually want.")
+                score_delta -= 5.0
+        elif key == "prefer_subway_nearby" and bool(value):
+            learned_axes.append("subway_access")
+            if isinstance(nearest_subway, float) and nearest_subway <= 650.0:
+                matches.append(f"Underground access is about {int(nearest_subway)} m away, which matches your learned transit preference.")
+                score_delta += 4.0
+            elif isinstance(nearest_subway, float) and nearest_subway > 1200.0:
+                conflicts.append(f"Underground access is about {int(nearest_subway)} m away, which is weaker than you usually accept.")
+                score_delta -= 6.0
+            else:
+                unknowns.append("Underground distance is still unclear against your learned transit preference.")
+        elif key == "prefer_supermarket_nearby" and bool(value):
+            learned_axes.append("supermarket_access")
+            if isinstance(nearest_supermarket, float) and nearest_supermarket <= 700.0:
+                matches.append(f"Supermarket access is about {int(nearest_supermarket)} m away, which matches your daily-life preference.")
+                score_delta += 3.0
+            elif isinstance(nearest_supermarket, float) and nearest_supermarket > 1000.0:
+                conflicts.append(f"Supermarket access is about {int(nearest_supermarket)} m away, which is weaker than you usually accept.")
+                score_delta -= 4.5
+        elif key == "prefer_pharmacy_nearby" and bool(value):
+            learned_axes.append("pharmacy_access")
+            if isinstance(nearest_pharmacy, float) and nearest_pharmacy <= 800.0:
+                matches.append(f"Pharmacy access is about {int(nearest_pharmacy)} m away, which matches your daily-life preference.")
+                score_delta += 2.5
+            elif isinstance(nearest_pharmacy, float) and nearest_pharmacy > 1200.0:
+                conflicts.append(f"Pharmacy access is about {int(nearest_pharmacy)} m away, which is weaker than you usually accept.")
+                score_delta -= 3.5
+        elif key == "prefer_playgrounds_nearby" and bool(value):
+            learned_axes.append("playground_access")
+            if isinstance(nearest_playground, float) and nearest_playground <= 250.0:
+                matches.append(f"Playground access is about {int(nearest_playground)} m away, which matches your household preference.")
+                score_delta += 2.5
+            elif isinstance(nearest_playground, float) and nearest_playground > 500.0:
+                conflicts.append(f"Playground access is about {int(nearest_playground)} m away, which is weaker than you usually want.")
+                score_delta -= 3.0
+        elif key == "prefer_unlimited_lease" and bool(value):
+            learned_axes.append("lease_stability")
+            if isinstance(lease_term_years, float) and lease_term_years > 0.0 and lease_term_years <= 5.0:
+                conflicts.append(f"Lease duration looks limited to about {int(lease_term_years)} years, which conflicts with your stability preference.")
+                score_delta -= 5.0
+            elif isinstance(lease_term_years, float) and lease_term_years > 8.0:
+                matches.append("Lease duration looks closer to your longer-term stability preference.")
+                score_delta += 2.0
+        elif key == "prefer_lower_total_rent_eur":
+            try:
+                preferred_rent = float(value)
+            except Exception:
+                preferred_rent = 0.0
+            if preferred_rent > 0.0 and isinstance(total_rent, float):
+                learned_axes.append("rent_range")
+                if total_rent <= preferred_rent:
+                    matches.append(f"Rent stays within your learned range (about EUR {preferred_rent:g}).")
+                    score_delta += 3.0
+                elif total_rent > preferred_rent * 1.12:
+                    conflicts.append(f"Rent exceeds your learned range (about EUR {preferred_rent:g}).")
+                    score_delta -= 5.0
+        elif key == "min_area_sqm_preference":
+            try:
+                preferred_area = float(value)
+            except Exception:
+                preferred_area = 0.0
+            if preferred_area > 0.0 and isinstance(area_sqm, float):
+                learned_axes.append("minimum_area")
+                if area_sqm >= preferred_area:
+                    matches.append(f"Living area clears your learned minimum of about {preferred_area:g} m².")
+                    score_delta += 2.5
+                elif area_sqm < preferred_area - 5.0:
+                    conflicts.append(f"Living area is below your learned minimum of about {preferred_area:g} m².")
+                    score_delta -= 5.0
+        elif key == "prefer_balcony" and bool(value):
+            learned_axes.append("outdoor_space")
+            if has_balcony:
+                matches.append("Outdoor space matches your learned balcony or terrace preference.")
+                score_delta += 2.0
+            else:
+                conflicts.append("Outdoor space is weak for your learned balcony or terrace preference.")
+                score_delta -= 2.5
+
+    base_fit_score = 0.0
+    if isinstance(assessment, dict):
+        try:
+            base_fit_score = float(assessment.get("fit_score") or 0.0)
+        except Exception:
+            base_fit_score = 0.0
+    adjusted_fit_score = max(0.0, min(100.0, base_fit_score + score_delta))
+    return {
+        "matches": matches[:4],
+        "conflicts": conflicts[:4],
+        "unknowns": unknowns[:3],
+        "learned_axes": learned_axes[:8],
+        "hard_conflict_count": hard_conflict_count,
+        "score_delta": round(score_delta, 2),
+        "adjusted_fit_score": round(adjusted_fit_score, 2),
+    }
 
 
 def _property_alert_next_action_text(
@@ -2084,18 +2325,21 @@ def _property_alert_is_good_fit(
         return False
     normalized_policy = _normalize_property_alert_policy(policy)
     score = _property_alert_fit_score(assessment)
+    upstream = dict(assessment.get("upstream_personalization") or {}) if isinstance(assessment.get("upstream_personalization"), dict) else {}
     recommendation = str(assessment.get("recommendation") or "").strip().lower()
     allowed = {
         str(item or "").strip().lower()
         for item in list(normalized_policy.get("good_fit_recommendations") or [])
         if str(item or "").strip()
     }
-    if recommendation and recommendation in allowed:
-        return True
     try:
         min_score = float(normalized_policy.get("good_fit_min_score") or 0.0)
     except Exception:
         min_score = 0.0
+    if int(upstream.get("hard_conflict_count") or 0) > 0 and score < min_score:
+        return False
+    if recommendation and recommendation in allowed:
+        return True
     return score >= min_score
 
 
@@ -2582,23 +2826,7 @@ def _property_alert_personal_fit_assessment(
     if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
         return None
     try:
-        if _is_willhaben_property_url(normalized_url):
-            packet = _load_willhaben_property_packet(normalized_url)
-            property_facts_json = dict(packet.get("property_facts_json") or {})
-            property_facts_json.update(
-                {
-                    "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
-                    "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
-                }
-            )
-            listing_id = str(packet.get("listing_id") or "").strip() or normalized_url
-        else:
-            preview = _property_scout_page_preview(normalized_url)
-            property_facts_json = _property_scout_candidate_payload_from_preview(
-                property_url=normalized_url,
-                preview=preview,
-            )
-            listing_id = str(preview.get("listing_id") or "").strip() or normalized_url
+        property_facts_json, listing_id = _property_alert_facts_for_url(normalized_url)
         assess_candidate = getattr(preference_profiles, "assess_candidate", None)
         if not callable(assess_candidate):
             return None
@@ -2612,7 +2840,20 @@ def _property_alert_personal_fit_assessment(
             persist=True,
             require_existing_profile=True,
         )
-        return dict(assessment or {}) if isinstance(assessment, dict) else None
+        if not isinstance(assessment, dict):
+            return None
+        result = dict(assessment or {})
+        upstream_personalization = _property_alert_upstream_personalization(
+            preference_profiles=preference_profiles,
+            principal_id=principal_id,
+            person_id=str(person_id or "").strip() or "self",
+            property_facts=property_facts_json,
+            domain="willhaben",
+            assessment=result,
+        )
+        if upstream_personalization:
+            result["upstream_personalization"] = upstream_personalization
+        return result
     except Exception:
         return None
 
@@ -2639,6 +2880,11 @@ def _property_alert_review_telegram_text(
     if normalized_summary and normalized_summary.lower() != headline.lower():
         extra_lines.append(f"Summary: {normalized_summary}")
     fit_summary = _property_alert_fit_summary(personal_fit_assessment)
+    upstream = (
+        dict(personal_fit_assessment.get("upstream_personalization") or {})
+        if isinstance(personal_fit_assessment, dict) and isinstance(personal_fit_assessment.get("upstream_personalization"), dict)
+        else {}
+    )
     if score_override is not None:
         score_text = f"Personal fit {int(round(max(0.0, min(100.0, float(score_override or 0.0))))):d}/100"
         if fit_summary:
@@ -2666,6 +2912,14 @@ def _property_alert_review_telegram_text(
         next_action = _property_alert_next_action_text(top_assessment, property_url=top_url)
     elif fit_summary:
         next_action = _property_alert_next_action_text(personal_fit_assessment, property_url=property_url)
+    learned_conflicts = [str(item or "").strip() for item in list(upstream.get("conflicts") or []) if str(item or "").strip()]
+    learned_matches = [str(item or "").strip() for item in list(upstream.get("matches") or []) if str(item or "").strip()]
+    if learned_conflicts:
+        extra_lines.append(f"Why weaker for you: {compact_text(learned_conflicts[0], fallback='', limit=160)}")
+        if len(learned_conflicts) > 1:
+            extra_lines.append(f"Second conflict: {compact_text(learned_conflicts[1], fallback='', limit=160)}")
+    elif learned_matches:
+        extra_lines.append(f"Why this fits you: {compact_text(learned_matches[0], fallback='', limit=160)}")
     extra_lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
     if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
         extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
@@ -10328,7 +10582,11 @@ class ProductService:
                     else None
                 )
                 candidate_title = str(candidate.get("listing_title") or "").strip() or title
-                candidate_notify = notify_telegram if index == 0 else False
+                candidate_notify = False
+                if index == 0:
+                    candidate_notify = notify_telegram
+                    if bool(policy.get("notify_only_if_good")):
+                        candidate_notify = _property_alert_is_good_fit(candidate_assessment, policy=policy)
                 candidate_source_ref = source_ref if index == 0 else f"{source_ref}#listing:{index + 1}"
                 candidate_external_id = external_id if index == 0 else f"{external_id}#listing:{index + 1}"
                 candidate_tour_result = (
