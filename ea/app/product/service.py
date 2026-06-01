@@ -13451,7 +13451,7 @@ class ProductService:
             "-ar",
             "48000",
             "-b:a",
-            "96k",
+            "88k",
             str(temp_output),
         ]
         try:
