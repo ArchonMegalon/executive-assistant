@@ -10,6 +10,7 @@ from tests.product_test_helpers import start_workspace
 def test_health_ready_and_version() -> None:
     client = _client(storage_backend="memory")
     assert client.get("/health").status_code == 200
+    assert client.get("/healthz").status_code == 200
     assert client.get("/health/live").json()["status"] == "live"
     ready = client.get("/health/ready")
     assert ready.status_code == 200

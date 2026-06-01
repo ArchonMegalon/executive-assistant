@@ -13,6 +13,11 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return await health()
+
+
 @router.get("/health/live")
 async def health_live() -> dict[str, str]:
     return {"status": "live"}

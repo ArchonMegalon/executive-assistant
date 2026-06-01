@@ -22,8 +22,8 @@ REQUIRED_RELEASE_CONTRACT_PATHS = (
     ROOT / ".codex-design" / "ea" / "SURFACE_DESIGN_SYSTEM.md",
     ROOT / ".codex-design" / "ea" / "LTD_INTEGRATION_MAP.md",
     ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    ROOT / ".codex-design" / "product" / "PUBLIC_GUIDE_IMAGE_CURATION.yaml",
-    ROOT / ".codex-design" / "product" / "TELEGRAM_FLAGSHIP_RUNTIME_DESIGN.md",
+    ROOT / ".codex-design" / "product" / "PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md",
+    ROOT / ".codex-design" / "product" / "PUBLIC_CONCIERGE_WORKFLOWS.yaml",
     ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json",
     ROOT / ".codex-studio" / "published" / "EA_BROWSER_WORKFLOW_PROOF.generated.json",
 )

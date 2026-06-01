@@ -45,6 +45,8 @@ That does not mean:
 
 ## Required inputs
 
+* EA product surface canon under `.codex-design/ea/*`
+* mirrored `.codex-design/ea/*`
 * mirrored `.codex-design/product/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
