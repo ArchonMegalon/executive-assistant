@@ -7298,6 +7298,108 @@ def test_public_tour_filter_update_changes_preference_filters(
     assert "Hard blocks and must-haves" in second_page.text
 
 
+def test_public_tour_renders_shortlist_compare_cards(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-shortlist-compare"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Shortlist Compare Property",
+                "display_title": "Shortlist Compare Property",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {
+                    "postal_name": "1190 Wien",
+                    "district": "Salmannsdorf",
+                    "rooms": 3,
+                    "area_sqm": 101.2,
+                    "total_rent_eur": 2599.8,
+                    "personal_fit_assessment": {
+                        "fit_score": 83.0,
+                        "good_fit_reasons": ["Current property has a strong layout and district fit."],
+                    },
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    from app.api.routes import public_tours
+
+    class _FakeService:
+        def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
+            return {"profile": {}, "preference_nodes": [], "recent_evidence_events": [], "recent_decision_assessments": [], "recent_corrections": []}
+
+        def preview_preference_candidate(self, **kwargs):
+            return {"fit_score": 83.0, "good_fit_reasons": ["Current property has a strong layout and district fit."]}
+
+        def property_feedback_suggestions(self, **kwargs):
+            return {"negative": [], "positive": []}
+
+        def property_feedback_learning_summary(self, **kwargs):
+            return {"likes": [], "dislikes": [], "hard_rules": [], "recent_feedback": []}
+
+        def list_brief_items(self, *, principal_id: str, limit: int = 8, **kwargs):
+            from types import SimpleNamespace
+
+            return (
+                SimpleNamespace(
+                    title="Strong Waehring listing",
+                    score=97.0,
+                    why_now="High-fit property alert with 360 media and preferred district match.",
+                    recommended_action="review property alert",
+                    object_ref="willhaben:1411708198",
+                ),
+                SimpleNamespace(
+                    title="Strong Doebling listing",
+                    score=91.0,
+                    why_now="Another high-fit property alert with lift and bike access.",
+                    recommended_action="compare against shortlist",
+                    object_ref="willhaben:1071155412",
+                ),
+            )
+
+    monkeypatch.setattr(public_tours, "build_product_service", lambda container: _FakeService())
+
+    client = _client(principal_id="exec-public-tour-shortlist-compare")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert "Shortlist Compare" in page.text
+    assert "Current property against active shortlist items" in page.text
+    assert "Strong Waehring listing" in page.text
+    assert "Strong Doebling listing" in page.text
+    assert "Fit 97/100" in page.text
+
+
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

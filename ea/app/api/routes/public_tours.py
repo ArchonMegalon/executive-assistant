@@ -630,6 +630,68 @@ def _live_property_feedback_context(
     }
 
 
+def _public_shortlist_comparison_context(
+    *,
+    container: AppContainer,
+    payload: dict[str, object],
+    slug: str,
+    facts: dict[str, object],
+) -> dict[str, object]:
+    principal_id = str(payload.get("principal_id") or "").strip()
+    if not principal_id:
+        return {"items": []}
+    current_refs = {
+        str(payload.get("listing_id") or "").strip(),
+        str(payload.get("property_url") or "").strip(),
+        str(payload.get("listing_url") or "").strip(),
+        str(slug or "").strip(),
+    }
+    try:
+        service = build_product_service(container)
+        brief_items = list(service.list_brief_items(principal_id=principal_id, limit=8))
+    except Exception:
+        return {"items": []}
+    items: list[dict[str, object]] = []
+    for row in brief_items:
+        object_ref = str(getattr(row, "object_ref", "") or "").strip()
+        if not object_ref.startswith("willhaben:"):
+            continue
+        if any(token and token in object_ref for token in current_refs):
+            continue
+        items.append(
+            {
+                "title": str(getattr(row, "title", "") or "").strip() or "Shortlist property",
+                "score": float(getattr(row, "score", 0.0) or 0.0),
+                "why_now": str(getattr(row, "why_now", "") or "").strip(),
+                "recommended_action": str(getattr(row, "recommended_action", "") or "").strip(),
+                "object_ref": object_ref,
+            }
+        )
+    current_score_value = dict(facts.get("personal_fit_assessment") or {}).get("fit_score")
+    current_score = float(current_score_value or 0.0) if isinstance(current_score_value, (int, float)) else 0.0
+    current_title = str(payload.get("display_title") or payload.get("title") or slug).strip() or slug
+    current_reason = ""
+    assessment = dict(facts.get("personal_fit_assessment") or {})
+    for source in (list(assessment.get("good_fit_reasons") or []), list(assessment.get("match_reasons_json") or [])):
+        for value in source:
+            text = str(value or "").strip()
+            if text:
+                current_reason = text
+                break
+        if current_reason:
+            break
+    return {
+        "current": {
+            "title": current_title,
+            "score": current_score,
+            "why_now": current_reason or "Current hosted property under review.",
+            "recommended_action": "review current property",
+            "object_ref": str(payload.get("listing_url") or payload.get("property_url") or slug).strip(),
+        },
+        "items": items[:2],
+    }
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
@@ -638,6 +700,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     feedback_suggestions = dict(payload.get("_feedback_suggestions") or {}) if isinstance(payload.get("_feedback_suggestions"), dict) else {}
     learning_summary = dict(payload.get("_learning_summary") or {}) if isinstance(payload.get("_learning_summary"), dict) else {}
     filter_context = _filter_panel_context(facts=facts)
+    shortlist_compare = dict(payload.get("_shortlist_compare") or {}) if isinstance(payload.get("_shortlist_compare"), dict) else {}
     brief = dict(payload.get("brief") or {})
     title = str(payload.get("title") or payload.get("tour_title") or payload.get("slug") or "Property Tour").strip()
     display_title = str(payload.get("display_title") or title).strip() or title
@@ -1199,6 +1262,31 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             '</div>'
             '</section>'
         )
+        shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
+        shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
+        shortlist_cards = ""
+        if shortlist_current or shortlist_items:
+            all_cards = [shortlist_current] + shortlist_items
+            shortlist_cards = "".join(
+                (
+                    '<div class="summary-card">'
+                    f'<h3>{html.escape(str(card.get("title") or "Property").strip())}</h3>'
+                    f'<div class="subtle">Fit {int(round(float(card.get("score") or 0.0))):d}/100</div>'
+                    f'<p class="sub">{html.escape(str(card.get("why_now") or "No comparison note stored.").strip())}</p>'
+                    f'<div class="chip compare-chip">{html.escape(str(card.get("recommended_action") or "review").strip())}</div>'
+                    '</div>'
+                )
+                for card in all_cards[:3]
+            )
+        shortlist_panel = (
+            '<section class="panel">'
+            '<div class="eyebrow">Shortlist Compare</div>'
+            '<h2>Current property against active shortlist items</h2>'
+            '<div class="summary-grid" style="margin-top:0;">'
+            f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available for side-by-side comparison.</p></div>"}'
+            '</div>'
+            '</section>'
+        )
         detail_request_button = ""
         if str(payload.get("principal_id") or "").strip() and str(payload.get("property_url") or listing_url).strip():
             detail_request_button = (
@@ -1384,6 +1472,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .filter-summary-grid {{ grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr); }}
       .summary-card ul, .panel ul {{ margin: 0; padding-left: 18px; }}
       .summary-card li + li, .panel li + li {{ margin-top: 8px; }}
+      .compare-chip {{ margin-top: 12px; }}
       .stat-grid {{
         display: grid;
         gap: 10px;
@@ -1754,6 +1843,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <h2>What can still break the decision</h2>
             <ul>{risks_html}</ul>
           </section>
+          {shortlist_panel}
           {comparison_panel}
           <section id="research" class="panel">
             <div class="eyebrow">Research Log</div>
@@ -2698,6 +2788,12 @@ def public_tour_page(
         rendered_payload["facts"] = dict(live_context.get("facts") or {})
         rendered_payload["_feedback_suggestions"] = dict(live_context.get("feedback_suggestions") or {})
         rendered_payload["_learning_summary"] = dict(live_context.get("learning_summary") or {})
+        rendered_payload["_shortlist_compare"] = _public_shortlist_comparison_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+            facts=dict(rendered_payload["facts"] or {}),
+        )
         return HTMLResponse(_tour_html(rendered_payload, hostname=request_hostname(request)))
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
