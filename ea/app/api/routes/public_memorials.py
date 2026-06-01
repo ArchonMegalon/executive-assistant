@@ -360,6 +360,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
       }}
       .chat-actions {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
+      .speech-row {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }}
+      .speech-note {{ color: var(--muted); font-size: .94rem; }}
       .chat-answer {{
         margin-top: 16px;
         padding: 16px;
@@ -416,6 +418,12 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <h2>Nicht er selbst. Nur sorgfaeltig aus dem Archiv formuliert.</h2>
         <p>Antworten sollten immer zeigen, welche Aufnahme, Notiz oder Erinnerung zugrunde liegt. Wenn etwas nicht belegt ist, bleibt die Antwort ehrlich unsicher.</p>
         <div class="prompt-row">{prompts_html}</div>
+        <div class="speech-row">
+          <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
+          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
+          <button type="button" id="memorial-speech-stop">Stopp</button>
+          <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, neutrale Systemstimme.</span>
+        </div>
         <form class="chat-form" id="memorial-chat-form">
           <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
           <div class="chat-actions">
@@ -434,6 +442,11 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const question = document.getElementById("memorial-chat-question");
       const answer = document.getElementById("memorial-chat-answer");
       const statusNode = document.getElementById("memorial-chat-status");
+      const listenButton = document.getElementById("memorial-speech-listen");
+      const speakButton = document.getElementById("memorial-speech-speak");
+      const stopButton = document.getElementById("memorial-speech-stop");
+      const speechNote = document.getElementById("memorial-speech-note");
+      let lastAnswerText = "";
       async function askMemorialChat(value) {{
         const text = String(value || "").trim();
         if (!text) return;
@@ -447,15 +460,76 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           }});
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.detail || "chat_failed");
-          answer.textContent = payload.answer + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          lastAnswerText = String(payload.answer || "");
+          answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           statusNode.textContent = "";
+          speakText(lastAnswerText);
         }} catch (error) {{
           statusNode.textContent = "Antwort konnte nicht erstellt werden.";
         }}
       }}
+      function speakText(value) {{
+        if (!("speechSynthesis" in window)) {{
+          speechNote.textContent = "Text-to-Speech wird von diesem Browser nicht unterstuetzt.";
+          return;
+        }}
+        const text = String(value || lastAnswerText || "").trim();
+        if (!text) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "de-AT";
+        utterance.rate = 0.92;
+        utterance.pitch = 0.92;
+        utterance.volume = 1;
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) || voices.find((voice) => /^de/i.test(voice.lang || ""));
+        if (preferred) utterance.voice = preferred;
+        window.speechSynthesis.speak(utterance);
+        speechNote.textContent = "Antwort wird mit neutraler Systemstimme vorgelesen.";
+      }}
+      function startSpeechInput() {{
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Recognition) {{
+          speechNote.textContent = "Speech-to-Text wird von diesem Browser nicht unterstuetzt.";
+          return;
+        }}
+        window.speechSynthesis && window.speechSynthesis.cancel();
+        const recognition = new Recognition();
+        recognition.lang = "de-AT";
+        recognition.interimResults = true;
+        recognition.continuous = false;
+        let finalText = "";
+        recognition.onstart = () => {{
+          speechNote.textContent = "Hoere zu...";
+        }};
+        recognition.onresult = (event) => {{
+          let interim = "";
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {{
+            const transcript = event.results[index][0].transcript;
+            if (event.results[index].isFinal) finalText += transcript;
+            else interim += transcript;
+          }}
+          question.value = (finalText || interim || "").trim();
+        }};
+        recognition.onerror = () => {{
+          speechNote.textContent = "Mikrofon oder Spracherkennung nicht verfuegbar.";
+        }};
+        recognition.onend = () => {{
+          const text = String(question.value || finalText || "").trim();
+          speechNote.textContent = text ? "Frage erkannt." : "Keine Frage erkannt.";
+          if (text) askMemorialChat(text);
+        }};
+        recognition.start();
+      }}
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
         askMemorialChat(question.value);
+      }});
+      listenButton.addEventListener("click", startSpeechInput);
+      speakButton.addEventListener("click", () => speakText(lastAnswerText || answer.textContent));
+      stopButton.addEventListener("click", () => {{
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        speechNote.textContent = "Gestoppt.";
       }});
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{

@@ -6916,6 +6916,11 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "narcissistic" not in page.text.lower()
     assert "adhd" not in page.text.lower()
     assert "/memorials/manfred/chat" in page.text
+    assert "memorial-speech-listen" in page.text
+    assert "memorial-speech-speak" in page.text
+    assert "SpeechRecognition" in page.text
+    assert "SpeechSynthesisUtterance" in page.text
+    assert "neutrale Systemstimme" in page.text
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ging er mit Kritik um?"})
     assert response.status_code == 200
