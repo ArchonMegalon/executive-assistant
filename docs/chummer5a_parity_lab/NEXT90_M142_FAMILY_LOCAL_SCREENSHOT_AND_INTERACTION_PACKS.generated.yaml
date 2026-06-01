@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-05-31T10:58:04Z'
+generated_at: '2026-06-01T20:27:30Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -17,8 +17,8 @@ status: fail
 summary:
   family_count: 3
   family_pass_count: 2
-  fleet_m142_gate_status: blocked
-  fleet_m142_route_local_status: blocked
+  fleet_m142_gate_status: pass
+  fleet_m142_route_local_status: pass
   desktop_client_status: ready
   desktop_client_reason_count: 0
 source_inputs:
@@ -68,25 +68,25 @@ source_inputs:
     row_fingerprint: 91e518b8dab7f536272e29b5ce0cd647dc16e04c611e3cabc22c687dbda3db59
   parity_audit:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
-    generated_at: '2026-05-31T08:49:19.507110Z'
+    generated_at: '2026-06-01T19:34:04.595498Z'
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-05-31T08:49:07.558161Z'
+    generated_at: '2026-06-01T19:03:02.504925Z'
   visual_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-31T08:48:58.649701Z'
+    generated_at: '2026-06-01T19:03:00.008422Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-31T08:49:03.676738Z'
+    generated_at: '2026-06-01T19:18:49.690404Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    generated_at: '2026-05-31T08:49:07.131788Z'
+    generated_at: '2026-06-01T18:23:20.177640Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
-    generated_at: '2026-05-28T18:04:02.236919Z'
+    generated_at: '2026-06-01T17:33:45.265152Z'
   generated_dialog_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/GENERATED_DIALOG_ELEMENT_PARITY.generated.json
-    generated_at: '2026-05-28T18:03:26.291868Z'
+    generated_at: '2026-06-01T17:33:08.890913Z'
   gm_runboard_route:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
     generated_at: '2026-05-28T18:32:52Z'
@@ -95,7 +95,7 @@ source_inputs:
     generated_at: '2026-05-22T15:24:31Z'
   fleet_m142_gate:
     path: /docker/fleet/.codex-studio/published/NEXT90_M142_FLEET_ROUTE_LOCAL_PROOF_CLOSEOUT_GATES.generated.json
-    generated_at: '2026-05-31T08:49:20Z'
+    generated_at: '2026-06-01T14:49:26Z'
   flagship_readiness:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
