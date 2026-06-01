@@ -5,6 +5,23 @@ import os
 from fastapi.testclient import TestClient
 
 
+def _ensure_executive_workspace(client: TestClient, principal_id: str) -> None:
+    started = client.post(
+        "/v1/onboarding/start",
+        json={
+            "principal_id": principal_id,
+            "workspace_name": "Smoke Runtime Workspace",
+            "workspace_mode": "executive_ops",
+            "region": "AT",
+            "language": "en",
+            "timezone": "Europe/Vienna",
+            "selected_channels": ["google"],
+        },
+    )
+    if started.status_code != 200:
+        raise RuntimeError(f"failed_to_seed_operator_workspace:{principal_id}:{started.status_code}")
+
+
 def _seed_operator_profiles(client: TestClient) -> None:
     seed_profiles = (
         {
@@ -99,6 +116,7 @@ def build_client(
     if principal_id:
         client.headers.update({"X-EA-Principal-ID": principal_id})
     if operator:
+        _ensure_executive_workspace(client, principal_id=principal_id)
         _seed_operator_profiles(client)
     return client
 
