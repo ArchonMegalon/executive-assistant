@@ -7076,11 +7076,14 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
     assert "Property Decision Workstation" in page.text
     assert "Decision Summary" in page.text
     assert "Preference-to-Property Matrix" in page.text
+    assert "Tune what future properties should pass" in page.text
     assert "Research Log" in page.text
     assert "The district matches your preferred areas" in page.text
     assert "Fernwaerme avoids your excluded heating types." in page.text
     assert "The nearest playground is about 140 m away." in page.text
     assert "Request deeper research" in page.text
+    assert 'data-label="Requirement"' in page.text
+    assert ".section-nav .ghost" in page.text
     assert "Supermarket" in page.text
     assert "Source Links" not in page.text
     assert "Nothing provided" not in page.text
@@ -7214,6 +7217,81 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     assert "What the system has learned from you" in second_page.text
     assert "Avoid heating: Gasheizung" in second_page.text
     assert "Gasheizung conflicts with your heating preferences." in second_page.text
+
+
+def test_public_tour_filter_update_changes_preference_filters(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-filter-update"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Filter Update Property",
+                "display_title": "Filter Update Property",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {
+                    "postal_name": "1190 Wien",
+                    "district": "Salmannsdorf",
+                    "rooms": 3,
+                    "area_sqm": 101.2,
+                    "total_rent_eur": 2599.8,
+                    "heating_type": "Hauszentralheizung (Gas)",
+                    "has_floorplan": True,
+                    "lift": True,
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-filter-update")
+    first_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+    assert first_page.status_code == 200
+    assert "Search Filters" in first_page.text
+    assert "Prefer 1190 Wien" in first_page.text
+
+    enabled = client.post(
+        f"/tours/{slug}/filters",
+        headers={"host": "myexternalbrain.com"},
+        json={"filter_key": "avoid_gas_heating", "enabled": True},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["status"] == "updated"
+    assert enabled.json()["node"]["key"] == "avoid_heating_types"
+
+    second_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+    assert second_page.status_code == 200
+    assert "Avoid gas heating" in second_page.text
+    assert "Active filters" in second_page.text
 
 
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(

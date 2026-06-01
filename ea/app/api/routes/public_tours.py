@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.api.dependencies import get_container
@@ -397,6 +397,149 @@ def _feedback_reason_label(reason_key: object) -> str:
     return str(row.get("label") or reason_key or "").strip()
 
 
+def _preference_snapshot_nodes(facts: dict[str, object]) -> list[dict[str, object]]:
+    snapshot = dict(facts.get("public_preference_snapshot") or {}) if isinstance(facts.get("public_preference_snapshot"), dict) else {}
+    return [dict(row) for row in list(snapshot.get("preference_nodes") or []) if isinstance(row, dict)]
+
+
+def _filter_node_active(nodes: list[dict[str, object]], *, key: str, category: str) -> bool:
+    for row in nodes:
+        if str(row.get("key") or "").strip().lower() != key.lower():
+            continue
+        if str(row.get("category") or "").strip().lower() != category.lower():
+            continue
+        if str(row.get("status") or "active").strip().lower() == "inactive":
+            continue
+        value = row.get("value_json")
+        if isinstance(value, bool):
+            return bool(value)
+        if isinstance(value, list):
+            return any(str(item or "").strip() for item in value)
+        return value not in (None, "", 0, 0.0)
+    return False
+
+
+def _public_filter_specs(*, facts: dict[str, object]) -> list[dict[str, object]]:
+    district_value = str(facts.get("postal_name") or facts.get("district") or "").strip()
+    filters: list[dict[str, object]] = [
+        {
+            "key": "avoid_gas_heating",
+            "label": "Avoid gas heating",
+            "summary": "Suppress listings with gas-based heating.",
+            "domain": "willhaben",
+            "category": "aversion",
+            "node_key": "avoid_heating_types",
+            "value_json": ["Gasheizung", "Hauszentralheizung (Gas)"],
+            "strength": "high",
+            "confidence": 0.95,
+        },
+        {
+            "key": "require_lift",
+            "label": "Require lift",
+            "summary": "Rank lift-access properties higher.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "prefer_lift",
+            "value_json": True,
+            "strength": "high",
+            "confidence": 0.92,
+        },
+        {
+            "key": "require_floorplan",
+            "label": "Require floor plan",
+            "summary": "Prefer listings with a usable layout plan.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "requires_floorplan_for_remote_review",
+            "value_json": True,
+            "strength": "high",
+            "confidence": 0.9,
+        },
+        {
+            "key": "prefer_subway_nearby",
+            "label": "Prefer underground nearby",
+            "summary": "Bias ranking toward strong underground access.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "prefer_subway_nearby",
+            "value_json": True,
+            "strength": "medium",
+            "confidence": 0.84,
+        },
+        {
+            "key": "prefer_supermarket_nearby",
+            "label": "Prefer supermarket nearby",
+            "summary": "Bias ranking toward easier daily shopping.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "prefer_supermarket_nearby",
+            "value_json": True,
+            "strength": "medium",
+            "confidence": 0.82,
+        },
+        {
+            "key": "prefer_playgrounds_nearby",
+            "label": "Prefer playground nearby",
+            "summary": "Bias ranking toward family-oriented micro-locations.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "prefer_playgrounds_nearby",
+            "value_json": True,
+            "strength": "medium",
+            "confidence": 0.82,
+        },
+        {
+            "key": "prefer_unlimited_lease",
+            "label": "Prefer unlimited lease",
+            "summary": "Penalize limited-term leases.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "prefer_unlimited_lease",
+            "value_json": True,
+            "strength": "high",
+            "confidence": 0.9,
+        },
+        {
+            "key": "prefer_balcony",
+            "label": "Prefer balcony or terrace",
+            "summary": "Bias ranking toward private outdoor space.",
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "node_key": "prefer_balcony",
+            "value_json": True,
+            "strength": "medium",
+            "confidence": 0.8,
+        },
+    ]
+    if district_value:
+        filters.append(
+            {
+                "key": "prefer_this_district",
+                "label": f"Prefer {district_value}",
+                "summary": "Bias future ranking toward this district.",
+                "domain": "willhaben",
+                "category": "soft_preference",
+                "node_key": "preferred_districts",
+                "value_json": [district_value],
+                "strength": "medium",
+                "confidence": 0.88,
+            }
+        )
+    return filters
+
+
+def _filter_panel_context(*, facts: dict[str, object]) -> dict[str, object]:
+    nodes = _preference_snapshot_nodes(facts)
+    filters: list[dict[str, object]] = []
+    active_labels: list[str] = []
+    for spec in _public_filter_specs(facts=facts):
+        active = _filter_node_active(nodes, key=str(spec.get("node_key") or ""), category=str(spec.get("category") or ""))
+        filters.append({**spec, "active": active})
+        if active:
+            active_labels.append(str(spec.get("label") or "").strip())
+    return {"filters": filters, "active_labels": active_labels[:8]}
+
+
 def _live_property_feedback_context(
     *,
     container: AppContainer,
@@ -482,6 +625,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
     feedback_suggestions = dict(payload.get("_feedback_suggestions") or {}) if isinstance(payload.get("_feedback_suggestions"), dict) else {}
     learning_summary = dict(payload.get("_learning_summary") or {}) if isinstance(payload.get("_learning_summary"), dict) else {}
+    filter_context = _filter_panel_context(facts=facts)
     brief = dict(payload.get("brief") or {})
     title = str(payload.get("title") or payload.get("tour_title") or payload.get("slug") or "Property Tour").strip()
     display_title = str(payload.get("display_title") or title).strip() or title
@@ -949,7 +1093,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 ]
             )
         requirement_table = "".join(
-            f'<tr><td>{html.escape(label)}</td><td>{html.escape(answer)}</td><td><span class="status status-{status.lower().replace(" ", "-")}">{html.escape(status)}</span></td><td>{html.escape(note)}</td></tr>'
+            f'<tr><td data-label="Requirement">{html.escape(label)}</td><td data-label="Property answer">{html.escape(answer)}</td><td data-label="Status"><span class="status status-{status.lower().replace(" ", "-")}">{html.escape(status)}</span></td><td data-label="Why it matters">{html.escape(note)}</td></tr>'
             for label, answer, status, note in requirement_rows[:8]
         )
         cost_rows: list[tuple[str, str]] = []
@@ -1030,6 +1174,36 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 '<button id="request-details-btn" class="request-btn" type="button">Request deeper research</button>'
                 '<span id="request-details-status" class="request-status"></span>'
                 '</div>'
+            )
+        active_filter_labels = [str(item or "").strip() for item in list(filter_context.get("active_labels") or []) if str(item or "").strip()]
+        filter_button_html = "".join(
+            (
+                f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
+                f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
+                f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}">'
+                f'{html.escape(str(spec.get("label") or ""))}'
+                '</button>'
+            )
+            for spec in list(filter_context.get("filters") or [])
+            if isinstance(spec, dict)
+        )
+        active_filter_html = "".join(f"<li>{html.escape(label)}</li>" for label in active_filter_labels[:8])
+        filters_panel = ""
+        if str(payload.get("principal_id") or "").strip():
+            filters_panel = (
+                '<section id="filters" class="panel">'
+                '<div class="eyebrow">Search Filters</div>'
+                '<h2>Tune what future properties should pass</h2>'
+                '<p class="sub">These are real ranking and suppression rules for future alerts, not just notes on this listing.</p>'
+                '<div class="summary-grid filter-summary-grid" style="margin-top:16px;">'
+                '<div class="summary-card"><h3>Active filters</h3><ul>'
+                f'{active_filter_html or "<li>No explicit property filters are active yet.</li>"}'
+                '</ul></div>'
+                '<div class="summary-card"><h3>Quick toggles</h3>'
+                f'<div class="reason-chip-row filter-chip-row">{filter_button_html}</div>'
+                '</div></div>'
+                '<div class="request-row"><span id="filter-status" class="request-status"></span></div>'
+                '</section>'
             )
         feedback_panel = ""
         if str(payload.get("principal_id") or "").strip():
@@ -1115,7 +1289,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         box-shadow: 0 8px 28px rgba(17, 17, 17, 0.05);
       }}
       .topbar, .panel, .live-shell, .hero, .section-band {{ padding: 20px; }}
-      .topbar {{ display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; }}
+      .topbar {{ position: sticky; top: 0; z-index: 20; display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; backdrop-filter: blur(12px); }}
       .section-nav {{ display: flex; gap: 8px; flex-wrap: wrap; }}
       .eyebrow {{ display: inline-flex; gap: 8px; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }}
       h1 {{ margin: 10px 0 10px; font-size: clamp(2rem, 3vw, 3.2rem); line-height: 1.02; }}
@@ -1161,6 +1335,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         border: 1px solid var(--edge);
         background: var(--panel-soft);
       }}
+      .filter-summary-grid {{ grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr); }}
       .summary-card ul, .panel ul {{ margin: 0; padding-left: 18px; }}
       .summary-card li + li, .panel li + li {{ margin-top: 8px; }}
       .stat-grid {{
@@ -1273,6 +1448,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         gap: 10px;
         flex-wrap: wrap;
       }}
+      .filter-chip-row {{ align-items: stretch; }}
       .feedback-groups {{ flex-direction: column; margin-top: 14px; }}
       .reaction-btn, .reason-chip {{
         display: inline-flex;
@@ -1286,6 +1462,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         color: inherit;
         cursor: pointer;
       }}
+      .filter-chip {{ min-height: 44px; font-weight: 600; text-align: center; }}
       .reaction-btn.active {{ background: var(--ink); color: #fff; border-color: var(--ink); }}
       .reason-chip.active {{ border-color: var(--accent); color: var(--accent); background: #fff8f3; }}
       .reason-chip-negative {{ background: #fbf5f3; }}
@@ -1348,10 +1525,72 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       @media (max-width: 1000px) {{
         .hero, .section-grid, .workspace-grid, .summary-grid {{ grid-template-columns: 1fr; }}
         .stat-grid {{ grid-template-columns: 1fr; }}
+        .filter-summary-grid {{ grid-template-columns: 1fr; }}
+      }}
+      @media (max-width: 720px) {{
+        .section-nav {{
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          width: 100%;
+          scrollbar-width: none;
+        }}
+        .section-nav::-webkit-scrollbar {{ display: none; }}
+        .section-nav .ghost {{ flex: 0 0 auto; min-height: 40px; padding: 0 12px; }}
+        .facts {{
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          scrollbar-width: none;
+        }}
+        .facts::-webkit-scrollbar {{ display: none; }}
+        .facts .chip {{ flex: 0 0 auto; }}
+        .requirement-table, .requirement-table thead, .requirement-table tbody, .requirement-table tr, .requirement-table td {{
+          display: block;
+          width: 100%;
+        }}
+        .requirement-table thead {{
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }}
+        .requirement-table tbody {{ display: grid; gap: 12px; }}
+        .requirement-table tr {{
+          border: 1px solid var(--edge);
+          border-radius: 14px;
+          background: var(--panel-soft);
+          padding: 12px;
+        }}
+        .requirement-table td {{ border: 0; padding: 8px 0 0; }}
+        .requirement-table td:first-child {{ padding-top: 0; }}
+        .requirement-table td::before {{
+          content: attr(data-label);
+          display: block;
+          margin-bottom: 4px;
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--muted);
+        }}
+        .evidence-row {{ display: grid; justify-content: start; }}
+        .request-row {{ align-items: stretch; }}
+        .request-btn, .reaction-btn {{ width: 100%; }}
       }}
       @media (max-width: 640px) {{
         .shell {{ padding: 14px; }}
         .topbar, .panel, .live-shell, .hero, .section-band {{ padding: 16px; border-radius: 16px; }}
+        h1 {{ font-size: clamp(1.85rem, 10vw, 2.5rem); line-height: 1; }}
+        .sub {{ max-width: none; font-size: 0.95rem; }}
+        .actions {{ display: grid; grid-template-columns: 1fr; }}
+        .actions .cta, .actions .ghost {{ width: 100%; }}
+        .feedback-reaction-row {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+        .reason-chip-row {{ display: grid; grid-template-columns: 1fr; }}
         .live-frame-wrap {{ min-height: 380px; }}
         .live-frame {{ min-height: 380px; height: 60vh; }}
       }}
@@ -1366,6 +1605,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           <a class="ghost" href="#match">Match</a>
           <a class="ghost" href="#location">Location</a>
           <a class="ghost" href="#costs">Costs</a>
+          <a class="ghost" href="#filters">Filters</a>
           <a class="ghost" href="#feedback">Feedback</a>
           <a class="ghost" href="#risks">Risks</a>
           <a class="ghost" href="#research">Research</a>
@@ -1442,6 +1682,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <h2>Monthly and structural costs</h2>
             <div class="stat-grid">{cost_html}</div>
           </section>
+          {filters_panel}
           {feedback_panel}
           <section id="tour" class="live-shell">
             <div class="eyebrow">{brand_html} <span>•</span> 3D Evidence</div>
@@ -1501,10 +1742,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       let selectedReaction = "";
       const selectedReasons = new Set();
       const reactionButtons = [...document.querySelectorAll(".reaction-btn")];
-      const reasonButtons = [...document.querySelectorAll(".reason-chip")];
+      const reasonButtons = [...document.querySelectorAll(".reason-chip[data-reason-key]")];
+      const filterButtons = [...document.querySelectorAll(".filter-chip[data-filter-key]")];
       const feedbackSubmitButton = document.getElementById("feedback-submit-btn");
       const feedbackStatus = document.getElementById("feedback-status");
       const feedbackNote = document.getElementById("feedback-note");
+      const filterStatus = document.getElementById("filter-status");
       reactionButtons.forEach((button) => {{
         button.addEventListener("click", () => {{
           selectedReaction = String(button.dataset.reaction || "");
@@ -1552,6 +1795,29 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           }}
         }});
       }}
+      filterButtons.forEach((button) => {{
+        button.addEventListener("click", async () => {{
+          const filterKey = String(button.dataset.filterKey || "");
+          const enabled = String(button.dataset.enabled || "true") === "true";
+          if (!filterKey || !filterStatus) return;
+          button.disabled = true;
+          filterStatus.textContent = enabled ? "Saving filter..." : "Removing filter...";
+          try {{
+            const response = await fetch(window.location.pathname + "/filters", {{
+              method: "POST",
+              headers: {{ "Content-Type": "application/json" }},
+              body: JSON.stringify({{ filter_key: filterKey, enabled }}),
+            }});
+            const payload = await response.json();
+            if (!response.ok) throw new Error((payload.error && payload.error.code) || "filter_update_failed");
+            filterStatus.textContent = enabled ? "Filter saved. Reloading..." : "Filter removed. Reloading...";
+            window.setTimeout(() => window.location.reload(), 700);
+          }} catch (error) {{
+            button.disabled = false;
+            filterStatus.textContent = "Could not update the filter right now.";
+          }}
+        }});
+      }});
       if (requestButton && requestStatus) {{
         requestButton.addEventListener("click", async () => {{
           requestButton.disabled = true;
@@ -2318,6 +2584,54 @@ async def public_tour_feedback(
         actor=f"public_tour:{request_hostname(request)}",
     )
     return JSONResponse(result)
+
+
+@router.post("/tours/{slug}/filters", response_class=JSONResponse)
+async def public_tour_filter_update(
+    slug: str,
+    body: dict[str, object] = Body(default_factory=dict),
+    container: AppContainer = Depends(get_container),
+) -> JSONResponse:
+    payload = _load_tour(slug)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    principal_id = str(payload.get("principal_id") or "").strip()
+    if not principal_id:
+        raise HTTPException(status_code=409, detail="tour_filter_update_unavailable")
+    live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
+    facts = dict(live_context.get("facts") or payload.get("facts") or {})
+    filter_key = str(body.get("filter_key") or "").strip()
+    enabled = bool(body.get("enabled"))
+    spec = next((row for row in _public_filter_specs(facts=facts) if str(row.get("key") or "").strip() == filter_key), None)
+    if spec is None:
+        raise HTTPException(status_code=422, detail="invalid_tour_filter_key")
+    service = build_product_service(container)
+    service.upsert_preference_profile(
+        principal_id=principal_id,
+        person_id="self",
+        learning_enabled=True,
+    )
+    updated_node = service.upsert_preference_node(
+        principal_id=principal_id,
+        person_id="self",
+        domain=str(spec.get("domain") or "willhaben"),
+        category=str(spec.get("category") or "soft_preference"),
+        key=str(spec.get("node_key") or ""),
+        value_json=spec.get("value_json"),
+        strength=str(spec.get("strength") or "medium"),
+        confidence=float(spec.get("confidence") or 0.8),
+        source_mode="explicit",
+        status="active" if enabled else "inactive",
+        decay_policy="reinforce_only",
+    )
+    return JSONResponse(
+        {
+            "status": "updated",
+            "filter_key": filter_key,
+            "enabled": enabled,
+            "node": updated_node,
+        }
+    )
 
 
 @router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
