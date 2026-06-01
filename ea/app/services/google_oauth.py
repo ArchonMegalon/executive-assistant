@@ -69,7 +69,6 @@ GOOGLE_SCOPE_CORE = GOOGLE_SCOPE_IDENTITY + (
 
 GOOGLE_SCOPE_FULL_WORKSPACE = GOOGLE_SCOPE_IDENTITY + (
     GOOGLE_SCOPE_SEND,
-    GOOGLE_SCOPE_METADATA,
     GOOGLE_SCOPE_GMAIL_MODIFY,
     GOOGLE_SCOPE_CALENDAR,
     GOOGLE_SCOPE_CONTACTS_READONLY,
@@ -1564,7 +1563,11 @@ def _list_recent_gmail_signals(
             sender_name, sender_email = parseaddr(from_raw)
             counterparty = (sender_name or sender_email).strip()
             snippet = str(details.get("snippet") or "").strip()
-            body_text = _gmail_message_body_text(details)
+            body_text = _gmail_message_body_text(
+                details,
+                access_token=access_token,
+                message_id=message_id,
+            )
             metadata_fallback = bool(details.get("_metadata_fallback_due_to_forbidden"))
             body_source = "gmail_full" if body_text else "snippet"
             if include_message_body and not body_text and not metadata_fallback:
@@ -1574,7 +1577,7 @@ def _list_recent_gmail_signals(
                 )
                 if body_text:
                     body_source = "gmail_raw"
-            body_excerpt = body_text[:4000]
+            body_excerpt = body_text[: _gmail_body_excerpt_max_chars()]
             attachments = (
                 _gmail_pdf_attachments(
                     access_token=access_token,
@@ -1900,13 +1903,24 @@ def _gmail_attachment_max_bytes() -> int:
         return 26214400
 
 
-def _gmail_message_body_text(details: dict[str, Any]) -> str:
+def _gmail_message_body_text(
+    details: dict[str, Any],
+    *,
+    access_token: str = "",
+    message_id: str = "",
+) -> str:
     payload = details.get("payload")
     if not isinstance(payload, dict):
         return ""
     plain_parts: list[str] = []
     html_parts: list[str] = []
-    _collect_gmail_body_text(payload, plain_parts=plain_parts, html_parts=html_parts)
+    _collect_gmail_body_text(
+        payload,
+        plain_parts=plain_parts,
+        html_parts=html_parts,
+        access_token=access_token,
+        message_id=message_id,
+    )
     if plain_parts:
         return _normalize_gmail_body_text("\n".join(part for part in plain_parts if part))
     if html_parts:
@@ -1961,11 +1975,26 @@ def _collect_gmail_body_text(
     *,
     plain_parts: list[str],
     html_parts: list[str],
+    access_token: str = "",
+    message_id: str = "",
 ) -> None:
     mime_type = str(payload.get("mimeType") or "").strip().lower()
     body = payload.get("body")
     if isinstance(body, dict):
         decoded = _decode_gmail_body_data(body.get("data"))
+        if not decoded:
+            attachment_id = str(body.get("attachmentId") or "").strip()
+            if attachment_id and str(access_token or "").strip() and str(message_id or "").strip():
+                try:
+                    content_bytes = _gmail_attachment_bytes(
+                        access_token=access_token,
+                        message_id=message_id,
+                        attachment_id=attachment_id,
+                    )
+                except urllib.error.HTTPError:
+                    content_bytes = b""
+                if content_bytes and len(content_bytes) <= _gmail_text_part_max_bytes():
+                    decoded = content_bytes.decode("utf-8", "replace")
         if decoded:
             if mime_type == "text/plain":
                 plain_parts.append(decoded)
@@ -1973,7 +2002,27 @@ def _collect_gmail_body_text(
                 html_parts.append(_html_to_text(decoded))
     for item in list(payload.get("parts") or []):
         if isinstance(item, dict):
-            _collect_gmail_body_text(item, plain_parts=plain_parts, html_parts=html_parts)
+            _collect_gmail_body_text(
+                item,
+                plain_parts=plain_parts,
+                html_parts=html_parts,
+                access_token=access_token,
+                message_id=message_id,
+            )
+
+
+def _gmail_text_part_max_bytes() -> int:
+    try:
+        return max(int(str(os.getenv("EA_GMAIL_TEXT_PART_MAX_BYTES") or "1048576").strip()), 0)
+    except Exception:
+        return 1048576
+
+
+def _gmail_body_excerpt_max_chars() -> int:
+    try:
+        return max(int(str(os.getenv("EA_GMAIL_BODY_EXCERPT_MAX_CHARS") or "12000").strip()), 1000)
+    except Exception:
+        return 12000
 
 
 def _decode_gmail_body_data(value: object) -> str:

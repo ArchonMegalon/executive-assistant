@@ -1,19 +1,44 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import html
 import json
 import mimetypes
 import os
 from pathlib import Path
+import re
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from app.api.dependencies import get_container
+from app.container import AppContainer
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
+from app.product.service import build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 
 router = APIRouter(tags=["public-tours"])
+
+
+def _fact_value_is_weak(value: object) -> bool:
+    if value is None:
+        return True
+    if value is False:
+        return True
+    if isinstance(value, (int, float)):
+        return float(value) <= 0.0
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return True
+        return all(_fact_value_is_weak(item) for item in value)
+    if isinstance(value, dict):
+        return not value
+    return False
 
 
 def _tour_dir() -> Path:
@@ -104,36 +129,593 @@ def _safe_live_360_url(value: object) -> str:
     return normalized
 
 
+def _embedded_live_360_url(payload: dict[str, object]) -> str:
+    normalized = dict(payload or {})
+    return _safe_live_360_url(
+        normalized.get("source_virtual_tour_url")
+        or normalized.get("source_virtual_tour_origin")
+    )
+
+
+def _haversine_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
+    from math import atan2, cos, radians, sin, sqrt
+
+    earth_radius_m = 6_371_000.0
+    phi_a = radians(lat_a)
+    phi_b = radians(lat_b)
+    delta_phi = radians(lat_b - lat_a)
+    delta_lambda = radians(lon_b - lon_a)
+    arc = sin(delta_phi / 2.0) ** 2 + cos(phi_a) * cos(phi_b) * sin(delta_lambda / 2.0) ** 2
+    return int(round(2.0 * earth_radius_m * atan2(sqrt(arc), sqrt(max(1.0 - arc, 0.0)))))
+
+
+@lru_cache(maxsize=128)
+def _reverse_geocode(lat: float, lon: float) -> dict[str, object]:
+    url = (
+        "https://nominatim.openstreetmap.org/reverse?"
+        f"format=jsonv2&lat={lat:.8f}&lon={lon:.8f}&zoom=18&addressdetails=1"
+    )
+    request = urllib.request.Request(url, headers={"User-Agent": "EA/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=6.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+@lru_cache(maxsize=128)
+def _fetch_nearby_poi_research(lat: float, lon: float) -> dict[str, object]:
+    query = f"""
+[out:json][timeout:20];
+(
+  node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
+  way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
+);
+out center tags;
+"""
+    request = urllib.request.Request(
+        "https://overpass-api.de/api/interpreter",
+        data=query.encode("utf-8"),
+        headers={"User-Agent": "EA/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
+    if not elements:
+        return {}
+    closest: dict[str, tuple[int, str]] = {}
+    for row in elements:
+        if not isinstance(row, dict):
+            continue
+        tags = dict(row.get("tags") or {})
+        point_lat = row.get("lat")
+        point_lon = row.get("lon")
+        if point_lat is None or point_lon is None:
+            center = dict(row.get("center") or {})
+            point_lat = center.get("lat")
+            point_lon = center.get("lon")
+        if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
+            continue
+        distance_m = _haversine_distance_m(lat, lon, float(point_lat), float(point_lon))
+        if tags.get("shop") == "supermarket":
+            key = "nearest_supermarket_m"
+            name_key = "nearest_supermarket_name"
+        elif tags.get("amenity") == "pharmacy":
+            key = "nearest_pharmacy_m"
+            name_key = "nearest_pharmacy_name"
+        elif tags.get("leisure") == "playground":
+            key = "nearest_playground_m"
+            name_key = "nearest_playground_name"
+        elif tags.get("railway") == "subway_entrance":
+            key = "nearest_subway_m"
+            name_key = "nearest_subway_name"
+        else:
+            continue
+        current = closest.get(key)
+        if current is None or distance_m < current[0]:
+            closest[key] = (distance_m, str(tags.get("name") or "").strip())
+            closest[name_key] = (distance_m, str(tags.get("name") or "").strip())
+    result: dict[str, object] = {}
+    for key, value in closest.items():
+        if key.endswith("_name"):
+            result[key] = value[1]
+        else:
+            result[key] = value[0]
+    return result
+
+
+@lru_cache(maxsize=128)
+def _fetch_listing_research(url: str) -> dict[str, object]:
+    normalized = str(url or "").strip()
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return {}
+    request = urllib.request.Request(
+        normalized,
+        headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=4.0) as response:
+            raw_html = response.read().decode("utf-8", errors="ignore")
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return {}
+    text = html.unescape(re.sub(r"<[^>]+>", " ", raw_html))
+    lowered = " ".join(text.split()).lower()
+    findings: dict[str, object] = {}
+    raw_lower = raw_html.lower()
+
+    lat_match = re.search(r'data-map-lat="([0-9.]+)"', raw_html)
+    lon_match = re.search(r'data-map-lng="([0-9.]+)"', raw_html)
+    if lat_match and lon_match:
+        try:
+            map_lat = float(lat_match.group(1))
+            map_lon = float(lon_match.group(1))
+            findings["map_lat"] = map_lat
+            findings["map_lng"] = map_lon
+            reverse = _reverse_geocode(map_lat, map_lon)
+            display_name = str(reverse.get("display_name") or "").strip()
+            if display_name:
+                findings["exact_address"] = display_name
+            address = dict(reverse.get("address") or {}) if isinstance(reverse.get("address"), dict) else {}
+            road = str(address.get("road") or "").strip()
+            house_number = str(address.get("house_number") or "").strip()
+            postcode = str(address.get("postcode") or "").strip()
+            city = str(address.get("city") or address.get("town") or address.get("village") or "").strip()
+            if road and house_number:
+                findings["street_address"] = f"{road} {house_number}"
+                findings["address_lines"] = [f"{road} {house_number}", " ".join(part for part in (postcode, city) if part).strip()]
+            poi = _fetch_nearby_poi_research(map_lat, map_lon)
+            if poi:
+                findings.update(poi)
+        except ValueError:
+            pass
+
+    if any(token in lowered for token in ("personenaufzug", "aufzug", "lift")):
+        findings["lift"] = True
+    if any(token in lowered for token in ("plan_top", "plan top", "raumskizze", "grundriss", "floor plan")):
+        findings["has_floorplan"] = True
+    if "beziehbar sofort" in lowered:
+        findings["availability"] = "Sofort"
+    if "hauszentralheizung (gas)" in lowered or "house central heating (by gas)" in lowered:
+        findings["heating_type"] = "Hauszentralheizung (Gas)"
+    elif "gasheizung" in lowered or " gas " in lowered:
+        findings["heating_type"] = "Gasheizung"
+    if "8 wohneinheiten" in lowered or "8 residential units" in lowered:
+        findings["building_units"] = 8
+    if "tiefgaragenstellplatz" in lowered or "underground parking space" in lowered:
+        findings["garage"] = True
+    if "mietverhältnis" in lowered or "lease agreement" in lowered:
+        findings["limited_lease"] = True
+    if "5 jahre befristetes mietverhältnis" in lowered or "up to 5 years duration" in lowered:
+        findings["lease_term_years_max"] = 5
+    elif "max. mietdauer" in lowered:
+        findings["lease_term_years_max"] = 10
+    if "neuwertig" in lowered:
+        findings["state"] = "neuwertig"
+
+    bus_match = re.search(r"Bus</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
+    tram_bus_match = re.search(r"Straßenbahn / Bus</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
+    subway_match = re.search(r"U-Bahn</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
+    pharmacy_match = re.search(r"Apotheke</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
+    clinic_match = re.search(r"Klinik</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
+    hospital_match = re.search(r"Krankenhaus</span>\s*<span[^>]*>\s*(\d+)\s*m", raw_html, flags=re.IGNORECASE)
+    if bus_match:
+        findings["nearest_transit_m"] = int(bus_match.group(1))
+    elif tram_bus_match:
+        findings["nearest_transit_m"] = int(tram_bus_match.group(1))
+    if tram_bus_match:
+        findings["nearest_tram_bus_m"] = int(tram_bus_match.group(1))
+    if subway_match:
+        findings["nearest_subway_m"] = int(subway_match.group(1))
+    if pharmacy_match:
+        findings["nearest_pharmacy_m"] = int(pharmacy_match.group(1))
+    if clinic_match:
+        findings["nearest_clinic_m"] = int(clinic_match.group(1))
+    if hospital_match:
+        findings["nearest_hospital_m"] = int(hospital_match.group(1))
+
+    rooms_match = re.search(r"zimmer\s+(\d+(?:[.,]\d+)?)", text, flags=re.IGNORECASE)
+    if rooms_match:
+        try:
+            findings["rooms"] = float(rooms_match.group(1).replace(",", "."))
+        except ValueError:
+            pass
+    area_match = re.search(r"Wohnfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", text, flags=re.IGNORECASE)
+    if area_match:
+        try:
+            findings["area_sqm"] = float(area_match.group(1).replace(",", "."))
+        except ValueError:
+            pass
+    terrace_area_match = re.search(r"Terrassenfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", text, flags=re.IGNORECASE)
+    if terrace_area_match:
+        try:
+            findings["terrace_area_sqm"] = float(terrace_area_match.group(1).replace(",", "."))
+        except ValueError:
+            pass
+    price_match = re.search(r"Gesamtmiete:\s*(\d[\d\.,]*)\s*€", text, flags=re.IGNORECASE)
+    if price_match:
+        normalized_price = price_match.group(1).replace(".", "").replace(",", ".")
+        try:
+            findings["total_rent_eur"] = float(normalized_price)
+        except ValueError:
+            pass
+    parking_match = re.search(r"Euro\s*120,00", text, flags=re.IGNORECASE)
+    if parking_match:
+        findings["parking_monthly_eur"] = 120.0
+    district_match = re.search(r"\b(1\d{3}\s+Wien)\b", text, flags=re.IGNORECASE)
+    if district_match:
+        findings["postal_name"] = district_match.group(1)
+    if "salmannsdorf" in lowered:
+        findings["district"] = "Salmannsdorf"
+    return findings
+
+
+def _merged_facts_with_listing_research(payload: dict[str, object], facts: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+    merged = dict(facts)
+    stored_research = dict(facts.get("listing_research_snapshot") or {}) if isinstance(facts.get("listing_research_snapshot"), dict) else {}
+    research = stored_research
+    if not research and str(os.getenv("EA_PUBLIC_TOUR_ENABLE_RENDER_RESEARCH_FALLBACK") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        listing_url = str(payload.get("listing_url") or payload.get("property_url") or "").strip()
+        research = _fetch_listing_research(listing_url) if listing_url else {}
+    if not research:
+        return merged, {}
+    for key, value in research.items():
+        existing = merged.get(key)
+        if _fact_value_is_weak(existing):
+            merged[key] = value
+    return merged, research
+
+
+def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
+    normalized = dict(payload or {})
+    if str(normalized.get("scene_strategy") or "").strip() == "generated_listing_summary":
+        return True
+    if str(normalized.get("creation_mode") or "").strip() == "hosted_listing_fallback":
+        return True
+    scenes = [dict(row) for row in (normalized.get("scenes") or []) if isinstance(row, dict)]
+    if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
+        return True
+    return False
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
-    facts = dict(payload.get("facts") or {})
+    facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
     brief = dict(payload.get("brief") or {})
     title = str(payload.get("title") or payload.get("tour_title") or payload.get("slug") or "Property Tour").strip()
     display_title = str(payload.get("display_title") or title).strip() or title
     listing_url = str(payload.get("listing_url") or "").strip()
     hosted_url = str(payload.get("hosted_url") or "").strip()
-    source_virtual_tour_url = _safe_live_360_url(payload.get("source_virtual_tour_url"))
+    source_virtual_tour_url = _embedded_live_360_url(payload)
+    is_pure_360_cube = str(payload.get("scene_strategy") or "").strip() == "pure_360_cube"
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
     slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
     video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
     video_fallback_url = f"/tours/files/{slug}/{video_fallback_relpath}" if slug and video_fallback_relpath else ""
-    scene_data = [
-        {
-            "name": str(scene.get("name") or "").strip(),
-            "image_url": (
-                f"/tours/files/{slug}/{str(scene.get('asset_relpath') or '').strip()}"
-                if slug and str(scene.get("asset_relpath") or "").strip()
-                else str(scene.get("image_url") or "").strip()
-            ),
-            "role": str(scene.get("role") or "photo").strip(),
-            "source_url": str(scene.get("source_url") or "").strip(),
+
+    def _trim_text(value: object) -> str:
+        return str(value or "").strip()
+
+    def _collect_scene_refs(value: object) -> list[str]:
+        if value is None:
+            return []
+        refs: list[str] = []
+        if isinstance(value, (str, int)):
+            trimmed = _trim_text(value)
+            if trimmed:
+                refs.append(trimmed)
+            return refs
+        if isinstance(value, float):
+            if value.is_integer():
+                refs.append(_trim_text(int(value)))
+            else:
+                refs.append(_trim_text(value))
+            return refs
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                refs.extend(_collect_scene_refs(item))
+            return refs
+        if isinstance(value, dict):
+            for candidate_key in ("id", "location_id", "scene_id", "next", "to", "target"):
+                refs.extend(_collect_scene_refs(value.get(candidate_key)))
+            return refs
+        return []
+
+    def _text_list(value: object) -> list[str]:
+        if not isinstance(value, (list, tuple)):
+            return []
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+
+    def _distance_rows(snapshot: dict[str, object]) -> list[tuple[str, str]]:
+        labels = (
+            ("nearest_transit_m", "Transit"),
+            ("nearest_subway_m", "Underground"),
+            ("nearest_supermarket_m", "Supermarket"),
+            ("nearest_pharmacy_m", "Pharmacy"),
+            ("nearest_bakery_m", "Bakery"),
+            ("nearest_bicycle_parking_m", "Bicycle parking"),
+            ("nearest_cycleway_m", "Cycleway"),
+            ("nearest_playground_m", "Playground"),
+            ("nearest_school_m", "School"),
+            ("nearest_running_m", "Run or green space"),
+        )
+        rows: list[tuple[str, str]] = []
+        for key, label in labels:
+            value = snapshot.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                rows.append((label, f"about {int(value):d} m"))
+        return rows[:6]
+
+    def _fact_text(*keys: str) -> str:
+        for key in keys:
+            value = facts.get(key)
+            text = str(value or "").strip()
+            if text and text not in {"?", "None"}:
+                return text
+        return ""
+
+    def _fact_bool(*keys: str) -> bool:
+        for key in keys:
+            value = facts.get(key)
+            if isinstance(value, bool):
+                return value
+        return False
+
+    def _normalized_token(value: object) -> str:
+        text = str(value or "").strip().lower()
+        return (
+            text.replace("ä", "ae")
+            .replace("ö", "oe")
+            .replace("ü", "ue")
+            .replace("ß", "ss")
+        )
+
+    def _feature_highlights() -> list[str]:
+        rows: list[str] = []
+        terrace_area_value = facts.get("terrace_area_sqm")
+        if _fact_bool("lift") and _fact_bool("has_floorplan"):
+            rows.append("Lift and floor plan materially reduce remote-viewing uncertainty.")
+        elif _fact_bool("has_floorplan"):
+            rows.append("A floor plan is available for layout validation.")
+        elif _fact_bool("lift"):
+            rows.append("The building has a passenger lift.")
+        if isinstance(terrace_area_value, (int, float)) and terrace_area_value > 0:
+            rows.append(f"{terrace_area_value:g} m² of terrace area adds meaningful private outdoor space.")
+        elif _fact_bool("terrace"):
+            rows.append("Multiple terraces materially improve usable outdoor space.")
+        building_units = facts.get("building_units")
+        if isinstance(building_units, (int, float)) and building_units > 0:
+            rows.append(f"The building has only {int(building_units)} residential units, which should keep internal traffic lower.")
+        state = _fact_text("state")
+        renovation_year = facts.get("last_renovation_year")
+        if state and isinstance(renovation_year, (int, float)) and renovation_year > 0:
+            rows.append(f"The listing describes the condition as {state} and notes renovation in {int(renovation_year)}.")
+        availability = _fact_text("availability")
+        if availability:
+            rows.append(f"Availability is listed as {availability}.")
+        if _fact_bool("furnished", "is_furnished"):
+            rows.append("The furnished setup lowers move-in friction.")
+        elif _fact_bool("balcony"):
+            rows.append("Includes a balcony.")
+        if _fact_bool("garden"):
+            rows.append("Includes outdoor garden space.")
+        heating = _fact_text("heating", "heating_type")
+        if heating and "gas" not in heating.lower():
+            rows.append(f"Heating: {heating}.")
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            normalized = row.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(row)
+        return deduped[:5]
+
+    def _feature_concerns() -> list[str]:
+        rows: list[str] = []
+        heating = _fact_text("heating", "heating_type")
+        if heating and "gas" in heating.lower():
+            rows.append("Gas heating may increase running-cost risk.")
+        lease_term = facts.get("lease_term_years_max")
+        if isinstance(lease_term, (int, float)) and lease_term > 0:
+            rows.append(f"The lease is limited to about {int(lease_term)} years, which matters if long-term stability is important.")
+        parking_monthly = facts.get("parking_monthly_eur")
+        if isinstance(parking_monthly, (int, float)) and parking_monthly > 0:
+            rows.append(f"The garage space is optional but adds about EUR {int(parking_monthly):d} per month.")
+        if not _fact_bool("has_floorplan") and not rows:
+            rows.append("No floor plan is stored yet.")
+        if not _fact_bool("lift") and not rows:
+            rows.append("Lift access is not confirmed.")
+        return rows[:4]
+
+    def _personalized_priority_rows() -> tuple[list[str], list[str], list[str]]:
+        snapshot = dict(facts.get("public_preference_snapshot") or {}) if isinstance(facts.get("public_preference_snapshot"), dict) else {}
+        nodes = [dict(row) for row in list(snapshot.get("preference_nodes") or []) if isinstance(row, dict)]
+        positive: list[str] = []
+        caution: list[str] = []
+        open_questions: list[str] = []
+        district_value = _normalized_token(_fact_text("postal_name", "district", "location"))
+        heating_value = _fact_text("heating", "heating_type")
+        heating_lower = heating_value.lower()
+        has_floorplan = _fact_bool("has_floorplan")
+        has_360 = _fact_bool("has_360")
+        has_lift = _fact_bool("lift")
+        has_balcony = _fact_bool("balcony") or _fact_bool("terrace")
+        nearest_playground = livability_snapshot.get("nearest_playground_m")
+        nearest_cycleway = livability_snapshot.get("nearest_cycleway_m")
+        nearest_bicycle_parking = livability_snapshot.get("nearest_bicycle_parking_m")
+        nearest_running = livability_snapshot.get("nearest_running_m")
+        for row in nodes:
+            key = str(row.get("key") or "").strip().lower()
+            value = row.get("value_json")
+            if key == "preferred_districts" and isinstance(value, list):
+                preferred = [_normalized_token(item) for item in value if str(item or "").strip()]
+                if district_value and any(item in district_value for item in preferred):
+                    positive.append(f"The district matches your preferred areas ({_fact_text('postal_name', 'district', 'location')}).")
+                elif preferred:
+                    caution.append(f"The district is outside your stated preferred areas ({', '.join(str(item or '') for item in value if str(item or '').strip())}).")
+            elif key == "avoid_heating_types" and isinstance(value, list):
+                avoided = [str(item or "").strip().lower() for item in value if str(item or "").strip()]
+                if heating_lower and any(item in heating_lower for item in avoided):
+                    caution.append(f"{heating_value} conflicts with your heating preferences.")
+                elif heating_value and avoided:
+                    positive.append(f"{heating_value} avoids your excluded heating types.")
+                elif avoided:
+                    open_questions.append("The heating type should be confirmed against your exclusions.")
+            elif key in {"require_floorplan", "requires_floorplan_for_remote_review"}:
+                if has_floorplan:
+                    positive.append("A floor plan is available, which supports your remote review workflow.")
+                else:
+                    caution.append("No floor plan is stored, although you prefer one for review.")
+            elif key == "prefer_360_for_remote_review":
+                if not has_360:
+                    caution.append("A 360 tour is missing, even though you prefer one for remote review.")
+            elif key == "prefer_lift":
+                if has_lift:
+                    positive.append("Lift access matches your stated preference.")
+                else:
+                    caution.append("Lift access is not confirmed, although you prefer it.")
+            elif key == "prefer_balcony":
+                if has_balcony:
+                    positive.append("Outdoor space is available, which matches your balcony or terrace preference.")
+                else:
+                    caution.append("Balcony or terrace space is not confirmed.")
+            elif "playground" in key:
+                if isinstance(nearest_playground, (int, float)) and nearest_playground > 0:
+                    positive.append(f"The nearest playground is about {int(nearest_playground):d} m away.")
+                else:
+                    open_questions.append("Playground distance is not stored yet.")
+            elif "bike" in key:
+                if isinstance(nearest_cycleway, (int, float)) and nearest_cycleway > 0:
+                    positive.append(f"Cycleway access is about {int(nearest_cycleway):d} m away.")
+                elif isinstance(nearest_bicycle_parking, (int, float)) and nearest_bicycle_parking > 0:
+                    positive.append(f"Bicycle parking is about {int(nearest_bicycle_parking):d} m away.")
+                else:
+                    open_questions.append("Bike infrastructure distance is not stored yet.")
+            elif "green" in key or "park" in key or "running" in key:
+                if isinstance(nearest_running, (int, float)) and nearest_running > 0:
+                    positive.append(f"Green-space or running access is about {int(nearest_running):d} m away.")
+                else:
+                    open_questions.append("Green-space distance is not stored yet.")
+        return positive[:4], caution[:4], open_questions[:4]
+
+    def _decision_rows() -> list[tuple[str, str]]:
+        rows: list[tuple[str, str]] = []
+        exact_address_value = _fact_text("street_address", "exact_address")
+        if exact_address_value:
+            rows.append(("Address", exact_address_value))
+        district_value = _fact_text("postal_name", "district", "location")
+        if district_value:
+            rows.append(("District", district_value))
+        price_value = facts.get("total_rent_eur")
+        if isinstance(price_value, (int, float)):
+            rows.append(("Price", _money(price_value)))
+        elif rent != "EUR ?":
+            rows.append(("Price", rent))
+        area_value = _fact_text("area_label")
+        if not area_value:
+            area_sqm_value = facts.get("area_sqm")
+            if isinstance(area_sqm_value, (int, float)):
+                area_value = f"{int(area_sqm_value) if float(area_sqm_value).is_integer() else area_sqm_value} m²"
+        if area_value:
+            rows.append(("Area", area_value))
+        rooms_value = _fact_text("rooms_label")
+        if not rooms_value:
+            rooms_raw = facts.get("rooms")
+            if isinstance(rooms_raw, (int, float)):
+                rooms_value = f"{int(rooms_raw) if float(rooms_raw).is_integer() else rooms_raw} rooms"
+        if rooms_value:
+            rows.append(("Rooms", rooms_value))
+        availability_value = _fact_text("availability")
+        if availability_value:
+            rows.append(("Availability", availability_value))
+        heating_value = _fact_text("heating", "heating_type")
+        if heating_value:
+            rows.append(("Heating", heating_value))
+        if _fact_bool("lift"):
+            rows.append(("Access", "Lift available"))
+        elif "lift" in facts:
+            rows.append(("Access", "Lift not confirmed"))
+        return rows[:6]
+
+    scene_data = []
+    for index, scene in enumerate(scenes):
+        scene_id = _trim_text(
+            scene.get("scene_id") or scene.get("location_id") or scene.get("id") or scene.get("scene")
+        )
+        if not scene_id:
+            scene_id = str(index + 1)
+        next_scene_refs = (
+            _collect_scene_refs(scene.get("next_scene_id"))
+            + _collect_scene_refs(scene.get("next_scene"))
+            + _collect_scene_refs(scene.get("next_location_id"))
+            + _collect_scene_refs(scene.get("next"))
+        )
+        prev_scene_refs = (
+            _collect_scene_refs(scene.get("prev_scene_id"))
+            + _collect_scene_refs(scene.get("prev_scene"))
+            + _collect_scene_refs(scene.get("prev_location_id"))
+            + _collect_scene_refs(scene.get("prev"))
+        )
+        scene_data.append(
+            {
+                "name": str(scene.get("name") or "").strip(),
+                "scene_id": scene_id,
+                "next_scene_id": _trim_text(next_scene_refs[0]) if next_scene_refs else "",
+                "prev_scene_id": _trim_text(prev_scene_refs[0]) if prev_scene_refs else "",
+                "next_scene_index": scene.get("next_scene_index"),
+                "prev_scene_index": scene.get("prev_scene_index"),
+                "image_url": (
+                    f"/tours/files/{slug}/{str(scene.get('asset_relpath') or '').strip()}"
+                    if slug and str(scene.get("asset_relpath") or "").strip()
+                    else str(scene.get("image_url") or "").strip()
+                ),
+                "role": str(scene.get("role") or "photo").strip(),
+                "source_url": "" if is_pure_360_cube else str(scene.get("source_url") or "").strip(),
+                "cube_faces": {
+                    key: f"/tours/files/{slug}/{str(value or '').strip()}"
+                    for key, value in dict(scene.get("cube_faces") or {}).items()
+                    if slug and str(value or "").strip()
+                },
+            }
+        )
+
+    if is_pure_360_cube and len(scene_data) > 1:
+        scene_id_to_index = {
+            scene_entry["scene_id"]: index for index, scene_entry in enumerate(scene_data) if scene_entry.get("scene_id")
         }
-        for scene in scenes
-    ]
+
+        def _resolve_scene_index(raw_ref: object, fallback: int) -> int:
+            for ref in _collect_scene_refs(raw_ref):
+                if ref in scene_id_to_index:
+                    return scene_id_to_index[ref]
+            return fallback
+
+        for index, entry in enumerate(scene_data):
+            next_index_raw = _collect_scene_refs(entry.get("next_scene_id") or entry.get("next_scene_index") or entry.get("next"))
+            prev_index_raw = _collect_scene_refs(entry.get("prev_scene_id") or entry.get("prev_scene_index") or entry.get("prev"))
+            next_index = _resolve_scene_index(next_index_raw, (index + 1) % len(scene_data))
+            prev_index = _resolve_scene_index(prev_index_raw, (index - 1) % len(scene_data))
+            entry["next_scene_index"] = next_index
+            entry["prev_scene_index"] = prev_index
     data_json = json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/")
     title_html = html.escape(title)
     display_html = html.escape(display_title)
@@ -154,6 +736,723 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     hosted_link = f'<a class="ghost" href="{html.escape(hosted_url)}">Permalink</a>' if hosted_url else ""
     primary_cta = "Open Live 360" if source_virtual_tour_url else "Open Tour"
     primary_cta_href = "#live-360" if source_virtual_tour_url else "#viewer"
+    assessment = dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {}
+    if not assessment and isinstance(facts.get("decision_summary"), dict):
+        assessment = dict(facts.get("decision_summary") or {})
+    recommendation = html.escape(str(assessment.get("recommendation") or "").strip().replace("_", " "))
+    fit_score_value = assessment.get("fit_score")
+    fit_score = int(round(float(fit_score_value))) if isinstance(fit_score_value, (int, float)) else None
+    good_fit_reasons = _text_list(assessment.get("good_fit_reasons") or assessment.get("match_reasons_json"))
+    bad_fit_reasons = _text_list(assessment.get("bad_fit_reasons") or assessment.get("mismatch_reasons_json"))
+    unknowns = _text_list(assessment.get("unknowns") or assessment.get("unknowns_json"))
+    livability_snapshot = dict(assessment.get("livability_snapshot") or {}) if isinstance(assessment.get("livability_snapshot"), dict) else {}
+    for livability_key in (
+        "nearest_transit_m",
+        "nearest_subway_m",
+        "nearest_supermarket_m",
+        "nearest_pharmacy_m",
+        "nearest_bakery_m",
+        "nearest_bicycle_parking_m",
+        "nearest_cycleway_m",
+        "nearest_playground_m",
+        "nearest_school_m",
+        "nearest_running_m",
+    ):
+        if livability_key not in livability_snapshot and isinstance(facts.get(livability_key), (int, float)):
+            livability_snapshot[livability_key] = facts.get(livability_key)
+    location_fit_value = assessment.get("location_fit_score")
+    location_fit = int(round(float(location_fit_value))) if isinstance(location_fit_value, (int, float)) else None
+    distance_rows = _distance_rows(livability_snapshot)
+    has_floorplan = _fact_bool("has_floorplan")
+    has_lift = _fact_bool("lift")
+    has_balcony = _fact_bool("balcony") or _fact_bool("terrace")
+    nearest_playground = livability_snapshot.get("nearest_playground_m")
+    district = html.escape(str(facts.get("postal_name") or facts.get("district") or "").strip())
+    source_tour_link = ""
+    rooms_chip = rooms if rooms != "?" else ""
+    area_chip = area if area != "?" else ""
+    rent_chip = rent if rent != "EUR ?" else ""
+    availability_chip = availability if availability != "?" else ""
+    decision_rows = _decision_rows()
+    personalized_positive, personalized_caution, personalized_unknowns = _personalized_priority_rows()
+    highlight_lines = personalized_positive or good_fit_reasons[:4] or _feature_highlights()
+    concern_lines = personalized_caution or bad_fit_reasons[:4] or _feature_concerns()
+    unknown_lines = personalized_unknowns or unknowns[:4]
+    completed_research_line = ""
+    if researched_facts:
+        research_fragments: list[str] = []
+        if _fact_text("street_address", "exact_address"):
+            research_fragments.append("address")
+        if _fact_bool("lift"):
+            research_fragments.append("lift")
+        if _fact_bool("has_floorplan"):
+            research_fragments.append("floor plan")
+        availability_value = _fact_text("availability")
+        if availability_value:
+            research_fragments.append(f"availability ({availability_value})")
+        if isinstance(facts.get("nearest_supermarket_m"), (int, float)):
+            research_fragments.append("supermarket distance")
+        if isinstance(facts.get("nearest_pharmacy_m"), (int, float)):
+            research_fragments.append("pharmacy distance")
+        if isinstance(facts.get("nearest_playground_m"), (int, float)):
+            research_fragments.append("playground distance")
+        if isinstance(facts.get("nearest_subway_m"), (int, float)):
+            research_fragments.append("underground distance")
+        if research_fragments:
+            completed_research_line = f"Source research already filled: {', '.join(research_fragments)}."
+    if is_pure_360_cube and source_virtual_tour_url:
+        fit_score_chip = f'<div class="chip">Fit {fit_score}/100</div>' if fit_score is not None else ""
+        recommendation_chip = f'<div class="chip">{recommendation}</div>' if recommendation else ""
+        location_chip = f'<div class="chip">Area fit {location_fit}/10</div>' if location_fit is not None else ""
+        district_chip = f'<div class="chip">{district}</div>' if district else ""
+        rooms_chip_html = f'<div class="chip">{html.escape(rooms_chip)}</div>' if rooms_chip else ""
+        area_chip_html = f'<div class="chip">{html.escape(area_chip)}</div>' if area_chip else ""
+        rent_chip_html = f'<div class="chip">{html.escape(rent_chip)}</div>' if rent_chip else ""
+        availability_chip_html = f'<div class="chip">{html.escape(availability_chip)}</div>' if availability_chip else ""
+        reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in highlight_lines)
+        risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in concern_lines)
+        unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in unknown_lines)
+        decision_html = "".join(
+            f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+            for label, value in decision_rows
+        )
+        distance_html = "".join(
+            f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+            for label, value in distance_rows
+        )
+        recommendation_label = "Conditional match"
+        if fit_score is not None and fit_score >= 78:
+            recommendation_label = "Strong match"
+        elif fit_score is not None and fit_score <= 49:
+            recommendation_label = "Low match"
+        recommendation_note = (
+            highlight_lines[0]
+            if highlight_lines
+            else "The decision should be driven by constraints, neighborhood fit, and cost risk rather than the tour itself."
+        )
+        requirement_rows: list[tuple[str, str, str, str]] = []
+        snapshot = dict(facts.get("public_preference_snapshot") or {}) if isinstance(facts.get("public_preference_snapshot"), dict) else {}
+        nodes = [dict(row) for row in list(snapshot.get("preference_nodes") or []) if isinstance(row, dict)]
+        for row in nodes:
+            key = str(row.get("key") or "").strip().lower()
+            value = row.get("value_json")
+            if key == "avoid_heating_types" and isinstance(value, list):
+                heating_value = _fact_text("heating", "heating_type") or "Unknown"
+                avoided = ", ".join(str(item or "").strip() for item in value if str(item or "").strip())
+                status = "Conflict" if "gas" in heating_value.lower() and any("gas" in str(item).lower() for item in value) else "Match"
+                note = f"Preference excludes {avoided}." if avoided else "Heating preference stored."
+                requirement_rows.append(("Heating", heating_value, status, note))
+            elif key in {"require_floorplan", "requires_floorplan_for_remote_review"}:
+                requirement_rows.append(("Floor plan", "Available" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Remote layout review depends on this."))
+            elif key == "prefer_lift":
+                requirement_rows.append(("Lift", "Present" if has_lift else "Not confirmed", "Match" if has_lift else "Unknown", "Building access preference."))
+            elif key == "prefer_balcony":
+                requirement_rows.append(("Outdoor space", "Present" if has_balcony else "Not confirmed", "Match" if has_balcony else "Unknown", "Balcony or terrace preference."))
+            elif "playground" in key:
+                playground_value = f"{int(nearest_playground):d} m" if isinstance(nearest_playground, (int, float)) and nearest_playground > 0 else "Unknown"
+                requirement_rows.append(("Playground access", playground_value, "Match" if playground_value != "Unknown" else "Unknown", "Family-fit proximity check."))
+        if not requirement_rows:
+            requirement_rows.extend(
+                [
+                    ("Heating", _fact_text("heating", "heating_type") or "Unknown", "Conflict" if "gas" in _fact_text("heating", "heating_type").lower() else "Check", "Operating-cost and preference fit."),
+                    ("Floor plan", "Available" if has_floorplan else "Missing", "Match" if has_floorplan else "Unknown", "Layout validation."),
+                    ("Lift", "Present" if has_lift else "Not confirmed", "Match" if has_lift else "Unknown", "Access convenience."),
+                ]
+            )
+        requirement_table = "".join(
+            f'<tr><td>{html.escape(label)}</td><td>{html.escape(answer)}</td><td><span class="status status-{status.lower().replace(" ", "-")}">{html.escape(status)}</span></td><td>{html.escape(note)}</td></tr>'
+            for label, answer, status, note in requirement_rows[:8]
+        )
+        cost_rows: list[tuple[str, str]] = []
+        if rent_chip:
+            cost_rows.append(("Base rent", rent_chip))
+        if isinstance(facts.get("parking_monthly_eur"), (int, float)) and float(facts.get("parking_monthly_eur") or 0.0) > 0:
+            cost_rows.append(("Parking option", f"EUR {int(float(facts.get('parking_monthly_eur') or 0.0))}/month"))
+        heating_value = _fact_text("heating", "heating_type")
+        if heating_value:
+            cost_rows.append(("Heating system", heating_value))
+        lease_term_value = facts.get("lease_term_years_max")
+        if isinstance(lease_term_value, (int, float)) and lease_term_value > 0:
+            cost_rows.append(("Lease term", f"About {int(lease_term_value)} years"))
+        cost_html = "".join(
+            f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+            for label, value in cost_rows
+        )
+        evidence_rows: list[tuple[str, str, str]] = []
+        evidence_specs = (
+            ("street_address", "Address"),
+            ("lift", "Lift"),
+            ("has_floorplan", "Floor plan"),
+            ("availability", "Availability"),
+            ("nearest_supermarket_m", "Supermarket"),
+            ("nearest_pharmacy_m", "Pharmacy"),
+            ("nearest_playground_m", "Playground"),
+            ("nearest_subway_m", "Underground"),
+        )
+        for key, label in evidence_specs:
+            raw_value = facts.get(key)
+            if _fact_value_is_weak(raw_value):
+                continue
+            if isinstance(raw_value, bool):
+                value = "Confirmed" if raw_value else "Not confirmed"
+            elif isinstance(raw_value, (int, float)) and key.endswith("_m"):
+                value = f"about {int(raw_value)} m"
+            else:
+                value = str(raw_value)
+            provenance = "Researched" if key in researched_facts else "Listing"
+            if key in {"street_address", "exact_address"} and "map_lat" in researched_facts:
+                provenance = "Inferred"
+            evidence_rows.append((label, value, provenance))
+        evidence_html = "".join(
+            f'<div class="evidence-row"><div><b>{html.escape(label)}</b><span>{html.escape(value)}</span></div><em class="provenance provenance-{provenance.lower()}">{html.escape(provenance)}</em></div>'
+            for label, value, provenance in evidence_rows
+        )
+        detail_request_button = ""
+        if str(payload.get("principal_id") or "").strip() and str(payload.get("property_url") or listing_url).strip():
+            detail_request_button = (
+                '<div class="request-row">'
+                '<button id="request-details-btn" class="request-btn" type="button">Request deeper research</button>'
+                '<span id="request-details-status" class="request-status"></span>'
+                '</div>'
+            )
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title_html}</title>
+    {clickrank_head_snippet(hostname)}
+    <style>
+      :root {{
+        --bg: #f5f2ec;
+        --panel: #ffffff;
+        --panel-soft: #f7f6f3;
+        --ink: #171717;
+        --muted: #646464;
+        --accent: #8d3f1f;
+        --edge: #e6e0d6;
+        --good: #166534;
+        --warn: #9a6700;
+        --risk: #991b1b;
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+      }}
+      .shell {{ max-width: 1340px; margin: 0 auto; padding: 22px; }}
+      .topbar, .panel, .live-shell, .hero, .section-band {{
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 18px;
+        box-shadow: 0 8px 28px rgba(17, 17, 17, 0.05);
+      }}
+      .topbar, .panel, .live-shell, .hero, .section-band {{ padding: 20px; }}
+      .topbar {{ display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; }}
+      .section-nav {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+      .eyebrow {{ display: inline-flex; gap: 8px; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }}
+      h1 {{ margin: 10px 0 10px; font-size: clamp(2rem, 3vw, 3.2rem); line-height: 1.02; }}
+      h2 {{ margin: 0 0 14px; font-size: 1.05rem; }}
+      h3 {{ margin: 0 0 10px; font-size: 0.95rem; }}
+      .sub {{ margin: 0; color: var(--muted); font-size: 0.98rem; line-height: 1.55; max-width: 72ch; }}
+      .hero {{ display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 18px; align-items: start; margin-bottom: 18px; }}
+      .summary-grid, .section-grid {{ display: grid; gap: 18px; }}
+      .summary-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 18px; }}
+      .section-grid {{ grid-template-columns: 1.05fr 0.95fr; margin-top: 18px; }}
+      .facts, .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }}
+      .chip, .ghost, .cta {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        background: var(--panel-soft);
+        border: 1px solid var(--edge);
+        color: inherit;
+        text-decoration: none;
+        font-size: 0.92rem;
+      }}
+      .cta {{ background: var(--ink); color: #fff; border-color: var(--ink); }}
+      .kicker {{
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: #f0ebe4;
+        color: var(--accent);
+        font-size: 0.86rem;
+      }}
+      .summary-card, .panel, .live-shell {{
+        background: var(--panel);
+      }}
+      .summary-card {{
+        padding: 16px;
+        border-radius: 16px;
+        border: 1px solid var(--edge);
+        background: var(--panel-soft);
+      }}
+      .summary-card ul, .panel ul {{ margin: 0; padding-left: 18px; }}
+      .summary-card li + li, .panel li + li {{ margin-top: 8px; }}
+      .stat-grid {{
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+      .stat {{
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: var(--panel-soft);
+        border: 1px solid var(--edge);
+        display: grid;
+        gap: 4px;
+      }}
+      .stat span {{
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }}
+      .stat strong {{ font-size: 1rem; font-weight: 600; }}
+      .workspace-grid {{
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 18px;
+        align-items: start;
+      }}
+      .workspace-stack {{ display: grid; gap: 18px; }}
+      .requirement-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.94rem;
+      }}
+      .requirement-table th, .requirement-table td {{
+        padding: 12px 10px;
+        border-bottom: 1px solid var(--edge);
+        vertical-align: top;
+        text-align: left;
+      }}
+      .requirement-table th {{
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }}
+      .status {{
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        border: 1px solid transparent;
+      }}
+      .status-match {{ background: rgba(22,101,52,0.10); color: var(--good); border-color: rgba(22,101,52,0.18); }}
+      .status-conflict {{ background: rgba(153,27,27,0.10); color: var(--risk); border-color: rgba(153,27,27,0.18); }}
+      .status-unknown, .status-check {{ background: rgba(154,103,0,0.10); color: var(--warn); border-color: rgba(154,103,0,0.18); }}
+      details.research-card {{
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: var(--panel-soft);
+        border: 1px solid var(--edge);
+      }}
+      details.research-card + details.research-card {{ margin-top: 12px; }}
+      details.research-card > summary {{ cursor: pointer; font-weight: 600; }}
+      .evidence-stack {{ display: grid; gap: 10px; }}
+      .evidence-row {{
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: var(--panel-soft);
+        border: 1px solid var(--edge);
+      }}
+      .evidence-row b, .evidence-row span {{
+        display: block;
+      }}
+      .evidence-row b {{ margin-bottom: 4px; font-size: 0.86rem; }}
+      .evidence-row span {{ color: var(--muted); font-size: 0.92rem; }}
+      .provenance {{
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-style: normal;
+        border: 1px solid var(--edge);
+        background: #fff;
+      }}
+      .request-row {{ display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }}
+      .request-btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 16px;
+        border-radius: 999px;
+        border: 1px solid var(--edge);
+        background: var(--panel-soft);
+        color: inherit;
+        cursor: pointer;
+      }}
+      .request-status {{ color: var(--muted); font-size: 0.95rem; }}
+      .ooda-grid {{
+        display: grid;
+        gap: 10px;
+      }}
+      .ooda-cell {{
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: var(--panel-soft);
+        border: 1px solid var(--edge);
+      }}
+      .ooda-cell b {{
+        display: block;
+        margin-bottom: 4px;
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }}
+      .live-frame-wrap {{
+        overflow: hidden;
+        border-radius: 16px;
+        background: rgba(18,17,16,0.94);
+        border: 1px solid var(--edge);
+        min-height: 540px;
+      }}
+      .live-frame {{
+        display: block;
+        width: 100%;
+        height: 78vh;
+        min-height: 540px;
+        border: 0;
+        background: #111;
+      }}
+      a {{ color: inherit; text-decoration: none; }}
+      @media (max-width: 1000px) {{
+        .hero, .section-grid, .workspace-grid, .summary-grid {{ grid-template-columns: 1fr; }}
+        .stat-grid {{ grid-template-columns: 1fr; }}
+      }}
+      @media (max-width: 640px) {{
+        .shell {{ padding: 14px; }}
+        .topbar, .panel, .live-shell, .hero, .section-band {{ padding: 16px; border-radius: 16px; }}
+        .live-frame-wrap {{ min-height: 380px; }}
+        .live-frame {{ min-height: 380px; height: 60vh; }}
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="topbar">
+        <div class="eyebrow">Property Decision Workstation <span>•</span> personalized review</div>
+        <nav class="section-nav">
+          <a class="ghost" href="#decision">Decision</a>
+          <a class="ghost" href="#match">Match</a>
+          <a class="ghost" href="#location">Location</a>
+          <a class="ghost" href="#costs">Costs</a>
+          <a class="ghost" href="#risks">Risks</a>
+          <a class="ghost" href="#research">Research</a>
+          <a class="ghost" href="#tour">3D Tour</a>
+        </nav>
+      </div>
+      <section id="decision" class="hero">
+        <div>
+          <div class="kicker">{html.escape(recommendation_label)}</div>
+          <h1>{title_html}</h1>
+          <p class="sub">{display_html}</p>
+          <div class="facts">
+            {rooms_chip_html}
+            {area_chip_html}
+            {rent_chip_html}
+            {availability_chip_html}
+            {fit_score_chip}
+            {recommendation_chip}
+            {location_chip}
+            {district_chip}
+            <div class="chip">{html.escape(str(payload.get("scene_count") or len(scenes)))} tour scenes</div>
+          </div>
+          <p class="sub">{html.escape(recommendation_note)}</p>
+          <div class="actions">
+            <a class="cta" href="#tour">Open 3D Tour</a>
+            {listing_link}
+            {hosted_link}
+          </div>
+          <div class="summary-grid">
+            <div class="summary-card">
+              <h3>Why it fits</h3>
+              <ul>{reasons_html}</ul>
+            </div>
+            <div class="summary-card">
+              <h3>Decision pressure</h3>
+              <ul>{risks_html}</ul>
+            </div>
+            <div class="summary-card">
+              <h3>Still missing</h3>
+              <ul>{unknowns_html}</ul>
+            </div>
+          </div>
+        </div>
+        <aside class="panel">
+          <h2>Decision Summary</h2>
+          <div class="stat-grid">{decision_html}</div>
+          <div class="ooda-grid" style="margin-top:16px;">
+            <div class="ooda-cell"><b>Observe</b>{html.escape(highlight_lines[0]) if highlight_lines else 'Current facts are still incomplete.'}</div>
+            <div class="ooda-cell"><b>Orient</b>{html.escape((personalized_positive or good_fit_reasons or ['The current fit is driven by the stored constraints and research pass.'])[0])}</div>
+            <div class="ooda-cell"><b>Decide</b>{html.escape((personalized_caution or bad_fit_reasons or ['Shortlist only if the open questions are acceptable.'])[0])}</div>
+            <div class="ooda-cell"><b>Act</b>{html.escape((personalized_unknowns or unknowns or ['Trigger deeper research before deciding.'])[0])}</div>
+          </div>
+        </aside>
+      </section>
+      <div class="workspace-grid">
+        <div class="workspace-stack">
+          <section id="match" class="panel">
+            <div class="eyebrow">Requirement Match</div>
+            <h2>Preference-to-Property Matrix</h2>
+            <table class="requirement-table">
+              <thead>
+                <tr><th>Requirement</th><th>Property answer</th><th>Status</th><th>Why it matters</th></tr>
+              </thead>
+              <tbody>{requirement_table}</tbody>
+            </table>
+          </section>
+          <section id="location" class="panel">
+            <div class="eyebrow">Location Fit</div>
+            <h2>Daily-life access</h2>
+            <div class="stat-grid">{distance_html}</div>
+          </section>
+          <section id="costs" class="panel">
+            <div class="eyebrow">Cost Picture</div>
+            <h2>Monthly and structural costs</h2>
+            <div class="stat-grid">{cost_html}</div>
+          </section>
+          <section id="tour" class="live-shell">
+            <div class="eyebrow">{brand_html} <span>•</span> 3D Evidence</div>
+            <h2>Inspect layout, light, and finish quality</h2>
+            <p class="sub">Use the original interactive 360 experience as evidence after reviewing the decision brief, not as the decision brief itself.</p>
+            <div class="live-frame-wrap">
+              <iframe
+                class="live-frame"
+                src="{html.escape(source_virtual_tour_url)}"
+                title="{title_html}"
+                allowfullscreen
+                loading="eager"
+                referrerpolicy="no-referrer-when-downgrade"
+              ></iframe>
+            </div>
+          </section>
+        </div>
+        <div class="workspace-stack">
+          <section id="risks" class="panel">
+            <div class="eyebrow">Risk Register</div>
+            <h2>What can still break the decision</h2>
+            <ul>{risks_html}</ul>
+          </section>
+          <section id="research" class="panel">
+            <div class="eyebrow">Research Log</div>
+            <h2>Confirmed, inferred, and open</h2>
+            <details class="research-card" open>
+              <summary>Completed checks</summary>
+              <p class="sub">{html.escape(completed_research_line) if completed_research_line else 'No completed enrichment checks are stored yet.'}</p>
+            </details>
+            <details class="research-card">
+              <summary>Evidence and provenance</summary>
+              <div class="evidence-stack" style="margin-top:12px;">{evidence_html}</div>
+            </details>
+            <details class="research-card">
+              <summary>Open questions</summary>
+              <ul>{unknowns_html}</ul>
+            </details>
+            {detail_request_button}
+          </section>
+          <section class="panel">
+            <div class="eyebrow">Executive Brief</div>
+            <h2>What this means</h2>
+            <div class="ooda-grid">
+              <div class="ooda-cell"><b>Strongest practical upside</b>{html.escape((highlight_lines or ['No clear upside has been stored yet.'])[0])}</div>
+              <div class="ooda-cell"><b>Hardest practical downside</b>{html.escape((concern_lines or ['No concrete downside has been stored yet.'])[0])}</div>
+              <div class="ooda-cell"><b>Most important next check</b>{html.escape((unknown_lines or ['No explicit follow-up question is stored yet.'])[0])}</div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script>
+      const requestButton = document.getElementById("request-details-btn");
+      const requestStatus = document.getElementById("request-details-status");
+      if (requestButton && requestStatus) {{
+        requestButton.addEventListener("click", async () => {{
+          requestButton.disabled = true;
+          requestStatus.textContent = "Requesting deeper research...";
+          try {{
+            const response = await fetch(window.location.pathname + "/request-details", {{
+              method: "POST",
+              headers: {{ "Content-Type": "application/json" }},
+              body: JSON.stringify({{}}),
+            }});
+            const payload = await response.json();
+            if (!response.ok) throw new Error((payload.error && payload.error.code) || "request_failed");
+            requestStatus.textContent = "Deeper research requested. A follow-up task has been opened.";
+          }} catch (error) {{
+            requestButton.disabled = false;
+            requestStatus.textContent = "Could not request deeper research right now.";
+          }}
+        }});
+      }}
+    </script>
+  </body>
+</html>"""
+    if is_pure_360_cube:
+        return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title_html}</title>
+    {clickrank_head_snippet(hostname)}
+    <style>
+      html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111; color: #f8f4eb; font-family: Inter, Arial, sans-serif; }}
+      .topbar {{ position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }}
+      .title {{ min-width: 0; }}
+      .title b {{ display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72vw; }}
+      .title span {{ display: block; margin-top: 3px; color: rgba(248,244,235,.72); font-size: 12px; }}
+      .controls {{ display: flex; gap: 8px; align-items: center; }}
+      button, a.btn {{ min-height: 38px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: #fff; background: rgba(255,255,255,.12); padding: 0 13px; cursor: pointer; text-decoration: none; }}
+      .viewer {{ position: fixed; inset: 0; perspective: 900px; cursor: grab; overflow: hidden; touch-action: none; }}
+      .viewer.dragging {{ cursor: grabbing; }}
+      .cube {{ position: absolute; left: 50%; top: 50%; width: 1024px; height: 1024px; margin-left: -512px; margin-top: -512px; transform-style: preserve-3d; }}
+      .face {{ position: absolute; width: 1024px; height: 1024px; background-size: cover; background-position: center; backface-visibility: hidden; }}
+      .f {{ transform: translateZ(-512px) rotateY(180deg); }}
+      .b {{ transform: translateZ(512px); }}
+      .r {{ transform: rotateY(-90deg) translateZ(512px); }}
+      .l {{ transform: rotateY(90deg) translateZ(512px); }}
+      .u {{ transform: rotateX(-90deg) translateZ(512px); }}
+      .d {{ transform: rotateX(90deg) translateZ(512px); }}
+      .scene-links {{ position: absolute; inset: 0; z-index: 4; pointer-events: none; }}
+      .scene-link {{ position: absolute; top: 50%; transform: translateY(-50%); min-width: 114px; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.64); color: #fffaf2; font: 600 14px/1.2 Inter, Arial, sans-serif; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: auto; }}
+      .scene-link.prev {{ left: 14px; }}
+      .scene-link.next {{ right: 14px; }}
+      .scene-link.disabled {{ opacity: .45; pointer-events: none; }}
+      .filmstrip {{ position: fixed; z-index: 6; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 12px; overflow-x: auto; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }}
+      .thumb {{ flex: 0 0 112px; height: 70px; border: 2px solid transparent; border-radius: 8px; background-size: cover; background-position: center; opacity: .78; }}
+      .thumb.active {{ border-color: #fff; opacity: 1; }}
+      @media (max-width: 720px) {{ .cube {{ transform-origin: center center; }} .title b {{ max-width: 56vw; }} .thumb {{ flex-basis: 92px; height: 58px; }} }}
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="title"><b>{title_html}</b><span>Pure 360 hosted on My External Brain · {html.escape(str(payload.get("scene_count") or len(scene_data)))} locations</span></div>
+      <div class="controls">
+        <button id="prev" type="button">Prev</button>
+        <button id="next" type="button">Next</button>
+        {listing_link}
+      </div>
+    </div>
+    <div id="viewer" class="viewer">
+      <div id="cube" class="cube">
+        <div class="face f"></div><div class="face b"></div><div class="face r"></div>
+        <div class="face l"></div><div class="face u"></div><div class="face d"></div>
+      </div>
+      <div id="scene-links" class="scene-links">
+        <a id="prev-link" class="scene-link prev" href="#"></a>
+        <a id="next-link" class="scene-link next" href="#"></a>
+      </div>
+    </div>
+    <div id="filmstrip" class="filmstrip"></div>
+    <script id="scene-data" type="application/json">{data_json}</script>
+    <script>
+      const scenes = JSON.parse(document.getElementById("scene-data").textContent).filter(s => s.cube_faces && s.cube_faces.f);
+      const viewer = document.getElementById("viewer");
+      const cube = document.getElementById("cube");
+      const filmstrip = document.getElementById("filmstrip");
+      const prevLink = document.getElementById("prev-link");
+      const nextLink = document.getElementById("next-link");
+      let active = 0, yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0;
+      const clampSceneIndex = (value) => ((value % scenes.length) + scenes.length) % scenes.length;
+      function clamp(value, min, max) {{ return Math.max(min, Math.min(max, value)); }}
+      function applyRotation() {{ cube.style.transform = `rotateX(${{pitch}}deg) rotateY(${{yaw}}deg)`; }}
+      function resolveSceneIndex(rawIndex, fallback) {{
+        const index = Number.parseInt(String(rawIndex), 10);
+        if (Number.isInteger(index)) return clampSceneIndex(index);
+        return fallback;
+      }}
+      function makeSceneHref(index) {{
+        const target = new URL(window.location.href);
+        const sceneId = scenes[index]?.scene_id || "";
+        if (sceneId && sceneId !== "1") {{
+          target.searchParams.set("scene", sceneId);
+        }} else {{
+          target.searchParams.delete("scene");
+        }}
+        target.hash = "";
+        return target.pathname + (target.search || "");
+      }}
+      function setLinkState(link, index, labelSuffix) {{
+        if (!link || scenes.length === 0) return;
+        if (index < 0 || index >= scenes.length) {{
+          link.classList.add("disabled");
+          link.removeAttribute("href");
+          link.textContent = "";
+          return;
+        }}
+        link.classList.remove("disabled");
+        link.dataset.index = String(index);
+        link.href = makeSceneHref(index);
+        const label = scenes[index].name || `Location ${{index + 1}}`;
+        link.textContent = `${{labelSuffix}}${{label}}`;
+      }}
+      function setScene(index) {{
+        if (!scenes.length) return;
+        active = clampSceneIndex(index);
+        const faces = scenes[active].cube_faces;
+        for (const key of ["f","b","r","l","u","d"]) {{
+          const node = cube.querySelector("." + key);
+          node.style.backgroundImage = `url("${{faces[key]}}")`;
+        }}
+        [...filmstrip.children].forEach((node, i) => node.classList.toggle("active", i === active));
+        const prevIndex = resolveSceneIndex(scenes[active].prev_scene_index, clampSceneIndex(active - 1));
+        const nextIndex = resolveSceneIndex(scenes[active].next_scene_index, clampSceneIndex(active + 1));
+        setLinkState(prevLink, prevIndex, "◀ ");
+        setLinkState(nextLink, nextIndex, "");
+        const currentUrl = new URL(window.location.href);
+        const sceneId = scenes[active].scene_id || String(active + 1);
+        if (sceneId && sceneId !== "1") currentUrl.searchParams.set("scene", sceneId);
+        else currentUrl.searchParams.delete("scene");
+        currentUrl.hash = "";
+        history.replaceState({{}}, "", currentUrl.pathname + (currentUrl.search || ""));
+      }}
+      scenes.forEach((scene, index) => {{
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "thumb";
+        button.style.backgroundImage = `url("${{scene.image_url || scene.cube_faces.f}}")`;
+        button.title = scene.name || `Location ${{index + 1}}`;
+        button.addEventListener("click", () => setScene(index));
+        filmstrip.appendChild(button);
+      }});
+      viewer.addEventListener("pointerdown", (event) => {{ dragging = true; lastX = event.clientX; lastY = event.clientY; viewer.classList.add("dragging"); viewer.setPointerCapture(event.pointerId); }});
+      viewer.addEventListener("pointermove", (event) => {{ if (!dragging) return; yaw += (event.clientX - lastX) * .12; pitch = clamp(pitch - (event.clientY - lastY) * .12, -80, 80); lastX = event.clientX; lastY = event.clientY; applyRotation(); }});
+      viewer.addEventListener("pointerup", () => {{ dragging = false; viewer.classList.remove("dragging"); }});
+      viewer.addEventListener("pointercancel", () => {{ dragging = false; viewer.classList.remove("dragging"); }});
+      prevLink.addEventListener("click", (event) => {{ event.preventDefault(); const index = Number.parseInt(String(prevLink.dataset.index || ""), 10); if (Number.isInteger(index)) setScene(index); }});
+      nextLink.addEventListener("click", (event) => {{ event.preventDefault(); const index = Number.parseInt(String(nextLink.dataset.index || ""), 10); if (Number.isInteger(index)) setScene(index); }});
+      document.getElementById("prev").addEventListener("click", () => setScene(active - 1));
+      document.getElementById("next").addEventListener("click", () => setScene(active + 1));
+      window.addEventListener("keydown", (event) => {{ if (event.key === "ArrowLeft") setScene(active - 1); if (event.key === "ArrowRight") setScene(active + 1); }});
+      const initialScene = new URLSearchParams(window.location.search).get("scene");
+      const initialSceneIndex = scenes.findIndex((scene) => String(scene.scene_id || "").trim() === String(initialScene || "").trim());
+      setScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
+      applyRotation();
+    </script>
+  </body>
+</html>"""
     live_shell = (
         f'''
         <section id="live-360" class="live-shell">
@@ -675,7 +1974,10 @@ def _render_tour_unavailable_page(
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
 def public_tour_payload(slug: str) -> JSONResponse:
-    return JSONResponse(_load_tour(slug))
+    payload = _load_tour(slug)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    return JSONResponse(payload)
 
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
@@ -685,13 +1987,61 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
     return FileResponse(file_path, media_type=media_type)
 
 
+@router.post("/tours/{slug}/request-details", response_class=JSONResponse)
+def public_tour_request_details(
+    slug: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> JSONResponse:
+    payload = _load_tour(slug)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    principal_id = str(payload.get("principal_id") or "").strip()
+    property_url = str(payload.get("property_url") or payload.get("listing_url") or "").strip()
+    if not principal_id or not property_url:
+        raise HTTPException(status_code=409, detail="tour_detail_request_unavailable")
+    result = build_product_service(container).request_property_tour_detail_refresh(
+        principal_id=principal_id,
+        property_url=property_url,
+        title=str(payload.get("display_title") or payload.get("title") or "").strip(),
+        variant_key=str(payload.get("variant_key") or "layout_first").strip() or "layout_first",
+        recipient_email=str(payload.get("recipient_email") or "").strip(),
+        source_ref=str(payload.get("source_ref") or "").strip(),
+        external_id=str(payload.get("external_id") or "").strip(),
+        actor=f"public_tour:{request_hostname(request)}",
+    )
+    return JSONResponse(result)
+
+
 @router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def public_tour_page(slug: str, request: Request) -> HTMLResponse:
     try:
         payload = _load_tour(slug)
+        if _tour_payload_is_disabled_fallback(payload):
+            raise HTTPException(status_code=404, detail="tour_disabled_fallback")
         return HTMLResponse(_tour_html(payload, hostname=request_hostname(request)))
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
+        if exc.status_code == 404 and detail == "tour_disabled_fallback":
+            return _render_tour_unavailable_page(
+                request,
+                status_code=404,
+                title="This tour link is no longer available.",
+                summary="Fallback listing-summary tours are disabled. Ask the sender for a real 360 tour or a fresh live-tour link.",
+                status_label="Tour unavailable",
+                rows=[
+                    {
+                        "label": "Tour state",
+                        "value": "Disabled fallback",
+                        "detail": "This link pointed to a generated fallback page rather than a real tour.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Request a real 360 tour",
+                        "detail": "Only hosted pure-360 or live panorama tours remain available on this surface.",
+                    },
+                ],
+            )
         if exc.status_code == 404 and detail == "tour_not_found":
             return _render_tour_unavailable_page(
                 request,

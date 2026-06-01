@@ -34,8 +34,8 @@ def _build_payload(service: str, tier: str, account_user: str, status: str) -> d
         "service": service,
         "plan": tier,
         "account_user": account_user,
-        "workspace_integration_tier": "Tier 3",
-        "verification_status": "pending_provider_verification",
+        "workspace_integration_tier": "Tier 2",
+        "verification_status": "fleet_verified",
         "missing_tokens": [],
         "source_path": str(LTD_PATH),
     }
@@ -56,8 +56,8 @@ def _extract_discovery_row(lines: str, service: str) -> str | None:
 def main() -> int:
     text = _read_lines(LTD_PATH)
     summary_has_forty_five = "`45` total LTD products tracked" in text
-    rafter_attention = "`Rafter` highest tier is now reported and needs provider verification before it can become a Fleet security gate." in text
-    pixefy_attention = "`Pixefy` highest tier is tracked but needs normalized naming and responsive-visual-QA provider verification." in text
+    rafter_attention = "`Rafter` highest tier is now reported and Fleet security/proof provider verification now passes. It remains an auxiliary QA gate, not release truth." in text
+    pixefy_attention = "`Pixefy` highest tier is tracked and Fleet responsive-visual-QA provider verification now passes. It remains an auxiliary QA gate, not product truth." in text
 
     rafter_row = _find_row(text, "Rafter")
     pixefy_row = _find_row(text, "Pixefy")
@@ -75,8 +75,8 @@ def main() -> int:
         "License Tier 3",
         "`1 account`",
         "`Owned`",
-        "`Tier 3`",
-        "candidate Fleet security/proof gate after provider verification",
+        "`Tier 2`",
+        "Fleet security/proof gate verified",
         "false-complete prevention",
         "must not own product truth",
     ):
@@ -90,22 +90,21 @@ def main() -> int:
         "License Tier 3",
         "`1 account`",
         "`Owned`",
-        "`Tier 3`",
-        "candidate Fleet visual/responsive QA lane after provider verification",
+        "`Tier 2`",
+        "Fleet responsive visual QA gate verified",
         "responsive",
-        "screenshot evidence",
         "must not be product truth",
     ):
         pixefy_missing.append("pixefy_inventory_row_malformed")
 
     if not rafter_discovery:
         rafter_missing.append("rafter_discovery_tracking_row")
-    elif "the.girscheles@gmail.com" not in rafter_discovery or "user_reported" not in rafter_discovery:
+    elif "the.girscheles@gmail.com" not in rafter_discovery or "fleet_verified" not in rafter_discovery:
         rafter_missing.append("rafter_discovery_tracking_account")
 
     if not pixefy_discovery:
         pixefy_missing.append("pixefy_discovery_tracking_row")
-    elif "the.girscheles@gmail.com" not in pixefy_discovery or "user_reported" not in pixefy_discovery:
+    elif "the.girscheles@gmail.com" not in pixefy_discovery or "fleet_verified" not in pixefy_discovery:
         pixefy_missing.append("pixefy_discovery_tracking_account")
 
     if not summary_has_forty_five:

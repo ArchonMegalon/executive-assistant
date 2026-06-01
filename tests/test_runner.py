@@ -363,6 +363,62 @@ def test_scheduler_google_signal_sync_runs_for_enabled_google_bindings(
     assert calls == ["principal-google-1|scheduler|5|5"]
 
 
+def test_scheduler_google_signal_sync_runs_configured_property_mailboxes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    monkeypatch.setenv("EA_PROPERTY_ALERT_ACCOUNT_EMAILS", "elisabeth.girschele@gmail.com")
+
+    calls: list[str] = []
+    property_calls: list[str] = []
+    google_binding = ConnectorBinding(
+        binding_id="binding-google-1",
+        principal_id="principal-google-1",
+        connector_name="google_workspace",
+        external_account_ref="tibor@example.com",
+        scope_json={},
+        auth_metadata_json={"google_email": "tibor@example.com"},
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+
+    class _FakeService:
+        def sync_google_workspace_signals(self, *, principal_id: str, actor: str, email_limit: int, calendar_limit: int):
+            calls.append(f"{principal_id}|{actor}|{email_limit}|{calendar_limit}")
+            return {"total": 0}
+
+        def sync_google_willhaben_signals(self, *, principal_id: str, actor: str, account_email: str, email_limit: int):
+            property_calls.append(f"{principal_id}|{actor}|{account_email}|{email_limit}")
+            return {"synced_total": 2}
+
+    container = SimpleNamespace(
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [google_binding]
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_google_signal_sync(container, logging.getLogger("test.runner"))
+
+    assert summary == {
+        "ran": True,
+        "attempted": 1,
+        "synced": 1,
+        "errors": 0,
+        "skipped": 0,
+        "property_accounts": ["elisabeth.girschele@gmail.com"],
+        "property_attempted": 1,
+        "property_synced": 2,
+    }
+    assert calls == ["principal-google-1|scheduler|5|5"]
+    assert property_calls == ["principal-google-1|scheduler|elisabeth.girschele@gmail.com|10"]
+
+
 def test_scheduler_pocket_signal_sync_runs_for_default_principal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

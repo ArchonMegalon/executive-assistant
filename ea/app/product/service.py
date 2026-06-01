@@ -4,11 +4,14 @@ import base64
 import csv
 import hashlib
 import hmac
+import html
+import io
 import json
 import mimetypes
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import tempfile
 import time
@@ -18,12 +21,24 @@ import urllib.request
 import zipfile
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import yaml
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - optional OCR fallback
+    Image = None
+
+try:
+    import pytesseract
+except Exception:  # pragma: no cover - optional OCR fallback
+    pytesseract = None
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
@@ -201,10 +216,18 @@ _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36
 _PROPERTY_SCOUT_LISTING_HOSTS = (
     "willhaben.at",
     "immmo.at",
+    "kalandra.at",
     "immoscout24.at",
     "immoscout24.com",
     "immobilienscout24.at",
     "immobilienscout24.de",
+)
+_PROPERTY_SCOUT_360_HOST_MARKERS = (
+    "360.kalandra.at",
+    "matterport.com",
+    "my.matterport.com",
+    "ogulo.de",
+    "feelestate.com",
 )
 
 
@@ -248,6 +271,28 @@ def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
     return tuple(specs)
 
 
+def _property_alert_preference_person_id(payload: dict[str, object] | None = None) -> str:
+    account_email = str(dict(payload or {}).get("account_email") or "").strip().lower()
+    raw_map = str(os.getenv("EA_PROPERTY_ALERT_ACCOUNT_PERSON_MAP_JSON") or "").strip()
+    if raw_map and account_email:
+        try:
+            parsed = json.loads(raw_map)
+        except Exception:
+            parsed = {}
+        if isinstance(parsed, dict):
+            mapped = str(parsed.get(account_email) or parsed.get(account_email.lower()) or "").strip()
+            if mapped:
+                return mapped
+    return (
+        str(
+            os.getenv("EA_PROPERTY_ALERT_DEFAULT_PERSON_ID")
+            or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
+            or "self"
+        ).strip()
+        or "self"
+    )
+
+
 def _property_scout_fetch_html(url: str) -> str:
     request = urllib.request.Request(
         str(url or "").strip(),
@@ -271,7 +316,8 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     if any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".css", ".js", ".json")):
         return False
     if _is_willhaben_property_url(normalized):
-        return "/iad/immobilien/d/" in path
+        query = urllib.parse.parse_qs(parsed.query)
+        return "/iad/immobilien/d/" in path or (path == "/iad/object" and bool(query.get("adId") or query.get("adid")))
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
     return any(
@@ -306,14 +352,67 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
 
 
 def _property_scout_extract_meta_content(html: str, property_name: str) -> str:
+    values = _property_scout_extract_meta_contents(html, property_name)
+    return compact_text(values[0], fallback="", limit=400) if values else ""
+
+
+def _property_scout_extract_meta_contents(html: str, property_name: str) -> tuple[str, ...]:
     pattern = re.compile(
         r'<meta[^>]+(?:property|name)=["\']'
         + re.escape(property_name)
         + r'["\'][^>]+content=["\']([^"\']+)["\']',
         re.IGNORECASE,
     )
-    match = pattern.search(str(html or ""))
-    return compact_text(match.group(1), fallback="", limit=400) if match else ""
+    values: list[str] = []
+    seen: set[str] = set()
+    for match in pattern.finditer(str(html or "")):
+        value = str(match.group(1) or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            values.append(value)
+    return tuple(values)
+
+
+def _property_scout_extract_html_attr_urls(*, source_url: str, html: str, attr_name: str) -> tuple[str, ...]:
+    values: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        rf"""{re.escape(attr_name)}=["']([^"']+)["']""",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(str(html or "").replace("&amp;", "&")):
+        raw = str(match.group(1) or "").strip()
+        if not raw:
+            continue
+        normalized = urllib.parse.urljoin(source_url, raw)
+        parsed = urllib.parse.urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        if normalized not in seen:
+            seen.add(normalized)
+            values.append(normalized)
+    return tuple(values)
+
+
+def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: str) -> str:
+    candidates: list[str] = []
+    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
+    candidates.extend(_extract_urls_from_text(normalized_html))
+    candidates.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="href"))
+    candidates.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="src"))
+    for raw in candidates:
+        normalized = urllib.parse.urldefrag(str(raw or "").strip())[0]
+        if not normalized:
+            continue
+        parsed = urllib.parse.urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+        host = parsed.netloc.lower()
+        path = parsed.path.lower()
+        combined = f"{host}{path}"
+        if any(marker in combined for marker in _PROPERTY_SCOUT_360_HOST_MARKERS):
+            return normalized
+    return ""
 
 
 def _property_scout_page_preview(property_url: str) -> dict[str, object]:
@@ -340,12 +439,394 @@ def _property_scout_page_preview(property_url: str) -> dict[str, object]:
     og_title = _property_scout_extract_meta_content(html, "og:title")
     og_description = _property_scout_extract_meta_content(html, "og:description")
     meta_description = _property_scout_extract_meta_content(html, "description")
+    og_images = _property_scout_extract_meta_contents(html, "og:image")
+    src_images = tuple(
+        value
+        for value in _property_scout_extract_html_attr_urls(source_url=normalized, html=html, attr_name="src")
+        if urllib.parse.urlparse(value).path.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+    )
+    source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url(source_url=normalized, html=html)
+    media_urls = tuple(dict.fromkeys(tuple(urllib.parse.urljoin(normalized, value) for value in og_images if str(value or "").strip()) + src_images))
     return {
         "listing_id": normalized,
         "title": og_title or title or normalized,
         "summary": og_description or meta_description,
-        "property_facts_json": {},
+        "property_facts_json": {
+            "has_360": bool(source_virtual_tour_url),
+            "source_virtual_tour_url": source_virtual_tour_url,
+            "panorama_source": urllib.parse.urlparse(source_virtual_tour_url).netloc.lower() if source_virtual_tour_url else "",
+        },
+        "media_urls_json": media_urls[:12],
+        "floorplan_urls_json": (),
+        "source_virtual_tour_url": source_virtual_tour_url,
+        "panorama_source": urllib.parse.urlparse(source_virtual_tour_url).netloc.lower() if source_virtual_tour_url else "",
     }
+
+
+def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
+    from math import atan2, cos, radians, sin, sqrt
+
+    earth_radius_m = 6_371_000.0
+    phi_a = radians(lat_a)
+    phi_b = radians(lat_b)
+    delta_phi = radians(lat_b - lat_a)
+    delta_lambda = radians(lon_b - lon_a)
+    arc = sin(delta_phi / 2.0) ** 2 + cos(phi_a) * cos(phi_b) * sin(delta_lambda / 2.0) ** 2
+    return int(round(2.0 * earth_radius_m * atan2(sqrt(arc), sqrt(max(1.0 - arc, 0.0)))))
+
+
+@lru_cache(maxsize=128)
+def _property_research_reverse_geocode(lat: float, lon: float) -> dict[str, object]:
+    request = urllib.request.Request(
+        (
+            "https://nominatim.openstreetmap.org/reverse?"
+            f"format=jsonv2&lat={lat:.8f}&lon={lon:.8f}&zoom=18&addressdetails=1"
+        ),
+        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+@lru_cache(maxsize=128)
+def _property_research_forward_geocode(query: str) -> dict[str, object]:
+    normalized = str(query or "").strip()
+    if not normalized:
+        return {}
+    request = urllib.request.Request(
+        (
+            "https://nominatim.openstreetmap.org/search?"
+            f"format=jsonv2&limit=1&q={urllib.parse.quote(normalized)}"
+        ),
+        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, list) or not payload:
+        return {}
+    row = payload[0]
+    return row if isinstance(row, dict) else {}
+
+
+def _property_fact_value_is_weak(value: object) -> bool:
+    if value is None:
+        return True
+    if value is False:
+        return True
+    if isinstance(value, (int, float)):
+        return float(value) <= 0.0
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return True
+        return all(_property_fact_value_is_weak(item) for item in value)
+    if isinstance(value, dict):
+        return not value
+    return False
+
+
+def _property_image_ocr_address_hint(image_urls: tuple[str, ...], *, source_text: str = "", property_url: str = "") -> dict[str, object]:
+    if not image_urls or Image is None or pytesseract is None or not shutil.which("tesseract"):
+        return {}
+    normalized_source_text = " ".join(str(source_text or "").split())
+    lowered_source_text = normalized_source_text.lower()
+    parsed_property_url = urllib.parse.urlparse(str(property_url or "").strip())
+    expected_postcodes = set(re.findall(r"\b(\d{4})\b", normalized_source_text))
+    expected_city = "Wien" if "wien" in lowered_source_text else ""
+    expected_country = "Österreich" if parsed_property_url.netloc.lower().endswith(".at") else ""
+    street_tokens = (
+        "straße",
+        "strasse",
+        "gasse",
+        "weg",
+        "platz",
+        "allee",
+        "kai",
+        "ring",
+        "zeile",
+        "steig",
+    )
+    candidate_queries: list[str] = []
+    seen_queries: set[str] = set()
+    for image_url in image_urls[:6]:
+        try:
+            request = urllib.request.Request(str(image_url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
+            with urllib.request.urlopen(request, timeout=8.0) as response:
+                content_type = str(response.headers.get("Content-Type") or "").lower()
+                content_length = int(response.headers.get("Content-Length") or "0")
+                if content_type and not content_type.startswith("image/"):
+                    continue
+                if content_length > 10_000_000:
+                    continue
+                content = response.read()
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            continue
+        try:
+            image = Image.open(io.BytesIO(content))
+            gray = image.convert("L")
+            text = pytesseract.image_to_string(gray, config="--psm 11")
+        except Exception:
+            continue
+        for raw_line in text.splitlines():
+            line = " ".join(str(raw_line or "").split())
+            lowered = line.lower()
+            if not line or not any(token in lowered for token in street_tokens):
+                continue
+            normalized = re.sub(r"[^0-9A-Za-zÄÖÜäöüß .,/\\-]", " ", line)
+            normalized = " ".join(normalized.split())
+            if not re.search(r"\d", normalized):
+                continue
+            search_query = normalized
+            context_suffix = " ".join(part for part in (expected_city, expected_country) if part).strip()
+            if context_suffix and expected_city.lower() not in normalized.lower() and expected_country.lower() not in normalized.lower():
+                search_query = f"{normalized}, {context_suffix}"
+            if search_query.lower() in seen_queries:
+                continue
+            seen_queries.add(search_query.lower())
+            candidate_queries.append(search_query)
+    for query in candidate_queries:
+        geocoded = _property_research_forward_geocode(query)
+        try:
+            lat = float(geocoded.get("lat"))
+            lon = float(geocoded.get("lon"))
+        except (TypeError, ValueError):
+            continue
+        reverse = _property_research_reverse_geocode(lat, lon)
+        address = dict(reverse.get("address") or {}) if isinstance(reverse.get("address"), dict) else {}
+        road = str(address.get("road") or "").strip()
+        house_number = str(address.get("house_number") or "").strip()
+        if not road or not house_number:
+            continue
+        postcode = str(address.get("postcode") or "").strip()
+        city = str(address.get("city") or address.get("town") or address.get("village") or "").strip()
+        if expected_postcodes and postcode and postcode not in expected_postcodes:
+            continue
+        if expected_city and city and expected_city.lower() not in city.lower():
+            continue
+        findings: dict[str, object] = {
+            "map_lat": lat,
+            "map_lng": lon,
+            "street_address": f"{road} {house_number}",
+        }
+        address_line_2 = " ".join(part for part in (postcode, city) if part).strip()
+        findings["address_lines"] = [findings["street_address"], address_line_2] if address_line_2 else [findings["street_address"]]
+        display_name = str(reverse.get("display_name") or geocoded.get("display_name") or "").strip()
+        if display_name:
+            findings["exact_address"] = display_name
+        findings.update(_property_research_nearby_pois(lat, lon))
+        return findings
+    return {}
+
+
+@lru_cache(maxsize=128)
+def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
+    query = f"""
+[out:json][timeout:20];
+(
+  node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
+  way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
+);
+out center tags;
+"""
+    request = urllib.request.Request(
+        "https://overpass-api.de/api/interpreter",
+        data=query.encode("utf-8"),
+        headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
+    closest: dict[str, tuple[int, str]] = {}
+    for row in elements:
+        if not isinstance(row, dict):
+            continue
+        tags = dict(row.get("tags") or {})
+        point_lat = row.get("lat")
+        point_lon = row.get("lon")
+        if point_lat is None or point_lon is None:
+            center = dict(row.get("center") or {})
+            point_lat = center.get("lat")
+            point_lon = center.get("lon")
+        if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
+            continue
+        distance_m = _property_research_distance_m(lat, lon, float(point_lat), float(point_lon))
+        if tags.get("shop") == "supermarket":
+            metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
+        elif tags.get("amenity") == "pharmacy":
+            metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
+        elif tags.get("leisure") == "playground":
+            metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+        elif tags.get("railway") == "subway_entrance":
+            metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
+        else:
+            continue
+        current = closest.get(metric_key)
+        if current is None or distance_m < current[0]:
+            closest[metric_key] = (distance_m, str(tags.get("name") or "").strip())
+            closest[name_key] = (distance_m, str(tags.get("name") or "").strip())
+    result: dict[str, object] = {}
+    for key, value in closest.items():
+        if key.endswith("_name"):
+            result[key] = value[1]
+        else:
+            result[key] = value[0]
+    return result
+
+
+@lru_cache(maxsize=128)
+def _property_source_research_snapshot(property_url: str, image_urls: tuple[str, ...] = ()) -> dict[str, object]:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized or not _property_scout_is_supported_listing_url(normalized):
+        return {}
+    try:
+        source_html = _property_scout_fetch_html(normalized)
+    except Exception:
+        return {}
+    plain = re.sub(r"<[^>]+>", " ", source_html)
+    plain = html.unescape(plain)
+    plain_text = " ".join(plain.split())
+    lowered = plain_text.lower()
+    findings: dict[str, object] = {}
+
+    lat_match = re.search(r'data-map-lat="([0-9.]+)"', source_html)
+    lon_match = re.search(r'data-map-lng="([0-9.]+)"', source_html)
+    if lat_match and lon_match:
+        try:
+            lat = float(lat_match.group(1))
+            lon = float(lon_match.group(1))
+            findings["map_lat"] = lat
+            findings["map_lng"] = lon
+            reverse = _property_research_reverse_geocode(lat, lon)
+            address = dict(reverse.get("address") or {}) if isinstance(reverse.get("address"), dict) else {}
+            road = str(address.get("road") or "").strip()
+            house_number = str(address.get("house_number") or "").strip()
+            postcode = str(address.get("postcode") or "").strip()
+            city = str(address.get("city") or address.get("town") or address.get("village") or "").strip()
+            if road and house_number:
+                findings["street_address"] = f"{road} {house_number}"
+                address_line_2 = " ".join(part for part in (postcode, city) if part).strip()
+                findings["address_lines"] = [findings["street_address"], address_line_2] if address_line_2 else [findings["street_address"]]
+            display_name = str(reverse.get("display_name") or "").strip()
+            if display_name:
+                findings["exact_address"] = display_name
+            findings.update(_property_research_nearby_pois(lat, lon))
+        except ValueError:
+            pass
+
+    if "personenaufzug" in lowered or "aufzug" in lowered or "lift" in lowered:
+        findings["lift"] = True
+    if any(token in lowered for token in ("plan_top", "plan top", "raumskizze", "grundriss", "floor plan")):
+        findings["has_floorplan"] = True
+    if "beziehbar sofort" in lowered:
+        findings["availability"] = "Sofort"
+    if "hauszentralheizung (gas)" in lowered or "house central heating (by gas)" in lowered:
+        findings["heating_type"] = "Hauszentralheizung (Gas)"
+    elif "gasheizung" in lowered:
+        findings["heating_type"] = "Gasheizung"
+    if "8 wohneinheiten" in lowered or "8 residential units" in lowered:
+        findings["building_units"] = 8
+    if "tiefgaragenstellplatz" in lowered or "underground parking space" in lowered:
+        findings["garage"] = True
+    if "5 jahre befristetes mietverhältnis" in lowered or "up to 5 years duration" in lowered:
+        findings["lease_term_years_max"] = 5
+    if "neuwertig" in lowered:
+        findings["state"] = "neuwertig"
+
+    rooms_match = re.search(r"zimmer\s+(\d+(?:[.,]\d+)?)", plain_text, flags=re.IGNORECASE)
+    if rooms_match:
+        try:
+            findings["rooms"] = float(rooms_match.group(1).replace(",", "."))
+        except ValueError:
+            pass
+    area_match = re.search(r"Wohnfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE)
+    if area_match:
+        try:
+            findings["area_sqm"] = float(area_match.group(1).replace(",", "."))
+        except ValueError:
+            pass
+    terrace_match = re.search(r"Terrassenfl[aä]che\s+ca\.\s*(\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE)
+    if terrace_match:
+        try:
+            findings["terrace_area_sqm"] = float(terrace_match.group(1).replace(",", "."))
+        except ValueError:
+            pass
+    price_match = re.search(r"Gesamtmiete:\s*(\d[\d\.,]*)\s*€", plain_text, flags=re.IGNORECASE)
+    if price_match:
+        normalized_price = price_match.group(1).replace(".", "").replace(",", ".")
+        try:
+            findings["total_rent_eur"] = float(normalized_price)
+        except ValueError:
+            pass
+    if re.search(r"Euro\s*120,00", plain_text, flags=re.IGNORECASE):
+        findings["parking_monthly_eur"] = 120.0
+    district_match = re.search(r"\b(1\d{3}\s+Wien)\b", plain_text, flags=re.IGNORECASE)
+    if district_match:
+        findings["postal_name"] = district_match.group(1)
+    if "salmannsdorf" in lowered:
+        findings["district"] = "Salmannsdorf"
+
+    poi_patterns = {
+        "nearest_transit_m": r"Bus</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_tram_bus_m": r"Straßenbahn / Bus</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_subway_m": r"U-Bahn</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_pharmacy_m": r"Apotheke</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_clinic_m": r"Klinik</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_hospital_m": r"Krankenhaus</span>\s*<span[^>]*>\s*(\d+)\s*m",
+    }
+    for key, pattern in poi_patterns.items():
+        match = re.search(pattern, source_html, flags=re.IGNORECASE)
+        if match:
+            findings[key] = int(match.group(1))
+    if "street_address" not in findings:
+        findings.update(
+            _property_image_ocr_address_hint(
+                tuple(str(value or "").strip() for value in image_urls if str(value or "").strip()),
+                source_text=plain_text,
+                property_url=normalized,
+            )
+        )
+    return findings
+
+
+def _merge_property_facts_with_source_research(
+    *,
+    property_url: str,
+    property_facts: dict[str, object],
+    image_urls: tuple[str, ...] = (),
+) -> dict[str, object]:
+    merged = dict(property_facts or {})
+    research = _property_source_research_snapshot(property_url, image_urls)
+    if not research:
+        return merged
+    for key, value in research.items():
+        existing = merged.get(key)
+        if _property_fact_value_is_weak(existing):
+            merged[key] = value
+    merged["listing_research_snapshot"] = dict(research)
+    merged["listing_research_meta"] = {
+        "captured_at": _now_iso(),
+        "source_url": str(property_url or "").strip(),
+        "field_count": len(research),
+        "strategy": "provider_html_plus_geo",
+    }
+    return merged
 
 
 def _property_scout_candidate_payload_from_preview(*, property_url: str, preview: dict[str, object]) -> dict[str, object]:
@@ -1248,7 +1729,7 @@ def _willhaben_property_urls_from_signal(
             continue
         seen.add(normalized)
         all_urls.append(normalized)
-    return tuple(value for value in all_urls if _is_willhaben_property_url(value))
+    return tuple(value for value in all_urls if _is_willhaben_property_url(value) and _property_scout_is_supported_listing_url(value))
 
 
 def _property_listing_url_from_signal(
@@ -1292,7 +1773,7 @@ def _property_listing_url_from_signal(
     )
     for value in all_urls:
         lowered = value.lower()
-        if any(host in lowered for host in supported_hosts):
+        if any(host in lowered for host in supported_hosts) and _property_scout_is_supported_listing_url(value):
             return value
     return ""
 
@@ -1517,6 +1998,7 @@ def _property_alert_ranked_candidates(
     *,
     preference_profiles,
     principal_id: str,
+    person_id: str = "self",
     property_urls: tuple[str, ...],
     limit: int = 3,
 ) -> tuple[dict[str, object], ...]:
@@ -1536,6 +2018,7 @@ def _property_alert_ranked_candidates(
         assessment = _property_alert_personal_fit_assessment(
             preference_profiles=preference_profiles,
             principal_id=principal_id,
+            person_id=str(person_id or "").strip() or "self",
             property_url=normalized,
         )
         rows.append(
@@ -1840,6 +2323,50 @@ def _property_tour_delivery_message(
         body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
     body.extend(["", "Open the tour link to review the space directly."])
     return subject[:220], "\n".join(body).strip() + "\n"
+
+
+def _public_property_preference_snapshot(
+    *,
+    preference_profile_service: object,
+    principal_id: str,
+    person_id: str = "self",
+    domain: str,
+) -> dict[str, object]:
+    try:
+        bundle = preference_profile_service.get_profile_bundle(
+            principal_id=principal_id,
+            person_id=str(person_id or "").strip() or "self",
+        )
+    except Exception:
+        return {}
+    nodes = []
+    for row in list(dict(bundle or {}).get("preference_nodes") or []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "").strip().lower() != "active":
+            continue
+        row_domain = str(row.get("domain") or "").strip().lower()
+        if row_domain and row_domain not in {str(domain or "").strip().lower(), "willhaben", "property_scout"}:
+            continue
+        key = str(row.get("key") or "").strip()
+        category = str(row.get("category") or "").strip()
+        if not key or not category:
+            continue
+        nodes.append(
+            {
+                "key": key,
+                "category": category,
+                "value_json": row.get("value_json"),
+                "confidence": float(row.get("confidence") or 0.0),
+            }
+        )
+    if not nodes:
+        return {}
+    return {
+        "domain": str(domain or "").strip(),
+        "person_id": str(person_id or "").strip() or "self",
+        "preference_nodes": nodes,
+    }
 
 
 def _property_tour_followup_telegram_text(
@@ -3352,6 +3879,18 @@ def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[s
     return branded_tour_url, vendor_tour_url
 
 
+def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, object]) -> bool:
+    normalized = dict(structured_output or {})
+    if str(normalized.get("scene_strategy") or "").strip() == "generated_listing_summary":
+        return True
+    if str(normalized.get("creation_mode") or "").strip() == "hosted_listing_fallback":
+        return True
+    scenes = [dict(entry) for entry in (normalized.get("scenes") or []) if isinstance(entry, dict)]
+    if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
+        return True
+    return False
+
+
 def _ensure_hosted_property_tour_url(structured_output: dict[str, object]) -> dict[str, object]:
     normalized = dict(structured_output or {})
     if _first_non_empty_text(normalized.get("hosted_url")):
@@ -3430,6 +3969,188 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if source_virtual_tour_url:
         return f"{hosted_url}#live-360"
     return hosted_url
+
+
+def _safe_live_property_tour_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return normalized
+
+
+def _hosted_property_tour_slug(*, title: str, listing_id: str, property_url: str, variant_key: str) -> str:
+    seed = _first_non_empty_text(title, listing_id, property_url, "property tour")
+    normalized = seed.encode("ascii", "ignore").decode("ascii").lower()
+    base = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-") or "property-tour"
+    variant = re.sub(r"[^a-z0-9]+", "-", str(variant_key or "layout_first").lower()).strip("-") or "layout-first"
+    digest = hashlib.sha256(f"{property_url}|{listing_id}|{variant}".encode("utf-8")).hexdigest()[:10]
+    return f"{base[:96].strip('-') or 'property-tour'}-{variant}-{digest}"
+
+
+def _feelestate_json_rpc(method: str, params: list[object]) -> dict[str, object]:
+    request = urllib.request.Request(
+        "https://cms.feelestate.com/json",
+        data=json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": "1"}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8", "ignore"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("result"), dict):
+        raise RuntimeError("feelestate_json_rpc_failed")
+    return dict(payload["result"])
+
+
+def _download_public_tour_asset(url: str, target: Path) -> None:
+    request = urllib.request.Request(str(url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        data = response.read()
+    if not data:
+        raise RuntimeError("tour_asset_empty")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+
+
+def _write_hosted_feelestate_pure_360_property_tour_bundle(
+    *,
+    principal_id: str,
+    title: str,
+    listing_id: str,
+    property_url: str,
+    variant_key: str,
+    source_virtual_tour_url: str,
+    property_facts_json: dict[str, object],
+    source_host: str,
+    source_ref: str = "",
+    external_id: str = "",
+    recipient_email: str = "",
+) -> dict[str, object]:
+    live_url = _safe_live_property_tour_url(source_virtual_tour_url)
+    parsed_live = urllib.parse.urlparse(live_url)
+    if "360.kalandra.at" not in parsed_live.netloc.lower() and "feelestate" not in parsed_live.netloc.lower():
+        raise RuntimeError("pure_360_source_unsupported")
+    base_url = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    bundle_dir = public_dir / slug
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    root = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, None, 63379, None, ""])
+    tour = dict(root.get("tour") or {})
+    floors = [dict(row) for row in list(tour.get("floors") or []) if isinstance(row, dict)]
+    floor_id = int(str((floors[0] if floors else {}).get("id") or 85470))
+    locations_payload = _feelestate_json_rpc("getAllFloorLocations", [floor_id])
+    locations = [dict(row) for row in list(locations_payload.get("locations") or []) if isinstance(row, dict)]
+    if not locations:
+        raise RuntimeError("pure_360_locations_missing")
+    face_names = ("r", "l", "u", "d", "f", "b")
+    scenes: list[dict[str, object]] = []
+    for ordinal, location_ref in enumerate(locations[:24], start=1):
+        location_id = int(str(location_ref.get("id") or "0"))
+        if location_id <= 0:
+            continue
+        detail = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, location_id, 63379, None, ""])
+        location = dict(detail.get("location") or {})
+        if not location:
+            continue
+        rel_dir = f"panorama/{location_id}"
+        cube_faces: dict[str, str] = {}
+        source_base = (
+            "https://s3.eu-central-1.amazonaws.com/feelestate-userdata/"
+            f"userdata/customer_6489/tour_63379/floor_{floor_id}/location_{location_id}/panorama"
+        )
+        for face in face_names:
+            rel = f"{rel_dir}/tablet_{face}.jpg"
+            _download_public_tour_asset(f"{source_base}/tablet_{face}.jpg", bundle_dir / rel)
+            cube_faces[face] = rel
+        preview_rel = f"{rel_dir}/preview.jpg"
+        try:
+            _download_public_tour_asset(f"{source_base}/preview.jpg", bundle_dir / preview_rel)
+        except Exception:
+            preview_rel = cube_faces["f"]
+        scenes.append(
+            {
+                "ordinal": ordinal,
+                "name": str(location.get("name") or location_ref.get("name") or f"Location {location_id}").strip(),
+                "role": "pure_360",
+                "location_id": location_id,
+                "asset_relpath": preview_rel,
+                "cube_faces": cube_faces,
+                "yaw": float(location.get("gotoYaw") or 0),
+                "pitch": float(location.get("gotoPitch") or 0),
+                "source_url": live_url,
+                "property_url": property_url,
+                "mime_type": "image/jpeg",
+            }
+        )
+    for index, scene in enumerate(scenes):
+        if not scenes:
+            break
+        location_ids = [str(entry.get("location_id") or "").strip() for entry in scenes]
+        prev_index = (index - 1) % len(scenes)
+        next_index = (index + 1) % len(scenes)
+        prev_id = location_ids[prev_index]
+        next_id = location_ids[next_index]
+        if prev_id:
+            scene["prev_scene_id"] = prev_id
+            scene["prev_scene_index"] = prev_index
+        if next_id:
+            scene["next_scene_id"] = next_id
+            scene["next_scene_index"] = next_index
+    if not scenes:
+        raise RuntimeError("pure_360_scenes_missing")
+    facts = dict(property_facts_json or {})
+    existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
+    existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
+    facts.update(
+        {
+            "has_360": True,
+            "tour_media_mode": "panorama_360",
+            "source_virtual_tour_url": "",
+            "panorama_source": "feelestate_mirrored",
+            "address_lines": existing_address_lines or ([source_host] if source_host else []),
+            "teaser_attributes": existing_teasers or ["Pure My External Brain 360 tour", f"{len(scenes)} mirrored panorama locations"],
+        }
+    )
+    display_title = compact_text(title, fallback="Pure 360 Property Tour", limit=180)
+    payload = {
+        "slug": slug,
+        "hosted_url": f"{base_url}/{slug}",
+        "public_url": f"{base_url}/{slug}",
+        "principal_id": str(principal_id or "").strip(),
+        "listing_url": property_url,
+        "property_url": property_url,
+        "source_ref": str(source_ref or "").strip(),
+        "external_id": str(external_id or "").strip(),
+        "recipient_email": str(recipient_email or "").strip().lower(),
+        "source_virtual_tour_url": "",
+        "source_virtual_tour_origin": live_url,
+        "title": f"{display_title} - pure 360",
+        "display_title": display_title,
+        "tour_title": f"{display_title} - pure 360",
+        "tour_id": None,
+        "variant_key": variant_key,
+        "variant_label": "pure 360",
+        "scene_strategy": "pure_360_cube",
+        "scene_count": len(scenes),
+        "facts": facts,
+        "brief": {
+            "theme_name": "clean_light",
+            "tour_style": "pure_mirrored_360_cube",
+            "audience": "tenant_screening",
+            "creative_brief": "Render mirrored 360 cube assets directly from My External Brain without embedding the source provider.",
+            "call_to_action": "Open pure 360 tour.",
+        },
+        "editor_url": "",
+        "crezlo_public_url": "",
+        "scenes": scenes,
+        "generated_at": _now_iso(),
+        "creation_mode": "pure_hosted_360",
+    }
+    (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 
 def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
@@ -8688,6 +9409,7 @@ class ProductService:
         candidate_properties: tuple[dict[str, object], ...] = (),
         personal_fit_assessment: dict[str, object] | None = None,
         preference_person_id: str = "self",
+        tour_url: str = "",
     ) -> dict[str, object]:
         if _is_invalid_property_scout_task_url(property_url, source_ref=source_ref):
             payload = {
@@ -8737,6 +9459,7 @@ class ProductService:
                 "willhaben_fit_score": float(existing_input.get("willhaben_fit_score") or 0.0),
                 "personal_fit_rank": str(existing_input.get("personal_fit_rank") or "").strip(),
             }
+        normalized_tour_url = str(tour_url or "").strip()
         session_id = self._start_product_review_session(
             principal_id=principal_id,
             goal=f"Review apartment alert for {title or counterparty or 'Willhaben'}",
@@ -8764,6 +9487,7 @@ class ProductService:
                 "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
                 "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
                 "candidate_properties": [dict(item) for item in candidate_properties],
+                "tour_url": normalized_tour_url,
             },
             desired_output_json={
                 "resolution": "reviewed",
@@ -8784,6 +9508,7 @@ class ProductService:
             "willhaben_fit_score": fit_score,
             "preference_person_id": str(preference_person_id or "").strip() or "self",
             "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
+            "tour_url": normalized_tour_url,
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -8798,6 +9523,7 @@ class ProductService:
                 "preference_person_id": str(preference_person_id or "").strip() or "self",
                 "personal_fit_assessment": dict(personal_fit_assessment or {}) if isinstance(personal_fit_assessment, dict) else {},
                 "candidate_properties": [dict(item) for item in candidate_properties],
+                "tour_url": normalized_tour_url,
             },
             source_id=str(source_ref or external_id or task.human_task_id).strip(),
             dedupe_key=f"{principal_id}|{source_ref or external_id or task.human_task_id}|property-alert-review-created",
@@ -8856,6 +9582,7 @@ class ProductService:
                         personal_fit_assessment=personal_fit_assessment,
                         candidate_properties=candidate_properties,
                         score_override=fit_score,
+                        tour_url=normalized_tour_url,
                         preference_person_id=preference_person_id,
                     ),
                     inline_buttons=list(feedback_prompt.get("button_rows") or []),
@@ -8937,6 +9664,7 @@ class ProductService:
         )
         if auto_create_spec is not None:
             return None
+        preference_person_id = _property_alert_preference_person_id(payload)
         property_urls = _willhaben_property_urls_from_signal(
             title=title,
             summary=summary,
@@ -8948,6 +9676,7 @@ class ProductService:
         candidate_properties = _property_alert_ranked_candidates(
             preference_profiles=self._preference_profiles,
             principal_id=principal_id,
+            person_id=preference_person_id,
             property_urls=property_urls,
             limit=3,
         )
@@ -8964,6 +9693,7 @@ class ProductService:
         personal_fit_assessment = _property_alert_personal_fit_assessment(
             preference_profiles=self._preference_profiles,
             principal_id=principal_id,
+            person_id=preference_person_id,
             property_url=property_url,
         )
         notify_telegram = True
@@ -8986,10 +9716,27 @@ class ProductService:
                 candidate_url = str(candidate.get("property_url") or "").strip()
                 if not candidate_url:
                     continue
+                candidate_assessment = (
+                    dict(candidate.get("assessment") or {})
+                    if isinstance(candidate.get("assessment"), dict)
+                    else None
+                )
                 candidate_title = str(candidate.get("listing_title") or "").strip() or title
                 candidate_notify = notify_telegram if index == 0 else False
                 candidate_source_ref = source_ref if index == 0 else f"{source_ref}#listing:{index + 1}"
                 candidate_external_id = external_id if index == 0 else f"{external_id}#listing:{index + 1}"
+                candidate_tour_result = (
+                    self._maybe_auto_create_property_scout_tour(
+                        principal_id=principal_id,
+                        actor=actor,
+                        property_url=candidate_url,
+                        source_ref=candidate_source_ref,
+                        assessment=candidate_assessment,
+                        policy=policy,
+                    )
+                    if candidate_notify
+                    else {"status": "skipped", "tour_url": "", "blocked_reason": ""}
+                )
                 review_results.append(
                     self._open_property_alert_review(
                         principal_id=principal_id,
@@ -9003,6 +9750,9 @@ class ProductService:
                         actor=actor,
                         notify_telegram=candidate_notify,
                         candidate_properties=(candidate,),
+                        personal_fit_assessment=candidate_assessment,
+                        preference_person_id=preference_person_id,
+                        tour_url=str(candidate_tour_result.get("tour_url") or "").strip(),
                     )
                 )
             if review_results:
@@ -9010,6 +9760,18 @@ class ProductService:
                 primary["related_reviews"] = [dict(item) for item in review_results[1:]]
                 primary["review_count"] = len(review_results)
                 return primary
+        tour_result = (
+            self._maybe_auto_create_property_scout_tour(
+                principal_id=principal_id,
+                actor=actor,
+                property_url=property_url,
+                source_ref=source_ref,
+                assessment=personal_fit_assessment,
+                policy=policy,
+            )
+            if notify_telegram and property_url
+            else {"status": "skipped", "tour_url": "", "blocked_reason": ""}
+        )
         return self._open_property_alert_review(
             principal_id=principal_id,
             title=title,
@@ -9022,6 +9784,9 @@ class ProductService:
             actor=actor,
             notify_telegram=notify_telegram,
             candidate_properties=candidate_properties,
+            personal_fit_assessment=personal_fit_assessment,
+            preference_person_id=preference_person_id,
+            tour_url=str(tour_result.get("tour_url") or "").strip(),
         )
 
     def _attach_property_alert_review_to_ooda_loop(
@@ -9859,7 +10624,18 @@ class ProductService:
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not _is_willhaben_property_url(normalized_url):
-            raise ValueError("willhaben_property_url_invalid")
+            return self.create_generic_property_tour(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                recipient_email=recipient_email,
+                variant_key=variant_key,
+                binding_id=binding_id,
+                source_ref=source_ref,
+                external_id=external_id,
+                google_account_email=google_account_email,
+                auto_deliver=auto_deliver,
+                actor=actor,
+            )
         packet = _load_willhaben_property_packet(normalized_url)
         variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
         resolved_variant_key = str(variant.get("variant_key") or variant_key or "layout_first").strip() or "layout_first"
@@ -9885,6 +10661,11 @@ class ProductService:
                 "panorama_source": panorama_source,
             }
         )
+        property_facts_json = _merge_property_facts_with_source_research(
+            property_url=normalized_url,
+            property_facts=property_facts_json,
+            image_urls=tuple(str(value or "").strip() for value in source_media_urls if str(value or "").strip()),
+        )
         personal_fit_assessment = self._preference_profiles.assess_candidate(
             principal_id=principal_id,
             person_id="self",
@@ -9897,6 +10678,14 @@ class ProductService:
         )
         if personal_fit_assessment is not None:
             property_facts_json["personal_fit_assessment"] = dict(personal_fit_assessment)
+        preference_snapshot = _public_property_preference_snapshot(
+            preference_profile_service=self._preference_profiles,
+            principal_id=principal_id,
+            person_id="self",
+            domain="willhaben",
+        )
+        if preference_snapshot:
+            property_facts_json["public_preference_snapshot"] = dict(preference_snapshot)
         if panorama_media_urls:
             scene_strategy = "photo_only"
             scene_selection_json["include_floorplans"] = False
@@ -9953,6 +10742,57 @@ class ProductService:
             )
             return payload
         if not resolved_binding_id:
+            if source_virtual_tour_url:
+                try:
+                    structured_output = _write_hosted_feelestate_pure_360_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        source_virtual_tour_url=source_virtual_tour_url,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": "",
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "panorama_360",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "pure_hosted_360",
+                        "source_virtual_tour_url": "",
+                    }
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="generic_property_tour_created",
+                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                        source_id=resolved_source_ref,
+                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                    )
+                    return payload
+                except Exception:
+                    pass
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,
@@ -10095,6 +10935,48 @@ class ProductService:
 
         structured_output = dict(artifact.structured_output_json or {}) if artifact is not None else {}
         structured_output = _ensure_hosted_property_tour_url(structured_output)
+        if _property_tour_payload_is_disabled_fallback(structured_output):
+            blocked_reason = "property_tour_fallback_disabled"
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason=blocked_reason,
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": str(artifact.artifact_id or "").strip(),
+                "execution_session_id": str(artifact.execution_session_id or "").strip(),
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": _first_non_empty_text(structured_output.get("editor_url")),
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": blocked_reason,
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "tour_media_mode": tour_media_mode,
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
+            )
+            return payload
         tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
         editor_url = _first_non_empty_text(structured_output.get("editor_url"))
         payload = {
@@ -10403,6 +11285,376 @@ class ProductService:
             )
             return payload
 
+    def create_generic_property_tour(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        recipient_email: str = "",
+        variant_key: str = "layout_first",
+        binding_id: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        google_account_email: str = "",
+        auto_deliver: bool = False,
+        actor: str = "",
+    ) -> dict[str, object]:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
+            raise ValueError("property_url_invalid")
+        preview = _property_scout_page_preview(normalized_url)
+        title = compact_text(str(preview.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
+        listing_id = str(preview.get("listing_id") or "").strip() or _saved_link_fallback_id(normalized_url)
+        property_facts_json = _property_scout_candidate_payload_from_preview(property_url=normalized_url, preview=preview)
+        source_media_urls = [str(value or "").strip() for value in list(preview.get("media_urls_json") or []) if str(value or "").strip()]
+        source_floorplan_urls = [str(value or "").strip() for value in list(preview.get("floorplan_urls_json") or []) if str(value or "").strip()]
+        panorama_media_urls = [str(value or "").strip() for value in list(preview.get("panorama_media_urls_json") or []) if str(value or "").strip()]
+        source_virtual_tour_url = _first_non_empty_text(
+            preview.get("source_virtual_tour_url"),
+            property_facts_json.get("source_virtual_tour_url"),
+        )
+        panorama_source = _first_non_empty_text(preview.get("panorama_source"), property_facts_json.get("panorama_source"))
+        has_live_360 = bool(panorama_media_urls or source_virtual_tour_url)
+        tour_media_mode = "panorama_360" if has_live_360 else "flat_images"
+        source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
+        property_facts_json.update(
+            {
+                "tour_media_mode": tour_media_mode,
+                "source": source_host,
+                "panorama_candidate_count": len(panorama_media_urls),
+                "source_virtual_tour_url": source_virtual_tour_url,
+                "panorama_source": panorama_source,
+            }
+        )
+        property_facts_json = _merge_property_facts_with_source_research(
+            property_url=normalized_url,
+            property_facts=property_facts_json,
+            image_urls=tuple(str(value or "").strip() for value in source_media_urls if str(value or "").strip()),
+        )
+        personal_fit_assessment = self._preference_profiles.assess_candidate(
+            principal_id=principal_id,
+            person_id="self",
+            domain="property_scout",
+            object_type="listing",
+            object_id=listing_id or normalized_url,
+            object_payload=property_facts_json,
+            persist=True,
+            require_existing_profile=True,
+        )
+        if personal_fit_assessment is not None:
+            property_facts_json["personal_fit_assessment"] = dict(personal_fit_assessment)
+        preference_snapshot = _public_property_preference_snapshot(
+            preference_profile_service=self._preference_profiles,
+            principal_id=principal_id,
+            person_id="self",
+            domain="property_scout",
+        )
+        if preference_snapshot:
+            property_facts_json["public_preference_snapshot"] = dict(preference_snapshot)
+        resolved_variant_key = str(variant_key or "layout_first").strip() or "layout_first"
+        resolved_source_ref = str(source_ref or f"property:{listing_id}").strip()
+        resolved_external_id = str(external_id or listing_id or normalized_url).strip()
+        resolved_binding_id = self._resolve_browseract_property_tour_binding_id(principal_id=principal_id, binding_id=binding_id)
+        resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
+        generated_at = _now_iso()
+        if _willhaben_property_tour_require_360() and not has_live_360:
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason="listing_360_media_missing",
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": "listing_360_media_missing",
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "tour_media_mode": tour_media_mode,
+                "personal_fit_assessment": dict(personal_fit_assessment or {}),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="generic_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:listing_360_media_missing",
+            )
+            return payload
+        if not resolved_binding_id:
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason="browseract_connector_unconfigured",
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id="",
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": "",
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": "browseract_connector_unconfigured",
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "tour_media_mode": tour_media_mode,
+                "personal_fit_assessment": dict(personal_fit_assessment or {}),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="generic_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:browseract_connector_unconfigured",
+            )
+            return payload
+        request_payload = {
+            "binding_id": resolved_binding_id,
+            "force_ui_worker": False,
+            "proxy_result": True,
+            "tour_title": " - ".join(part for part in (title, resolved_variant_key.replace("_", " ")) if part)[:180],
+            "display_title": title[:220],
+            "property_url": normalized_url,
+            "media_urls_json": list(panorama_media_urls or source_media_urls),
+            "floorplan_urls_json": source_floorplan_urls,
+            "scene_strategy": "photo_only" if panorama_media_urls else ("layout_first" if source_floorplan_urls else "photo_only"),
+            "scene_selection_json": {"include_floorplans": bool(source_floorplan_urls and not panorama_media_urls)},
+            "property_facts_json": property_facts_json,
+            "creative_brief": "Create a concise provider-neutral apartment tour from the listing page, extracted facts, and available listing media.",
+            "variant_key": resolved_variant_key,
+            "language": "de",
+            "theme_name": "clean_light",
+            "tour_style": "guided_listing_walkthrough",
+            "audience": "tenant_screening",
+            "call_to_action": "Open the tour.",
+            "tour_visibility": "public",
+            "tour_settings_json": {},
+            "is_private": False,
+            "runtime_inputs_json": {"listing_id": listing_id, "variant_key": resolved_variant_key, "source": source_host, "tour_media_mode": tour_media_mode},
+        }
+        if source_virtual_tour_url:
+            request_payload["source_virtual_tour_url"] = source_virtual_tour_url
+        if panorama_source:
+            request_payload["panorama_source"] = panorama_source
+        resolved_task_key = "create_property_tour"
+        if self._container.task_contracts.get_contract(resolved_task_key) is None:
+            projected_crezlo_task_key = projected_task_key("Crezlo Tours", "create_property_tour")
+            if self._container.task_contracts.get_contract(projected_crezlo_task_key) is not None:
+                resolved_task_key = projected_crezlo_task_key
+        try:
+            artifact = self._container.orchestrator.execute_task_artifact(
+                TaskExecutionRequest(task_key=resolved_task_key, principal_id=principal_id, goal=f"create a steerable apartment tour for {title}", input_json=request_payload)
+            )
+        except Exception as exc:
+            blocked_reason = self._property_tour_execution_error_reason(exc)
+            if source_virtual_tour_url and blocked_reason in {
+                "crezlo_property_tour_not_configured",
+                "browseract_connector_unconfigured",
+                "listing_media_missing",
+                "property_tour_execution_failed",
+            }:
+                try:
+                    structured_output = _write_hosted_feelestate_pure_360_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        source_virtual_tour_url=source_virtual_tour_url,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "panorama_360",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "pure_hosted_360",
+                        "source_virtual_tour_url": "",
+                        "upstream_blocked_reason": blocked_reason,
+                    }
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="generic_property_tour_created",
+                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                        source_id=resolved_source_ref,
+                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                    )
+                    return payload
+                except Exception:
+                    blocked_reason = "pure_360_assets_unavailable"
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason=blocked_reason,
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": blocked_reason,
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "tour_media_mode": tour_media_mode,
+                "personal_fit_assessment": dict(personal_fit_assessment or {}),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="generic_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
+            )
+            return payload
+        structured_output = _ensure_hosted_property_tour_url(dict(getattr(artifact, "structured_output_json", {}) or {}))
+        if _property_tour_payload_is_disabled_fallback(structured_output):
+            blocked_reason = "property_tour_fallback_disabled"
+            followup = self._open_property_tour_followup(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                title=title,
+                variant_key=resolved_variant_key,
+                blocked_reason=blocked_reason,
+                recipient_email=resolved_recipient_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                connector_binding_id=resolved_binding_id,
+            )
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": str(getattr(artifact, "artifact_id", "") or "").strip(),
+                "execution_session_id": str(getattr(artifact, "execution_session_id", "") or "").strip(),
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": _first_non_empty_text(structured_output.get("editor_url")),
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": blocked_reason,
+                "human_task_id": f"human_task:{followup.human_task_id}",
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "tour_media_mode": tour_media_mode,
+                "personal_fit_assessment": dict(personal_fit_assessment or {}),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="generic_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
+            )
+            return payload
+        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+        payload = {
+            "generated_at": generated_at,
+            "status": "created",
+            "property_url": normalized_url,
+            "title": title,
+            "listing_id": listing_id,
+            "variant_key": resolved_variant_key,
+            "artifact_id": str(getattr(artifact, "artifact_id", "") or "").strip(),
+            "execution_session_id": str(getattr(artifact, "execution_session_id", "") or "").strip(),
+            "connector_binding_id": resolved_binding_id,
+            "tour_url": tour_url,
+            "vendor_tour_url": vendor_tour_url,
+            "editor_url": _first_non_empty_text(structured_output.get("editor_url")),
+            "delivery_email": resolved_recipient_email,
+            "delivery_status": "skipped" if not auto_deliver else "",
+            "blocked_reason": "",
+            "human_task_id": "",
+            "source_ref": resolved_source_ref,
+            "external_id": resolved_external_id,
+            "tour_media_mode": tour_media_mode,
+            "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+            "personal_fit_assessment": dict(personal_fit_assessment or {}),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="generic_property_tour_created",
+            payload={**payload, "tour_id": str(structured_output.get("tour_id") or "").strip()},
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+        )
+        return payload
+
     def recreate_property_tour_followup(
         self,
         *,
@@ -10458,6 +11710,48 @@ class ProductService:
             if completed is not None:
                 return completed
         return self.get_handoff(principal_id=principal_id, handoff_ref=handoff_ref)
+
+    def request_property_tour_detail_refresh(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        title: str,
+        variant_key: str = "layout_first",
+        recipient_email: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        actor: str = "",
+    ) -> dict[str, object]:
+        task = self._open_property_tour_followup(
+            principal_id=principal_id,
+            property_url=str(property_url or "").strip(),
+            title=str(title or "").strip(),
+            variant_key=str(variant_key or "layout_first").strip() or "layout_first",
+            blocked_reason="property_detail_research_requested",
+            recipient_email=str(recipient_email or "").strip().lower(),
+            source_ref=str(source_ref or "").strip(),
+            external_id=str(external_id or property_url).strip(),
+            connector_binding_id="",
+        )
+        payload = {
+            "status": "requested",
+            "human_task_id": f"human_task:{task.human_task_id}",
+            "property_url": str(property_url or "").strip(),
+            "title": str(title or "").strip(),
+            "variant_key": str(variant_key or "layout_first").strip() or "layout_first",
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "actor": str(actor or "").strip() or "public_tour",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_tour_detail_refresh_requested",
+            payload=payload,
+            source_id=str(source_ref or property_url or task.human_task_id).strip(),
+            dedupe_key=f"{principal_id}|{source_ref or property_url}|{variant_key}|property-detail-refresh-requested",
+        )
+        return payload
 
     def sync_google_workspace_signals(
         self,
@@ -12773,6 +14067,8 @@ class ProductService:
             "willhaben_property_tour_telegram_sent",
             "willhaben_property_tour_delivery_failed",
             "willhaben_property_tour_blocked",
+            "generic_property_tour_created",
+            "generic_property_tour_blocked",
         }
         for row in self._container.channel_runtime.list_recent_observations(
             limit=_POCKET_SYNC_EVENT_LOOKBACK,
@@ -12809,8 +14105,6 @@ class ProductService:
             return {"status": "skipped", "reason": "policy_disabled"}
         if not _property_alert_is_good_fit(dict(assessment or {}) if isinstance(assessment, dict) else None, policy=normalized_policy):
             return {"status": "skipped", "reason": "fit_below_threshold"}
-        if not _is_willhaben_property_url(normalized_url):
-            return {"status": "unsupported", "reason": "tour_source_unsupported"}
         existing_event = self._latest_property_tour_event(
             principal_id=principal_id,
             source_ref=source_ref,

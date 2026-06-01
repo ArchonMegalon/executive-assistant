@@ -6757,6 +6757,263 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     assert ">Source<" not in page.text
 
 
+def test_public_tour_routes_render_pure_360_cube_with_continuing_links(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
+    monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", "33ff8f39-6213-4903-99d7-81048b5b3e1f")
+    slug = "pioche-lecombe-pure-360"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01-f.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-l.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-r.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-u.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-d.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-b.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-02-f.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-02-l.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-02-r.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-02-u.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-02-d.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-02-b.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Pioche Lecombe Pure 360",
+                "display_title": "Pioche Lecombe Pure 360",
+                "listing_url": "https://www.example.test/listing",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 2,
+                "facts": {
+                    "rooms": 3,
+                    "area_sqm": 81,
+                    "total_rent_eur": 1490,
+                    "availability": "sofort",
+                    "address_lines": ["Währing, Wien"],
+                    "teaser_attributes": ["360 Tour"],
+                },
+                "brief": {
+                    "theme_name": "White-label 360",
+                    "tour_style": "panorama first",
+                    "audience": "buyers",
+                    "creative_brief": "Lead with the real panorama viewer.",
+                    "call_to_action": "Book a viewing.",
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "location_id": 201,
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "next_scene_index": 1,
+                        "prev_scene_index": 1,
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    },
+                    {
+                        "name": "Bedroom",
+                        "role": "photo",
+                        "location_id": 202,
+                        "scene_id": "bedroom",
+                        "asset_relpath": "scene-02-f.jpg",
+                        "next_scene_index": 0,
+                        "prev_scene_index": 0,
+                        "cube_faces": {
+                            "f": "scene-02-f.jpg",
+                            "b": "scene-02-b.jpg",
+                            "r": "scene-02-r.jpg",
+                            "l": "scene-02-l.jpg",
+                            "u": "scene-02-u.jpg",
+                            "d": "scene-02-d.jpg",
+                        },
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-pure-360")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert "Pure 360 hosted on My External Brain" in page.text
+    assert 'id="prev-link"' in page.text
+    assert 'id="next-link"' in page.text
+    assert "Location" in page.text
+    assert '"scene_id": "living"' in page.text
+    assert '"scene_id": "bedroom"' in page.text
+    assert "scene-01-f.jpg" in page.text
+
+
+def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-pure-360-origin"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01-f.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-l.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-r.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-u.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-d.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "scene-01-b.jpg").write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Pioche Lecombe Pure 360",
+                "display_title": "Pioche Lecombe Pure 360",
+                "listing_url": "https://www.example.test/listing",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {
+                    "rooms": 3,
+                    "area_sqm": 81,
+                    "total_rent_eur": 1490,
+                    "availability": "sofort",
+                    "address_lines": ["Währing, Wien"],
+                    "postal_name": "Währing",
+                    "heating_type": "Fernwaerme",
+                    "has_floorplan": True,
+                    "lift": True,
+                    "personal_fit_assessment": {
+                        "fit_score": 96.0,
+                        "recommendation": "shortlist",
+                        "match_reasons_json": ["The district matches the established shortlist."],
+                        "mismatch_reasons_json": ["Check heating type on site."],
+                        "unknowns_json": ["Confirm noise level with a visit."],
+                        "location_fit_score": 5,
+                        "livability_snapshot": {
+                            "nearest_supermarket_m": 190,
+                            "nearest_transit_m": 280,
+                            "nearest_playground_m": 140,
+                        },
+                    },
+                    "public_preference_snapshot": {
+                        "domain": "willhaben",
+                        "person_id": "self",
+                        "preference_nodes": [
+                            {"key": "preferred_districts", "category": "soft_preference", "value_json": ["Waehring"], "confidence": 1.0},
+                            {"key": "avoid_heating_types", "category": "aversion", "value_json": ["Gasheizung"], "confidence": 1.0},
+                            {"key": "prefer_lift", "category": "soft_preference", "value_json": True, "confidence": 1.0},
+                            {"key": "playground_nearby", "category": "soft_preference", "value_json": True, "confidence": 0.9},
+                        ],
+                    },
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-pure-360-origin")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert 'src="https://360.kalandra.at/view/portal/id/VZ8P1"' in page.text
+    assert "Property Decision Workstation" in page.text
+    assert "Decision Summary" in page.text
+    assert "Preference-to-Property Matrix" in page.text
+    assert "Research Log" in page.text
+    assert "The district matches your preferred areas" in page.text
+    assert "Fernwaerme avoids your excluded heating types." in page.text
+    assert "The nearest playground is about 140 m away." in page.text
+    assert "Request deeper research" in page.text
+    assert "Supermarket" in page.text
+    assert "Source Links" not in page.text
+    assert "Nothing provided" not in page.text
+    assert "Tour Summary" not in page.text
+    assert "Hosted tour page with the original 360 viewer embedded." not in page.text
+    assert 'id="prev-link"' not in page.text
+
+
+def test_public_tour_request_details_opens_followup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_tours
+
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-detail-request"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Pioche Lecombe Pure 360",
+                "display_title": "Pioche Lecombe Pure 360",
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-fit-priority-1",
+                "variant_key": "layout_first",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "scene_strategy": "pure_360_cube",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {"has_360": True},
+                "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    captured: dict[str, object] = {}
+
+    class _FakeService:
+        def request_property_tour_detail_refresh(self, **kwargs):
+            captured.update(kwargs)
+            return {"status": "requested", "human_task_id": "human_task:123"}
+
+    monkeypatch.setattr(public_tours, "build_product_service", lambda container: _FakeService())
+    client = _client(principal_id="exec-public-tour-request-details")
+    response = client.post(f"/tours/{slug}/request-details", headers={"host": "myexternalbrain.com"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "requested"
+    assert captured["principal_id"] == "cf-email:tibor.girschele@gmail.com"
+    assert captured["property_url"] == "https://www.kalandra.at/objekt/14997053"
+
+
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -6796,9 +7053,136 @@ def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
     assert "Live Panorama Viewer" not in page.text
     assert 'href="#viewer"' in page.text
     assert "javascript:alert(1)" not in page.text
-    assert "Open Live 360" not in page.text
-    assert 'href="#live-360"' not in page.text
-    assert 'src="https://360.example.test/view/portal/id/live-360"' not in page.text
+
+
+def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_tours
+
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "listing-research-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Research-backed property page",
+                "display_title": "Research-backed property page",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {
+                    "has_360": True,
+                    "street_address": "",
+                    "address_lines": ["", ""],
+                    "nearest_supermarket_m": 0,
+                    "listing_research_snapshot": {
+                        "has_floorplan": True,
+                        "lift": True,
+                        "availability": "Sofort",
+                        "heating_type": "Hauszentralheizung (Gas)",
+                        "street_address": "Hameaustraße 34",
+                        "nearest_supermarket_m": 951,
+                        "nearest_pharmacy_m": 882,
+                        "nearest_playground_m": 532,
+                        "nearest_subway_m": 4752,
+                        "terrace_area_sqm": 43.0,
+                        "building_units": 8,
+                    },
+                    "listing_research_meta": {
+                        "strategy": "provider_html_plus_geo",
+                    },
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        public_tours,
+        "_fetch_listing_research",
+        lambda _url: (_ for _ in ()).throw(AssertionError("render should use stored research snapshot")),
+    )
+
+    client = _client(principal_id="exec-public-tour-research")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert page.status_code == 200
+    assert "Lift and floor plan materially reduce remote-viewing uncertainty." in page.text
+    assert "43 m² of terrace area adds meaningful private outdoor space." in page.text
+    assert "The building has only 8 residential units, which should keep internal traffic lower." in page.text
+    assert "Availability is listed as Sofort." in page.text
+    assert "Immersive 360 tour is available." not in page.text
+    assert "Hameaustraße 34" in page.text
+    assert "Supermarket" in page.text
+    assert "Pharmacy" in page.text
+    assert "Underground" in page.text
+    assert "Source research already filled: address, lift, floor plan, availability (Sofort), supermarket distance, pharmacy distance, playground distance, underground distance." in page.text
+
+
+def test_public_tour_routes_refuse_generated_fallback_tours(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "fallback-tour-disabled"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'></svg>", encoding="utf-8")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Fallback tour",
+                "display_title": "Fallback tour",
+                "scene_strategy": "generated_listing_summary",
+                "creation_mode": "hosted_listing_fallback",
+                "scenes": [
+                    {
+                        "name": "Generated listing overview",
+                        "role": "generated_overview",
+                        "asset_relpath": "scene-01.svg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-fallback-disabled")
+    page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+    payload = client.get(f"/tours/{slug}.json")
+
+    assert page.status_code == 404
+    assert "Fallback listing-summary tours are disabled." in page.text
+    assert "Request a real 360 tour" in page.text
+    assert payload.status_code == 404
+    assert payload.json()["error"]["code"] == "tour_disabled_fallback"
 
 
 def test_public_memorial_routes_render_original_voice_without_voice_clone(

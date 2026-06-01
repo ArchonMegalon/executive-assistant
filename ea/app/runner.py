@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 import logging
 import os
+import re
 import signal
 import time
 import urllib.error
@@ -78,6 +80,32 @@ def _scheduler_google_signal_sync_interval_seconds() -> float:
         "EA_SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS",
         _SCHEDULER_GOOGLE_SIGNAL_SYNC_INTERVAL_SECONDS,
     )
+
+
+def _scheduler_property_alert_account_emails() -> tuple[str, ...]:
+    raw = str(
+        os.environ.get("EA_PROPERTY_ALERT_ACCOUNT_EMAILS")
+        or os.environ.get("EA_GOOGLE_PROPERTY_ALERT_ACCOUNT_EMAILS")
+        or ""
+    ).strip()
+    values = [part.strip().lower() for part in re.split(r"[\s,;]+", raw) if part.strip()]
+    if values:
+        return tuple(sorted(set(values)))
+    source_raw = str(os.environ.get("EA_PROPERTY_SCOUT_URLS_JSON") or "").strip()
+    if not source_raw:
+        return ()
+    try:
+        parsed = json.loads(source_raw)
+    except Exception:
+        return ()
+    if not isinstance(parsed, list):
+        return ()
+    for item in parsed:
+        if isinstance(item, dict):
+            account_email = str(item.get("account_email") or "").strip().lower()
+            if account_email:
+                values.append(account_email)
+    return tuple(sorted(set(values)))
 
 
 def _scheduler_google_signal_sync_enabled() -> bool:
@@ -669,6 +697,9 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
     synced = 0
     error_count = 0
     skipped = 0
+    property_accounts = _scheduler_property_alert_account_emails()
+    property_attempted = 0
+    property_synced = 0
     forbidden_cooldown_seconds = _scheduler_google_signal_sync_forbidden_cooldown_seconds()
     now_epoch = time.time()
     for principal_id in principal_ids:
@@ -693,6 +724,15 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
             )
             if int(summary.get("total") or 0) >= 0:
                 synced += 1
+            for account_email in property_accounts:
+                property_attempted += 1
+                property_summary = service.sync_google_willhaben_signals(
+                    principal_id=principal_id,
+                    actor="scheduler",
+                    account_email=account_email,
+                    email_limit=10,
+                )
+                property_synced += int(property_summary.get("synced_total") or 0)
         except RuntimeError as exc:
             error_count += 1
             log.info(
@@ -716,13 +756,22 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
         except Exception:
             error_count += 1
             log.exception("scheduler google signal sync failed principal=%s", principal_id)
-    return {
+    result = {
         "ran": True,
         "attempted": attempted,
         "synced": synced,
         "errors": error_count,
         "skipped": skipped,
     }
+    if property_accounts:
+        result.update(
+            {
+                "property_accounts": list(property_accounts),
+                "property_attempted": property_attempted,
+                "property_synced": property_synced,
+            }
+        )
+    return result
 
 
 def _scheduler_property_scout_enabled() -> bool:

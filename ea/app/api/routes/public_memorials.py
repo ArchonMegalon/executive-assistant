@@ -266,6 +266,10 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
     }
 
 
+def _normalize_memorial_transcript_text(value: object) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
 def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
     if not payload:
         raise HTTPException(status_code=400, detail="audio_missing")
@@ -316,14 +320,19 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                 )
                 ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
                 ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
-                text = product_service._extract_transcript_text(ai_detail.get("responseObject")) or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                text = _normalize_memorial_transcript_text(
+                    product_service._extract_transcript_text(ai_detail.get("responseObject"))
+                    or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                )
                 if text.startswith("{") and text.endswith("}"):
                     try:
                         parsed_text = json.loads(text)
                     except json.JSONDecodeError:
                         parsed_text = {}
                     if isinstance(parsed_text, dict):
-                        text = product_service._extract_transcript_text(parsed_text.get("text")) or text
+                        text = _normalize_memorial_transcript_text(
+                            product_service._extract_transcript_text(parsed_text.get("text")) or text
+                        )
                 if not text:
                     raise RuntimeError("speech_transcript_empty")
                 return {
@@ -677,6 +686,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       let activeSilenceTimer = null;
       let activeMaxTimer = null;
       let speechHadError = false;
+      let speechSynthesisDoneTimer = null;
       let memorialVoiceConfig = {{
         tts_mode: "browser_speech_synthesis",
         voice_label: "Austauschbare synthetische Stimme",
@@ -696,6 +706,32 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
         }} catch (error) {{}}
       }}
+      function normalizeTranscriptText(value) {{
+        return String(value || "").replace(/\\s+/g, " ").trim();
+      }}
+      async function resolveSpeechVoices() {{
+        const current = window.speechSynthesis.getVoices();
+        if (Array.isArray(current) && current.length > 0) return current;
+        return await new Promise((resolve) => {{
+          const timeout = setTimeout(() => {{
+            window.speechSynthesis.onvoiceschanged = null;
+            resolve(window.speechSynthesis.getVoices() || []);
+          }}, 1500);
+          window.speechSynthesis.onvoiceschanged = () => {{
+            clearTimeout(timeout);
+            window.speechSynthesis.onvoiceschanged = null;
+            resolve(window.speechSynthesis.getVoices() || []);
+          }};
+        }});
+      }}
+      function pickSpeechVoice(voices) {{
+        const hints = Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints : [];
+        return (
+          voices.find((voice) => hints.some((hint) => String(voice.name + " " + voice.lang).toLowerCase().includes(String(hint).toLowerCase()))) ||
+          voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) ||
+          voices.find((voice) => /^de/i.test(voice.lang || ""))
+        );
+      }}
       async function readJsonResponse(response) {{
         const raw = await response.text();
         try {{
@@ -711,7 +747,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }}
       }}
       async function askMemorialChat(value, options = {{}}) {{
-        const text = String(value || "").trim();
+        const text = normalizeTranscriptText(value || "");
         if (!text) return;
         statusNode.textContent = "Formuliere...";
         answer.textContent = "";
@@ -725,7 +761,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           lastAnswerText = String(payload.answer || "");
           answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           statusNode.textContent = "";
-          speakText(lastAnswerText, options.continueConversation ? () => {{
+          void speakText(lastAnswerText, options.continueConversation ? () => {{
             if (conversationActive) setTimeout(recordConversationTurn, 450);
           }} : null);
         }} catch (error) {{
@@ -733,34 +769,49 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
         }}
       }}
-      function speakText(value, onDone = null) {{
-        if (!("speechSynthesis" in window)) {{
+      async function speakText(value, onDone = null) {{
+        if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {{
           speechNote.textContent = "Text-to-Speech wird von diesem Browser nicht unterstuetzt.";
           if (onDone) onDone();
           return;
         }}
-        const text = String(value || lastAnswerText || "").trim();
+        const text = normalizeTranscriptText(value || lastAnswerText || "");
         if (!text) return;
         window.speechSynthesis.cancel();
+        if (speechSynthesisDoneTimer) {{
+          clearTimeout(speechSynthesisDoneTimer);
+          speechSynthesisDoneTimer = null;
+        }}
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = memorialVoiceConfig.lang || "de-AT";
         utterance.rate = Number(memorialVoiceConfig.rate || 0.92);
         utterance.pitch = Number(memorialVoiceConfig.pitch || 0.92);
         utterance.volume = Number(memorialVoiceConfig.volume ?? 1);
-        const voices = window.speechSynthesis.getVoices();
-        const hints = Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints : [];
-        const preferred =
-          voices.find((voice) => hints.some((hint) => String(voice.name + " " + voice.lang).toLowerCase().includes(String(hint).toLowerCase()))) ||
-          voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) ||
-          voices.find((voice) => /^de/i.test(voice.lang || ""));
+        const voices = await resolveSpeechVoices();
+        const preferred = pickSpeechVoice(voices);
         if (preferred) utterance.voice = preferred;
-        utterance.onend = () => {{
+        const finishSpeech = () => {{
+          if (speechSynthesisDoneTimer) {{
+            clearTimeout(speechSynthesisDoneTimer);
+            speechSynthesisDoneTimer = null;
+          }}
           if (onDone) onDone();
+        }};
+        utterance.onend = () => {{
+          finishSpeech();
         }};
         utterance.onerror = () => {{
-          if (onDone) onDone();
+          finishSpeech();
+        }};
+        utterance.oncancel = () => {{
+          finishSpeech();
         }};
         window.speechSynthesis.speak(utterance);
+        const estimatedMs = Math.min(20000, Math.max(900, Math.ceil(text.length * 45)));
+        speechSynthesisDoneTimer = setTimeout(() => {{
+          speechSynthesisDoneTimer = null;
+          finishSpeech();
+        }}, estimatedMs);
         speechNote.textContent = "Antwort wird mit " + (memorialVoiceConfig.voice_label || "synthetischer Stimme") + " vorgelesen.";
       }}
       function releaseConversationAudio() {{
@@ -794,6 +845,9 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!Recognition) {{
           speechNote.textContent = "Speech-to-Text wird von diesem Browser nicht unterstuetzt. Bitte Chrome/Edge verwenden oder die Frage tippen.";
+          if (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {{
+            void startServerSpeechInput();
+          }}
           return;
         }}
         if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
@@ -810,7 +864,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         speechHadError = false;
         recognition.lang = "de-AT";
         recognition.interimResults = true;
-        recognition.continuous = false;
+        recognition.continuous = true;
         let finalText = "";
         recognition.onstart = () => {{
           speechNote.textContent = "Hoere zu...";
@@ -844,7 +898,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           stopButton.disabled = false;
           if (activeRecognition === recognition) activeRecognition = null;
           if (speechHadError) return;
-          const text = String(question.value || finalText || "").trim();
+          const text = normalizeTranscriptText(question.value || finalText || "");
           speechNote.textContent = text ? "Frage erkannt." : "Keine Frage erkannt. Bitte lauter sprechen, Mikrofon pruefen oder die Frage tippen.";
           if (text) askMemorialChat(text);
         }};
@@ -900,7 +954,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
             speechNote.textContent = "Transkribiere Audio...";
             try {{
               const payload = await transcribeAudioBlob(blob);
-              question.value = String(payload.transcript_text || "").trim();
+              question.value = normalizeTranscriptText(payload.transcript_text || "");
               speechNote.textContent = question.value ? "Audio transkribiert." : "Keine Sprache im Audio erkannt.";
               if (question.value) askMemorialChat(question.value);
             }} catch (error) {{
@@ -956,7 +1010,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
             speechNote.textContent = "Transkribiere laufend...";
             try {{
               const payload = await transcribeAudioBlob(blob);
-              const text = String(payload.transcript_text || "").trim();
+              const text = normalizeTranscriptText(payload.transcript_text || "");
               question.value = text;
               if (!text) {{
                 speechNote.textContent = "Ich höre weiter...";
@@ -1018,12 +1072,16 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           if ("speechSynthesis" in window) window.speechSynthesis.cancel();
           recordConversationTurn();
         }} else {{
-          if (activeRecorder && activeRecorder.state === "recording") {{
-            try {{ activeRecorder.stop(); }} catch (error) {{}}
-          }}
-          releaseConversationAudio();
-          speechNote.textContent = "Gespräch beendet.";
+        if (activeRecorder && activeRecorder.state === "recording") {{
+          try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
+        releaseConversationAudio();
+        if (speechSynthesisDoneTimer) {{
+          clearTimeout(speechSynthesisDoneTimer);
+          speechSynthesisDoneTimer = null;
+        }}
+        speechNote.textContent = "Gespräch beendet.";
+      }}
       }}
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
@@ -1032,7 +1090,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       listenButton.addEventListener("click", startSpeechInput);
       serverSttButton.addEventListener("click", startServerSpeechInput);
       conversationButton.addEventListener("click", toggleConversation);
-      speakButton.addEventListener("click", () => speakText(lastAnswerText || answer.textContent));
+      speakButton.addEventListener("click", () => void speakText(lastAnswerText || answer.textContent));
       stopButton.addEventListener("click", () => {{
         conversationActive = false;
         setConversationUi(false);
@@ -1046,6 +1104,10 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }}
         releaseConversationAudio();
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        if (speechSynthesisDoneTimer) {{
+          clearTimeout(speechSynthesisDoneTimer);
+          speechSynthesisDoneTimer = null;
+        }}
         speechNote.textContent = "Gestoppt.";
         listenButton.disabled = false;
         serverSttButton.disabled = false;

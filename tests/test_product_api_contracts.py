@@ -861,6 +861,38 @@ def test_property_scout_config_and_listing_extraction(monkeypatch) -> None:
     )
 
 
+def test_property_alert_email_url_extraction_skips_willhaben_campaign_links() -> None:
+    body = (
+        "https://www.willhaben.at/dl/v1/home/?at_campaign=email "
+        "https://www.willhaben.at/dl/v1/alertsearch/myprofile/alert?searchId=131 "
+        "https://www.willhaben.at/iad/object?adId=2021345821&searchAgentQueryString=1 "
+        "https://www.willhaben.at/iad/object?adId=1491222816&searchAgentQueryString=1"
+    )
+
+    urls = product_service._willhaben_property_urls_from_signal(
+        title='"Mietwohnungen" hat 2 neue Anzeigen fuer dich gefunden',
+        summary="Recent mail from willhaben-Suchagent.",
+        text=body,
+        source_ref="gmail-thread:elisabeth:test",
+        external_id="gmail-message:elisabeth:test",
+        payload={"body_text_excerpt": body, "from_email": "no-reply@agent.willhaben.at"},
+    )
+    first = product_service._property_listing_url_from_signal(
+        title='"Mietwohnungen" hat 2 neue Anzeigen fuer dich gefunden',
+        summary="Recent mail from willhaben-Suchagent.",
+        text=body,
+        source_ref="gmail-thread:elisabeth:test",
+        external_id="gmail-message:elisabeth:test",
+        payload={"body_text_excerpt": body, "from_email": "no-reply@agent.willhaben.at"},
+    )
+
+    assert urls == (
+        "https://www.willhaben.at/iad/object?adId=2021345821&searchAgentQueryString=1",
+        "https://www.willhaben.at/iad/object?adId=1491222816&searchAgentQueryString=1",
+    )
+    assert first == "https://www.willhaben.at/iad/object?adId=2021345821&searchAgentQueryString=1"
+
+
 def test_property_scout_route_uses_explicit_preference_person_and_creates_reviews(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
@@ -2734,6 +2766,370 @@ def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> Non
     assert "3D tour: https://myexternalbrain.com/tours/watch-fit-1" in text
     assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
+
+
+def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Generic Property Tour Office")
+    service = ProductService(client.app.state.container)
+    property_url = "https://www.immobilienscout24.at/expose/generic-fit-1"
+
+    monkeypatch.setattr(ProductService, "_resolve_browseract_property_tour_binding_id", lambda self, **kwargs: "browseract-binding-1")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url: {
+            "listing_id": "generic-fit-1",
+            "title": "Generic Waehring apartment",
+            "summary": "Waehring, lift, balcony, 360 tour, floorplan",
+            "property_facts_json": {
+                "district": "Waehring",
+                "has_360": True,
+                "has_floorplan": True,
+                "source_virtual_tour_url": "https://360.example.test/generic-fit-1",
+                "panorama_source": "provider_live_360",
+            },
+            "media_urls_json": ["https://cdn.example.com/generic/photo.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/generic/floorplan.jpg"],
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): {
+            **dict(property_facts),
+            "street_address": "Hameaustraße 34",
+            "nearest_supermarket_m": 951,
+            "nearest_pharmacy_m": 882,
+            "nearest_playground_m": 532,
+            "nearest_subway_m": 4752,
+            "listing_research_snapshot": {
+                "street_address": "Hameaustraße 34",
+                "nearest_supermarket_m": 951,
+                "nearest_pharmacy_m": 882,
+            },
+            "listing_research_meta": {"strategy": "provider_html_plus_geo"},
+        },
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        captured["request"] = request
+        return Artifact(
+            artifact_id="artifact-generic-property-tour",
+            kind="property_tour_packet",
+            content="Property tour created.",
+            execution_session_id="session-generic-property-tour",
+            principal_id=principal_id,
+            structured_output_json={
+                "public_url": "https://myexternalbrain.com/tours/generic-fit-1",
+                "crezlo_public_url": "https://vendor.example.com/tours/generic-fit-1",
+            },
+        )
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        source_ref="gmail-thread:elisabeth:g-1",
+        auto_deliver=False,
+        actor="test",
+    )
+
+    assert result["status"] == "created"
+    assert result["tour_url"] == "https://myexternalbrain.com/tours/generic-fit-1"
+    request = captured["request"]
+    assert request.input_json["property_url"] == property_url
+    assert request.input_json["media_urls_json"] == ["https://cdn.example.com/generic/photo.jpg"]
+    assert request.input_json["floorplan_urls_json"] == ["https://cdn.example.com/generic/floorplan.jpg"]
+    assert request.input_json["source_virtual_tour_url"] == "https://360.example.test/generic-fit-1"
+    assert request.input_json["runtime_inputs_json"]["source"] == "www.immobilienscout24.at"
+    assert request.input_json["property_facts_json"]["street_address"] == "Hameaustraße 34"
+    assert request.input_json["property_facts_json"]["nearest_supermarket_m"] == 951
+    assert request.input_json["property_facts_json"]["nearest_pharmacy_m"] == 882
+    assert request.input_json["property_facts_json"]["listing_research_snapshot"]["street_address"] == "Hameaustraße 34"
+    assert request.input_json["property_facts_json"]["listing_research_meta"]["strategy"] == "provider_html_plus_geo"
+
+
+def test_generic_property_tour_blocks_without_real_360_source(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Fallback Property Tour Office")
+    service = ProductService(client.app.state.container)
+    property_url = "https://www.immmo.at/detail/1547878487?c=3&utm_source=suchagent&utm_medium=email"
+
+    monkeypatch.setattr(ProductService, "_resolve_browseract_property_tour_binding_id", lambda self, **kwargs: "")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url: {
+            "listing_id": "1547878487",
+            "title": "Moderne 2 Zimmer Wohnung nahe Millennium City",
+            "summary": "Loggia, Wien, Nachmietersuche",
+            "property_facts_json": {"district": "Brigittenau", "has_360": False, "has_floorplan": False},
+            "media_urls_json": [],
+            "floorplan_urls_json": [],
+        },
+    )
+
+    def _unexpected_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        raise AssertionError("fallback should not require BrowserAct or Crezlo media")
+
+    client.app.state.container.orchestrator.execute_task_artifact = _unexpected_execute_task_artifact
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        source_ref="gmail-thread:elisabeth:g-no-media",
+        auto_deliver=False,
+        actor="test",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "listing_360_media_missing"
+    assert result["tour_media_mode"] == "flat_images"
+    assert result["tour_url"] == ""
+    assert not any(tmp_path.iterdir())
+
+
+def test_property_scout_page_preview_extracts_live_360_and_listing_images(monkeypatch) -> None:
+    listing_url = "https://www.kalandra.at/objekt/14997053"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url: """
+            <html>
+              <head><title>360° TOUR // Test Apartment</title></head>
+              <body>
+                <img src="https://storage.justimmo.at/thumb/photo-1.jpg">
+                <a href="https://360.kalandra.at/view/portal/id/VZ8P1">360 Tour</a>
+                <iframe src="https://360.kalandra.at/view/portal/id/VZ8P1"></iframe>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    assert preview["title"] == "360° TOUR // Test Apartment"
+    assert preview["source_virtual_tour_url"] == "https://360.kalandra.at/view/portal/id/VZ8P1"
+    assert preview["property_facts_json"]["has_360"] is True
+    assert preview["property_facts_json"]["panorama_source"] == "360.kalandra.at"
+    assert preview["media_urls_json"] == ("https://storage.justimmo.at/thumb/photo-1.jpg",)
+
+
+def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Live 360 Property Tour Office")
+    service = ProductService(client.app.state.container)
+    property_url = "https://www.kalandra.at/objekt/14997053"
+
+    monkeypatch.setattr(ProductService, "_resolve_browseract_property_tour_binding_id", lambda self, **kwargs: "browseract-binding-1")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url: {
+            "listing_id": "14997053",
+            "title": "360 Tour Test Apartment",
+            "summary": "Live 360 tour",
+            "property_facts_json": {
+                "has_360": True,
+                "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "panorama_source": "360.kalandra.at",
+            },
+            "media_urls_json": ["https://storage.justimmo.at/thumb/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "source_virtual_tour_url": "https://360.kalandra.at/view/portal/id/VZ8P1",
+            "panorama_source": "360.kalandra.at",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): {
+            **dict(property_facts),
+            "street_address": "Hameaustraße 34",
+            "address_lines": ["Hameaustraße 34", "1190 Wien"],
+            "exact_address": "34, Hameaustraße, Katastralgemeinde Salmannsdorf, Döbling, Wien, 1190, Österreich",
+            "nearest_supermarket_m": 951,
+            "nearest_pharmacy_m": 882,
+            "nearest_playground_m": 532,
+            "nearest_subway_m": 4752,
+            "listing_research_snapshot": {
+                "street_address": "Hameaustraße 34",
+                "address_lines": ["Hameaustraße 34", "1190 Wien"],
+                "nearest_supermarket_m": 951,
+                "nearest_pharmacy_m": 882,
+                "nearest_playground_m": 532,
+                "nearest_subway_m": 4752,
+            },
+            "listing_research_meta": {"strategy": "provider_html_plus_geo"},
+        },
+    )
+
+    def _crezlo_unavailable(request):  # type: ignore[no-untyped-def]
+        raise RuntimeError("crezlo_login_required")
+
+    client.app.state.container.orchestrator.execute_task_artifact = _crezlo_unavailable
+    monkeypatch.setattr(
+        product_service,
+        "_feelestate_json_rpc",
+        lambda method, params: {
+            ("getLocationWithAuthentication", None): {
+                "tour": {"floors": [{"id": 85470}], "name": "Tour"},
+            },
+            ("getAllFloorLocations", 85470): {
+                "locations": [{"id": 847551, "name": "Living room"}],
+            },
+            ("getLocationWithAuthentication", 847551): {
+                "location": {"id": 847551, "name": "Living room", "gotoYaw": 0, "gotoPitch": 0},
+            },
+        }[(method, params[2] if method == "getLocationWithAuthentication" else params[0])],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_download_public_tour_asset",
+        lambda url, target: (target.parent.mkdir(parents=True, exist_ok=True), target.write_bytes(b"jpg")),
+    )
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        source_ref="gmail-thread:elisabeth:kalandra-live-360",
+        auto_deliver=False,
+        actor="test",
+    )
+
+    assert result["status"] == "created"
+    assert result["creation_mode"] == "pure_hosted_360"
+    assert result["source_virtual_tour_url"] == ""
+    assert str(result["tour_url"]).startswith("https://myexternalbrain.com/tours/")
+    assert not str(result["tour_url"]).endswith("#live-360")
+    slug = str(result["tour_url"]).split("/tours/", 1)[1]
+    payload = json.loads((tmp_path / slug / "tour.json").read_text(encoding="utf-8"))
+    assert payload["scene_strategy"] == "pure_360_cube"
+    assert payload["source_virtual_tour_url"] == ""
+    assert payload["source_virtual_tour_origin"] == "https://360.kalandra.at/view/portal/id/VZ8P1"
+    assert payload["principal_id"] == principal_id
+    assert payload["source_ref"] == "gmail-thread:elisabeth:kalandra-live-360"
+    assert payload["facts"]["street_address"] == "Hameaustraße 34"
+    assert payload["facts"]["address_lines"] == ["Hameaustraße 34", "1190 Wien"]
+    assert payload["facts"]["nearest_supermarket_m"] == 951
+    assert payload["facts"]["nearest_pharmacy_m"] == 882
+    assert payload["facts"]["nearest_playground_m"] == 532
+    assert payload["facts"]["nearest_subway_m"] == 4752
+    assert payload["facts"]["listing_research_snapshot"]["street_address"] == "Hameaustraße 34"
+    assert payload["facts"]["listing_research_meta"]["strategy"] == "provider_html_plus_geo"
+    assert payload["scenes"][0]["role"] == "pure_360"
+    assert payload["scenes"][0]["cube_faces"]["f"] == "panorama/847551/tablet_f.jpg"
+
+
+def test_property_source_research_snapshot_uses_image_ocr_when_listing_has_no_map(monkeypatch) -> None:
+    listing_url = "https://www.immobilienscout24.at/expose/ocr-address"
+    product_service._property_source_research_snapshot.cache_clear()
+    product_service._property_research_forward_geocode.cache_clear()
+    product_service._property_research_reverse_geocode.cache_clear()
+    product_service._property_research_nearby_pois.cache_clear()
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda url: "<html><body>No map here</body></html>")
+    monkeypatch.setattr(
+        product_service,
+        "_property_image_ocr_address_hint",
+        lambda image_urls, *, source_text="", property_url="": {
+            "street_address": "Beispielgasse 12",
+            "address_lines": ["Beispielgasse 12", "1180 Wien"],
+            "exact_address": "Beispielgasse 12, 1180 Wien, Österreich",
+            "map_lat": 48.2345,
+            "map_lng": 16.3456,
+            "nearest_supermarket_m": 240,
+            "nearest_pharmacy_m": 190,
+        },
+    )
+
+    findings = product_service._property_source_research_snapshot(
+        listing_url,
+        ("https://cdn.example.com/listing/1.jpg", "https://cdn.example.com/listing/2.jpg"),
+    )
+
+    assert findings["street_address"] == "Beispielgasse 12"
+    assert findings["address_lines"] == ["Beispielgasse 12", "1180 Wien"]
+    assert findings["nearest_supermarket_m"] == 240
+    assert findings["nearest_pharmacy_m"] == 190
+
+
+def test_property_image_ocr_address_hint_rejects_geocode_when_postcode_conflicts(monkeypatch) -> None:
+    class _FakeResponse:
+        def __init__(self) -> None:
+            self.headers = {"Content-Type": "image/jpeg", "Content-Length": "3"}
+
+        def read(self) -> bytes:
+            return b"img"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    monkeypatch.setattr(product_service.shutil, "which", lambda _name: "/usr/bin/tesseract")
+    monkeypatch.setattr(product_service.urllib.request, "urlopen", lambda request, timeout=0: _FakeResponse())
+    monkeypatch.setattr(product_service, "Image", type("FakeImageModule", (), {"open": staticmethod(lambda _stream: type("FakeImage", (), {"convert": lambda self, _mode: self})())}))
+    monkeypatch.setattr(product_service, "pytesseract", type("FakeTesseract", (), {"image_to_string": staticmethod(lambda *_args, **_kwargs: "Beispielgasse 12")}))
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_forward_geocode",
+        lambda query: {"lat": "48.2", "lon": "16.3", "display_name": "Beispielgasse 12, 1180 Wien, Österreich"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_reverse_geocode",
+        lambda lat, lon: {"address": {"road": "Beispielgasse", "house_number": "12", "postcode": "1180", "city": "Wien"}},
+    )
+    monkeypatch.setattr(product_service, "_property_research_nearby_pois", lambda lat, lon: {"nearest_supermarket_m": 240})
+
+    findings = product_service._property_image_ocr_address_hint(
+        ("https://cdn.example.com/listing/1.jpg",),
+        source_text="Wohnung in 1190 Wien",
+        property_url="https://www.immobilienscout24.at/expose/ocr-address",
+    )
+
+    assert findings == {}
+
+
+def test_merge_property_facts_with_source_research_replaces_weak_values(monkeypatch) -> None:
+    monkeypatch.setattr(
+        product_service,
+        "_property_source_research_snapshot",
+        lambda property_url, image_urls=(): {
+            "street_address": "Hameaustraße 34",
+            "address_lines": ["Hameaustraße 34", "1190 Wien"],
+            "nearest_supermarket_m": 951,
+        },
+    )
+
+    merged = product_service._merge_property_facts_with_source_research(
+        property_url="https://www.kalandra.at/objekt/14997053",
+        property_facts={
+            "street_address": "",
+            "address_lines": ["", ""],
+            "nearest_supermarket_m": 0,
+        },
+        image_urls=(),
+    )
+
+    assert merged["street_address"] == "Hameaustraße 34"
+    assert merged["address_lines"] == ["Hameaustraße 34", "1190 Wien"]
+    assert merged["nearest_supermarket_m"] == 951
+    assert merged["listing_research_snapshot"]["street_address"] == "Hameaustraße 34"
+    assert merged["listing_research_meta"]["strategy"] == "provider_html_plus_geo"
 
 
 def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
@@ -8090,6 +8486,117 @@ def test_google_property_sync_suppresses_telegram_for_weak_digest_alert(monkeypa
     assert "property_alert_review_telegram_suppressed" in event_types
 
 
+def test_google_property_sync_scores_elisabeth_mailbox_against_elisabeth_profile(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID", "elisabeth")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Elisabeth Property Alert Office")
+
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/waehring/high-fit-mailbox-1"
+    monkeypatch.setattr(
+        google_oauth_service,
+        "list_recent_workspace_signals",
+        lambda **_: google_oauth_service.GoogleWorkspaceSignalSync(
+            account_email="elisabeth.girschele@gmail.com",
+            account_emails=("elisabeth.girschele@gmail.com",),
+            granted_scopes=(google_oauth_service.GOOGLE_SCOPE_GMAIL_MODIFY,),
+            signals=(
+                google_oauth_service.GoogleWorkspaceSignal(
+                    signal_type="email_thread",
+                    channel="gmail",
+                    title='"Mietwohnungen 1180" hat 1 neue Anzeige fuer dich gefunden',
+                    summary="Recent mail from willhaben-Suchagent.",
+                    text=listing_url,
+                    source_ref="gmail-thread:elisabeth.girschele@gmail.com:high-fit-mailbox-1",
+                    external_id="gmail-message:elisabeth.girschele@gmail.com:high-fit-mailbox-1",
+                    counterparty="willhaben-Suchagent",
+                    due_at=None,
+                    payload={
+                        "from_email": "no-reply@agent.willhaben.at",
+                        "from_name": "willhaben-Suchagent",
+                        "account_email": "elisabeth.girschele@gmail.com",
+                        "body_text_excerpt": listing_url,
+                        "labels": ["CATEGORY_UPDATES", "INBOX"],
+                    },
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "high-fit-mailbox-1",
+            "title": "Waehring high fit mailbox flat",
+            "property_facts_json": {
+                "postal_name": "Waehring",
+                "heating": "Fernwaerme",
+                "floorplan_count": 1,
+            },
+            "media_urls_json": ["https://cdn.example.com/photo.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.jpg"],
+            "tour_variants_json": [],
+        },
+    )
+    assessed: list[dict[str, object]] = []
+
+    def _fake_assess_candidate(**kwargs):
+        assessed.append(dict(kwargs))
+        return {
+            "fit_score": 94.0,
+            "confidence": 0.9,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Matches Elisabeth."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    monkeypatch.setattr(
+        ProductService,
+        "create_willhaben_property_tour",
+        lambda self, **kwargs: {
+            "status": "created",
+            "tour_url": "https://myexternalbrain.com/tours/high-fit-mailbox-1",
+            "vendor_tour_url": "https://vendor.example.com/tours/high-fit-mailbox-1",
+            "blocked_reason": "",
+        },
+    )
+    sent: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda *args, **kwargs: sent.append({"args": args, "kwargs": kwargs}) or SimpleNamespace(message_ids=["1"], chat_id="chat"),
+    )
+
+    synced = client.post(
+        "/app/api/signals/google/property-sync",
+        params={"account_email": "elisabeth.girschele@gmail.com", "email_limit": 5},
+    )
+    assert synced.status_code == 200
+    assert synced.json()["synced_total"] == 1
+    assert assessed
+    assert any(
+        row["person_id"] == "elisabeth" and row["object_id"] == "high-fit-mailbox-1"
+        for row in assessed
+    )
+    assert sent
+    assert "Preference profile: elisabeth" in sent[0]["kwargs"]["text"]
+    assert "3D tour: https://myexternalbrain.com/tours/high-fit-mailbox-1" in sent[0]["kwargs"]["text"]
+    assert listing_url not in sent[0]["kwargs"]["text"]
+
+    events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_created"})
+    assert events.status_code == 200
+    created = [item for item in events.json()["items"] if item["payload"].get("source_ref") == "gmail-thread:elisabeth.girschele@gmail.com:high-fit-mailbox-1"]
+    assert created
+    assert created[0]["payload"]["preference_person_id"] == "elisabeth"
+    assert created[0]["payload"]["personal_fit_assessment"]["fit_score"] == 94.0
+    assert created[0]["payload"]["tour_url"] == "https://myexternalbrain.com/tours/high-fit-mailbox-1"
+
+
 def test_google_property_sync_splits_digest_into_per_listing_reviews(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)
@@ -8399,6 +8906,136 @@ def test_willhaben_property_tour_route_backfills_hosted_url_from_structured_outp
     assert body["status"] == "created"
     assert body["tour_url"] == "https://myexternalbrain.com/tours/hosted-fallback-apartment"
     assert body["vendor_tour_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/hosted-fallback-apartment"
+
+
+def test_generic_property_tour_blocks_generated_listing_fallback_payload(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    service = ProductService(client.app.state.container)
+    property_url = "https://www.immobilienscout24.at/expose/abc-1"
+
+    monkeypatch.setattr(ProductService, "_resolve_browseract_property_tour_binding_id", lambda self, **kwargs: "browseract-binding-1")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url: {
+            "listing_id": "abc-1",
+            "title": "Scout flat abc-1",
+            "summary": "Fallback only",
+            "property_facts_json": {"has_360": True},
+            "media_urls_json": [],
+            "floorplan_urls_json": [],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "https://360.example.test/view/portal/id/abc-1",
+            "panorama_source": "360.example.test",
+        },
+    )
+
+    client.app.state.container.orchestrator.execute_task_artifact = lambda request: Artifact(  # type: ignore[no-untyped-def]
+        artifact_id="artifact-fallback-1",
+        kind="property_tour_packet",
+        content="Fallback tour created.",
+        execution_session_id="session-fallback-1",
+        principal_id=principal_id,
+        structured_output_json={
+            "slug": "fallback-tour-disabled",
+            "hosted_url": "https://myexternalbrain.com/tours/fallback-tour-disabled",
+            "public_url": "https://myexternalbrain.com/tours/fallback-tour-disabled",
+            "scene_strategy": "generated_listing_summary",
+            "creation_mode": "hosted_listing_fallback",
+            "scenes": [
+                {
+                    "name": "Generated listing overview",
+                    "role": "generated_overview",
+                    "asset_relpath": "scene-01.svg",
+                }
+            ],
+        },
+    )
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        source_ref="gmail-thread:elisabeth:generated-fallback",
+        auto_deliver=False,
+        actor="test",
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "property_tour_fallback_disabled"
+    assert result["tour_url"] == ""
+
+
+def test_willhaben_property_tour_blocks_generated_listing_fallback_payload(monkeypatch) -> None:
+    from app.domain.models import Artifact
+
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    packet = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/live-apartment-fallback-disabled-1",
+        "listing_id": "listing-fallback-disabled-1",
+        "listing_uuid": "listing-uuid-fallback-disabled-1",
+        "title": "Hosted fallback apartment",
+        "property_facts_json": {},
+        "media_urls_json": ["https://cdn.example.com/apartment-hosted/photo-1.jpg"],
+        "floorplan_urls_json": [],
+        "tour_variants_json": [
+            {
+                "variant_key": "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Lead with the floor plan.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
+        ],
+    }
+    monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
+
+    client.app.state.container.orchestrator.execute_task_artifact = lambda request: Artifact(  # type: ignore[no-untyped-def]
+        artifact_id="artifact-property-tour-fallback-disabled-1",
+        kind="property_tour_packet",
+        content="Fallback tour created.",
+        execution_session_id="session-property-tour-fallback-disabled-1",
+        principal_id=principal_id,
+        structured_output_json={
+            "hosted_url": "https://myexternalbrain.com/tours/fallback-disabled-apartment",
+            "public_url": "https://myexternalbrain.com/tours/fallback-disabled-apartment",
+            "editor_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours/fallback-disabled-apartment",
+            "scene_strategy": "generated_listing_summary",
+            "creation_mode": "hosted_listing_fallback",
+            "scenes": [
+                {
+                    "name": "Generated listing overview",
+                    "role": "generated_overview",
+                    "asset_relpath": "scene-01.svg",
+                }
+            ],
+        },
+    )
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-hosted-fallback-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "property_tour_fallback_disabled"
+    assert body["tour_url"] == ""
 
 
 def test_google_signal_sync_suppresses_low_signal_calendar_and_promotional_noise(monkeypatch) -> None:
