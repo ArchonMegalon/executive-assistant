@@ -46,6 +46,52 @@ def _extract_token(request: Request) -> str:
     return ""
 
 
+def _telegram_webhook_secret_candidates(*, bot_key: str = "") -> tuple[str, ...]:
+    candidates: list[str] = []
+    normalized_bot_key = str(bot_key or "").strip()
+    raw_registry = str(os.environ.get("EA_TELEGRAM_BOT_REGISTRY_JSON") or "").strip()
+    if raw_registry:
+        try:
+            parsed = json.loads(raw_registry)
+        except json.JSONDecodeError:
+            parsed = {}
+        if isinstance(parsed, dict):
+            for raw_key, raw_value in parsed.items():
+                if normalized_bot_key and str(raw_key or "").strip() != normalized_bot_key:
+                    continue
+                if not isinstance(raw_value, dict):
+                    continue
+                secret = str(raw_value.get("secret") or "").strip()
+                if secret:
+                    candidates.append(secret)
+    if not normalized_bot_key or normalized_bot_key == "default":
+        fallback = str(os.environ.get("EA_TELEGRAM_INGEST_SECRET") or "").strip()
+        if fallback:
+            candidates.append(fallback)
+    return tuple(dict.fromkeys(candidates))
+
+
+def _telegram_webhook_request_authenticated(request: Request) -> bool:
+    if request.method.upper() != "POST":
+        return False
+    path = str(request.url.path or "").strip()
+    prefix = "/v1/channels/telegram/ingest"
+    if path != prefix and not path.startswith(f"{prefix}/"):
+        return False
+    provided = str(request.headers.get("x-telegram-bot-api-secret-token") or "").strip()
+    if not provided:
+        return False
+    bot_key = ""
+    if path.startswith(f"{prefix}/"):
+        bot_key = path.removeprefix(f"{prefix}/").strip("/")
+        if "/" in bot_key:
+            return False
+    for expected in _telegram_webhook_secret_candidates(bot_key=bot_key):
+        if hmac.compare_digest(provided, expected):
+            return True
+    return False
+
+
 def _log_auth_failure(
     request: Request,
     *,
@@ -297,6 +343,8 @@ def require_request_auth(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> None:
+    if _telegram_webhook_request_authenticated(request):
+        return None
     get_request_context(request, container, access_identity)
     return None
 

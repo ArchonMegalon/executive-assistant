@@ -657,6 +657,38 @@ def test_telegram_ingest_accepts_telegram_secret_header_when_configured(monkeypa
     assert body["event_type"] == "telegram.message"
 
 
+def test_telegram_ingest_secret_header_bypasses_global_api_token_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-prod-webhook")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    resp = client.post(
+        "/v1/channels/telegram/ingest",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+        json={
+            "update": {
+                "message": {
+                    "chat": {"id": 42},
+                    "text": "hello",
+                    "message_id": 7,
+                    "date": 123,
+                }
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["principal_id"] == "exec-telegram-prod-webhook"
+    assert body["channel"] == "telegram"
+    assert body["event_type"] == "telegram.message"
+
+
 def test_telegram_ingest_auto_binds_unknown_chat_without_operator_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
