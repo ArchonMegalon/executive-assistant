@@ -7298,6 +7298,17 @@ def test_public_tour_filter_update_changes_preference_filters(
     assert "Hard blocks and must-haves" in second_page.text
 
 
+def test_shortlist_float_parsing_is_locale_aware() -> None:
+    from app.api.routes import public_tours
+
+    assert public_tours._shortlist_as_float("2.599,80 EUR") == 2599.8
+    assert public_tours._shortlist_as_float("1,234.56") == 1234.56
+    assert public_tours._shortlist_as_float("3.200") == 3200.0
+    assert public_tours._shortlist_as_float("1200") == 1200.0
+    assert public_tours._shortlist_as_float("84 m²") == 84.0
+    assert public_tours._shortlist_as_float(None) is None
+
+
 def test_public_tour_renders_shortlist_compare_cards(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7354,6 +7365,59 @@ def test_public_tour_renders_shortlist_compare_cards(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     from app.api.routes import public_tours
 
+    shortlist_candidate_dir = tmp_path / "k-1411708198"
+    shortlist_candidate_dir.mkdir()
+    (shortlist_candidate_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "k-1411708198",
+                "title": "Strong Waehring candidate",
+                "external_id": "1411708198",
+                "property_url": "https://www.willhaben.at/objekt/1411708198",
+                "facts": {
+                    "postal_name": "1190 Wien",
+                    "rooms": 4,
+                    "area_sqm": 84,
+                    "total_rent_eur": 2799.0,
+                    "lift": True,
+                    "has_floorplan": True,
+                    "heating_type": "Gas",
+                    "nearest_supermarket_m": 420,
+                    "nearest_subway_m": 360,
+                    "nearest_playground_m": 190,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    shortlist_candidate_dir2 = tmp_path / "k-1071155412"
+    shortlist_candidate_dir2.mkdir()
+    (shortlist_candidate_dir2 / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "k-1071155412",
+                "title": "Strong Doebling candidate",
+                "external_id": "1071155412",
+                "property_url": "https://www.willhaben.at/objekt/1071155412",
+                "facts": {
+                    "postal_name": "1210 Wien",
+                    "rooms": 2,
+                    "area_sqm": 92,
+                    "total_rent_eur": 2400,
+                    "lift": False,
+                    "has_floorplan": False,
+                    "heating_type": "Fernwaerme",
+                    "nearest_supermarket_m": 140,
+                    "nearest_subway_m": 180,
+                    "nearest_playground_m": 95,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
     class _FakeService:
         def get_preference_profile(self, *, principal_id: str, person_id: str = "self"):
             return {"profile": {}, "preference_nodes": [], "recent_evidence_events": [], "recent_decision_assessments": [], "recent_corrections": []}
@@ -7398,6 +7462,12 @@ def test_public_tour_renders_shortlist_compare_cards(
     assert "Strong Waehring listing" in page.text
     assert "Strong Doebling listing" in page.text
     assert "Fit 97/100" in page.text
+    assert "Rent" in page.text
+    assert "Area" in page.text
+    assert "Rooms" in page.text
+    assert "Lift" in page.text
+    assert "shortlist-delta-better" in page.text
+    assert "shortlist-delta-worse" in page.text
 
 
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(

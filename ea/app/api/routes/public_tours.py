@@ -552,6 +552,284 @@ def _filter_panel_context(*, facts: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _shortlist_normalized_ref_tokens(value: object) -> tuple[str, ...]:
+    raw = str(value or "").strip()
+    if not raw:
+        return ()
+    normalized = raw.lower().strip()
+    tokens: set[str] = {normalized}
+    if "://" in normalized:
+        normalized_url = str(urllib.parse.urldefrag(normalized)[0]).strip()
+        if normalized_url:
+            tokens.add(normalized_url)
+            tokens.add(normalized_url.rstrip("/"))
+            parsed = urllib.parse.urlparse(normalized_url)
+            path = (parsed.path or "").rstrip("/")
+            if path:
+                tokens.add(path.rsplit("/", 1)[-1].lower())
+    if ":" in normalized and not normalized.startswith("http"):
+        tokens.add(normalized.split(":", 1)[-1].strip())
+    maybe_id_match = re.search(r"(\d{4,})", normalized)
+    if maybe_id_match:
+        tokens.add(maybe_id_match.group(1))
+    tail = normalized.rsplit("/", 1)[-1]
+    if tail:
+        tokens.add(tail)
+    return tuple(sorted(token for token in tokens if token and token.lower() not in {"http", "https", "www"}))
+
+
+def _shortlist_as_float(value: object) -> float | None:
+    try:
+        if isinstance(value, (int, float)):
+            return float(value)
+        normalized = (
+            str(value)
+            .replace("€", "")
+            .replace("EUR", "")
+            .replace("eur", "")
+            .replace(" ", "")
+            .replace("m²", "")
+            .replace("sqm", "")
+            .replace("m", "")
+        )
+        normalized = re.sub(r"[^0-9.,\-]", "", normalized)
+        if not normalized or normalized in {"-", "+", ".", ","}:
+            return None
+        if "," in normalized and "." in normalized:
+            if normalized.rfind(",") > normalized.rfind("."):
+                normalized = normalized.replace(".", "").replace(",", ".")
+            else:
+                normalized = normalized.replace(",", "")
+            return float(normalized)
+        if "," in normalized:
+            before, after = normalized.rsplit(",", 1)
+            if before and after and len(after) in {1, 2}:
+                normalized = f"{before}.{after}"
+            else:
+                normalized = normalized.replace(",", "")
+            return float(normalized)
+        if "." in normalized:
+            before, after = normalized.rsplit(".", 1)
+            if before and after and len(after) == 3:
+                normalized = normalized.replace(".", "")
+            else:
+                normalized = normalized
+            return float(normalized)
+        return float(normalized)
+    except Exception:
+        return None
+
+
+def _shortlist_safe_http_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return normalized
+
+
+def _shortlist_as_bool(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized in {"1", "true", "yes", "y", "ja", "on", "enabled", "present"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off", "disabled", "missing", "none", "n/a"}:
+        return False
+    return None
+
+
+@lru_cache(maxsize=8)
+def _shortlist_tour_manifest_index(root: str) -> tuple[dict[str, object], ...]:
+    root_dir = Path(root).expanduser()
+    if not root_dir.exists() or not root_dir.is_dir():
+        return ()
+    rows: list[dict[str, object]] = []
+    for candidate in sorted((entry for entry in root_dir.iterdir() if entry.is_dir()), key=lambda entry: entry.name):
+        payload_path = candidate / "tour.json"
+        if not payload_path.exists() or not payload_path.is_file():
+            continue
+        try:
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            rows.append(dict(payload))
+    return tuple(rows)
+
+
+def _shortlist_tour_match_tokens(payload: dict[str, object]) -> tuple[str, ...]:
+    tokens: set[str] = set()
+    facts = dict(payload.get("facts") or {})
+    runtime_inputs = dict(payload.get("runtime_inputs_json") or {})
+    for candidate in (
+        payload.get("listing_url"),
+        payload.get("property_url"),
+        payload.get("source_ref"),
+        payload.get("external_id"),
+        payload.get("tour_slug"),
+        payload.get("slug"),
+        runtime_inputs.get("listing_id"),
+        facts.get("listing_id"),
+    ):
+        tokens.update(_shortlist_normalized_ref_tokens(candidate))
+    return tuple(sorted(tokens))
+
+
+def _shortlist_find_tour_payload_for_refs(*, refs: tuple[str, ...]) -> dict[str, object] | None:
+    if not refs:
+        return None
+    ref_set = set(refs)
+    for candidate in _shortlist_tour_manifest_index(str(_tour_dir())):
+        candidate_tokens = set(_shortlist_tour_match_tokens(candidate))
+        if ref_set & candidate_tokens:
+            return dict(candidate)
+    return None
+
+
+def _shortlist_tour_row_metrics(payload: dict[str, object] | None) -> dict[str, object]:
+    if not isinstance(payload, dict):
+        return {
+            "total_rent_eur": None,
+            "area_sqm": None,
+            "rooms": None,
+            "heating_type": "",
+            "lift": None,
+            "has_floorplan": None,
+            "has_balcony": None,
+            "nearest_subway_m": None,
+            "nearest_supermarket_m": None,
+            "nearest_playground_m": None,
+        }
+    facts = dict(payload.get("facts") or {})
+    rent_keys = ("total_rent_eur", "rent_eur", "price_eur", "price", "base_rent_eur")
+    area_keys = ("area_sqm", "area", "living_area", "living_area_sqm", "floor_area")
+    room_keys = ("rooms", "room_count", "zimmer")
+    lift_keys = ("lift", "has_lift", "elevator")
+    floorplan_keys = ("has_floorplan", "requires_floorplan_for_remote_review", "floorplan_available", "floor_plan")
+    balcony_keys = ("has_balcony", "has_terrace", "balcony", "terrace", "outdoor_space")
+    distance_specs = (
+        ("nearest_subway_m", ("nearest_subway_m", "distance_to_subway_m", "subway_distance_m")),
+        ("nearest_supermarket_m", ("nearest_supermarket_m", "distance_to_supermarket_m", "supermarket_distance_m")),
+        (
+            "nearest_playground_m",
+            ("nearest_playground_m", "distance_to_playground_m", "playground_distance_m"),
+        ),
+    )
+
+    def _first_numeric(candidate_keys: tuple[str, ...]) -> float | None:
+        for key in candidate_keys:
+            value = _shortlist_as_float(facts.get(key))
+            if value is not None and value > 0:
+                return value
+        return None
+
+    def _first_bool(candidate_keys: tuple[str, ...]) -> bool | None:
+        for key in candidate_keys:
+            value = _shortlist_as_bool(facts.get(key))
+            if value is not None:
+                return value
+        return None
+
+    rent_value = _first_numeric(rent_keys)
+    area_value = _first_numeric(area_keys)
+    room_value = _first_numeric(room_keys)
+    heating_value = str(facts.get("heating_type") or facts.get("heating") or "").strip()
+    metrics = {
+        "total_rent_eur": rent_value,
+        "area_sqm": area_value,
+        "rooms": int(room_value) if room_value is not None and room_value > 0 else None,
+        "heating_type": heating_value,
+        "lift": _first_bool(lift_keys),
+        "has_floorplan": _first_bool(floorplan_keys),
+        "has_balcony": _first_bool(balcony_keys),
+    }
+    for metric_key, options in distance_specs:
+        metrics[metric_key] = _first_numeric(options)
+    return metrics
+
+
+def _shortlist_metric_labels() -> tuple[tuple[str, str, str], ...]:
+    return (
+        ("total_rent_eur", "Rent", "higher_is_worse"),
+        ("area_sqm", "Area", "higher_is_better"),
+        ("rooms", "Rooms", "higher_is_better"),
+        ("heating_type", "Heating", "compare_text"),
+        ("lift", "Lift", "higher_is_better"),
+        ("has_floorplan", "Floor plan", "higher_is_better"),
+        ("has_balcony", "Balcony/Terrace", "higher_is_better"),
+        ("nearest_subway_m", "Underground", "higher_is_worse"),
+        ("nearest_supermarket_m", "Supermarket", "higher_is_worse"),
+        ("nearest_playground_m", "Playground", "higher_is_worse"),
+    )
+
+
+def _shortlist_metric_display(metric_key: str, value: object) -> str:
+    if value is None:
+        return "Not available"
+    if metric_key == "total_rent_eur":
+        if isinstance(value, (int, float)):
+            return f"EUR {value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+        return str(value)
+    if metric_key == "area_sqm":
+        if isinstance(value, (int, float)):
+            return f"{int(round(float(value)))} m²"
+    if metric_key == "rooms":
+        if isinstance(value, (int, float)):
+            return f"{int(round(float(value)))}"
+    if metric_key.endswith("_m"):
+        if isinstance(value, (int, float)) and value >= 0:
+            return f"about {int(round(value))} m"
+    if metric_key in {"lift", "has_floorplan", "has_balcony"}:
+        return "Yes" if bool(value) else "No"
+    return str(value or "Not available")
+
+
+def _shortlist_metric_delta(metric_key: str, *, baseline: object, candidate: object) -> tuple[str, str]:
+    if candidate is None or baseline is None:
+        return "No comparison", "neutral"
+    if metric_key.endswith("_m") or metric_key in {"total_rent_eur", "area_sqm", "rooms"}:
+        if not isinstance(baseline, (int, float)) or not isinstance(candidate, (int, float)):
+            return "No comparison", "neutral"
+        base_value = float(baseline)
+        cand_value = float(candidate)
+        if base_value == 0:
+            return "No comparison", "neutral"
+        difference = cand_value - base_value
+        if abs(difference) < 0.0001:
+            return "No change", "neutral"
+        ratio = int(round((difference / base_value) * 100.0)) if base_value else 0
+        prefix = "+" if difference > 0 else "-"
+        delta = abs(difference)
+        if metric_key == "total_rent_eur":
+            delta_text = f"{prefix}EUR {delta:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+        elif metric_key in {"area_sqm", "rooms"}:
+            delta_text = f"{prefix}{abs(difference):.0f}"
+        else:
+            delta_text = f"{prefix}{int(round(abs(difference)))} m"
+        metric_is_lower_better = metric_key in {"total_rent_eur", "nearest_subway_m", "nearest_supermarket_m", "nearest_playground_m"}
+        if (metric_is_lower_better and difference < 0) or (not metric_is_lower_better and difference > 0):
+            return f"{delta_text} ({abs(ratio)}%)", "better"
+        return f"{delta_text} ({abs(ratio)}%)", "worse"
+    if metric_key in {"lift", "has_floorplan", "has_balcony"}:
+        if bool(baseline) == bool(candidate):
+            return "Same", "neutral"
+        if bool(candidate) and not bool(baseline):
+            return "Better", "better"
+        return "Worse", "worse"
+    baseline_text = str(baseline or "").strip().lower()
+    candidate_text = str(candidate or "").strip().lower()
+    if baseline_text == candidate_text:
+        return "Same", "neutral"
+    if candidate_text:
+        return "Different", "neutral"
+    return "No comparison", "neutral"
+
+
 def _live_property_feedback_context(
     *,
     container: AppContainer,
@@ -639,25 +917,73 @@ def _public_shortlist_comparison_context(
 ) -> dict[str, object]:
     principal_id = str(payload.get("principal_id") or "").strip()
     if not principal_id:
-        return {"items": []}
+        return {
+            "current": {},
+            "items": [],
+            "metric_specs": list(_shortlist_metric_labels()),
+        }
+    metric_specs = list(_shortlist_metric_labels())
     current_refs = {
         str(payload.get("listing_id") or "").strip(),
         str(payload.get("property_url") or "").strip(),
         str(payload.get("listing_url") or "").strip(),
         str(slug or "").strip(),
     }
+    current_payload = {
+        "facts": dict(facts),
+        "listing_url": payload.get("listing_url"),
+        "property_url": payload.get("property_url"),
+        "source_ref": payload.get("source_ref"),
+        "external_id": payload.get("external_id"),
+    }
+    current_metrics = _shortlist_tour_row_metrics(current_payload)
+    current_score_value = dict(facts.get("personal_fit_assessment") or {}).get("fit_score")
+    current_score = float(current_score_value or 0.0) if isinstance(current_score_value, (int, float)) else 0.0
+    current_title = str(payload.get("display_title") or payload.get("title") or slug).strip() or slug
     try:
         service = build_product_service(container)
         brief_items = list(service.list_brief_items(principal_id=principal_id, limit=8))
     except Exception:
-        return {"items": []}
+        return {
+            "current": {
+                "title": current_title,
+                "score": current_score,
+                "object_ref": str(payload.get("listing_url") or payload.get("property_url") or slug).strip(),
+                "listing_url": str(payload.get("listing_url") or payload.get("property_url") or "").strip(),
+                "score_label": "Fit",
+                "why_now": "",
+                "recommended_action": "review current property",
+                "metrics": current_metrics,
+            },
+            "items": [],
+            "metric_specs": metric_specs,
+        }
     items: list[dict[str, object]] = []
+    if tuple(current_refs):
+        normalized_current_refs = tuple(
+            token
+            for ref in current_refs
+            for token in _shortlist_normalized_ref_tokens(ref)
+            if token
+        )
+    else:
+        normalized_current_refs = ()
     for row in brief_items:
         object_ref = str(getattr(row, "object_ref", "") or "").strip()
-        if not object_ref.startswith("willhaben:"):
+        object_ref_tokens = tuple(_shortlist_normalized_ref_tokens(object_ref))
+        if any(token in object_ref_tokens for token in normalized_current_refs):
             continue
-        if any(token and token in object_ref for token in current_refs):
+        if not object_ref_tokens:
             continue
+        candidate_payload = _shortlist_find_tour_payload_for_refs(refs=object_ref_tokens)
+        candidate_metrics = _shortlist_tour_row_metrics(candidate_payload)
+        candidate_listing_url = str(
+            (candidate_payload.get("listing_url") if isinstance(candidate_payload, dict) else "")
+            or (candidate_payload.get("property_url") if isinstance(candidate_payload, dict) else "")
+        ) if isinstance(candidate_payload, dict) else ""
+        if not candidate_listing_url and object_ref.startswith("http"):
+            candidate_listing_url = object_ref
+        candidate_listing_url = _shortlist_safe_http_url(candidate_listing_url)
         items.append(
             {
                 "title": str(getattr(row, "title", "") or "").strip() or "Shortlist property",
@@ -665,11 +991,10 @@ def _public_shortlist_comparison_context(
                 "why_now": str(getattr(row, "why_now", "") or "").strip(),
                 "recommended_action": str(getattr(row, "recommended_action", "") or "").strip(),
                 "object_ref": object_ref,
+                "listing_url": candidate_listing_url,
+                "metrics": candidate_metrics,
             }
         )
-    current_score_value = dict(facts.get("personal_fit_assessment") or {}).get("fit_score")
-    current_score = float(current_score_value or 0.0) if isinstance(current_score_value, (int, float)) else 0.0
-    current_title = str(payload.get("display_title") or payload.get("title") or slug).strip() or slug
     current_reason = ""
     assessment = dict(facts.get("personal_fit_assessment") or {})
     for source in (list(assessment.get("good_fit_reasons") or []), list(assessment.get("match_reasons_json") or [])):
@@ -685,10 +1010,14 @@ def _public_shortlist_comparison_context(
             "title": current_title,
             "score": current_score,
             "why_now": current_reason or "Current hosted property under review.",
+            "score_label": "Fit",
+            "metrics": current_metrics,
             "recommended_action": "review current property",
             "object_ref": str(payload.get("listing_url") or payload.get("property_url") or slug).strip(),
+            "listing_url": str(payload.get("listing_url") or payload.get("property_url") or "").strip(),
         },
         "items": items[:2],
+        "metric_specs": metric_specs,
     }
 
 
@@ -1264,20 +1593,88 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         )
         shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
         shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
+        shortlist_metric_specs = shortlist_compare.get("metric_specs")
+        shortlist_columns: list[tuple[str, str, str]] = [
+            (str(key).strip(), str(label).strip(), str(direction).strip())
+            for key, label, direction in (
+                tuple(shortlist_metric_specs)
+                if isinstance(shortlist_metric_specs, tuple)
+                else list(shortlist_metric_specs) if isinstance(shortlist_metric_specs, list) else []
+            )
+            if isinstance(key, str) and isinstance(label, str) and isinstance(direction, str)
+        ]
+        if not shortlist_columns:
+            shortlist_columns = list(_shortlist_metric_labels())
+        shortlist_rows: list[dict[str, object]] = []
+        if shortlist_current:
+            shortlist_rows.append(shortlist_current)
+        shortlist_rows.extend(shortlist_items)
+
         shortlist_cards = ""
-        if shortlist_current or shortlist_items:
-            all_cards = [shortlist_current] + shortlist_items
+        if shortlist_rows:
             shortlist_cards = "".join(
                 (
                     '<div class="summary-card">'
                     f'<h3>{html.escape(str(card.get("title") or "Property").strip())}</h3>'
-                    f'<div class="subtle">Fit {int(round(float(card.get("score") or 0.0))):d}/100</div>'
+                    f'<div class="subtle">{html.escape(str(card.get("score_label") or "Fit").strip())} '
+                    f'{int(round(float(card.get("score") or 0.0))):d}/100</div>'
                     f'<p class="sub">{html.escape(str(card.get("why_now") or "No comparison note stored.").strip())}</p>'
-                    f'<div class="chip compare-chip">{html.escape(str(card.get("recommended_action") or "review").strip())}</div>'
+                    f'<a class="chip compare-chip" href="{html.escape(str(card.get("listing_url") or "#").strip())}"'
+                    f'{"" if str(card.get("listing_url") or "").strip() else " aria-disabled=\"true\""}>{html.escape(str(card.get("recommended_action") or "review").strip())}</a>'
                     '</div>'
                 )
-                for card in all_cards[:3]
+                for card in shortlist_rows[:3]
             )
+
+        shortlist_matrix_rows: list[str] = []
+        if shortlist_rows and len(shortlist_rows) > 1:
+            baseline = dict(shortlist_rows[0].get("metrics") or {})
+            header_cells = [
+                "<th>Metric</th>",
+                f'<th>{html.escape(str(shortlist_rows[0].get("title") or "Current property"))}</th>',
+            ]
+            for candidate in shortlist_rows[1:]:
+                candidate_title = str(candidate.get("title") or "Shortlist property").strip() or "Shortlist property"
+                candidate_url = str(candidate.get("listing_url") or "").strip()
+                if candidate_url:
+                    header_cells.append(
+                        f'<th><a class="shortlist-header-link" href="{html.escape(candidate_url)}" '
+                        f'target="_blank" rel="noreferrer">{html.escape(candidate_title)}</a></th>'
+                    )
+                else:
+                    header_cells.append(f"<th>{html.escape(candidate_title)}</th>")
+            shortlist_matrix_rows.append(f"<tr>{''.join(header_cells)}</tr>")
+            for metric_key, metric_label, _metric_direction in shortlist_columns:
+                row_cells: list[str] = [f"<th class=\"shortlist-metric-label\">{html.escape(metric_label)}</th>"]
+                for index, row in enumerate(shortlist_rows):
+                    metrics = dict(row.get("metrics") or {})
+                    value = _shortlist_metric_display(metric_key, metrics.get(metric_key))
+                    if index == 0:
+                        row_cells.append(f"<td><span class=\"shortlist-value\">{html.escape(value)}</span></td>")
+                        continue
+                    delta_text, delta_tone = _shortlist_metric_delta(
+                        metric_key,
+                        baseline=baseline.get(metric_key),
+                        candidate=metrics.get(metric_key),
+                    )
+                    row_cells.append(
+                        "<td>"
+                        f"<span class=\"shortlist-value\">{html.escape(value)}</span>"
+                        f"<span class=\"shortlist-delta shortlist-delta-{html.escape(delta_tone)}\">{html.escape(str(delta_text))}</span>"
+                        "</td>"
+                    )
+                shortlist_matrix_rows.append(f"<tr>{''.join(row_cells)}</tr>")
+
+        shortlist_matrix = (
+            '<div class="shortlist-matrix-wrap">'
+            '<table class="shortlist-table">'
+            f'<tbody>{"".join(shortlist_matrix_rows)}</tbody>'
+            "</table>"
+            "</div>"
+        ) if shortlist_matrix_rows else (
+            '<div class="summary-card shortlist-empty">No shortlist comparison matrix is available yet.</div>'
+        )
+
         shortlist_panel = (
             '<section class="panel">'
             '<div class="eyebrow">Shortlist Compare</div>'
@@ -1285,6 +1682,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             '<div class="summary-grid" style="margin-top:0;">'
             f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available for side-by-side comparison.</p></div>"}'
             '</div>'
+            f'{shortlist_matrix}'
             '</section>'
         )
         detail_request_button = ""
@@ -1553,6 +1951,69 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       }}
       .evidence-row b {{ margin-bottom: 4px; font-size: 0.86rem; }}
       .evidence-row span {{ color: var(--muted); font-size: 0.92rem; }}
+      .shortlist-matrix-wrap {{
+        margin-top: 14px;
+        overflow-x: auto;
+        border: 1px solid var(--edge);
+        border-radius: 14px;
+        background: var(--panel-soft);
+      }}
+      .shortlist-table {{
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 780px;
+      }}
+      .shortlist-table th,
+      .shortlist-table td {{
+        padding: 12px 10px;
+        border-bottom: 1px solid var(--edge);
+        border-right: 1px solid var(--edge);
+        text-align: left;
+        vertical-align: top;
+      }}
+      .shortlist-table th:last-child,
+      .shortlist-table td:last-child {{ border-right: 0; }}
+      .shortlist-table th {{
+        background: #f0ebe4;
+        color: var(--muted);
+        font-size: 0.74rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }}
+      .shortlist-metric-label {{
+        width: 170px;
+        white-space: nowrap;
+      }}
+      .shortlist-table tbody tr:last-child th,
+      .shortlist-table tbody tr:last-child td {{
+        border-bottom: 0;
+      }}
+      .shortlist-header-link {{
+        color: inherit;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-flex;
+      }}
+      .shortlist-header-link:hover {{
+        text-decoration: underline;
+      }}
+      .shortlist-value {{
+        display: block;
+        font-weight: 600;
+      }}
+      .shortlist-delta {{
+        display: inline-flex;
+        margin-top: 6px;
+        font-size: 0.76rem;
+        font-weight: 600;
+      }}
+      .shortlist-delta-better {{ color: var(--good); }}
+      .shortlist-delta-worse {{ color: var(--risk); }}
+      .shortlist-delta-neutral {{ color: var(--muted); }}
+      .shortlist-empty {{
+        margin-top: 12px;
+      }}
       .provenance {{
         display: inline-flex;
         align-items: center;
