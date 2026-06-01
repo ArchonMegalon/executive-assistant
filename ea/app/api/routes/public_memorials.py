@@ -99,6 +99,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
     audio_clips = _list_of_dicts(payload.get("audio_clips"))
     memory_cards = _list_of_dicts(payload.get("memory_cards"))
     candidate_recordings = _list_of_dicts(payload.get("candidate_recordings"))
+    profile_notes = _list_of_dicts(payload.get("source_grounded_profile"))
+    external_sources = _list_of_dicts(payload.get("external_sources"))
     suggested_prompts = [str(item).strip() for item in (payload.get("suggested_prompts") or []) if str(item).strip()]
     page_title = html.escape(title)
     clickrank_html = clickrank_head_snippet(hostname)
@@ -140,6 +142,37 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       <section>
         <h2>Weitere gefundene Kandidaten</h2>
         <div class="candidates">{candidates_html}</div>
+      </section>"""
+    profile_html = "\n".join(
+        f"""
+        <article class="profile-note">
+          <p class="eyebrow">{html.escape(_text(note.get("confidence"), "quellenbasiert"))}</p>
+          <h3>{html.escape(_text(note.get("trait"), "Profilnotiz"))}</h3>
+          <p>{html.escape(_text(note.get("evidence"), ""))}</p>
+        </article>"""
+        for note in profile_notes
+    )
+    if profile_html:
+        profile_html = f"""
+      <section>
+        <h2>Quellenbasiertes Profil</h2>
+        <p class="lead">Keine Diagnose und kein Anspruch auf innere Wahrheit. Das sind belegbare Muster aus Texten, oeffentlichen Quellen und Erinnerungen.</p>
+        <div class="grid">{profile_html}</div>
+      </section>"""
+    sources_html = "\n".join(
+        f"""
+        <li>
+          <a href="{html.escape(_text(source.get("url")))}" target="_blank" rel="noreferrer">{html.escape(_text(source.get("label"), "Quelle"))}</a>
+          <span>{html.escape(_text(source.get("status"), "Quelle"))}</span>
+        </li>"""
+        for source in external_sources
+        if _text(source.get("url"))
+    )
+    if sources_html:
+        sources_html = f"""
+      <section>
+        <h2>Oeffentliche Quellen</h2>
+        <ul class="sources">{sources_html}</ul>
       </section>"""
     prompts_html = "\n".join(f"<button type=\"button\">{html.escape(prompt)}</button>" for prompt in suggested_prompts)
     if not prompts_html:
@@ -206,7 +239,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       main {{ padding: 44px 0 72px; }}
       section {{ margin-top: 44px; }}
       .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
-      .clip, .memory, .chat, .candidate {{
+      .clip, .memory, .chat, .candidate, .profile-note {{
         border: 1px solid var(--line);
         background: var(--panel);
         border-radius: 8px;
@@ -219,6 +252,9 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .candidate {{ display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 12px; align-items: start; }}
       .candidate span, .candidate p {{ color: var(--muted); }}
       .candidate p {{ grid-column: 1 / -1; }}
+      .sources {{ list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }}
+      .sources li {{ border-bottom: 1px solid var(--line); padding: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; }}
+      .sources span {{ color: var(--muted); }}
       .chat {{ background: #eef3ef; border-color: rgba(83,104,91,.24); }}
       .prompt-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }}
       button {{
@@ -259,6 +295,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <h2>Erinnerungen und Quellen</h2>
         <div class="grid">{cards_html}</div>
       </section>
+      {profile_html}
+      {sources_html}
       {candidates_html}
       <section class="chat">
         <p class="eyebrow">Erinnerungs-Chat</p>
