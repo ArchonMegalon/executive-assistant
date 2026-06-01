@@ -5219,6 +5219,103 @@ def test_google_location_history_import_supports_maps_myactivity_zip(monkeypatch
     assert "vater" in str(body["items"][0]["topic_keywords_csv"])
 
 
+def test_google_location_history_import_reindexes_existing_pocket_archive_with_transcript(monkeypatch, tmp_path) -> None:
+    principal_id = "local-user"
+    client = build_product_client(principal_id=principal_id)
+    seed_product_state(client, principal_id=principal_id)
+    archive_root = tmp_path / "archive"
+    monkeypatch.setattr(product_service, "_pocket_audio_archive_root", lambda: archive_root)
+
+    archive_dir = archive_root / "local-user" / "2026" / "05"
+    archive_dir.mkdir(parents=True)
+    audio_path = archive_dir / "2026-05-20__hospital-reindex-1__talk-with-father.mp3"
+    audio_path.write_bytes(b"audio")
+    metadata_path = audio_path.with_suffix(".json")
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "recording_id": "hospital-reindex-1",
+                "title": "Talk with father",
+                "principal_id": principal_id,
+                "recording_at": "2026-05-20T10:45:00Z",
+                "archive_path": str(audio_path),
+                "archive_sha256": "abc123",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    service = ProductService(client.app.state.container)
+    service._record_pocket_archive_index(
+        principal_id=principal_id,
+        recording_id="hospital-reindex-1",
+        title="Talk with father",
+        recording_at="2026-05-20T10:45:00Z",
+        archive_result={
+            "archive_status": "already_archived",
+            "archive_path": str(audio_path),
+            "archive_sha256": "abc123",
+        },
+        summary_markdown="Gespräch mit dem Vater im Krankenhaus.",
+        transcript_text="Mein Vater spricht über seinen Zustand und die Familie.",
+        transcript_excerpt="Mein Vater spricht über seinen Zustand.",
+        location_match={"location_match_status": "unmatched", "location_match_reason": "no_timeline_window_match"},
+        topic_keywords_csv="vater, krankenhaus",
+        tags=["hospital", "family"],
+    )
+
+    timeline_path = tmp_path / "Records.json"
+    timeline_path.write_text(
+        json.dumps(
+            {
+                "timelineObjects": [
+                    {
+                        "placeVisit": {
+                            "location": {
+                                "name": "Hanusch Krankenhaus",
+                                "address": "Heinrich Collin-Strasse 30, Wien",
+                                "latitudeE7": 481900000,
+                                "longitudeE7": 163150000,
+                            },
+                            "duration": {
+                                "startTimestamp": "2026-05-20T10:00:00Z",
+                                "endTimestamp": "2026-05-20T11:30:00Z",
+                            },
+                        }
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    imported = service.import_google_location_history(
+        principal_id=principal_id,
+        actor="operator-office",
+        path=str(timeline_path),
+    )
+
+    assert imported["imported_total"] == 1
+    assert imported["matched_recording_total"] == 1
+    assert imported["indexed_recording_total"] == 1
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["location_match"]["location_match_status"] == "matched"
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "pocket_recording_archive_indexed"},
+    )
+    assert events.status_code == 200
+    reindexed = next(
+        item
+        for item in events.json()["items"]
+        if item["payload"]["recording_id"] == "hospital-reindex-1"
+        and item["payload"]["location_match_status"] == "matched"
+    )
+    assert reindexed["payload"]["transcript_text"] == "Mein Vater spricht über seinen Zustand und die Familie."
+    assert reindexed["payload"]["location_name"] == "Hanusch Krankenhaus"
+
+
 def test_pocket_recording_search_deliver_telegram_route_sends_best_match(monkeypatch) -> None:
     principal_id = "exec-product-pocket-search-telegram"
     client = build_product_client(principal_id=principal_id)

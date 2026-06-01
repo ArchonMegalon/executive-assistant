@@ -6108,8 +6108,10 @@ class ProductService:
                     "archive_sha256": str(payload.get("archive_sha256") or "").strip(),
                 },
                 summary_markdown=str(signal_payload.get("summary_markdown") or "").strip(),
+                transcript_text=str(signal_payload.get("transcript_text") or signal_payload.get("transcript_excerpt") or "").strip(),
                 transcript_excerpt=str(signal_payload.get("transcript_excerpt") or "").strip(),
                 location_match=location_match,
+                topic_keywords_csv=str(signal_payload.get("topic_keywords_csv") or "").strip(),
                 tags=[item.strip() for item in str(signal_payload.get("tags_csv") or "").split(",") if item.strip()],
             )
             indexed_total += 1
