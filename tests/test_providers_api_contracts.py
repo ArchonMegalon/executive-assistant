@@ -7014,6 +7014,85 @@ def test_public_tour_request_details_opens_followup(
     assert captured["property_url"] == "https://www.kalandra.at/objekt/14997053"
 
 
+def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-feedback-loop"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Feedback Loop Property",
+                "display_title": "Feedback Loop Property",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {
+                    "postal_name": "Waehring",
+                    "district": "Waehring",
+                    "rooms": 3,
+                    "area_sqm": 68,
+                    "total_rent_eur": 2450,
+                    "heating_type": "Gasheizung",
+                    "has_floorplan": False,
+                    "lift": False,
+                    "nearest_subway_m": 1400,
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-feedback")
+    first_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+    assert first_page.status_code == 200
+    assert "Teach the system what to rank higher or lower" in first_page.text
+    assert "Save feedback" in first_page.text
+
+    feedback = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com"},
+        json={"reaction": "dislike", "reason_keys": ["gas_heating", "no_lift"], "note": "This is exactly what I do not want."},
+    )
+    assert feedback.status_code == 200
+    body = feedback.json()
+    assert body["status"] == "recorded"
+    assert any(item["key"] == "avoid_heating_types" for item in body["evidence"]["applied_nodes"])
+    assert any(item["key"] == "prefer_lift" for item in body["evidence"]["applied_nodes"])
+
+    second_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
+    assert second_page.status_code == 200
+    assert "What the system has learned from you" in second_page.text
+    assert "Avoid heating: Gasheizung" in second_page.text
+    assert "Gasheizung conflicts with your heating preferences." in second_page.text
+
+
 def test_public_tour_routes_ignore_unsafe_live_360_source_urls(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

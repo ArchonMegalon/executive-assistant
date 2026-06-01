@@ -2099,6 +2099,461 @@ def _property_alert_is_good_fit(
     return score >= min_score
 
 
+_PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
+    {"key": "price_too_high", "sentiment": "negative", "label": "Too expensive", "category": "pricing"},
+    {"key": "price_good_value", "sentiment": "positive", "label": "Good value", "category": "pricing"},
+    {"key": "location_weak", "sentiment": "negative", "label": "Location not right", "category": "location"},
+    {"key": "location_strong", "sentiment": "positive", "label": "Location is strong", "category": "location"},
+    {"key": "underground_too_far", "sentiment": "negative", "label": "Underground too far", "category": "location"},
+    {"key": "supermarket_too_far", "sentiment": "negative", "label": "Supermarket too far", "category": "location"},
+    {"key": "pharmacy_too_far", "sentiment": "negative", "label": "Pharmacy too far", "category": "location"},
+    {"key": "playground_too_far", "sentiment": "negative", "label": "Playground too far", "category": "location"},
+    {"key": "transit_strong", "sentiment": "positive", "label": "Transit is strong", "category": "location"},
+    {"key": "gas_heating", "sentiment": "negative", "label": "Gas heating", "category": "building"},
+    {"key": "no_lift", "sentiment": "negative", "label": "No lift", "category": "building"},
+    {"key": "lift_good", "sentiment": "positive", "label": "Lift is useful", "category": "building"},
+    {"key": "weak_floorplan", "sentiment": "negative", "label": "Weak floor plan", "category": "layout"},
+    {"key": "floorplan_good", "sentiment": "positive", "label": "Good floor plan", "category": "layout"},
+    {"key": "too_small", "sentiment": "negative", "label": "Too small", "category": "layout"},
+    {"key": "layout_strong", "sentiment": "positive", "label": "Layout works well", "category": "layout"},
+    {"key": "lease_too_short", "sentiment": "negative", "label": "Lease too short", "category": "contract"},
+    {"key": "outdoor_space_weak", "sentiment": "negative", "label": "Outdoor space too weak", "category": "amenity"},
+    {"key": "outdoor_space_strong", "sentiment": "positive", "label": "Outdoor space is strong", "category": "amenity"},
+    {"key": "bike_access_weak", "sentiment": "negative", "label": "Bike access weak", "category": "lifestyle"},
+    {"key": "green_access_weak", "sentiment": "negative", "label": "Green access weak", "category": "lifestyle"},
+    {"key": "family_fit_strong", "sentiment": "positive", "label": "Family fit is strong", "category": "family"},
+    {"key": "style_not_right", "sentiment": "negative", "label": "Style not right", "category": "taste"},
+    {"key": "bright", "sentiment": "positive", "label": "Feels bright", "category": "taste"},
+    {"key": "quiet", "sentiment": "positive", "label": "Feels quiet", "category": "taste"},
+    {"key": "kitchen_bad", "sentiment": "negative", "label": "Kitchen is weak", "category": "finish"},
+    {"key": "bathroom_bad", "sentiment": "negative", "label": "Bathroom is weak", "category": "finish"},
+    {"key": "tour_helpful", "sentiment": "positive", "label": "3D tour helped", "category": "workflow"},
+)
+
+
+def _property_feedback_reason_map() -> dict[str, dict[str, object]]:
+    return {str(row["key"]): dict(row) for row in _PROPERTY_FEEDBACK_REASON_LIBRARY}
+
+
+def _property_feedback_reason_detail(reason_key: str) -> dict[str, object]:
+    return dict(_property_feedback_reason_map().get(str(reason_key or "").strip(), {}))
+
+
+def _property_feedback_suggestion_groups(
+    *,
+    property_facts: dict[str, object],
+    assessment: dict[str, object] | None = None,
+) -> dict[str, list[dict[str, object]]]:
+    facts = dict(property_facts or {})
+    assessment_json = dict(assessment or {}) if isinstance(assessment, dict) else {}
+    suggestions: list[str] = []
+    positives: list[str] = []
+
+    total_rent = _float_or_none(facts.get("total_rent_eur"))
+    area_sqm = _float_or_none(facts.get("area_sqm"))
+    heating = str(facts.get("heating") or facts.get("heating_type") or "").strip().lower()
+    has_lift = bool(facts.get("lift"))
+    has_floorplan = bool(facts.get("has_floorplan") or facts.get("floorplan_count") or facts.get("floorplan_urls_json"))
+    has_balcony = bool(facts.get("balcony") or facts.get("terrace") or facts.get("terrace_area_sqm"))
+    nearest_subway = _float_or_none(facts.get("nearest_subway_m"))
+    nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
+    nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
+    nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_cycleway = _float_or_none(facts.get("nearest_cycleway_m"))
+    nearest_running = _float_or_none(facts.get("nearest_running_m"))
+    lease_years = _float_or_none(facts.get("lease_term_years_max"))
+
+    if isinstance(total_rent, float) and total_rent >= 2000.0:
+        suggestions.append("price_too_high")
+    else:
+        positives.append("price_good_value")
+    if "gas" in heating:
+        suggestions.append("gas_heating")
+    if not has_lift:
+        suggestions.append("no_lift")
+    else:
+        positives.append("lift_good")
+    if not has_floorplan:
+        suggestions.append("weak_floorplan")
+    else:
+        positives.append("floorplan_good")
+        positives.append("layout_strong")
+    if isinstance(area_sqm, float) and area_sqm < 70.0:
+        suggestions.append("too_small")
+    if isinstance(nearest_subway, float) and nearest_subway > 900.0:
+        suggestions.append("underground_too_far")
+    elif isinstance(nearest_subway, float) and nearest_subway <= 500.0:
+        positives.append("transit_strong")
+    if isinstance(nearest_supermarket, float) and nearest_supermarket > 800.0:
+        suggestions.append("supermarket_too_far")
+    if isinstance(nearest_pharmacy, float) and nearest_pharmacy > 900.0:
+        suggestions.append("pharmacy_too_far")
+    if isinstance(nearest_playground, float) and nearest_playground > 500.0:
+        suggestions.append("playground_too_far")
+    elif isinstance(nearest_playground, float) and nearest_playground <= 250.0:
+        positives.append("family_fit_strong")
+    if isinstance(nearest_cycleway, float) and nearest_cycleway > 700.0:
+        suggestions.append("bike_access_weak")
+    if isinstance(nearest_running, float) and nearest_running > 900.0:
+        suggestions.append("green_access_weak")
+    if isinstance(lease_years, float) and lease_years > 0.0 and lease_years <= 5.0:
+        suggestions.append("lease_too_short")
+    if not has_balcony:
+        suggestions.append("outdoor_space_weak")
+    else:
+        positives.append("outdoor_space_strong")
+    if bool(facts.get("has_360")) or bool(facts.get("source_virtual_tour_url")):
+        positives.append("tour_helpful")
+
+    if not suggestions:
+        suggestions.extend(["location_weak", "style_not_right"])
+    if not positives:
+        positives.extend(["bright", "quiet"])
+
+    if any(str(item or "").strip() for item in list(assessment_json.get("mismatch_reasons_json") or [])):
+        suggestions.append("location_weak")
+    if any(str(item or "").strip() for item in list(assessment_json.get("match_reasons_json") or [])):
+        positives.append("location_strong")
+
+    def _rows(keys: list[str]) -> list[dict[str, object]]:
+        deduped: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for key in keys:
+            normalized = str(key or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            row = _property_feedback_reason_detail(normalized)
+            if not row:
+                continue
+            deduped.append(row)
+            seen.add(normalized)
+        return deduped[:8]
+
+    return {
+        "negative": _rows(suggestions),
+        "positive": _rows(positives),
+    }
+
+
+def _property_feedback_inferred_hints(
+    *,
+    reaction: str,
+    reason_keys: tuple[str, ...],
+    property_facts: dict[str, object],
+    source_mode: str = "explicit_feedback",
+) -> list[dict[str, object]]:
+    reaction_key = str(reaction or "").strip().lower()
+    facts = dict(property_facts or {})
+    district = str(facts.get("postal_name") or facts.get("district") or facts.get("location") or "").strip()
+    heating = str(facts.get("heating") or facts.get("heating_type") or "").strip()
+    total_rent = _float_or_none(facts.get("total_rent_eur"))
+    area_sqm = _float_or_none(facts.get("area_sqm"))
+    hints: list[dict[str, object]] = []
+
+    def _append_unique(hint: dict[str, object]) -> None:
+        key = (str(hint.get("category")), str(hint.get("key")))
+        if any((str(row.get("category")), str(row.get("key"))) == key for row in hints):
+            return
+        hints.append(hint)
+
+    for reason_key in reason_keys:
+        normalized = str(reason_key or "").strip().lower()
+        if normalized == "gas_heating" and heating:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "aversion",
+                    "key": "avoid_heating_types",
+                    "value_json": [heating],
+                    "strength": "high",
+                    "confidence": 0.96,
+                    "merge_mode": "append_unique",
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "no_lift":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_lift",
+                    "value_json": True,
+                    "strength": "high",
+                    "confidence": 0.92,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"weak_floorplan", "floorplan_good"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "requires_floorplan_for_remote_review",
+                    "value_json": True,
+                    "strength": "high" if normalized == "floorplan_good" else "medium",
+                    "confidence": 0.9 if normalized == "floorplan_good" else 0.86,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"underground_too_far", "transit_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_subway_nearby",
+                    "value_json": True,
+                    "strength": "high" if normalized == "underground_too_far" else "medium",
+                    "confidence": 0.9,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "supermarket_too_far":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_supermarket_nearby",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.86,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "pharmacy_too_far":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_pharmacy_nearby",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.82,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"playground_too_far", "family_fit_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_playgrounds_nearby",
+                    "value_json": True,
+                    "strength": "high" if normalized == "playground_too_far" else "medium",
+                    "confidence": 0.88,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"outdoor_space_weak", "outdoor_space_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_balcony",
+                    "value_json": True,
+                    "strength": "high" if normalized == "outdoor_space_strong" else "medium",
+                    "confidence": 0.86,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "bike_access_weak":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_bike_infrastructure",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.8,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "green_access_weak":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_running_green_space",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.8,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "lease_too_short":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_unlimited_lease",
+                    "value_json": True,
+                    "strength": "high",
+                    "confidence": 0.9,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"location_strong", "location_weak"} and district:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference" if normalized == "location_strong" else "aversion",
+                    "key": "preferred_districts" if normalized == "location_strong" else "avoided_districts",
+                    "value_json": [district],
+                    "strength": "high" if normalized == "location_strong" else "medium",
+                    "confidence": 0.9 if normalized == "location_strong" else 0.82,
+                    "merge_mode": "append_unique",
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "price_too_high" and isinstance(total_rent, float) and total_rent > 0.0:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_lower_total_rent_eur",
+                    "value_json": int(round(total_rent * 0.9)),
+                    "strength": "high",
+                    "confidence": 0.9,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "price_good_value" and isinstance(total_rent, float) and total_rent > 0.0:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_lower_total_rent_eur",
+                    "value_json": int(round(total_rent * 1.05)),
+                    "strength": "medium",
+                    "confidence": 0.78,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "too_small" and isinstance(area_sqm, float) and area_sqm > 0.0:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "min_area_sqm_preference",
+                    "value_json": int(round(area_sqm + 8.0)),
+                    "strength": "high",
+                    "confidence": 0.88,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "tour_helpful":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_360_for_remote_review",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.82,
+                    "source_mode": source_mode,
+                }
+            )
+
+    if reaction_key == "like" and district and not any(_normalize_key(row.get("key")) == "preferred_districts" for row in hints):
+        _append_unique(
+            {
+                "domain": "willhaben",
+                "category": "soft_preference",
+                "key": "preferred_districts",
+                "value_json": [district],
+                "strength": "medium",
+                "confidence": 0.72,
+                "merge_mode": "append_unique",
+                "source_mode": source_mode,
+            }
+        )
+    return hints
+
+
+def _property_feedback_learning_summary(bundle: dict[str, object], *, domain: str = "willhaben") -> dict[str, object]:
+    def _summary_list_value(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        text = str(value or "").strip()
+        return [text] if text else []
+
+    normalized_domain = str(domain or "").strip().lower()
+    nodes = [
+        dict(row)
+        for row in list(dict(bundle or {}).get("preference_nodes") or [])
+        if isinstance(row, dict)
+        and str(row.get("status") or "").strip().lower() == "active"
+        and str(row.get("domain") or "").strip().lower() == normalized_domain
+    ]
+    events = [
+        dict(row)
+        for row in list(dict(bundle or {}).get("recent_evidence_events") or [])
+        if isinstance(row, dict)
+        and str(row.get("domain") or "").strip().lower() == normalized_domain
+        and str(row.get("event_type") or "").strip().lower().startswith("listing_feedback_")
+    ]
+    likes: list[str] = []
+    dislikes: list[str] = []
+    hard_rules: list[str] = []
+    for row in nodes:
+        key = str(row.get("key") or "").strip().lower()
+        value = row.get("value_json")
+        if key == "preferred_districts":
+            labels = ", ".join(_summary_list_value(value))
+            if labels:
+                likes.append(f"Preferred districts: {labels}")
+        elif key == "avoided_districts":
+            labels = ", ".join(_summary_list_value(value))
+            if labels:
+                dislikes.append(f"Avoid districts: {labels}")
+        elif key == "avoid_heating_types":
+            labels = ", ".join(_summary_list_value(value))
+            if labels:
+                dislikes.append(f"Avoid heating: {labels}")
+        elif key in {"prefer_lift", "require_lift"} and bool(value):
+            likes.append("Lift matters")
+            if key == "require_lift":
+                hard_rules.append("Lift required")
+        elif key in {"require_floorplan", "requires_floorplan_for_remote_review"} and bool(value):
+            likes.append("Floor plan matters")
+            if key == "require_floorplan":
+                hard_rules.append("Floor plan required")
+        elif key == "prefer_balcony" and bool(value):
+            likes.append("Outdoor space matters")
+        elif key == "prefer_subway_nearby" and bool(value):
+            likes.append("Good underground access matters")
+        elif key == "prefer_supermarket_nearby" and bool(value):
+            likes.append("Daily grocery access matters")
+        elif key == "prefer_pharmacy_nearby" and bool(value):
+            likes.append("Pharmacy access matters")
+        elif key == "prefer_playgrounds_nearby" and bool(value):
+            likes.append("Playground proximity matters")
+        elif key == "prefer_unlimited_lease" and bool(value):
+            dislikes.append("Short leases are a drawback")
+        elif key == "prefer_lower_total_rent_eur" and value not in (None, ""):
+            likes.append(f"Prefers listings under about EUR {int(float(value))}")
+        elif key == "min_area_sqm_preference" and value not in (None, ""):
+            likes.append(f"Prefers at least about {int(float(value))} m²")
+    recent_feedback: list[dict[str, object]] = []
+    for row in events[:8]:
+        raw = dict(row.get("raw_signal_json") or {})
+        recent_feedback.append(
+            {
+                "event_type": str(row.get("event_type") or "").strip(),
+                "recorded_at": str(row.get("recorded_at") or "").strip(),
+                "reaction": str(raw.get("reaction") or "").strip(),
+                "reasons": list(raw.get("reason_keys") or []),
+                "note": str(raw.get("note") or "").strip(),
+                "object_id": str(row.get("object_id") or "").strip(),
+            }
+        )
+    return {
+        "likes": likes[:6],
+        "dislikes": dislikes[:6],
+        "hard_rules": hard_rules[:4],
+        "recent_feedback": recent_feedback,
+    }
+
+
 def _property_alert_is_watch_fit(
     assessment: dict[str, object] | None,
     *,
@@ -4917,6 +5372,157 @@ class ProductService:
             persist=True,
             require_existing_profile=False,
         )
+
+    def preview_preference_candidate(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+        domain: str,
+        object_type: str,
+        object_id: str,
+        object_payload: dict[str, object],
+        require_existing_profile: bool = False,
+    ) -> dict[str, object] | None:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        return self._preference_profiles.assess_candidate(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            domain=domain,
+            object_type=object_type,
+            object_id=object_id,
+            object_payload=object_payload,
+            persist=False,
+            require_existing_profile=require_existing_profile,
+        )
+
+    def property_feedback_suggestions(
+        self,
+        *,
+        property_facts: dict[str, object],
+        assessment: dict[str, object] | None = None,
+    ) -> dict[str, list[dict[str, object]]]:
+        return _property_feedback_suggestion_groups(
+            property_facts=property_facts,
+            assessment=assessment,
+        )
+
+    def property_feedback_learning_summary(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+        domain: str = "willhaben",
+    ) -> dict[str, object]:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        bundle = self._preference_profiles.get_profile_bundle(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        return _property_feedback_learning_summary(bundle, domain=domain)
+
+    def record_property_feedback(
+        self,
+        *,
+        principal_id: str,
+        property_slug: str,
+        property_url: str,
+        property_title: str,
+        property_facts: dict[str, object],
+        reaction: str,
+        reason_keys: tuple[str, ...] = (),
+        note: str = "",
+        person_id: str = "self",
+        actor: str = "",
+    ) -> dict[str, object]:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        normalized_reaction = str(reaction or "").strip().lower()
+        if normalized_reaction not in {"like", "dislike", "maybe", "hide"}:
+            raise ValueError("invalid_property_feedback_reaction")
+        normalized_reason_keys = tuple(
+            str(item or "").strip().lower()
+            for item in reason_keys
+            if str(item or "").strip()
+        )
+        existing_bundle = self.get_preference_profile(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        existing_profile = dict(existing_bundle.get("profile") or {}) if isinstance(existing_bundle.get("profile"), dict) else {}
+        if not existing_profile:
+            self.upsert_preference_profile(
+                principal_id=principal_id,
+                person_id=normalized_person_id,
+            )
+        hints = _property_feedback_inferred_hints(
+            reaction=normalized_reaction,
+            reason_keys=normalized_reason_keys,
+            property_facts=property_facts,
+        )
+        event_type = {
+            "like": "listing_feedback_like",
+            "dislike": "listing_feedback_dislike",
+            "maybe": "listing_feedback_maybe",
+            "hide": "listing_feedback_hide",
+        }[normalized_reaction]
+        raw_signal_json = {
+            "reaction": normalized_reaction,
+            "reason_keys": list(normalized_reason_keys),
+            "reason_labels": [
+                str(_property_feedback_reason_detail(key).get("label") or key)
+                for key in normalized_reason_keys
+            ],
+            "note": compact_text(note, fallback="", limit=500),
+            "district": str(property_facts.get("postal_name") or property_facts.get("district") or property_facts.get("location") or "").strip(),
+            "heating_type": str(property_facts.get("heating") or property_facts.get("heating_type") or "").strip(),
+            "total_rent_eur": property_facts.get("total_rent_eur"),
+            "area_sqm": property_facts.get("area_sqm"),
+            "property_url": str(property_url or "").strip(),
+            "property_title": compact_text(property_title, fallback="", limit=180),
+            "property_slug": str(property_slug or "").strip(),
+            "actor": compact_text(actor, fallback="", limit=80),
+        }
+        evidence = self.record_preference_evidence(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            domain="willhaben",
+            event_type=event_type,
+            object_type="listing",
+            object_id=str(property_url or property_slug or property_title or "listing").strip(),
+            source_ref=f"public_tour:{str(property_slug or '').strip()}",
+            raw_signal_json=raw_signal_json,
+            interpreted_signal_json={
+                "preference_hints": hints,
+                "feedback_kind": "property_reaction",
+                "feedback_reason_keys": list(normalized_reason_keys),
+            },
+            signal_strength=0.95 if normalized_reaction in {"like", "dislike"} else 0.7,
+            reversible=True,
+        )
+        updated_assessment = self.assess_preference_candidate(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            domain="willhaben",
+            object_type="listing",
+            object_id=str(property_url or property_slug or property_title or "listing").strip(),
+            object_payload=dict(property_facts or {}),
+        ) or {}
+        profile_bundle = self.get_preference_profile(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        return {
+            "status": "recorded",
+            "reaction": normalized_reaction,
+            "reason_keys": list(normalized_reason_keys),
+            "evidence": evidence,
+            "updated_assessment": updated_assessment,
+            "learning_summary": _property_feedback_learning_summary(profile_bundle, domain="willhaben"),
+            "preference_snapshot": {
+                "profile": dict(profile_bundle.get("profile") or {}),
+                "preference_nodes": list(profile_bundle.get("preference_nodes") or []),
+            },
+        }
 
     def preference_teable_projection_records(
         self,

@@ -804,6 +804,22 @@ class PreferenceDecisionAssessmentIn(BaseModel):
     object_payload: dict[str, object] = Field(default_factory=dict)
 
 
+class PropertyFeedbackSuggestionRequestIn(BaseModel):
+    property_facts: dict[str, object] = Field(default_factory=dict)
+    assessment: dict[str, object] = Field(default_factory=dict)
+
+
+class PropertyFeedbackRecordIn(BaseModel):
+    property_slug: str = ""
+    property_url: str = ""
+    property_title: str = ""
+    property_facts: dict[str, object] = Field(default_factory=dict)
+    reaction: str = Field(min_length=1)
+    reason_keys: list[str] = Field(default_factory=list)
+    note: str = ""
+    actor: str = ""
+
+
 class PreferenceProfileSummaryOut(BaseModel):
     person_id: str
     principal_id: str
@@ -899,6 +915,44 @@ class PreferenceProfileBundleOut(BaseModel):
     recent_evidence_events: list[PreferenceEvidenceEventOut] = Field(default_factory=list)
     recent_decision_assessments: list[PreferenceDecisionAssessmentOut] = Field(default_factory=list)
     recent_corrections: list[PreferenceCorrectionOut] = Field(default_factory=list)
+
+
+class PropertyFeedbackSuggestionOut(BaseModel):
+    key: str
+    label: str
+    tone: str = ""
+    explanation: str = ""
+
+
+class PropertyFeedbackSuggestionSetOut(BaseModel):
+    negative: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
+    positive: list[PropertyFeedbackSuggestionOut] = Field(default_factory=list)
+
+
+class PreferenceLearningFeedbackEventOut(BaseModel):
+    event_type: str = ""
+    recorded_at: str = ""
+    reaction: str = ""
+    reasons: list[str] = Field(default_factory=list)
+    note: str = ""
+    object_id: str = ""
+
+
+class PreferenceLearningSummaryOut(BaseModel):
+    likes: list[str] = Field(default_factory=list)
+    dislikes: list[str] = Field(default_factory=list)
+    hard_rules: list[str] = Field(default_factory=list)
+    recent_feedback: list[PreferenceLearningFeedbackEventOut] = Field(default_factory=list)
+
+
+class PropertyFeedbackRecordOut(BaseModel):
+    status: str
+    reaction: str
+    reason_keys: list[str] = Field(default_factory=list)
+    evidence: PreferenceEvidenceApplyOut
+    updated_assessment: PreferenceDecisionAssessmentOut
+    learning_summary: PreferenceLearningSummaryOut
+    preference_snapshot: PreferenceProfileBundleOut
 
 
 class RuleSimulateIn(BaseModel):

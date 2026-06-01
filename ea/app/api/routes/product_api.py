@@ -35,10 +35,15 @@ from app.api.routes.product_api_contracts import (
     PreferenceDecisionAssessmentOut,
     PreferenceEvidenceApplyOut,
     PreferenceEvidenceEventIn,
+    PreferenceLearningSummaryOut,
     PreferenceNodeOut,
     PreferenceNodeUpsertIn,
     PreferenceProfileBundleOut,
     PreferenceProfileSummaryOut,
+    PropertyFeedbackRecordIn,
+    PropertyFeedbackRecordOut,
+    PropertyFeedbackSuggestionRequestIn,
+    PropertyFeedbackSuggestionSetOut,
     PreferenceProfileUpsertIn,
     PersonDetailOut,
     PersonProfileOut,
@@ -767,6 +772,63 @@ def assess_preference_candidate(
     if result is None:
         raise HTTPException(status_code=404, detail="preference_profile_not_found")
     return PreferenceDecisionAssessmentOut(**result)
+
+
+@router.get("/people/{person_id}/preference-profile/learning-summary", response_model=PreferenceLearningSummaryOut)
+def get_preference_learning_summary(
+    person_id: str,
+    domain: str = Query(default="willhaben", min_length=1),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceLearningSummaryOut:
+    service = build_product_service(container)
+    return PreferenceLearningSummaryOut(
+        **service.property_feedback_learning_summary(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            domain=domain,
+        )
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/property-feedback/suggestions", response_model=PropertyFeedbackSuggestionSetOut)
+def get_property_feedback_suggestions(
+    person_id: str,
+    body: PropertyFeedbackSuggestionRequestIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyFeedbackSuggestionSetOut:
+    service = build_product_service(container)
+    return PropertyFeedbackSuggestionSetOut(
+        **service.property_feedback_suggestions(
+            property_facts=dict(body.property_facts or {}),
+            assessment=dict(body.assessment or {}) if body.assessment else None,
+        )
+    )
+
+
+@router.post("/people/{person_id}/preference-profile/property-feedback", response_model=PropertyFeedbackRecordOut)
+def record_property_feedback(
+    person_id: str,
+    body: PropertyFeedbackRecordIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyFeedbackRecordOut:
+    service = build_product_service(container)
+    actor = str(body.actor or context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    result = service.record_property_feedback(
+        principal_id=context.principal_id,
+        person_id=person_id,
+        property_slug=body.property_slug,
+        property_url=body.property_url,
+        property_title=body.property_title,
+        property_facts=dict(body.property_facts or {}),
+        reaction=body.reaction,
+        reason_keys=list(body.reason_keys or []),
+        note=body.note,
+        actor=actor,
+    )
+    return PropertyFeedbackRecordOut(**result)
 
 
 @router.get("/people/{person_id}/preference-profile/teable-projection", response_model=dict[str, list[dict[str, object]]])

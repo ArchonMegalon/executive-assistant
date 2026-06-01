@@ -3207,6 +3207,63 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert assessment.json()["domain"] == "willhaben"
     assert assessment.json()["recommendation"] in {"mention", "shortlist"}
 
+    suggestions = client.post(
+        "/app/api/people/self/preference-profile/property-feedback/suggestions",
+        json={
+            "property_facts": {
+                "postal_name": "Waehring",
+                "district": "Waehring",
+                "total_rent_eur": 2200.0,
+                "area_sqm": 106.0,
+                "heating_type": "Gasheizung",
+                "has_floorplan": True,
+                "lift": False,
+                "nearest_subway_m": 920.0,
+                "nearest_playground_m": 180.0,
+            },
+            "assessment": assessment.json(),
+        },
+    )
+    assert suggestions.status_code == 200
+    suggestion_body = suggestions.json()
+    assert any(item["key"] == "gas_heating" for item in suggestion_body["negative"])
+    assert any(item["key"] == "floorplan_good" for item in suggestion_body["positive"])
+
+    feedback = client.post(
+        "/app/api/people/self/preference-profile/property-feedback",
+        json={
+            "property_slug": "waehring-flat-1",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1",
+            "property_title": "Waehring Flat 1",
+            "property_facts": {
+                "postal_name": "Waehring",
+                "district": "Waehring",
+                "total_rent_eur": 2200.0,
+                "area_sqm": 106.0,
+                "heating_type": "Gasheizung",
+                "has_floorplan": True,
+                "lift": False,
+                "nearest_subway_m": 920.0,
+                "nearest_playground_m": 180.0,
+            },
+            "reaction": "dislike",
+            "reason_keys": ["gas_heating", "no_lift"],
+            "note": "Gas and stairs are both wrong.",
+        },
+    )
+    assert feedback.status_code == 200
+    feedback_body = feedback.json()
+    assert feedback_body["status"] == "recorded"
+    assert any(item["key"] == "avoid_heating_types" for item in feedback_body["evidence"]["applied_nodes"])
+    assert any(item["key"] == "prefer_lift" for item in feedback_body["evidence"]["applied_nodes"])
+    assert feedback_body["updated_assessment"]["domain"] == "willhaben"
+
+    learning = client.get("/app/api/people/self/preference-profile/learning-summary")
+    assert learning.status_code == 200
+    learning_body = learning.json()
+    assert "Avoid heating: Gasheizung" in learning_body["dislikes"]
+    assert any(row["reaction"] == "dislike" for row in learning_body["recent_feedback"])
+
     bundle = client.get("/app/api/people/self/preference-profile")
     assert bundle.status_code == 200
     body = bundle.json()
@@ -3464,6 +3521,42 @@ def test_preference_profile_teable_projection_endpoints_return_live_rows() -> No
     assert summary.status_code == 200
     table = next(item for item in summary.json()["tables"] if item["table_name"] == "preference_review_queue")
     assert table["record_count"] >= 1
+
+
+def test_property_feedback_records_preference_learning_and_updates_assessment() -> None:
+    principal_id = "pref-property-feedback"
+    client = build_product_client(principal_id=principal_id)
+    container = client.app.state.container
+    product = product_service.build_product_service(container)
+
+    result = product.record_property_feedback(
+        principal_id=principal_id,
+        property_slug="feedback-flat-1",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1190-doebling/feedback-flat-1",
+        property_title="Feedback Flat 1",
+        property_facts={
+            "postal_name": "Doebling",
+            "district": "Doebling",
+            "heating_type": "Gasheizung",
+            "total_rent_eur": 2450.0,
+            "area_sqm": 68.0,
+            "nearest_subway_m": 1400.0,
+            "has_floorplan": False,
+            "lift": False,
+        },
+        reaction="dislike",
+        reason_keys=("gas_heating", "underground_too_far", "no_lift"),
+        note="Feels wrong for daily life.",
+        actor="test",
+    )
+
+    assert result["status"] == "recorded"
+    applied = result["evidence"]["applied_nodes"]
+    assert any(item["key"] == "avoid_heating_types" for item in applied)
+    assert any(item["key"] == "prefer_subway_nearby" for item in applied)
+    assert any(item["key"] == "prefer_lift" for item in applied)
+    assert any("heating aversion" in entry.lower() for entry in result["updated_assessment"]["mismatch_reasons_json"])
+    assert "Avoid heating: Gasheizung" in result["learning_summary"]["dislikes"]
 
 
 def test_preference_profile_teable_sync_preview_fails_closed_without_executable_lane() -> None:

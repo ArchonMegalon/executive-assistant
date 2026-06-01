@@ -556,6 +556,10 @@ class PreferenceProfileService:
             or "lift" in _normalize_key(facts.get("headline_hook"))
             or "lift" in _normalize_key(attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"))
         )
+        nearest_subway_m = float(facts.get("nearest_subway_m") or 0.0)
+        nearest_supermarket_m = float(facts.get("nearest_supermarket_m") or 0.0)
+        nearest_pharmacy_m = float(facts.get("nearest_pharmacy_m") or 0.0)
+        lease_term_years_max = float(facts.get("lease_term_years_max") or 0.0)
         bike_score = float(facts.get("bike_infrastructure_score") or 0.0)
         green_score = float(facts.get("green_space_score") or 0.0)
         playground_score = float(facts.get("playground_score") or 0.0)
@@ -653,6 +657,70 @@ class PreferenceProfileService:
                     else:
                         score -= 6.0 * weight
                         mismatch_reasons.append("No live 360 source is available, which conflicts with the preferred remote review workflow.")
+            elif category == "soft_preference" and key == "prefer_subway_nearby":
+                if bool(value):
+                    if nearest_subway_m > 0.0 and nearest_subway_m <= 650.0:
+                        score += 6.0 * weight
+                        match_reasons.append(f"Underground access is about {int(nearest_subway_m)} m away, which matches the transit preference.")
+                    elif nearest_subway_m > 1200.0:
+                        score -= 6.0 * weight
+                        mismatch_reasons.append(f"Underground access is about {int(nearest_subway_m)} m away, which is weaker than preferred.")
+                    else:
+                        unknowns.append("Underground access still needs verification.")
+            elif category == "soft_preference" and key == "prefer_supermarket_nearby":
+                if bool(value):
+                    if nearest_supermarket_m > 0.0 and nearest_supermarket_m <= 700.0:
+                        score += 4.0 * weight
+                        match_reasons.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away, which matches the daily-life preference.")
+                    elif nearest_supermarket_m > 1000.0:
+                        score -= 4.5 * weight
+                        mismatch_reasons.append(f"Supermarket access is about {int(nearest_supermarket_m)} m away, which is weaker than preferred.")
+                    else:
+                        unknowns.append("Supermarket access still needs verification.")
+            elif category == "soft_preference" and key == "prefer_pharmacy_nearby":
+                if bool(value):
+                    if nearest_pharmacy_m > 0.0 and nearest_pharmacy_m <= 800.0:
+                        score += 3.5 * weight
+                        match_reasons.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away, which matches the daily-life preference.")
+                    elif nearest_pharmacy_m > 1200.0:
+                        score -= 3.5 * weight
+                        mismatch_reasons.append(f"Pharmacy access is about {int(nearest_pharmacy_m)} m away, which is weaker than preferred.")
+                    else:
+                        unknowns.append("Pharmacy access still needs verification.")
+            elif category == "soft_preference" and key == "prefer_unlimited_lease":
+                if bool(value):
+                    if lease_term_years_max > 0.0 and lease_term_years_max <= 5.0:
+                        score -= 5.0 * weight
+                        mismatch_reasons.append(f"The lease runs only about {int(lease_term_years_max)} years, which is shorter than preferred.")
+                    elif lease_term_years_max > 8.0:
+                        score += 3.0 * weight
+                        match_reasons.append("The lease duration looks compatible with a longer-term stability preference.")
+                    else:
+                        unknowns.append("Lease duration still needs verification.")
+            elif category == "soft_preference" and key == "prefer_lower_total_rent_eur" and isinstance(total_rent, (int, float)):
+                try:
+                    preferred_rent = float(value)
+                except Exception:
+                    preferred_rent = 0.0
+                if preferred_rent > 0.0:
+                    if total_rent <= preferred_rent:
+                        score += 4.0 * weight
+                        match_reasons.append(f"The total rent sits within the preferred range (about EUR {preferred_rent:g}).")
+                    elif total_rent > preferred_rent * 1.12:
+                        score -= 5.0 * weight
+                        mismatch_reasons.append(f"The total rent exceeds the preferred range (about EUR {preferred_rent:g}).")
+            elif category == "soft_preference" and key == "min_area_sqm_preference" and isinstance(area_sqm, (int, float)):
+                try:
+                    preferred_area = float(value)
+                except Exception:
+                    preferred_area = 0.0
+                if preferred_area > 0.0:
+                    if area_sqm >= preferred_area:
+                        score += 3.5 * weight
+                        match_reasons.append(f"The living area clears the preferred threshold of about {preferred_area:g} m².")
+                    elif area_sqm < preferred_area - 5.0:
+                        score -= 5.0 * weight
+                        mismatch_reasons.append(f"The living area is below the preferred threshold of about {preferred_area:g} m².")
             elif category == "soft_preference" and key == "prefer_bike_infrastructure":
                 if bool(value):
                     if bike_score >= 0.7:

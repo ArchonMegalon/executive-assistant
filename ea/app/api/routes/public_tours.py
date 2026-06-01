@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from app.api.dependencies import get_container
 from app.container import AppContainer
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
-from app.product.service import build_product_service
+from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 
 router = APIRouter(tags=["public-tours"])
@@ -391,11 +391,97 @@ def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
     return False
 
 
+def _feedback_reason_label(reason_key: object) -> str:
+    reason_map = _property_feedback_reason_map()
+    row = dict(reason_map.get(str(reason_key or "").strip(), {}))
+    return str(row.get("label") or reason_key or "").strip()
+
+
+def _live_property_feedback_context(
+    *,
+    container: AppContainer,
+    payload: dict[str, object],
+    slug: str,
+) -> dict[str, object]:
+    def _merge_snapshot_nodes(
+        stored_snapshot: dict[str, object],
+        profile_bundle: dict[str, object],
+    ) -> list[dict[str, object]]:
+        merged: list[dict[str, object]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for source in (
+            list(dict(stored_snapshot or {}).get("preference_nodes") or []),
+            list(dict(profile_bundle or {}).get("preference_nodes") or []),
+        ):
+            for row in source:
+                if not isinstance(row, dict):
+                    continue
+                key = str(row.get("key") or "").strip().lower()
+                category = str(row.get("category") or "").strip().lower()
+                value_marker = json.dumps(row.get("value_json"), sort_keys=True, ensure_ascii=False, default=str)
+                marker = (key, category, value_marker)
+                if not key or marker in seen:
+                    continue
+                seen.add(marker)
+                merged.append(dict(row))
+        return merged
+
+    principal_id = str(payload.get("principal_id") or "").strip()
+    facts = dict(payload.get("facts") or {})
+    facts, _ = _merged_facts_with_listing_research(payload, facts)
+    stored_snapshot = dict(facts.get("public_preference_snapshot") or {}) if isinstance(facts.get("public_preference_snapshot"), dict) else {}
+    if not principal_id:
+        return {"facts": facts, "feedback_suggestions": {"negative": [], "positive": []}, "learning_summary": {}}
+    service = build_product_service(container)
+    profile_bundle = service.get_preference_profile(principal_id=principal_id, person_id="self")
+    listing_object_id = str(payload.get("listing_id") or payload.get("property_url") or payload.get("listing_url") or slug).strip() or slug
+    existing_assessment = dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {}
+    live_assessment = service.preview_preference_candidate(
+        principal_id=principal_id,
+        person_id="self",
+        domain="willhaben",
+        object_type="listing",
+        object_id=listing_object_id,
+        object_payload=facts,
+        require_existing_profile=False,
+    )
+    if isinstance(live_assessment, dict):
+        merged_assessment = dict(existing_assessment)
+        merged_assessment.update(dict(live_assessment))
+        existing_livability = dict(existing_assessment.get("livability_snapshot") or {}) if isinstance(existing_assessment.get("livability_snapshot"), dict) else {}
+        live_livability = dict(live_assessment.get("livability_snapshot") or {}) if isinstance(live_assessment.get("livability_snapshot"), dict) else {}
+        if existing_livability or live_livability:
+            merged_livability = dict(existing_livability)
+            merged_livability.update(live_livability)
+            merged_assessment["livability_snapshot"] = merged_livability
+        facts["personal_fit_assessment"] = merged_assessment
+    facts["public_preference_snapshot"] = {
+        "profile": dict(profile_bundle.get("profile") or stored_snapshot.get("profile") or {}),
+        "preference_nodes": _merge_snapshot_nodes(stored_snapshot, profile_bundle),
+    }
+    return {
+        "facts": facts,
+        "feedback_suggestions": service.property_feedback_suggestions(
+            property_facts=facts,
+            assessment=dict(live_assessment or {}) if isinstance(live_assessment, dict) else None,
+        ),
+        "learning_summary": service.property_feedback_learning_summary(
+            principal_id=principal_id,
+            person_id="self",
+            domain="willhaben",
+        ),
+        "live_assessment": dict(live_assessment or {}) if isinstance(live_assessment, dict) else {},
+        "profile_bundle": profile_bundle,
+    }
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
     facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
+    feedback_suggestions = dict(payload.get("_feedback_suggestions") or {}) if isinstance(payload.get("_feedback_suggestions"), dict) else {}
+    learning_summary = dict(payload.get("_learning_summary") or {}) if isinstance(payload.get("_learning_summary"), dict) else {}
     brief = dict(payload.get("brief") or {})
     title = str(payload.get("title") or payload.get("tour_title") or payload.get("slug") or "Property Tour").strip()
     display_title = str(payload.get("display_title") or title).strip() or title
@@ -442,6 +528,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         if not isinstance(value, (list, tuple)):
             return []
         return [str(item or "").strip() for item in value if str(item or "").strip()]
+
+    def _json_attr(value: object) -> str:
+        return html.escape(json.dumps(value, ensure_ascii=False), quote=True)
 
     def _distance_rows(snapshot: dict[str, object]) -> list[tuple[str, str]]:
         labels = (
@@ -907,6 +996,33 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             f'<div class="evidence-row"><div><b>{html.escape(label)}</b><span>{html.escape(value)}</span></div><em class="provenance provenance-{provenance.lower()}">{html.escape(provenance)}</em></div>'
             for label, value, provenance in evidence_rows
         )
+        feedback_negative = [dict(row) for row in list(feedback_suggestions.get("negative") or []) if isinstance(row, dict)]
+        feedback_positive = [dict(row) for row in list(feedback_suggestions.get("positive") or []) if isinstance(row, dict)]
+        feedback_negative_html = "".join(
+            f'<button class="reason-chip reason-chip-negative" type="button" data-reason-key="{html.escape(str(row.get("key") or ""))}" data-sentiment="negative">{html.escape(str(row.get("label") or ""))}</button>'
+            for row in feedback_negative
+        )
+        feedback_positive_html = "".join(
+            f'<button class="reason-chip reason-chip-positive" type="button" data-reason-key="{html.escape(str(row.get("key") or ""))}" data-sentiment="positive">{html.escape(str(row.get("label") or ""))}</button>'
+            for row in feedback_positive
+        )
+        learned_likes = _text_list(learning_summary.get("likes"))
+        learned_dislikes = _text_list(learning_summary.get("dislikes"))
+        learned_hard_rules = _text_list(learning_summary.get("hard_rules"))
+        recent_feedback_rows = [dict(row) for row in list(learning_summary.get("recent_feedback") or []) if isinstance(row, dict)]
+        learned_likes_html = "".join(f"<li>{html.escape(item)}</li>" for item in learned_likes[:6])
+        learned_dislikes_html = "".join(f"<li>{html.escape(item)}</li>" for item in learned_dislikes[:6])
+        learned_hard_rules_html = "".join(f"<li>{html.escape(item)}</li>" for item in learned_hard_rules[:4])
+        recent_feedback_html = "".join(
+            (
+                '<div class="feedback-log-row">'
+                f'<b>{html.escape(str(row.get("reaction") or "").title() or "Feedback")}</b>'
+                f'<span>{html.escape(", ".join(_feedback_reason_label(item) for item in list(row.get("reasons") or []) if str(item or "").strip()) or "No structured reasons yet")}</span>'
+                f'<em>{html.escape(str(row.get("recorded_at") or "")[:16].replace("T", " "))}</em>'
+                '</div>'
+            )
+            for row in recent_feedback_rows[:6]
+        )
         detail_request_button = ""
         if str(payload.get("principal_id") or "").strip() and str(payload.get("property_url") or listing_url).strip():
             detail_request_button = (
@@ -915,6 +1031,55 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 '<span id="request-details-status" class="request-status"></span>'
                 '</div>'
             )
+        feedback_panel = ""
+        if str(payload.get("principal_id") or "").strip():
+            feedback_panel = (
+                '<section id="feedback" class="panel">'
+                '<div class="eyebrow">Preference Feedback</div>'
+                '<h2>Teach the system what to rank higher or lower</h2>'
+                '<p class="sub">Give a quick reaction and mark the concrete reasons. Future property scoring and Telegram selection will use this feedback.</p>'
+                '<div class="feedback-reaction-row">'
+                '<button class="reaction-btn" type="button" data-reaction="like">Like</button>'
+                '<button class="reaction-btn" type="button" data-reaction="maybe">Maybe</button>'
+                '<button class="reaction-btn" type="button" data-reaction="dislike">Dislike</button>'
+                '<button class="reaction-btn" type="button" data-reaction="hide">Hide</button>'
+                '</div>'
+                '<div class="feedback-groups">'
+                '<div><h3>What hurts this property</h3><div class="reason-chip-row">'
+                f'{feedback_negative_html or "<span class=\"subtle\">No structured negatives suggested yet.</span>"}'
+                '</div></div>'
+                '<div><h3>What works well</h3><div class="reason-chip-row">'
+                f'{feedback_positive_html or "<span class=\"subtle\">No structured positives suggested yet.</span>"}'
+                '</div></div>'
+                '</div>'
+                '<label class="feedback-note-label" for="feedback-note">Optional note</label>'
+                '<textarea id="feedback-note" class="feedback-note" rows="3" placeholder="Anything subtle that the chips missed."></textarea>'
+                '<div class="request-row">'
+                '<button id="feedback-submit-btn" class="request-btn" type="button">Save feedback</button>'
+                '<span id="feedback-status" class="request-status"></span>'
+                '</div>'
+                '</section>'
+            )
+        learned_panel = (
+            '<section class="panel">'
+            '<div class="eyebrow">Learning Loop</div>'
+            '<h2>What the system has learned from you</h2>'
+            '<div class="summary-grid" style="margin-top:0;">'
+            '<div class="summary-card"><h3>Likes</h3><ul>'
+            f'{learned_likes_html or "<li>No strong positive preference learned yet.</li>"}'
+            '</ul></div>'
+            '<div class="summary-card"><h3>Dislikes</h3><ul>'
+            f'{learned_dislikes_html or "<li>No strong aversion learned yet.</li>"}'
+            '</ul></div>'
+            '<div class="summary-card"><h3>Hard rules</h3><ul>'
+            f'{learned_hard_rules_html or "<li>No hard constraint has been locked in yet.</li>"}'
+            '</ul></div>'
+            '</div>'
+            '<div class="feedback-log">'
+            f'{recent_feedback_html or "<p class=\"sub\">No recent structured property feedback has been recorded yet.</p>"}'
+            '</div>'
+            '</section>'
+        )
         return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -1103,6 +1268,49 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         cursor: pointer;
       }}
       .request-status {{ color: var(--muted); font-size: 0.95rem; }}
+      .feedback-reaction-row, .reason-chip-row, .feedback-groups {{
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
+      .feedback-groups {{ flex-direction: column; margin-top: 14px; }}
+      .reaction-btn, .reason-chip {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--edge);
+        background: var(--panel-soft);
+        color: inherit;
+        cursor: pointer;
+      }}
+      .reaction-btn.active {{ background: var(--ink); color: #fff; border-color: var(--ink); }}
+      .reason-chip.active {{ border-color: var(--accent); color: var(--accent); background: #fff8f3; }}
+      .reason-chip-negative {{ background: #fbf5f3; }}
+      .reason-chip-positive {{ background: #f3f8f3; }}
+      .feedback-note-label {{ display: block; margin: 16px 0 8px; font-size: 0.85rem; color: var(--muted); }}
+      .feedback-note {{
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid var(--edge);
+        background: var(--panel-soft);
+        padding: 12px 14px;
+        resize: vertical;
+        font: inherit;
+        color: inherit;
+      }}
+      .feedback-log {{ display: grid; gap: 10px; margin-top: 16px; }}
+      .feedback-log-row {{
+        display: grid;
+        gap: 4px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--edge);
+        background: var(--panel-soft);
+      }}
+      .feedback-log-row span, .subtle {{ color: var(--muted); font-size: 0.92rem; }}
       .ooda-grid {{
         display: grid;
         gap: 10px;
@@ -1158,6 +1366,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           <a class="ghost" href="#match">Match</a>
           <a class="ghost" href="#location">Location</a>
           <a class="ghost" href="#costs">Costs</a>
+          <a class="ghost" href="#feedback">Feedback</a>
           <a class="ghost" href="#risks">Risks</a>
           <a class="ghost" href="#research">Research</a>
           <a class="ghost" href="#tour">3D Tour</a>
@@ -1233,6 +1442,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             <h2>Monthly and structural costs</h2>
             <div class="stat-grid">{cost_html}</div>
           </section>
+          {feedback_panel}
           <section id="tour" class="live-shell">
             <div class="eyebrow">{brand_html} <span>•</span> 3D Evidence</div>
             <h2>Inspect layout, light, and finish quality</h2>
@@ -1272,6 +1482,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             </details>
             {detail_request_button}
           </section>
+          {learned_panel}
           <section class="panel">
             <div class="eyebrow">Executive Brief</div>
             <h2>What this means</h2>
@@ -1287,6 +1498,60 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <script>
       const requestButton = document.getElementById("request-details-btn");
       const requestStatus = document.getElementById("request-details-status");
+      let selectedReaction = "";
+      const selectedReasons = new Set();
+      const reactionButtons = [...document.querySelectorAll(".reaction-btn")];
+      const reasonButtons = [...document.querySelectorAll(".reason-chip")];
+      const feedbackSubmitButton = document.getElementById("feedback-submit-btn");
+      const feedbackStatus = document.getElementById("feedback-status");
+      const feedbackNote = document.getElementById("feedback-note");
+      reactionButtons.forEach((button) => {{
+        button.addEventListener("click", () => {{
+          selectedReaction = String(button.dataset.reaction || "");
+          reactionButtons.forEach((candidate) => candidate.classList.toggle("active", candidate === button));
+        }});
+      }});
+      reasonButtons.forEach((button) => {{
+        button.addEventListener("click", () => {{
+          const reasonKey = String(button.dataset.reasonKey || "");
+          if (!reasonKey) return;
+          if (selectedReasons.has(reasonKey)) {{
+            selectedReasons.delete(reasonKey);
+            button.classList.remove("active");
+          }} else {{
+            selectedReasons.add(reasonKey);
+            button.classList.add("active");
+          }}
+        }});
+      }});
+      if (feedbackSubmitButton && feedbackStatus) {{
+        feedbackSubmitButton.addEventListener("click", async () => {{
+          if (!selectedReaction) {{
+            feedbackStatus.textContent = "Choose a reaction first.";
+            return;
+          }}
+          feedbackSubmitButton.disabled = true;
+          feedbackStatus.textContent = "Saving feedback...";
+          try {{
+            const response = await fetch(window.location.pathname + "/feedback", {{
+              method: "POST",
+              headers: {{ "Content-Type": "application/json" }},
+              body: JSON.stringify({{
+                reaction: selectedReaction,
+                reason_keys: [...selectedReasons],
+                note: feedbackNote ? feedbackNote.value : "",
+              }}),
+            }});
+            const payload = await response.json();
+            if (!response.ok) throw new Error((payload.error && payload.error.code) || "feedback_failed");
+            feedbackStatus.textContent = "Saved. Reloading the brief with updated preferences...";
+            window.setTimeout(() => window.location.reload(), 800);
+          }} catch (error) {{
+            feedbackSubmitButton.disabled = false;
+            feedbackStatus.textContent = "Could not save feedback right now.";
+          }}
+        }});
+      }}
       if (requestButton && requestStatus) {{
         requestButton.addEventListener("click", async () => {{
           requestButton.disabled = true;
@@ -2013,13 +2278,64 @@ def public_tour_request_details(
     return JSONResponse(result)
 
 
+@router.post("/tours/{slug}/feedback", response_class=JSONResponse)
+async def public_tour_feedback(
+    slug: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> JSONResponse:
+    payload = _load_tour(slug)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    principal_id = str(payload.get("principal_id") or "").strip()
+    if not principal_id:
+        raise HTTPException(status_code=409, detail="tour_feedback_unavailable")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    reaction = str(body.get("reaction") or "").strip().lower()
+    if reaction not in {"like", "dislike", "maybe", "hide"}:
+        raise HTTPException(status_code=422, detail="invalid_tour_feedback_reaction")
+    reason_keys = tuple(
+        str(item or "").strip().lower()
+        for item in list(body.get("reason_keys") or [])
+        if str(item or "").strip()
+    )
+    note = str(body.get("note") or "").strip()
+    facts = _live_property_feedback_context(container=container, payload=payload, slug=slug).get("facts") or dict(payload.get("facts") or {})
+    result = build_product_service(container).record_property_feedback(
+        principal_id=principal_id,
+        property_slug=slug,
+        property_url=str(payload.get("property_url") or payload.get("listing_url") or "").strip(),
+        property_title=str(payload.get("display_title") or payload.get("title") or "").strip(),
+        property_facts=dict(facts) if isinstance(facts, dict) else {},
+        reaction=reaction,
+        reason_keys=reason_keys,
+        note=note,
+        actor=f"public_tour:{request_hostname(request)}",
+    )
+    return JSONResponse(result)
+
+
 @router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
-def public_tour_page(slug: str, request: Request) -> HTMLResponse:
+def public_tour_page(
+    slug: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> HTMLResponse:
     try:
         payload = _load_tour(slug)
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-        return HTMLResponse(_tour_html(payload, hostname=request_hostname(request)))
+        live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
+        rendered_payload = dict(payload)
+        rendered_payload["facts"] = dict(live_context.get("facts") or {})
+        rendered_payload["_feedback_suggestions"] = dict(live_context.get("feedback_suggestions") or {})
+        rendered_payload["_learning_summary"] = dict(live_context.get("learning_summary") or {})
+        return HTMLResponse(_tour_html(rendered_payload, hostname=request_hostname(request)))
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
         if exc.status_code == 404 and detail == "tour_disabled_fallback":
