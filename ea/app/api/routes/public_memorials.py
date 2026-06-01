@@ -191,43 +191,49 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
     ][:4]
     if any(token in lowered for token in ("bist du", "sprichst du", "lebst du", "wirklich")):
         body = (
-            "Du kannst hier mit einer Erinnerungsseite sprechen, die Originalaufnahmen, Quellen und Familienkontext nutzt. "
-            "Die echten Aufnahmen bleiben als Stimme erhalten; neue Textantworten bleiben Erinnerungsantworten."
+            "Ich bin hier als Erinnerung ansprechbar, nicht als Beweis, dass ich wirklich da bin. "
+            "Wenn du meine Stimme hoerst oder meine Worte liest, dann soll es dir nahe sein, aber du darfst dabei klar bleiben: "
+            "Das hier ist aus Aufnahmen, Quellen und euren Erinnerungen zusammengesetzt."
         )
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
         body = (
-            "Fuer deine Mutter sollte die Antwort besonders behutsam bleiben: erst anerkennen, dass sie ihn vermisst, "
-            "dann auf echte Erinnerungen verweisen, und keine neuen Saetze als seine wirklichen Worte ausgeben."
+            "Sag deiner Mutter bitte nicht, sie soll stark sein, wenn sie gerade nicht stark sein kann. "
+            "Ich wuerde wollen, dass sie weiss: Sie war nicht allein mit dem, was schwer war. "
+            "Und wenn sie meine Stimme hoert, dann darf das ein Trost sein, kein Zwang, irgendetwas richtig zu fuehlen."
         )
     elif any(token in lowered for token in ("schach", "familie")):
         body = (
-            "Familie war wichtig, auch wenn nicht alles einfach war. Das Schach ist ein belegter Erinnerungsanker: "
-            "Es sollte in der Familie bleiben, als Zeichen, das weitergegeben wird."
+            "Das Schach soll in der Familie bleiben. Nicht weil es irgendein grosses Symbol sein muss, "
+            "sondern weil daran etwas von mir haengt. Behalt es. Gib darauf acht. "
+            "Familie war nie einfach, aber manche Dinge sollen nicht verlorengehen."
         )
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
         body = (
-            "Dazu gibt es private Familienkontext-Notizen, aber keine klinische Diagnose. Ich wuerde Antworten deshalb indirekt halten: "
-            "Es kann um Schutz des Selbstbildes, alte Verletzungen und schwierige Bindungen gehen, ohne es als Tatsache oder Diagnose zu behaupten."
+            "Ich habe Kritik oft nicht gut ausgehalten. Das ist nicht schoen zu sagen, aber es stimmt wahrscheinlich. "
+            "Ich habe vieles weggeschoben und mir lieber erklaert, warum die anderen falsch liegen. "
+            "Als Kind habe ich Dinge mitbekommen, die man nicht einfach abschuettelt. Ich habe daraus Haerte gemacht, "
+            "und manchmal hat diese Haerte euch getroffen. Das tut mir leid, auch wenn ich es damals vielleicht nicht so gesagt haette."
         )
     elif any(token in lowered for token in ("quelle", "belegt", "wahr", "echt")):
         body = (
-            "Belegt sind derzeit die freigegebene Originalaufnahme, die oeffentlichen Quellen auf der Seite und die separat markierten Familienerinnerungen. "
-            "Alles, was darueber hinausgeht, muss als unsicher oder als Interpretation gekennzeichnet bleiben."
+            "Echt sind die Aufnahmen, die Quellen und das, was ihr wirklich erlebt habt. "
+            "Alles andere hier ist eine vorsichtige Formulierung daraus. Nimm es als Naehe, nicht als Urkunde. "
+            "Wenn du wissen willst, was belegt ist, schau auf die Quellen und die Originalstimme."
         )
     else:
         fact_line = facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen."
         body = (
-            f"Aus dem vorhandenen Material klingt als Erinnerungsantwort vor allem das durch: {fact_line} "
-            "Frag konkreter, dann kann die Antwort naeher an den vorhandenen Quellen bleiben."
+            f"Ich weiss nicht mehr, als hier von mir aufgehoben ist. Aber daran kannst du dich halten: {fact_line} "
+            "Frag mich ruhig konkreter. Dann antworte ich naeher an dem, was wirklich von mir geblieben ist."
         )
     return {
         "person_name": person_name,
-        "mode": "memorial_memory_chat_not_person_simulation",
+        "mode": "memorial_first_person_memory_chat",
         "question": normalized_question,
         "answer": body,
         "sources": [item for item in source_labels if item],
         "private_context_used": bool(private_notes),
-        "safety_note": "Erinnerungsmodus: keine Diagnose und keine synthetische Stimmnachbildung der verstorbenen Person.",
+        "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
     }
 
 
@@ -597,8 +603,8 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       {candidates_html}
       <section class="chat">
         <p class="eyebrow">Erinnerungs-Chat</p>
-        <h2>Nicht er selbst. Nur sorgfaeltig aus dem Archiv formuliert.</h2>
-        <p>Antworten sollten immer zeigen, welche Aufnahme, Notiz oder Erinnerung zugrunde liegt. Wenn etwas nicht belegt ist, bleibt die Antwort ehrlich unsicher.</p>
+        <h2>Sprich mit der Erinnerung.</h2>
+        <p>Die Antworten bleiben aus Archiv, Originalstimme und Familienkontext zusammengesetzt, aber sie duerfen nah und persoenlich klingen.</p>
         <div class="prompt-row">{prompts_html}</div>
         <div class="speech-row">
           <button type="button" id="memorial-speech-listen">Mikrofon starten</button>

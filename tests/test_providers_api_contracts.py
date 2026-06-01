@@ -6852,7 +6852,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert page.status_code == 200
     assert "Manfred" in page.text
     assert "Seine Stimme hoeren" in page.text
-    assert "Nicht er selbst" in page.text
+    assert "Sprich mit der Erinnerung" in page.text
     assert "voice clone" not in page.text.lower()
     assert f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3" in page.text
     assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
@@ -6965,12 +6965,14 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ging er mit Kritik um?"})
     assert response.status_code == 200
     body = response.json()
-    assert body["mode"] == "memorial_memory_chat_not_person_simulation"
+    assert body["mode"] == "memorial_first_person_memory_chat"
     assert body["private_context_used"] is True
     assert "Ich bin nicht Manfred Hoza" not in body["answer"]
-    assert "keine klinische Diagnose" in body["answer"]
+    assert "Ich habe Kritik oft nicht gut ausgehalten" in body["answer"]
+    assert "Das tut mir leid" in body["answer"]
     assert "ADHS" not in body["answer"]
     assert "narcissistic" not in body["answer"].lower()
+    assert "Erinnerungsanker" not in body["answer"]
 
 
 def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(
