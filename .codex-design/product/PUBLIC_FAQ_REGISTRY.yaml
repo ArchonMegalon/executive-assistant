@@ -52,7 +52,7 @@ sections:
         answer: No. The intended direction is that browsing runs, applying with a quickstart or approved runner, acknowledging table expectations, and receiving scheduling and handoff details should work without assuming a Windows-only setup.
       - question: Is Chummer trying to replace Discord or VTTs?
         required: true
-        answer: No. The intended posture is that Chummer owns rules, applications, schedule receipts, and world consequences, while Discord, Teams, and VTTs remain play or communication surfaces.
+        answer: No. The intended posture is that Chummer owns rules, applications, scheduling records, and world consequences, while Discord, Teams, and VTTs remain play or communication surfaces.
   - id: deeper_sources
     title: If you want the behind-the-scenes details
     entries:
