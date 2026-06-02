@@ -7222,6 +7222,88 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     assert "Gasheizung conflicts with your heating preferences." in second_page.text
 
 
+def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-feedback-invalid-payload"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Feedback Guard Property",
+                "display_title": "Feedback Guard Property",
+                "listing_url": "https://www.kalandra.at/objekt/guard-1",
+                "property_url": "https://www.kalandra.at/objekt/guard-1",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/guard",
+                "facts": {
+                    "postal_name": "Waehring",
+                    "district": "Waehring",
+                    "rooms": 3,
+                    "area_sqm": 68,
+                    "total_rent_eur": 2450,
+                    "heating_type": "Gasheizung",
+                    "has_floorplan": False,
+                    "lift": False,
+                    "nearest_subway_m": 1400,
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-feedback-guard")
+
+    invalid = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com"},
+        json={"reaction": "dislike", "reason_keys": "gas_heating", "note": "invalid payload"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "invalid_tour_feedback_reason_keys"
+
+    unknown_reason = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com"},
+        json={"reaction": "dislike", "reason_keys": ["not_a_reason"], "note": "unknown reason"},
+    )
+    assert unknown_reason.status_code == 422
+    assert unknown_reason.json()["error"]["code"] == "invalid_tour_feedback_reason_key"
+
+    invalid_reaction = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com"},
+        json={"reaction": "nah", "reason_keys": ["gas_heating"], "note": "invalid reaction"},
+    )
+    assert invalid_reaction.status_code == 422
+    assert invalid_reaction.json()["error"]["code"] == "invalid_tour_feedback_reaction"
+
+
 def test_public_tour_filter_update_changes_preference_filters(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7296,6 +7378,95 @@ def test_public_tour_filter_update_changes_preference_filters(
     assert "Avoid gas heating" in second_page.text
     assert "Active filters" in second_page.text
     assert "Hard blocks and must-haves" in second_page.text
+
+
+def test_public_tour_filter_update_rejects_invalid_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "pioche-lecombe-filter-invalid"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Filter Guard Property",
+                "display_title": "Filter Guard Property",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {
+                    "postal_name": "1190 Wien",
+                    "district": "Salmannsdorf",
+                    "rooms": 3,
+                    "area_sqm": 101.2,
+                    "total_rent_eur": 2599.8,
+                    "heating_type": "Hauszentralheizung (Gas)",
+                    "has_floorplan": True,
+                    "lift": True,
+                },
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "pure_360",
+                        "scene_id": "living",
+                        "asset_relpath": "scene-01-f.jpg",
+                        "cube_faces": {
+                            "f": "scene-01-f.jpg",
+                            "b": "scene-01-b.jpg",
+                            "r": "scene-01-r.jpg",
+                            "l": "scene-01-l.jpg",
+                            "u": "scene-01-u.jpg",
+                            "d": "scene-01-d.jpg",
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-filter-invalid")
+
+    missing_filter = client.post(
+        f"/tours/{slug}/filters",
+        headers={"host": "myexternalbrain.com"},
+        json={"filter_key": "", "enabled": True},
+    )
+    assert missing_filter.status_code == 422
+    assert missing_filter.json()["error"]["code"] == "invalid_tour_filter_key"
+
+    invalid_filter = client.post(
+        f"/tours/{slug}/filters",
+        headers={"host": "myexternalbrain.com"},
+        json={"filter_key": "does_not_exist", "enabled": True},
+    )
+    assert invalid_filter.status_code == 422
+    assert invalid_filter.json()["error"]["code"] == "invalid_tour_filter_key"
+
+    invalid_enabled = client.post(
+        f"/tours/{slug}/filters",
+        headers={"host": "myexternalbrain.com"},
+        json={"filter_key": "prefer_subway_nearby", "enabled": "maybe"},
+    )
+    assert invalid_enabled.status_code == 422
+    assert invalid_enabled.json()["error"]["code"] == "invalid_tour_filter_enabled"
+
+    string_false = client.post(
+        f"/tours/{slug}/filters",
+        headers={"host": "myexternalbrain.com"},
+        json={"filter_key": "prefer_subway_nearby", "enabled": "false"},
+    )
+    assert string_false.status_code == 200
+    assert string_false.json()["enabled"] is False
 
 
 def test_shortlist_float_parsing_is_locale_aware() -> None:

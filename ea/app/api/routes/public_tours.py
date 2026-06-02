@@ -643,6 +643,25 @@ def _shortlist_as_bool(value: object) -> bool | None:
     return None
 
 
+def _public_tour_normalize_reason_keys(value: object, *, allowed: set[str]) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise HTTPException(status_code=422, detail="invalid_tour_feedback_reason_keys")
+    keys: list[str] = []
+    seen: set[str] = set()
+    for row in value:
+        key = str(row or "").strip().lower()
+        if not key:
+            continue
+        if key not in allowed:
+            raise HTTPException(status_code=422, detail="invalid_tour_feedback_reason_key")
+        if key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return tuple(keys)
+
+
 @lru_cache(maxsize=8)
 def _shortlist_tour_manifest_index(root: str) -> tuple[dict[str, object], ...]:
     root_dir = Path(root).expanduser()
@@ -3159,16 +3178,16 @@ async def public_tour_feedback(
     try:
         body = await request.json()
     except Exception:
-        body = {}
+        raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
     if not isinstance(body, dict):
-        body = {}
+        raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
     reaction = str(body.get("reaction") or "").strip().lower()
     if reaction not in {"like", "dislike", "maybe", "hide"}:
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_reaction")
-    reason_keys = tuple(
-        str(item or "").strip().lower()
-        for item in list(body.get("reason_keys") or [])
-        if str(item or "").strip()
+    reason_map = _property_feedback_reason_map()
+    reason_keys = _public_tour_normalize_reason_keys(
+        body.get("reason_keys"),
+        allowed=set(reason_map.keys()),
     )
     note = str(body.get("note") or "").strip()
     facts = _live_property_feedback_context(container=container, payload=payload, slug=slug).get("facts") or dict(payload.get("facts") or {})
@@ -3200,8 +3219,14 @@ async def public_tour_filter_update(
         raise HTTPException(status_code=409, detail="tour_filter_update_unavailable")
     live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
     facts = dict(live_context.get("facts") or payload.get("facts") or {})
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="invalid_tour_filter_payload")
     filter_key = str(body.get("filter_key") or "").strip()
-    enabled = bool(body.get("enabled"))
+    if not filter_key:
+        raise HTTPException(status_code=422, detail="invalid_tour_filter_key")
+    enabled = _shortlist_as_bool(body.get("enabled"))
+    if enabled is None:
+        raise HTTPException(status_code=422, detail="invalid_tour_filter_enabled")
     spec = next((row for row in _public_filter_specs(facts=facts) if str(row.get("key") or "").strip() == filter_key), None)
     if spec is None:
         raise HTTPException(status_code=422, detail="invalid_tour_filter_key")
