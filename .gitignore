@@ -23,6 +23,11 @@ config/onemin_api_keys.local.json
 config/onemin_slot_owners.local.json
 artifacts/
 _completion/
+ea/.venv-openvoice/
+ea/.models/
+ea/.micromamba/
+ea/.piper/
+ea/third_party/
 
 # Editor/OS noise
 .DS_Store

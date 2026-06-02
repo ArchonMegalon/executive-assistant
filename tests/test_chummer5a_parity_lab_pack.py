@@ -150,6 +150,13 @@ def _active_handoff_prompt_text() -> str:
     return _active_handoff_prompt_path().read_text(encoding="utf-8")
 
 
+def _active_handoff_prompt_text_if_present() -> str:
+    prompt_path = _active_handoff_prompt_path_for(ACTIVE_RUN_HANDOFF_PATH)
+    if prompt_path is None:
+        return ""
+    return prompt_path.read_text(encoding="utf-8")
+
+
 def _worker_safe_handoff_shadow_path(path: Path) -> Path:
     path_text = path.as_posix()
     if not path_text.startswith("/var/lib/codex-fleet/"):
@@ -245,7 +252,7 @@ def _task_local_telemetry_path() -> Path:
 
 def _active_handoff_targets_closed_m103_package() -> bool:
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
-    active_prompt_text = _active_handoff_prompt_text()
+    active_prompt_text = _active_handoff_prompt_text_if_present()
     return (
         "Frontier ids: 4287684466" in active_handoff_text
         and "Open milestone ids: 4287684466" in active_handoff_text
@@ -1161,7 +1168,7 @@ def test_terminal_verification_policy_stops_timestamp_chasing() -> None:
     receipt_policy = dict(dict(receipt.get("successor_closure") or {}).get("terminal_verification_policy") or {})
     readme_text = README_PATH.read_text(encoding="utf-8")
     active_handoff_text = ACTIVE_RUN_HANDOFF_PATH.read_text(encoding="utf-8")
-    active_prompt_text = _active_handoff_prompt_text()
+    active_prompt_text = _active_handoff_prompt_text_if_present()
 
     assert terminal_policy.get("status") == "terminal_for_ea_scope"
     assert receipt_policy == terminal_policy
@@ -1505,6 +1512,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
     m142_family_packet_refresh_commit = "0199aff"
     m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
+    parity_lab_post_receipt_refresh_commit = "0b6b648"
+    parity_lab_post_receipt_refresh_subject = "harden parity lab post-receipt checks and refresh generated packets"
+    parity_lab_post_receipt_refresh_paths = {
+        "LTDs.md",
+        "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md",
+        "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml",
+        "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md",
+        "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+        "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
+        "tests/test_chummer5a_parity_lab_pack.py",
+    }
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1585,6 +1603,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
             continue
+        if commit == parity_lab_post_receipt_refresh_commit:
+            assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
+            continue
         if commit == "ff8493d":
             assert subject == "chore: harden parity lab post-receipt tests and refresh generated packets", (
                 commit,
@@ -1656,6 +1678,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert commit == compare_source_anchor_commit, (commit, sorted(paths))
             assert subject == compare_source_anchor_subject, (commit, subject, sorted(paths))
+            continue
+        if commit == parity_lab_post_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if paths == artifact_expansion_paths:
             subject = subprocess.run(
@@ -1793,6 +1826,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert commit == compare_source_anchor_commit, (commit, sorted(paths))
             assert subject == compare_source_anchor_subject, (commit, subject, sorted(paths))
+            continue
+        if commit == parity_lab_post_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if paths == artifact_expansion_paths:
             subject = subprocess.run(
@@ -2373,6 +2417,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == parity_lab_post_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(

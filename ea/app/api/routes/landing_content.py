@@ -16,6 +16,7 @@ APP_NAV_GROUPS = (
             {"href": "/app/commitments", "label": "Commitments", "key": "commitments"},
             {"href": "/app/people", "label": "People", "key": "people"},
             {"href": "/app/evidence", "label": "Evidence", "key": "evidence"},
+            {"href": "/app/properties", "label": "Properties", "key": "properties"},
             {"href": "/app/settings", "label": "Rules", "key": "settings"},
         ),
     },

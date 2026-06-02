@@ -127,6 +127,18 @@
   .register-status,
   .register-inline { color: var(--text-soft); }
   .register-error { color: #f0b7b7; }
+  .register-verify-note {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    padding: 12px 14px;
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .register-verify-note code {
+    color: var(--text);
+    font-size: 14px;
+  }
   .register-preview {
     display: grid;
     gap: 14px;
@@ -211,6 +223,7 @@
           <h2>Workspace shape</h2>
           <p class="copy">Keep the first workspace personal until the loop proves it is useful. No plan or team decisions yet.</p>
         </div>
+        <div class="register-verify-note" data-verify-note></div>
         <form class="register-form" data-form="verify">
           <div class="register-grid">
             <label class="register-field">
@@ -294,6 +307,7 @@
         <div class="register-note">Add an operator later from Settings if you need shared review.</div>
         <div class="cta-row">
           <a class="btn primary" href="/app/today">Open my workspace</a>
+          <a class="btn" href="/app/properties">Search properties</a>
         </div>
       </section>
     </section>
@@ -340,6 +354,7 @@
   const startError = document.querySelector('[data-start-error]');
   const verifyInline = document.querySelector('[data-verify-inline]');
   const verifyError = document.querySelector('[data-verify-error]');
+  const verifyNote = document.querySelector('[data-verify-note]');
   const googleInline = document.querySelector('[data-google-inline]');
   const googleError = document.querySelector('[data-google-error]');
   const buildInline = document.querySelector('[data-build-inline]');
@@ -375,6 +390,36 @@
     });
   };
 
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  const renderVerifyNote = () => {
+    if (!verifyNote) return;
+    if (!state.start) {
+      verifyNote.textContent = '';
+      return;
+    }
+    const code = String(state.start.verification_code || '').trim();
+    const email = String(state.start.email || '').trim();
+    const deliveryStatus = String(state.start.email_delivery_status || '').trim();
+    const magicLink = String(state.start.magic_link_url || '').trim();
+    const absoluteMagicLink = magicLink
+      ? (magicLink.startsWith('http') ? magicLink : `${window.location.origin}${magicLink}`)
+      : '';
+    if (code) {
+      const deliveryLead = deliveryStatus === 'sent'
+        ? `A verification email was sent to ${escapeHtml(email)}.`
+        : 'No registration email is configured on this host right now.';
+      verifyNote.innerHTML = `${deliveryLead} Use code <code>${escapeHtml(code)}</code> here, or open <a href="${escapeHtml(absoluteMagicLink)}">${escapeHtml(absoluteMagicLink)}</a>.`;
+      return;
+    }
+    verifyNote.innerHTML = `Check ${escapeHtml(email)} for the verification mail and either open the magic link or enter the 6-digit code from that message here.`;
+  };
+
   const markMilestones = async () => {
     const milestones = ['calendar', 'email', 'queue', 'commitments'];
     for (const key of milestones) {
@@ -393,6 +438,7 @@
     verifyForm.elements.timezone.value = state.start.suggested_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     verifyForm.elements.language.value = state.start.suggested_language || (navigator.language || 'en').split('-')[0];
     verifyForm.elements.verification_code.value = state.start.verification_code || '';
+    renderVerifyNote();
   };
 
   const syncStep = () => {
@@ -439,6 +485,7 @@
             ? `Verification ready. Use code ${body.verification_code} or the magic link for ${body.email}.`
             : `Verification ready for ${body.email}. Continue with the code or magic link.`));
       syncStep();
+      renderVerifyNote();
     } catch (error) {
       startStatus.textContent = '';
       startError.textContent = error instanceof Error ? error.message : 'Could not start registration.';
@@ -595,6 +642,7 @@
   });
 
   syncStep();
+  renderVerifyNote();
 
   if (params.get('google_connected') === '1') {
     void consumeGoogleConnectPayload({

@@ -1,0 +1,16 @@
+.git
+__pycache__/
+ea/.venv-openvoice/
+ea/.venv-openvoice/**
+ea/.models/
+ea/.models/**
+ea/.micromamba/
+ea/.micromamba/**
+ea/third_party/
+ea/third_party/**
+.venv/
+.venv/**
+.pytest_cache/
+.smoke_tmp/
+artifacts/
+logs/

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 import hashlib
 import inspect
 import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 from typing import Literal
@@ -1028,14 +1030,65 @@ def _browser_proxy_setting(
     return str(upstream._env(env_name) or "").strip()  # type: ignore[attr-defined]
 
 
-def _browseract_proxy_payload(*, binding_metadata: dict[str, object] | None = None) -> dict[str, str]:
+def _proxy_pool_urls_from_metadata_or_env(
+    *,
+    binding_metadata: dict[str, object],
+    metadata_keys: tuple[str, ...],
+    env_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    values: list[str] = []
+    raw_values = [binding_metadata.get(key) for key in metadata_keys]
+    raw_values.extend(upstream._env(env_name) for env_name in env_names)  # type: ignore[attr-defined]
+    for raw in raw_values:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        for part in text.split(","):
+            candidate = str(part or "").strip()
+            if candidate and candidate not in values:
+                values.append(candidate)
+    return tuple(values)
+
+
+def _proxy_url_for_subject(*, proxy_urls: tuple[str, ...], subject: str = "", retry_offset: int = 0) -> str:
+    normalized_urls = tuple(str(url or "").strip() for url in proxy_urls if str(url or "").strip())
+    if not normalized_urls:
+        return ""
+    retry_offset = max(int(retry_offset), 0)
+    normalized_subject = str(subject or "").strip()
+    if not normalized_subject or len(normalized_urls) == 1:
+        return normalized_urls[retry_offset % len(normalized_urls)]
+    digest = hashlib.sha256(normalized_subject.encode("utf-8", errors="ignore")).digest()
+    index = (int.from_bytes(digest[:8], "big", signed=False) + retry_offset) % len(normalized_urls)
+    return normalized_urls[index]
+
+
+def _browseract_proxy_payload(
+    *,
+    binding_metadata: dict[str, object] | None = None,
+    account_label: str = "",
+    retry_offset: int = 0,
+) -> dict[str, str]:
     metadata = dict(binding_metadata or {})
+    proxy_pool = _proxy_pool_urls_from_metadata_or_env(
+        binding_metadata=metadata,
+        metadata_keys=("browser_proxy_pool", "proxy_pool"),
+        env_names=("EA_UI_BROWSER_PROXY_POOL",),
+    )
+    explicit_server = _browser_proxy_setting(
+        binding_metadata=metadata,
+        env_name="EA_UI_BROWSER_PROXY_SERVER",
+        metadata_keys=("browser_proxy_server", "proxy_server"),
+    )
+    selected_server = explicit_server
+    if proxy_pool:
+        selected_server = _proxy_url_for_subject(
+            proxy_urls=proxy_pool,
+            subject=account_label,
+            retry_offset=retry_offset,
+        ) or explicit_server
     settings = {
-        "browser_proxy_server": _browser_proxy_setting(
-            binding_metadata=metadata,
-            env_name="EA_UI_BROWSER_PROXY_SERVER",
-            metadata_keys=("browser_proxy_server", "proxy_server"),
-        ),
+        "browser_proxy_server": selected_server,
         "browser_proxy_username": _browser_proxy_setting(
             binding_metadata=metadata,
             env_name="EA_UI_BROWSER_PROXY_USERNAME",
@@ -1423,16 +1476,248 @@ def _fastestvpn_rotate_script_path() -> Path:
 
 def _job_uses_fastestvpn_proxy(job: dict[str, object]) -> bool:
     proxy_server = str(
-        _browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})).get("browser_proxy_server") or ""
+        _browseract_proxy_payload(
+            binding_metadata=dict(job.get("binding_metadata") or {}),
+            account_label=str(job.get("account_label") or ""),
+        ).get("browser_proxy_server") or ""
     ).strip().lower()
     return bool(proxy_server and "fastestvpn" in proxy_server)
 
 
 def _job_fastestvpn_service_name(job: dict[str, object]) -> str:
     proxy_server = str(
-        _browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})).get("browser_proxy_server") or ""
+        _browseract_proxy_payload(
+            binding_metadata=dict(job.get("binding_metadata") or {}),
+            account_label=str(job.get("account_label") or ""),
+        ).get("browser_proxy_server") or ""
     ).strip()
     return _fastestvpn_service_name_for_proxy_url(proxy_server)
+
+
+def _fastestvpn_compose_root() -> Path:
+    configured = str(upstream._env("EA_FASTESTVPN_COMPOSE_ROOT") or "/docker/EA").strip()  # type: ignore[attr-defined]
+    return Path(configured or "/docker/EA")
+
+
+def _fastestvpn_compose_command() -> list[str] | None:
+    root = _fastestvpn_compose_root()
+    base = root / "docker-compose.yml"
+    overlay = root / "docker-compose.fastestvpn.yml"
+    if not base.is_file() or not overlay.is_file():
+        return None
+    if shutil.which("docker-compose"):
+        return [
+            "docker-compose",
+            "-f",
+            str(base),
+            "-f",
+            str(overlay),
+        ]
+    return [
+        "docker",
+        "compose",
+        "-f",
+        str(base),
+        "-f",
+        str(overlay),
+    ]
+
+
+def _fastestvpn_on_demand_enabled() -> bool:
+    raw = str(upstream._env("EA_FASTESTVPN_ON_DEMAND_ENABLED") or "1").strip()  # type: ignore[attr-defined]
+    return raw.lower() not in {"0", "false", "off", "no"}
+
+
+def _fastestvpn_auto_stop_after_refresh() -> bool:
+    raw = str(upstream._env("EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH") or "1").strip()  # type: ignore[attr-defined]
+    return raw.lower() not in {"0", "false", "off", "no"}
+
+
+def _fastestvpn_service_names_from_proxy_urls(proxy_urls: tuple[str, ...]) -> tuple[str, ...]:
+    services: list[str] = []
+    for proxy_url in proxy_urls:
+        service_name = _fastestvpn_service_name_for_proxy_url(proxy_url)
+        if service_name and service_name not in services:
+            services.append(service_name)
+    return tuple(services)
+
+
+def _onemin_direct_api_fastestvpn_service_names(*, account_labels: set[str] | None = None) -> tuple[str, ...]:
+    labels = sorted({str(value or "").strip() for value in (account_labels or set()) if str(value or "").strip()})
+    proxy_urls: list[str] = []
+    if labels:
+        for label in labels:
+            proxy_url = _onemin_direct_api_proxy_url(account_name=label, retry_offset=0)
+            if proxy_url and proxy_url not in proxy_urls:
+                proxy_urls.append(proxy_url)
+    else:
+        try:
+            pool = tuple(str(url or "").strip() for url in upstream._onemin_direct_api_proxy_pool_urls())  # type: ignore[attr-defined]
+        except Exception:
+            pool = ()
+        for proxy_url in pool:
+            if proxy_url and proxy_url not in proxy_urls:
+                proxy_urls.append(proxy_url)
+        single = _onemin_direct_api_proxy_url(account_name="", retry_offset=0)
+        if single and single not in proxy_urls:
+            proxy_urls.append(single)
+    return _fastestvpn_service_names_from_proxy_urls(tuple(proxy_urls))
+
+
+def _browseract_fastestvpn_service_names(jobs: list[dict[str, object]]) -> tuple[str, ...]:
+    service_names: list[str] = []
+    for job in jobs:
+        service_name = _job_fastestvpn_service_name(job)
+        if service_name and service_name not in service_names:
+            service_names.append(service_name)
+    return tuple(service_names)
+
+
+def _fastestvpn_service_state(service_name: str) -> str:
+    normalized = str(service_name or "").strip()
+    if not normalized:
+        return ""
+    try:
+        completed = subprocess.run(
+            [
+                "docker",
+                "inspect",
+                normalized,
+                "--format",
+                "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except Exception:
+        return ""
+    if completed.returncode != 0:
+        return ""
+    return str(completed.stdout or "").strip().lower()
+
+
+def _wait_for_fastestvpn_services(service_names: tuple[str, ...], *, timeout_seconds: int) -> None:
+    deadline = time.time() + max(timeout_seconds, 30)
+    pending = {str(name or "").strip() for name in service_names if str(name or "").strip()}
+    while pending and time.time() < deadline:
+        healthy_now = {name for name in pending if _fastestvpn_service_state(name) == "healthy"}
+        pending -= healthy_now
+        if not pending:
+            return
+        time.sleep(2)
+    if pending:
+        raise RuntimeError(f"fastestvpn_services_unhealthy:{','.join(sorted(pending))}")
+
+
+def _ensure_fastestvpn_services(*, service_names: tuple[str, ...], reason: str) -> dict[str, object]:
+    normalized_services = tuple(dict.fromkeys(str(name or "").strip() for name in service_names if str(name or "").strip()))
+    event: dict[str, object] = {
+        "reason": str(reason or "").strip(),
+        "service_names": list(normalized_services),
+        "started_services": [],
+        "already_running_services": [],
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+    }
+    if not normalized_services or not _fastestvpn_on_demand_enabled():
+        return event
+    compose_command = _fastestvpn_compose_command()
+    if compose_command is None:
+        event.update({"returncode": 127, "stderr": "fastestvpn_compose_missing"})
+        return event
+    already_running = [name for name in normalized_services if _fastestvpn_service_state(name) == "healthy"]
+    to_start = [name for name in normalized_services if name not in already_running]
+    event["already_running_services"] = already_running
+    event["started_services"] = to_start
+    if not to_start:
+        return event
+    root = _fastestvpn_compose_root()
+    command = [*compose_command, "up", "-d", "--no-build", "--no-deps", *to_start]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=max(60, min(int(float(str(upstream._env("EA_FASTESTVPN_PROVISION_TIMEOUT_SECONDS") or "420"))), 1800)),  # type: ignore[attr-defined]
+        )
+        event["returncode"] = int(completed.returncode)
+        event["stdout"] = str(completed.stdout or "")[-4000:]
+        event["stderr"] = str(completed.stderr or "")[-4000:]
+        if completed.returncode == 0:
+            _wait_for_fastestvpn_services(normalized_services, timeout_seconds=180)
+        else:
+            event["started_services"] = []
+    except Exception as exc:
+        event.update({"returncode": 1, "stderr": str(exc), "started_services": []})
+    return event
+
+
+def _stop_fastestvpn_services(*, service_names: tuple[str, ...], reason: str) -> dict[str, object]:
+    normalized_services = tuple(dict.fromkeys(str(name or "").strip() for name in service_names if str(name or "").strip()))
+    event: dict[str, object] = {
+        "reason": str(reason or "").strip(),
+        "service_names": list(normalized_services),
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+    }
+    if not normalized_services:
+        return event
+    compose_command = _fastestvpn_compose_command()
+    if compose_command is None:
+        event.update({"returncode": 127, "stderr": "fastestvpn_compose_missing"})
+        return event
+    root = _fastestvpn_compose_root()
+    command = [*compose_command, "stop", *normalized_services]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+        event["returncode"] = int(completed.returncode)
+        event["stdout"] = str(completed.stdout or "")[-4000:]
+        event["stderr"] = str(completed.stderr or "")[-4000:]
+    except Exception as exc:
+        event.update({"returncode": 1, "stderr": str(exc)})
+    return event
+
+
+@contextmanager
+def _managed_fastestvpn_services(*, service_names: tuple[str, ...], reason: str):
+    normalized_services = tuple(dict.fromkeys(str(name or "").strip() for name in service_names if str(name or "").strip()))
+    lease = {
+        "reason": str(reason or "").strip(),
+        "service_names": list(normalized_services),
+        "started_services": [],
+        "already_running_services": [],
+        "provision_event": {},
+        "cleanup_event": {},
+    }
+    if not normalized_services:
+        yield lease
+        return
+    provision_event = _ensure_fastestvpn_services(service_names=normalized_services, reason=reason)
+    lease["provision_event"] = provision_event
+    lease["started_services"] = list(provision_event.get("started_services") or [])
+    lease["already_running_services"] = list(provision_event.get("already_running_services") or [])
+    try:
+        yield lease
+    finally:
+        started_services = tuple(str(name or "").strip() for name in lease.get("started_services") or [] if str(name or "").strip())
+        if started_services and _fastestvpn_auto_stop_after_refresh():
+            lease["cleanup_event"] = _stop_fastestvpn_services(
+                service_names=started_services,
+                reason=f"{reason}:cleanup",
+            )
 
 
 def _rotate_fastestvpn_proxy(*, reason: str, service_name: str = "") -> dict[str, object]:
@@ -3125,184 +3410,201 @@ def refresh_onemin_billing(
                         }
                     )
 
-        if run_browseract_refresh and browseract_billing_jobs:
-            effective_browseract_parallelism = 1 if browseract_scope != "bound_accounts_only" else max(
-                1,
-                min(
-                    browseract_parallelism,
-                    len(
-                        {
-                            str(job.get("binding_id") or "").strip()
-                            for job in browseract_billing_jobs
-                            if str(job.get("binding_id") or "").strip()
-                        }
-                    )
-                    or 1,
-                ),
-            )
-            billing_job_results, billing_job_errors = _run_onemin_browseract_jobs(
-                jobs=browseract_billing_jobs,
-                max_workers=effective_browseract_parallelism,
-                tool_name="browseract.onemin_billing_usage",
-                stop_on_failure_codes={
-                    "auth_request_failed",
-                    "challenge_required",
-                    "session_expired",
-                    "timeout",
-                    "ui_worker_failed",
-                    "lane_unavailable",
-                },
-                max_consecutive_stop_failures=_onemin_browseract_systemic_failure_threshold(),
-                invoke_job=lambda job: _invoke_browseract_tool(
-                    container=container,
-                    principal_id=str(job.get("principal_id") or context.principal_id),
+        with _managed_fastestvpn_services(
+            service_names=_browseract_fastestvpn_service_names(browseract_billing_jobs) if run_browseract_refresh else (),
+            reason="onemin.browseract.refresh",
+        ) as browseract_proxy_lease:
+            if run_browseract_refresh and browseract_billing_jobs:
+                effective_browseract_parallelism = 1 if browseract_scope != "bound_accounts_only" else max(
+                    1,
+                    min(
+                        browseract_parallelism,
+                        len(
+                            {
+                                str(job.get("binding_id") or "").strip()
+                                for job in browseract_billing_jobs
+                                if str(job.get("binding_id") or "").strip()
+                            }
+                        )
+                        or 1,
+                    ),
+                )
+                billing_job_results, billing_job_errors = _run_onemin_browseract_jobs(
+                    jobs=browseract_billing_jobs,
+                    max_workers=effective_browseract_parallelism,
                     tool_name="browseract.onemin_billing_usage",
-                    action_kind="billing.inspect",
-                    payload_json={
-                        "binding_id": str(job.get("binding_id") or ""),
-                        "account_label": str(job.get("account_label") or ""),
-                        "capture_raw_text": bool(job.get("capture_raw_text")),
-                        **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
-                        **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
-                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
-                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                    stop_on_failure_codes={
+                        "auth_request_failed",
+                        "challenge_required",
+                        "session_expired",
+                        "timeout",
+                        "ui_worker_failed",
+                        "lane_unavailable",
                     },
-                ),
-            )
-            (
-                billing_job_results,
-                billing_job_errors,
-                billing_proxy_rotations,
-                recovered_billing_labels,
-            ) = _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
-                jobs=browseract_billing_jobs,
-                results=billing_job_results,
-                errors=billing_job_errors,
-                max_workers=effective_browseract_parallelism,
-                invoke_job=lambda job: _invoke_browseract_tool(
-                    container=container,
-                    principal_id=str(job.get("principal_id") or context.principal_id),
+                    max_consecutive_stop_failures=_onemin_browseract_systemic_failure_threshold(),
+                    invoke_job=lambda job: _invoke_browseract_tool(
+                        container=container,
+                        principal_id=str(job.get("principal_id") or context.principal_id),
+                        tool_name="browseract.onemin_billing_usage",
+                        action_kind="billing.inspect",
+                        payload_json={
+                            "binding_id": str(job.get("binding_id") or ""),
+                            "account_label": str(job.get("account_label") or ""),
+                            "capture_raw_text": bool(job.get("capture_raw_text")),
+                            **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
+                            **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                            **_browseract_proxy_payload(
+                                binding_metadata=dict(job.get("binding_metadata") or {}),
+                                account_label=str(job.get("account_label") or ""),
+                            ),
+                            "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                        },
+                    ),
+                )
+                (
+                    billing_job_results,
+                    billing_job_errors,
+                    billing_proxy_rotations,
+                    recovered_billing_labels,
+                ) = _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
+                    jobs=browseract_billing_jobs,
+                    results=billing_job_results,
+                    errors=billing_job_errors,
+                    max_workers=effective_browseract_parallelism,
+                    invoke_job=lambda job: _invoke_browseract_tool(
+                        container=container,
+                        principal_id=str(job.get("principal_id") or context.principal_id),
+                        tool_name="browseract.onemin_billing_usage",
+                        action_kind="billing.inspect",
+                        payload_json={
+                            "binding_id": str(job.get("binding_id") or ""),
+                            "account_label": str(job.get("account_label") or ""),
+                            "capture_raw_text": bool(job.get("capture_raw_text")),
+                            **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
+                            **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                            **_browseract_proxy_payload(
+                                binding_metadata=dict(job.get("binding_metadata") or {}),
+                                account_label=str(job.get("account_label") or ""),
+                            ),
+                            "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                        },
+                    ),
                     tool_name="browseract.onemin_billing_usage",
-                    action_kind="billing.inspect",
-                    payload_json={
-                        "binding_id": str(job.get("binding_id") or ""),
-                        "account_label": str(job.get("account_label") or ""),
-                        "capture_raw_text": bool(job.get("capture_raw_text")),
-                        **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
-                        **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
-                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
-                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
-                    },
-                ),
-                tool_name="browseract.onemin_billing_usage",
-            )
-            browseract_proxy_rotations.extend(billing_proxy_rotations)
-            browseract_proxy_recovered_labels.update(recovered_billing_labels)
-            billing_results.extend(billing_job_results)
-            browseract_billing_result_labels.update(
-                str(row.get("account_label") or "").strip()
-                for row in billing_job_results
-                if str(row.get("account_label") or "").strip()
-            )
-            browseract_billing_error_labels.update(
-                str(row.get("account_label") or "").strip()
-                for row in billing_job_errors
-                if str(row.get("account_label") or "").strip()
-            )
-            browseract_billing_attempted_labels = {
-                str(row.get("account_label") or "").strip()
-                for row in [*billing_job_results, *billing_job_errors]
-                if str(row.get("account_label") or "").strip()
-            }
+                )
+                browseract_proxy_rotations.extend(billing_proxy_rotations)
+                browseract_proxy_recovered_labels.update(recovered_billing_labels)
+                billing_results.extend(billing_job_results)
+                browseract_billing_result_labels.update(
+                    str(row.get("account_label") or "").strip()
+                    for row in billing_job_results
+                    if str(row.get("account_label") or "").strip()
+                )
+                browseract_billing_error_labels.update(
+                    str(row.get("account_label") or "").strip()
+                    for row in billing_job_errors
+                    if str(row.get("account_label") or "").strip()
+                )
+                browseract_billing_attempted_labels = {
+                    str(row.get("account_label") or "").strip()
+                    for row in [*billing_job_results, *billing_job_errors]
+                    if str(row.get("account_label") or "").strip()
+                }
 
-        if run_browseract_refresh and payload.include_members:
-            for job in browseract_billing_jobs:
-                account_label = str(job.get("account_label") or "").strip()
-                if not account_label or account_label not in browseract_billing_result_labels:
-                    continue
-                if account_label in browseract_member_attempted_labels:
-                    continue
-                members_run_url = str(job.get("members_run_url") or "")
-                members_workflow_id = str(job.get("members_workflow_id") or "")
-                if not members_run_url and not members_workflow_id and not bool(job.get("member_login_ready")):
-                    continue
-                browseract_member_attempted_labels.add(account_label)
-                browseract_member_jobs.append(dict(job))
+            if run_browseract_refresh and payload.include_members:
+                for job in browseract_billing_jobs:
+                    account_label = str(job.get("account_label") or "").strip()
+                    if not account_label or account_label not in browseract_billing_result_labels:
+                        continue
+                    if account_label in browseract_member_attempted_labels:
+                        continue
+                    members_run_url = str(job.get("members_run_url") or "")
+                    members_workflow_id = str(job.get("members_workflow_id") or "")
+                    if not members_run_url and not members_workflow_id and not bool(job.get("member_login_ready")):
+                        continue
+                    browseract_member_attempted_labels.add(account_label)
+                    browseract_member_jobs.append(dict(job))
 
-        if run_browseract_refresh and browseract_member_jobs:
-            effective_member_parallelism = 1 if browseract_scope != "bound_accounts_only" else max(
-                1,
-                min(
-                    browseract_parallelism,
-                    len(
-                        {
-                            str(job.get("binding_id") or "").strip()
-                            for job in browseract_member_jobs
-                            if str(job.get("binding_id") or "").strip()
-                        }
-                    )
-                    or 1,
-                ),
-            )
-            member_job_results, member_job_errors = _run_onemin_browseract_jobs(
-                jobs=browseract_member_jobs,
-                max_workers=effective_member_parallelism,
-                tool_name="browseract.onemin_member_reconciliation",
-                stop_on_failure_codes={
-                    "auth_request_failed",
-                    "challenge_required",
-                    "session_expired",
-                    "timeout",
-                    "ui_worker_failed",
-                    "lane_unavailable",
-                },
-                max_consecutive_stop_failures=_onemin_browseract_systemic_failure_threshold(),
-                invoke_job=lambda job: _invoke_browseract_tool(
-                    container=container,
-                    principal_id=str(job.get("principal_id") or context.principal_id),
+            if run_browseract_refresh and browseract_member_jobs:
+                effective_member_parallelism = 1 if browseract_scope != "bound_accounts_only" else max(
+                    1,
+                    min(
+                        browseract_parallelism,
+                        len(
+                            {
+                                str(job.get("binding_id") or "").strip()
+                                for job in browseract_member_jobs
+                                if str(job.get("binding_id") or "").strip()
+                            }
+                        )
+                        or 1,
+                    ),
+                )
+                member_job_results, member_job_errors = _run_onemin_browseract_jobs(
+                    jobs=browseract_member_jobs,
+                    max_workers=effective_member_parallelism,
                     tool_name="browseract.onemin_member_reconciliation",
-                    action_kind="billing.reconcile_members",
-                    payload_json={
-                        "binding_id": str(job.get("binding_id") or ""),
-                        "account_label": str(job.get("account_label") or ""),
-                        "capture_raw_text": bool(job.get("capture_raw_text")),
-                        **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
-                        **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
-                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
-                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                    stop_on_failure_codes={
+                        "auth_request_failed",
+                        "challenge_required",
+                        "session_expired",
+                        "timeout",
+                        "ui_worker_failed",
+                        "lane_unavailable",
                     },
-                ),
-            )
-            (
-                member_job_results,
-                member_job_errors,
-                member_proxy_rotations,
-                recovered_member_labels,
-            ) = _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
-                jobs=browseract_member_jobs,
-                results=member_job_results,
-                errors=member_job_errors,
-                max_workers=effective_member_parallelism,
-                invoke_job=lambda job: _invoke_browseract_tool(
-                    container=container,
-                    principal_id=str(job.get("principal_id") or context.principal_id),
+                    max_consecutive_stop_failures=_onemin_browseract_systemic_failure_threshold(),
+                    invoke_job=lambda job: _invoke_browseract_tool(
+                        container=container,
+                        principal_id=str(job.get("principal_id") or context.principal_id),
+                        tool_name="browseract.onemin_member_reconciliation",
+                        action_kind="billing.reconcile_members",
+                        payload_json={
+                            "binding_id": str(job.get("binding_id") or ""),
+                            "account_label": str(job.get("account_label") or ""),
+                            "capture_raw_text": bool(job.get("capture_raw_text")),
+                            **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
+                            **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                            **_browseract_proxy_payload(
+                                binding_metadata=dict(job.get("binding_metadata") or {}),
+                                account_label=str(job.get("account_label") or ""),
+                            ),
+                            "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                        },
+                    ),
+                )
+                (
+                    member_job_results,
+                    member_job_errors,
+                    member_proxy_rotations,
+                    recovered_member_labels,
+                ) = _retry_onemin_browseract_jobs_via_fastestvpn_rotation(
+                    jobs=browseract_member_jobs,
+                    results=member_job_results,
+                    errors=member_job_errors,
+                    max_workers=effective_member_parallelism,
+                    invoke_job=lambda job: _invoke_browseract_tool(
+                        container=container,
+                        principal_id=str(job.get("principal_id") or context.principal_id),
+                        tool_name="browseract.onemin_member_reconciliation",
+                        action_kind="billing.reconcile_members",
+                        payload_json={
+                            "binding_id": str(job.get("binding_id") or ""),
+                            "account_label": str(job.get("account_label") or ""),
+                            "capture_raw_text": bool(job.get("capture_raw_text")),
+                            **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
+                            **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                            **_browseract_proxy_payload(
+                                binding_metadata=dict(job.get("binding_metadata") or {}),
+                                account_label=str(job.get("account_label") or ""),
+                            ),
+                            "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
+                        },
+                    ),
                     tool_name="browseract.onemin_member_reconciliation",
-                    action_kind="billing.reconcile_members",
-                    payload_json={
-                        "binding_id": str(job.get("binding_id") or ""),
-                        "account_label": str(job.get("account_label") or ""),
-                        "capture_raw_text": bool(job.get("capture_raw_text")),
-                        **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
-                        **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
-                        **_browseract_proxy_payload(binding_metadata=dict(job.get("binding_metadata") or {})),
-                        "timeout_seconds": int(job.get("timeout_seconds") or timeout_seconds),
-                    },
-                ),
-                tool_name="browseract.onemin_member_reconciliation",
-            )
-            browseract_proxy_rotations.extend(member_proxy_rotations)
-            browseract_proxy_recovered_labels.update(recovered_member_labels)
-            member_results.extend(member_job_results)
+                )
+                browseract_proxy_rotations.extend(member_proxy_rotations)
+                browseract_proxy_recovered_labels.update(recovered_member_labels)
+                member_results.extend(member_job_results)
+
 
         selected_binding_ids: list[str] = []
         seen_selected_binding_ids: set[str] = set()
@@ -3355,21 +3657,27 @@ def refresh_onemin_billing(
                 for account_label, credentials in all_account_login_credentials.items()
                 if account_label in (effective_api_account_labels or set())
             }
-            (
-                api_billing_results,
-                api_member_results,
-                api_errors,
-                api_attempted_count,
-                api_skipped_count,
-                api_rate_limited,
-            ) = _refresh_onemin_via_provider_api(
-                include_members=bool(payload.include_members),
-                timeout_seconds=timeout_seconds,
-                all_accounts=effective_api_all_accounts,
-                continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit) and operator_allowed,
-                account_labels=effective_api_account_labels,
-                account_login_credentials=effective_api_login_credentials,
-            )
+            with _managed_fastestvpn_services(
+                service_names=_onemin_direct_api_fastestvpn_service_names(
+                    account_labels=None if effective_api_all_accounts else effective_api_account_labels
+                ),
+                reason="onemin.provider_api.refresh",
+            ):
+                (
+                    api_billing_results,
+                    api_member_results,
+                    api_errors,
+                    api_attempted_count,
+                    api_skipped_count,
+                    api_rate_limited,
+                ) = _refresh_onemin_via_provider_api(
+                    include_members=bool(payload.include_members),
+                    timeout_seconds=timeout_seconds,
+                    all_accounts=effective_api_all_accounts,
+                    continue_on_rate_limit=bool(payload.provider_api_continue_on_rate_limit) and operator_allowed,
+                    account_labels=effective_api_account_labels,
+                    account_login_credentials=effective_api_login_credentials,
+                )
             existing_billing_labels = {
                 str(row.get("account_label") or "").strip()
                 for row in billing_results

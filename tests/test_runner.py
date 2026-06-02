@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib
 import logging
 import sys
@@ -79,6 +80,59 @@ def test_scheduler_onemin_billing_refresh_runs_browseract_and_provider_api_sweep
         ("principal-1", "browseract.onemin_member_reconciliation", "ONEMIN_AI_API_KEY"),
     ]
     assert finished == [True]
+
+
+def test_scheduler_onemin_billing_refresh_provisions_fastestvpn_for_browseract_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+    runner = _load_runner_module(monkeypatch)
+
+    binding = ConnectorBinding(
+        binding_id="binding-1",
+        principal_id="principal-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"onemin_account_name": "ONEMIN_AI_API_KEY"},
+        status="enabled",
+        created_at="2026-03-26T00:00:00Z",
+        updated_at="2026-03-26T00:00:00Z",
+    )
+
+    container = SimpleNamespace(
+        onemin_manager=SimpleNamespace(
+            begin_billing_refresh=lambda: (True, 0.0, ""),
+            finish_billing_refresh=lambda: None,
+        ),
+        tool_runtime=SimpleNamespace(
+            list_connector_bindings_for_connector=lambda connector_name, limit=1000: [binding]
+        ),
+    )
+
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+    monkeypatch.setattr(providers_route, "_onemin_browseract_max_accounts_per_refresh", lambda: 1)
+    monkeypatch.setattr(providers_route, "_onemin_direct_api_batch_backoff_seconds", lambda: 0.0)
+    monkeypatch.setattr(providers_route, "_binding_run_url", lambda *args, **kwargs: "")
+    monkeypatch.setattr(providers_route, "_binding_workflow_id", lambda *args, **kwargs: "")
+    monkeypatch.setattr(providers_route, "_resolve_onemin_account_labels", lambda _binding: {"ONEMIN_AI_API_KEY"})
+    monkeypatch.setattr(providers_route, "_browseract_onemin_login_ready", lambda **_kwargs: True)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_kwargs: ([], [], [], 0, 0, False))
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", lambda **_kwargs: {"account_label": "ONEMIN_AI_API_KEY", "refresh_backend": "browseract"})
+
+    observed: list[tuple[tuple[str, ...], str]] = []
+
+    @contextmanager
+    def fake_managed_fastestvpn_services(*, service_names, reason):
+        observed.append((tuple(service_names), reason))
+        yield {}
+
+    monkeypatch.setattr(providers_route, "_managed_fastestvpn_services", fake_managed_fastestvpn_services)
+
+    summary = runner._run_scheduler_onemin_billing_refresh(container, logging.getLogger("test.runner"))
+
+    assert summary["ran"] is True
+    assert observed == [(("ea-fastestvpn-proxy",), "scheduler.onemin.browseract.refresh")]
 
 
 def test_scheduler_onemin_billing_refresh_recovers_browseract_failures_via_provider_api(

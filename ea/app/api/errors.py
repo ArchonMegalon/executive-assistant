@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import urllib.parse
 import uuid
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 try:
     from psycopg import InterfaceError as PsycopgInterfaceError
@@ -62,6 +63,28 @@ def _code_from_http(status_code: int, detail: Any) -> str:
     return "request_failed"
 
 
+def _browser_auth_redirect(request: Request, *, code: str) -> RedirectResponse | None:
+    if str(code or "").strip() != "auth_required":
+        return None
+    method = str(request.method or "").upper()
+    if method not in {"GET", "HEAD"}:
+        return None
+    path = str(request.url.path or "").strip()
+    if not path.startswith("/app") and not path.startswith("/admin"):
+        return None
+    if path.startswith("/app/api") or path.startswith("/admin/api"):
+        return None
+    accept = str(request.headers.get("accept") or "").lower()
+    sec_fetch_dest = str(request.headers.get("sec-fetch-dest") or "").lower()
+    wants_html = "text/html" in accept or sec_fetch_dest == "document"
+    if not wants_html:
+        return None
+    target = "/sign-in?" + urllib.parse.urlencode({"return_to": path})
+    response = RedirectResponse(target, status_code=303)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -73,6 +96,9 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):  # type: ignore[no-untyped-def]
         code = _code_from_http(exc.status_code, exc.detail)
+        redirect = _browser_auth_redirect(request, code=code)
+        if redirect is not None:
+            return redirect
         message = str(exc.detail or code)
         return _error_payload(
             request=request,

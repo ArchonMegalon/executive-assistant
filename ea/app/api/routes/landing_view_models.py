@@ -146,6 +146,7 @@ def app_section_payload(
     status: dict[str, object],
     *,
     live_feed: dict[str, object] | None = None,
+    property_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
     workspace = dict(status.get("workspace") or {})
     privacy = dict(status.get("privacy") or {})
@@ -230,6 +231,110 @@ def app_section_payload(
         row_item(title, "Keep the underlying promise, thread, or deadline attached to the work item.", "Context")
         for title in trust_notes
     ]
+    property_state = dict(property_context or {})
+    property_preferences = dict(property_state.get("preferences") or {})
+    property_run = dict(property_state.get("run") or {})
+    property_summary = dict(property_run.get("summary") or {})
+    selected_platforms = {
+        str(value or "").strip()
+        for value in (property_state.get("selected_platforms") or [])
+        if str(value or "").strip()
+    }
+    platform_options = [
+        dict(option)
+        for option in list(property_state.get("platform_options") or [])
+        if isinstance(option, dict)
+    ]
+    property_selected_platform_labels = [
+        str(option.get("label") or option.get("value") or "").strip()
+        for option in platform_options
+        if str(option.get("value") or "").strip() in selected_platforms
+    ]
+    property_platform_rows = [
+        row_item(
+            str(option.get("label") or option.get("value") or "Platform"),
+            "Included in the dedicated crawl lane." if str(option.get("value") or "").strip() in selected_platforms else "Available to add to the crawl lane.",
+            "Selected" if str(option.get("value") or "").strip() in selected_platforms else "Available",
+        )
+        for option in platform_options
+    ]
+    property_recent_matches = [
+        dict(item)
+        for item in list(property_state.get("recent_matches") or [])
+        if isinstance(item, dict)
+    ]
+    property_event_rows = [
+        row_item(
+            str(event.get("step") or "Update").replace("_", " ").capitalize(),
+            str(event.get("message") or "No message").strip(),
+            str(event.get("status") or "queued").replace("_", " "),
+        )
+        for event in list(property_run.get("events") or [])[-6:]
+        if isinstance(event, dict)
+    ]
+    property_source_rows = [
+        row_item(
+            str(source.get("source_label") or source.get("source_url") or "Source").strip(),
+            " | ".join(
+                part
+                for part in (
+                    f"{int(source.get('listing_total') or 0)} listings",
+                    f"{int(source.get('high_fit_total') or 0)} high-fit",
+                    f"{int(source.get('tour_created_total') or 0)} hosted tours",
+                    f"{int(source.get('notified_total') or 0)} Telegram sends",
+                    f"top score {float(source.get('top_fit_score') or 0.0):.2f}" if source.get("top_fit_score") is not None else "",
+                )
+                if part
+            ),
+            "Scanned",
+        )
+        for source in list(property_summary.get("sources") or [])
+        if isinstance(source, dict)
+    ]
+    property_form = {
+        "variant": "property_search",
+        "title": "Search the major platforms",
+        "eyebrow": "Flagship crawl",
+        "copy": "Save the user profile defaults, choose the platforms to crawl, then start one dedicated run with live progress instead of relying on opaque background automation.",
+        "submit_label": "Start search",
+        "fields": [
+            {
+                "type": "checkbox_group",
+                "name": "selected_platforms",
+                "label": "Platforms",
+                "options": platform_options,
+                "values": list(selected_platforms),
+            },
+            {
+                "type": "text",
+                "name": "preference_person_id",
+                "label": "Preference profile",
+                "value": str(property_preferences.get("preference_person_id") or "self"),
+                "placeholder": "self",
+            },
+            {
+                "type": "number",
+                "name": "max_results_per_source",
+                "label": "Max results per source",
+                "value": str(property_preferences.get("max_results_per_source") or 3),
+                "min": "1",
+                "max": "10",
+            },
+            {
+                "type": "checkbox",
+                "name": "force_refresh",
+                "label": "Force fresh crawl",
+                "value": "true",
+                "checked": bool(property_preferences.get("force_refresh")),
+            },
+        ],
+        "meta": {
+            "preferences_endpoint": str(property_state.get("preferences_endpoint") or ""),
+            "start_endpoint": str(property_state.get("start_endpoint") or ""),
+            "run_id": str(property_run.get("run_id") or ""),
+            "initial_run": property_run,
+        },
+    }
 
     mapping: dict[str, dict[str, object]] = {
         "today": {
@@ -404,8 +509,88 @@ def app_section_payload(
                 {"eyebrow": "Channels", "title": "Selected linked channels", "items": channel_items},
             ],
         },
+        "properties": {
+            "title": "Properties",
+            "summary": (
+                str(property_run.get("message") or "").strip()
+                or "Run a dedicated cross-platform property crawl, keep the progress visible, and surface hosted 3D-tour matches instead of raw listing noise."
+            ),
+            "cards": [
+                {
+                    "eyebrow": "Personalized brief",
+                    "title": "What this search is optimizing for",
+                    "body": "The search stays grounded in the saved preference profile, then ranks the best matches before tours and Telegram delivery happen.",
+                    "items": [
+                        row_item(
+                            "Active platforms",
+                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No platforms saved yet.",
+                            "Profile",
+                        ),
+                        row_item(
+                            "Preference profile",
+                            str(property_preferences.get("preference_person_id") or "self"),
+                            "Profile",
+                        ),
+                        row_item(
+                            "Result cap per source",
+                            str(property_preferences.get("max_results_per_source") or "3"),
+                            "Guardrail",
+                        ),
+                    ] + (property_platform_rows[:2] if property_platform_rows else []),
+                },
+                {
+                    "eyebrow": "Run status",
+                    "title": "Current crawl",
+                    "body": str(property_run.get("message") or "Start a crawl to see source-by-source progress, shortlisted hosted tours, and what actually got sent."),
+                    "items": property_source_rows
+                    or property_event_rows
+                    or [
+                        row_item(
+                            "No active crawl yet",
+                            "Save the defaults and start the first dedicated run from the right-side lane.",
+                            "Queued",
+                        )
+                    ],
+                },
+                {
+                    "eyebrow": "Recent matches",
+                    "title": "Hosted pages ready to review",
+                    "body": "Strong matches should resolve to MyExternalBrain-hosted property pages, not raw portal links.",
+                    "items": property_recent_matches
+                    or [
+                        row_item(
+                            "No hosted property follow-ups yet",
+                            "Once a high-fit listing yields a hosted page or tour follow-up, it will appear here.",
+                            "Waiting",
+                        )
+                    ],
+                },
+                {
+                    "eyebrow": "Run log",
+                    "title": "Latest progress updates",
+                    "body": "The flagship flow should stay legible while the crawl is running, including failures and partial completions.",
+                    "items": property_event_rows
+                    or [
+                        row_item(
+                            "No events recorded yet",
+                            "Start a crawl to populate the progress log.",
+                            "Idle",
+                        )
+                    ],
+                },
+            ],
+            "stats": [
+                {"label": "Platforms", "value": str(len(property_selected_platform_labels) or 0)},
+                {"label": "Sources", "value": str(int(property_summary.get("sources_total") or 0))},
+                {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},
+                {"label": "Hosted tours", "value": str(int(property_summary.get("tour_created_total") or 0) + int(property_summary.get("tour_existing_total") or 0))},
+            ],
+            "console_form": property_form,
+        },
     }
-    return {"stats": stats, **mapping[section]}
+    payload = dict(mapping[section])
+    payload.setdefault("stats", stats)
+    return payload
 
 
 def admin_section_payload(section: str) -> dict[str, object]:

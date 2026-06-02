@@ -4523,6 +4523,178 @@ def test_onemin_billing_refresh_forwards_default_browser_proxy_settings_to_brows
         assert payload_json["browser_proxy_bypass"] == "localhost,127.0.0.1,ea-api"
 
 
+def test_onemin_billing_refresh_chooses_browser_proxy_from_pool_per_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    proxy_pool = (
+        "http://ea-fastestvpn-proxy:3128",
+        "http://ea-fastestvpn-proxy-ie:3128",
+        "http://ea-fastestvpn-proxy-nl:3128",
+    )
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", proxy_pool[0])
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_POOL", ",".join(proxy_pool))
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": ["ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"],
+                "onemin_billing_usage_run_url": "https://browseract.example/run/billing",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+
+    observed: dict[str, str] = {}
+
+    def fake_invoke_browseract_tool(**kwargs):
+        payload_json = dict(kwargs.get("payload_json") or {})
+        account_label = str(payload_json.get("account_label") or "")
+        observed[account_label] = str(payload_json.get("browser_proxy_server") or "")
+        return {"refresh_backend": "browseract", "remaining_credits": "12345"}
+
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", fake_invoke_browseract_tool)
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": False, "include_provider_api": False},
+    )
+    assert response.status_code == 200
+    assert observed == {
+        account_label: providers_route._proxy_url_for_subject(proxy_urls=proxy_pool, subject=account_label)
+        for account_label in ("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1")
+    }
+
+
+def test_onemin_billing_refresh_provisions_fastestvpn_services_on_demand(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _client(principal_id="exec-1", operator=True)
+    monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
+
+    created = owner.post(
+        "/v1/connectors/bindings",
+        json={
+            "connector_name": "browseract",
+            "external_account_ref": "browseract-main",
+            "scope_json": {"services": ["BrowserAct"]},
+            "auth_metadata_json": {
+                "onemin_account_names": ["ONEMIN_AI_API_KEY"],
+                "onemin_billing_usage_run_url": "https://browseract.example/run/billing",
+            },
+            "status": "enabled",
+        },
+    )
+    assert created.status_code == 200
+
+    from app.api.routes import providers as providers_route
+
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "begin_billing_refresh", lambda: (True, 0.0, ""))
+    monkeypatch.setattr(owner.app.state.container.onemin_manager, "finish_billing_refresh", lambda: None)
+    monkeypatch.setattr(providers_route, "_refresh_onemin_via_provider_api", lambda **_: ([], [], [], 0, 0, False))
+    monkeypatch.setattr(providers_route, "_invoke_browseract_tool", lambda **_: {"refresh_backend": "browseract", "remaining_credits": "12345"})
+
+    ensured: list[tuple[tuple[str, ...], str]] = []
+    stopped: list[tuple[tuple[str, ...], str]] = []
+
+    monkeypatch.setattr(
+        providers_route,
+        "_ensure_fastestvpn_services",
+        lambda *, service_names, reason: ensured.append((tuple(service_names), reason)) or {
+            "reason": reason,
+            "service_names": list(service_names),
+            "started_services": list(service_names),
+            "already_running_services": [],
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        },
+    )
+    monkeypatch.setattr(
+        providers_route,
+        "_stop_fastestvpn_services",
+        lambda *, service_names, reason: stopped.append((tuple(service_names), reason)) or {
+            "reason": reason,
+            "service_names": list(service_names),
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        },
+    )
+
+    response = owner.post(
+        "/v1/providers/onemin/billing-refresh",
+        json={"include_members": False, "include_provider_api": False},
+    )
+    assert response.status_code == 200
+    assert ensured == [(("ea-fastestvpn-proxy",), "onemin.browseract.refresh")]
+    assert stopped == [(("ea-fastestvpn-proxy",), "onemin.browseract.refresh:cleanup")]
+
+
+def test_fastestvpn_service_provision_uses_no_build_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import providers as providers_route
+
+    root = Path("/tmp/ea-fastestvpn-compose")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    (root / "docker-compose.fastestvpn.yml").write_text("services: {}\n", encoding="utf-8")
+
+    monkeypatch.setenv("EA_FASTESTVPN_ON_DEMAND_ENABLED", "1")
+    monkeypatch.setenv("EA_FASTESTVPN_COMPOSE_ROOT", str(root))
+    monkeypatch.setattr(providers_route, "_fastestvpn_service_state", lambda _service_name: "unhealthy")
+    monkeypatch.setattr(providers_route, "_wait_for_fastestvpn_services", lambda service_names, timeout_seconds: None)
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = list(command)
+        observed["cwd"] = kwargs.get("cwd")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(providers_route.subprocess, "run", fake_run)
+
+    result = providers_route._ensure_fastestvpn_services(
+        service_names=("ea-fastestvpn-proxy",),
+        reason="unit_test",
+    )
+
+    assert result["returncode"] == 0
+    assert observed["cwd"] == str(root)
+    assert observed["command"][-5:] == [
+        "up",
+        "-d",
+        "--no-build",
+        "--no-deps",
+        "ea-fastestvpn-proxy",
+    ]
+    assert observed["command"][:5] == [
+        "docker-compose",
+        "-f",
+        str(root / "docker-compose.yml"),
+        "-f",
+        str(root / "docker-compose.fastestvpn.yml"),
+    ] or observed["command"][:6] == [
+        "docker",
+        "compose",
+        "-f",
+        str(root / "docker-compose.yml"),
+        "-f",
+        str(root / "docker-compose.fastestvpn.yml"),
+    ]
+
+
 def test_onemin_billing_refresh_prefers_binding_browser_proxy_settings_over_env_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

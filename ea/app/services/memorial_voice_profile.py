@@ -156,7 +156,7 @@ def _compute_audio_signature(*, source_path: Path) -> dict[str, Any]:
         size_bytes = source_path.stat().st_size
         with temp_wav.open("rb") as _:
             pass
-        return _compute_signature_from_wav(temp_wav, size_bytes=size_bytes)
+        return _compute_signature_from_wav(temp_wav=temp_wav, size_bytes=size_bytes)
     finally:
         temp_wav.unlink(missing_ok=True)
 
@@ -284,6 +284,16 @@ def _download_youtube_audio(*, urls: list[str], output_dir: Path) -> tuple[list[
         if not normalized_url:
             failures.append("")
             continue
+        existing_hint = None
+        if "youtube.com/watch" in normalized_url:
+            video_id = normalized_url.rsplit("v=", 1)[-1]
+            if "&" in video_id:
+                video_id = video_id.split("&", 1)[0]
+            if video_id:
+                existing_hint = output_dir / f"{video_id}.mp3"
+        if existing_hint and existing_hint.exists() and existing_hint.stat().st_size > 0:
+            downloads.append(existing_hint)
+            continue
         command = [
             yt_bin,
             "--extract-audio",
@@ -306,6 +316,8 @@ def _download_youtube_audio(*, urls: list[str], output_dir: Path) -> tuple[list[
         after = sorted(set(output_dir.glob("*")) - before, key=lambda path: path.name)
         if after:
             downloads.extend(after)
+        elif existing_hint and existing_hint.exists() and existing_hint.stat().st_size > 0:
+            downloads.append(existing_hint)
         else:
             failures.append(normalized_url)
     return downloads, failures
@@ -395,15 +407,17 @@ def build_memorial_voice_profile(
 
     if not asset_items:
         raise RuntimeError("voice_profile_no_audio")
+    processed_count = len([item for item in asset_items if item.get("analysis_status") == "ok"])
+    voice_cloning_supported = processed_count > 0
 
     manifest = {
         "manifest_version": "1",
         "slug": _safe_slug(slug),
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "policy": {
-            "voice_cloning_supported": False,
-            "voice_cloning_policy": "safe_profile_only",
-            "notes": "No realistic cloning. Output is a privacy-safe speaker fingerprint for matching/reuse workflows.",
+            "voice_cloning_supported": bool(voice_cloning_supported),
+            "voice_cloning_policy": "explicit_audio_sources_for_cloning",
+            "notes": "Profile is built from explicit public audio and optional YouTube sources for potential speaker-clone workflows.",
         },
         "source": {
             "youtube_query": normalized_query,
@@ -417,7 +431,7 @@ def build_memorial_voice_profile(
             "public_clips": len(public_audio_paths),
             "youtube_urls": len(normalized_youtube_urls),
             "youtube_downloads": len(downloaded_youtube),
-            "processed": len([item for item in asset_items if item.get("analysis_status") == "ok"]),
+            "processed": processed_count,
             "failed": len([item for item in asset_items if item.get("analysis_status") != "ok"]),
         },
     }

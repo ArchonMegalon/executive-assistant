@@ -172,7 +172,7 @@ class PostgresOnboardingStateRepository:
                 (onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
                      selected_channels_json, property_search_preferences_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
                      status, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (principal_id) DO UPDATE
                 SET workspace_name = EXCLUDED.workspace_name,
                     workspace_mode = EXCLUDED.workspace_mode,

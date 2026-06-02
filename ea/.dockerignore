@@ -1,0 +1,11 @@
+.git
+__pycache__/
+.venv-openvoice/
+.venv-openvoice/**
+.models/
+.models/**
+.micromamba/
+.micromamba/**
+third_party/
+third_party/**
+.pytest_cache/

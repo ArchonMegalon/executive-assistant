@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import urllib.parse
 
+from app.product.models import HandoffNote
+from app.product.service import ProductService
 from app.services.google_oauth import read_google_oauth_state
 from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
@@ -74,6 +76,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google Core" in onboarding.text
     assert "Workspace shape" in onboarding.text
+    assert 'href="/app/properties"' in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text
 
@@ -82,6 +85,121 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     counts = diagnostics.json()["analytics"]["counts"]
     assert int(counts.get("memo_opened") or 0) >= 1
     assert int(counts.get("rules_opened") or 0) >= 1
+
+
+def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeypatch) -> None:
+    principal_id = "exec-browser-properties"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "selected_platforms": ["willhaben", "kalandra"],
+            "preference_person_id": "elisabeth",
+            "max_results_per_source": 4,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "exec-browser-properties"
+        assert run_id == "run-42"
+        return {
+            "generated_at": "2026-06-02T10:00:00+00:00",
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "selected_platforms": ["willhaben", "kalandra"],
+            "progress": 100,
+            "current_step": "completed",
+            "message": "Property scouting run completed.",
+            "stages_total": 8,
+            "steps_completed": 8,
+            "summary": {
+                "sources_total": 2,
+                "listing_total": 7,
+                "tour_created_total": 1,
+                "tour_existing_total": 1,
+                "sources": [
+                    {
+                        "source_label": "Willhaben Rentals",
+                        "listing_total": 4,
+                        "high_fit_total": 2,
+                        "tour_created_total": 1,
+                        "notified_total": 1,
+                        "top_fit_score": 0.92,
+                    }
+                ],
+            },
+            "events": [
+                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
+        assert principal_id == "exec-browser-properties"
+        return (
+            HandoffNote(
+                id="human_task:tour-1",
+                queue_item_ref="queue:tour-1",
+                summary="Hosted 3D page for Auhofstrasse shortlist",
+                owner="office",
+                due_time=None,
+                escalation_status="high",
+                task_type="property_tour_followup",
+                delivery_reason="Lift, playground and subway fit the profile.",
+                property_url="https://www.kalandra.at/objekt/14997053",
+                tour_url="https://myexternalbrain.com/tours/auhofstrasse-14997053",
+            ),
+        )
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+
+    response = client.get("/app/properties", params={"run_id": "run-42"})
+    assert response.status_code == 200
+    assert "Search the major platforms" in response.text
+    assert "Willhaben" in response.text
+    assert "Kalandra" in response.text
+    assert "Property scouting run completed." in response.text
+    assert "Willhaben Rentals" in response.text
+    assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
+    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
+    assert 'data-console-form-variant="property_search"' in response.text
+
+
+def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
+    principal_id = "exec-browser-properties-no-origin-fallback"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
+        assert principal_id == "exec-browser-properties-no-origin-fallback"
+        return (
+            HandoffNote(
+                id="human_task:tour-2",
+                queue_item_ref="queue:tour-2",
+                summary="Review shortlisted property packet",
+                owner="office",
+                due_time=None,
+                escalation_status="high",
+                task_type="property_alert_review",
+                delivery_reason="Research page is still pending.",
+                property_url="https://www.kalandra.at/objekt/14997053",
+                tour_url="",
+            ),
+        )
+
+    monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+
+    response = client.get("/app/properties")
+    assert response.status_code == 200
+    assert "Review shortlisted property packet" in response.text
+    assert "Open listing" not in response.text
+    assert "https://www.kalandra.at/objekt/14997053" not in response.text
 
 
 def test_browser_journey_updates_after_approval_and_commitment_closure() -> None:

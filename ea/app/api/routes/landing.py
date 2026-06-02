@@ -431,6 +431,83 @@ def _app_live_feed(container: AppContainer, *, principal_id: str) -> dict[str, o
     }
 
 
+def _property_search_platform_catalog() -> tuple[dict[str, str], ...]:
+    return (
+        {"value": "willhaben", "label": "Willhaben"},
+        {"value": "kalandra", "label": "Kalandra"},
+        {"value": "immmo", "label": "immmo"},
+        {"value": "immoscout", "label": "ImmoScout"},
+    )
+
+
+def _property_console_context(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    status: dict[str, object],
+    run_id: str = "",
+) -> dict[str, object]:
+    product = build_product_service(container)
+    preferences = dict(status.get("property_search_preferences") or {})
+    selected_platforms = {
+        str(value or "").strip().lower()
+        for value in (preferences.get("selected_platforms") or [])
+        if str(value or "").strip()
+    }
+    run_payload: dict[str, object] = {}
+    normalized_run_id = str(run_id or "").strip()
+    if normalized_run_id:
+        try:
+            run_payload = dict(
+                product.get_property_search_run_status(
+                    principal_id=principal_id,
+                    run_id=normalized_run_id,
+                )
+                or {}
+            )
+        except Exception:
+            run_payload = {}
+
+    recent_matches: list[dict[str, object]] = []
+    try:
+        for handoff in product.list_handoffs(principal_id=principal_id, limit=12, status=None):
+            task_type = str(getattr(handoff, "task_type", "") or "").strip()
+            if task_type not in {"property_tour_followup", "property_alert_review"}:
+                continue
+            hosted_url = str(getattr(handoff, "tour_url", "") or "").strip()
+            title = str(getattr(handoff, "summary", "") or "").strip() or str(getattr(handoff, "id", "") or "").strip() or "Property match"
+            detail_parts = [
+                str(getattr(handoff, "delivery_reason", "") or "").strip(),
+                str(getattr(handoff, "counterparty", "") or "").strip(),
+                str(getattr(handoff, "blocked_reason", "") or "").strip(),
+            ]
+            detail = " | ".join(part for part in detail_parts if part) or "Recent property follow-up."
+            row: dict[str, object] = {
+                "title": title,
+                "detail": detail,
+                "tag": "Hosted tour" if hosted_url else "Review",
+            }
+            if hosted_url:
+                row["action_href"] = hosted_url
+                row["action_method"] = "get"
+                row["action_label"] = "Open hosted page"
+            recent_matches.append(row)
+            if len(recent_matches) >= 6:
+                break
+    except Exception:
+        recent_matches = []
+
+    return {
+        "platform_options": [dict(option) for option in _property_search_platform_catalog()],
+        "preferences": preferences,
+        "selected_platforms": list(selected_platforms),
+        "run": run_payload,
+        "recent_matches": recent_matches,
+        "start_endpoint": "/app/api/signals/property/search/run",
+        "preferences_endpoint": "/v1/onboarding/property-search/preferences",
+    }
+
+
 @router.get("/", response_class=HTMLResponse)
 def landing(
     request: Request,
@@ -1087,6 +1164,7 @@ def app_shell(
     request: Request,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
+    run_id: str = Query(default=""),
 ) -> HTMLResponse:
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in APP_NAV_GROUPS for item in group["items"]}
     allowed.update({"channel-loop", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "channels", "automations"})
@@ -1202,10 +1280,28 @@ def app_shell(
             operator_id=str(context.operator_id or "").strip(),
         )
     else:
+        property_context = (
+            _property_console_context(
+                container=container,
+                principal_id=context.principal_id,
+                status=status,
+                run_id=run_id,
+            )
+            if resolved_section == "properties"
+            else None
+        )
+        if resolved_section == "properties":
+            build_product_service(container).record_surface_event(
+                principal_id=context.principal_id,
+                event_type="properties_opened",
+                surface="properties",
+                actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            )
         payload = _app_section_payload(
             resolved_section,
             status,
             live_feed=_app_live_feed(container, principal_id=context.principal_id),
+            property_context=property_context,
         )
     workspace = dict(status.get("workspace") or {})
     return _render_public_template(

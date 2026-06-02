@@ -343,12 +343,12 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
 
     assert 'TOPOLOGY_SERVICES=(ea-api)' in deploy
-    assert 'TOPOLOGY_SERVICES=(ea-api ea-worker ea-scheduler)' in deploy
+    assert 'TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)' in deploy
     assert 'service_container_ready "${service}"' in deploy
     assert "docker inspect -f '{{.State.Running}}'" in deploy
     assert "docker inspect -f '{{.State.Restarting}}'" in deploy
     assert 'curl -fsS "http://localhost:${HOST_PORT}/health"' in deploy
-    assert 'FAILURE_LOG_SERVICES=(ea-api ea-worker ea-scheduler ea-db)' in deploy
+    assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)' in deploy
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
 
 

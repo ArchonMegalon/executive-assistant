@@ -125,3 +125,37 @@ def test_legacy_app_aliases_redirect_to_canonical_routes() -> None:
     redirected = client.get("/app/inbox?focus=board", follow_redirects=False)
     assert redirected.status_code == 307
     assert redirected.headers["location"] == "/app/queue?focus=board"
+
+
+def test_unauthenticated_browser_app_navigation_redirects_to_sign_in() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
+    os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+    os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    response = client.get("/app/properties", headers={"accept": "text/html"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/sign-in?return_to=%2Fapp%2Fproperties"
+
+
+def test_unauthenticated_api_calls_still_return_json_auth_error() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
+    os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+    os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    response = client.get("/app/api/brief", headers={"accept": "application/json"})
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_required"

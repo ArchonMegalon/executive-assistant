@@ -215,6 +215,17 @@ operator_post_json() {
   operator_curl -X POST "$@"
 }
 
+reset_rewrite_contract() {
+  operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
+    -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+}
+
+cleanup_smoke_contract_state() {
+  reset_rewrite_contract || true
+}
+
+trap cleanup_smoke_contract_state EXIT
+
 curl -fsS -X POST "${BASE}/v1/onboarding/start" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" \
   -H 'content-type: application/json' \
   -d '{"workspace_name":"Smoke Workspace","workspace_mode":"executive_ops","region":"AT","language":"en","timezone":"Europe/Vienna","selected_channels":["google"]}' >/dev/null
@@ -408,8 +419,7 @@ fi
 echo "google signal sync ok"
 
 echo "== smoke: rewrite =="
-operator_post_json "${BASE}/v1/tasks/contracts" -H 'content-type: application/json' \
-  -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+reset_rewrite_contract
 REWRITE_JSON="$(curl_body_retry 5 1 -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
 echo "${REWRITE_JSON}"
 ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("artifact_id",""))' <<<"${REWRITE_JSON}")"
@@ -2205,9 +2215,9 @@ if [[ "${BROWSERACT_INVENTORY_SESSION_FIELDS}" != "browseract_ltd_inventory_refr
   fail 12 "policy contract mismatch"
 fi
 TMP_LTD_MD="$(mktemp /docker/EA/.smoke_tmp/ea_ltds_smoke.XXXXXX.md)"
-cp LTDs.md "${TMP_LTD_MD}"
+cp "${EA_ROOT}/LTDs.md" "${TMP_LTD_MD}"
 TMP_LTD_JSON="$(mktemp /docker/EA/.smoke_tmp/ea_ltd_inventory.XXXXXX.json)"
-bash scripts/refresh_ltds_via_api.sh \
+bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh" \
   --host "${BASE}" \
   --api-token "${EA_API_TOKEN:-}" \
   --principal-id "${PRINCIPAL_ID}" \

@@ -163,6 +163,82 @@
     color: var(--text-soft);
     font-size: 14px;
   }
+  .console-choice-grid {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .console-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+  }
+  .console-choice input {
+    width: auto;
+    margin-top: 2px;
+  }
+  .console-choice-label {
+    display: block;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .console-choice-detail {
+    display: block;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .console-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .console-progress {
+    display: grid;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .console-progress-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+  .console-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #d6a63f, #f0cf7a);
+    transition: width 160ms ease;
+  }
+  .console-run-meta,
+  .console-run-events,
+  .console-run-sources {
+    display: grid;
+    gap: 8px;
+  }
+  .console-run-status {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .console-run-note {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-inline-status {
+    min-height: 18px;
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .console-inline-error {
+    min-height: 18px;
+    color: #f0b7b7;
+    font-size: 12px;
+  }
   @media (max-width: 1080px) {
     .console-stage,
     .console-support-grid,
@@ -170,6 +246,9 @@
       grid-template-columns: 1fr;
     }
     .console-field-grid {
+      grid-template-columns: 1fr;
+    }
+    .console-choice-grid {
       grid-template-columns: 1fr;
     }
   }
@@ -542,7 +621,13 @@
       <div class="console-kicker">{{ console_form.get('eyebrow') or 'Search' }}</div>
       {% if console_form.get('title') %}<h2>{{ console_form.get('title') }}</h2>{% endif %}
       {% if console_form.get('copy') %}<p class="console-copy">{{ console_form.get('copy') }}</p>{% endif %}
-      <form class="console-form" method="{{ console_form.get('method') or 'get' }}" action="{{ console_form.get('action') or request.url.path }}">
+      <form
+        class="console-form"
+        method="{{ console_form.get('method') or 'get' }}"
+        action="{{ console_form.get('action') or request.url.path }}"
+        {% if console_form.get('variant') %}data-console-form-variant="{{ console_form.get('variant') }}"{% endif %}
+        {% if console_form.get('meta') %}data-console-form-meta='{{ console_form.get("meta")|tojson }}'{% endif %}
+      >
         <div class="console-field-grid">
           {% for field in console_form.get('fields') or [] %}
           <label class="console-field">
@@ -568,6 +653,26 @@
               value="{{ field.value or 'true' }}"
               {% if field.checked %}checked{% endif %}
             >
+            {% elif field.type == 'checkbox_group' %}
+            <div class="console-choice-grid">
+              {% for option in field.options or [] %}
+              {% set option_value = option.get('value') or '' %}
+              <label class="console-choice">
+                <input
+                  type="checkbox"
+                  name="{{ field.name }}"
+                  value="{{ option_value }}"
+                  {% if option_value in (field.get('values') or []) %}checked{% endif %}
+                >
+                <span>
+                  <span class="console-choice-label">{{ option.get('label') }}</span>
+                  {% if option.get('detail') or option.get('description') %}
+                  <span class="console-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                  {% endif %}
+                </span>
+              </label>
+              {% endfor %}
+            </div>
             {% else %}
             <input
               type="{{ field.type or 'text' }}"
@@ -579,7 +684,28 @@
           </label>
           {% endfor %}
         </div>
+        {% if console_form.get('variant') == 'property_search' %}
+        <div class="console-inline-status" data-property-inline-status></div>
+        <div class="console-inline-error" data-property-inline-error></div>
+        <div class="console-action-row">
+          <button class="console-action" type="button" data-property-save>Save defaults</button>
+          <button class="console-action" type="button" data-property-start>{{ console_form.get('submit_label') or 'Start search' }}</button>
+        </div>
+        <section class="console-progress" data-property-run hidden>
+          <div class="console-run-meta">
+            <div class="console-run-status" data-property-run-status>Queued</div>
+            <div class="console-run-note" data-property-run-message></div>
+            <div class="console-progress-track">
+              <div class="console-progress-fill" data-property-run-progress></div>
+            </div>
+            <div class="console-run-note" data-property-run-summary></div>
+          </div>
+          <div class="console-run-sources" data-property-run-sources></div>
+          <div class="console-run-events" data-property-run-events></div>
+        </section>
+        {% else %}
         <button class="console-action" type="submit">{{ console_form.get('submit_label') or 'Save' }}</button>
+        {% endif %}
       </form>
     </div>
     {% endif %}
@@ -604,4 +730,167 @@
   {% endfor %}
 </section>
 {% endif %}
+
+<script>
+(() => {
+  const forms = [...document.querySelectorAll('[data-console-form-variant="property_search"]')];
+  if (!forms.length) return;
+
+  const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled']);
+
+  const collectPayload = (form) => {
+    const data = new FormData(form);
+    const selectedPlatforms = [...form.querySelectorAll('input[name="selected_platforms"]:checked')].map((node) => String(node.value || '').trim()).filter(Boolean);
+    const maxResultsRaw = String(data.get('max_results_per_source') || '').trim();
+    const parsedMaxResults = Number.parseInt(maxResultsRaw, 10);
+    return {
+      selected_platforms: selectedPlatforms,
+      property_preferences: {
+        selected_platforms: selectedPlatforms,
+        preference_person_id: String(data.get('preference_person_id') || 'self').trim() || 'self',
+        max_results_per_source: Number.isFinite(parsedMaxResults) ? parsedMaxResults : null,
+      },
+      force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
+      max_results_per_source: Number.isFinite(parsedMaxResults) ? parsedMaxResults : null,
+    };
+  };
+
+  const renderRun = (form, payload) => {
+    const panel = form.querySelector('[data-property-run]');
+    const statusNode = form.querySelector('[data-property-run-status]');
+    const messageNode = form.querySelector('[data-property-run-message]');
+    const progressNode = form.querySelector('[data-property-run-progress]');
+    const summaryNode = form.querySelector('[data-property-run-summary]');
+    const sourceNode = form.querySelector('[data-property-run-sources]');
+    const eventsNode = form.querySelector('[data-property-run-events]');
+    if (!panel || !statusNode || !messageNode || !progressNode || !summaryNode || !sourceNode || !eventsNode) return;
+
+    if (!payload || !Object.keys(payload).length) {
+      panel.hidden = true;
+      sourceNode.innerHTML = '';
+      eventsNode.innerHTML = '';
+      return;
+    }
+
+    panel.hidden = false;
+    const summary = payload.summary || {};
+    const progress = Math.max(0, Math.min(100, Number(payload.progress || 0)));
+    statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
+    messageNode.textContent = String(payload.message || 'Queued for execution.');
+    progressNode.style.width = `${progress}%`;
+    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} sources | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+
+    const sources = Array.isArray(summary.sources) ? summary.sources : [];
+    sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
+      const label = String(source.source_label || source.source_url || 'Source');
+      const detail = [
+        `${Number(source.listing_total || 0)} listings`,
+        `${Number(source.high_fit_total || 0)} high-fit`,
+        `${Number(source.tour_created_total || 0)} new tours`,
+        `${Number(source.notified_total || 0)} Telegram sends`,
+      ].join(' | ');
+      return `<div class="console-row"><div><strong>${label}</strong><small>${detail}</small></div><span class="console-tag">Scanned</span></div>`;
+    }).join('');
+
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    eventsNode.innerHTML = events.slice(-5).reverse().map((event) => {
+      const step = String(event.step || 'update').replaceAll('_', ' ');
+      const detail = String(event.message || '').trim() || 'No detail';
+      const tag = String(event.status || 'queued').replaceAll('_', ' ');
+      return `<div class="console-row"><div><strong>${step}</strong><small>${detail}</small></div><span class="console-tag">${tag}</span></div>`;
+    }).join('');
+  };
+
+  const savePreferences = async (form, meta, payload) => {
+    const statusNode = form.querySelector('[data-property-inline-status]');
+    const errorNode = form.querySelector('[data-property-inline-error]');
+    if (statusNode) statusNode.textContent = 'Saving defaults…';
+    if (errorNode) errorNode.textContent = '';
+    const response = await fetch(String(meta.preferences_endpoint || ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload.property_preferences),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(body.detail || 'Could not save property search defaults.'));
+    }
+    if (statusNode) statusNode.textContent = 'Defaults saved.';
+    return body;
+  };
+
+  const pollRun = async (form, statusUrl) => {
+    if (!statusUrl) return;
+    while (true) {
+      const response = await fetch(statusUrl, { headers: { accept: 'application/json' } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(body.detail || 'Could not load property search status.'));
+      }
+      renderRun(form, body);
+      if (terminalStates.has(String(body.status || '').trim())) {
+        return body;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    }
+  };
+
+  for (const form of forms) {
+    const metaRaw = String(form.getAttribute('data-console-form-meta') || '').trim();
+    let meta = {};
+    try {
+      meta = metaRaw ? JSON.parse(metaRaw) : {};
+    } catch (_error) {
+      meta = {};
+    }
+    renderRun(form, meta.initial_run || {});
+
+    form.querySelector('[data-property-save]')?.addEventListener('click', async () => {
+      const payload = collectPayload(form);
+      try {
+        await savePreferences(form, meta, payload);
+      } catch (error) {
+        const errorNode = form.querySelector('[data-property-inline-error]');
+        const statusNode = form.querySelector('[data-property-inline-status]');
+        if (statusNode) statusNode.textContent = '';
+        if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not save property search defaults.';
+      }
+    });
+
+    form.querySelector('[data-property-start]')?.addEventListener('click', async () => {
+      const statusNode = form.querySelector('[data-property-inline-status]');
+      const errorNode = form.querySelector('[data-property-inline-error]');
+      const payload = collectPayload(form);
+      try {
+        await savePreferences(form, meta, payload);
+        if (statusNode) statusNode.textContent = 'Starting crawl…';
+        if (errorNode) errorNode.textContent = '';
+        const response = await fetch(String(meta.start_endpoint || ''), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(String(body.detail || 'Could not start property search.'));
+        }
+        renderRun(form, body);
+        if (statusNode) statusNode.textContent = 'Crawl running…';
+        const finalBody = await pollRun(form, String(body.status_url || ''));
+        if (statusNode) statusNode.textContent = terminalStates.has(String(finalBody.status || '').trim())
+          ? 'Crawl finished.'
+          : 'Crawl updated.';
+        if (finalBody && finalBody.run_id) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('run_id', String(finalBody.run_id));
+          window.history.replaceState({}, '', url.toString());
+        }
+      } catch (error) {
+        if (statusNode) statusNode.textContent = '';
+        if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start property search.';
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

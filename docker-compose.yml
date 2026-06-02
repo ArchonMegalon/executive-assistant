@@ -1,9 +1,45 @@
 services:
+  ea-openvoice:
+    build:
+      context: ./ea
+      dockerfile: Dockerfile.openvoice
+    image: ea-openvoice:latest
+    container_name: ea-openvoice
+    restart: unless-stopped
+    mem_limit: 8g
+    mem_reservation: 2g
+    environment:
+      - EA_ROLE=openvoice
+      - OPENVOICE_PORT=8093
+      - OPENVOICE_BASE_TTS=piper
+      - OPENVOICE_HOST=0.0.0.0
+      - OPENVOICE_DATA_DIR=/data/openvoice
+      - OPENVOICE_CHECKPOINT_ROOT=/models/openvoice
+      - OPENVOICE_SOURCE_DIR=/app/third_party/OpenVoice
+      - PIPER_BIN=/opt/piper/piper
+      - PIPER_MODEL_PATH=/models/piper/de_DE-thorsten-high.onnx
+      - PIPER_MODEL_PATH_ALT=/models/piper/de_DE-thorsten-medium.onnx
+      - PIPER_DEFAULT_VARIANT=high
+      - PIPER_ALT_VARIANT=balanced
+      - OPENVOICE_MAX_CLONE_FILES=4
+      - OPENVOICE_MAX_UPLOAD_BYTES=20971520
+      - OPENVOICE_MAX_TOTAL_UPLOAD_BYTES=50331648
+      - OPENVOICE_MAX_TTS_TEXT_LEN=3000
+      - TZ=Europe/Vienna
+    ports:
+      - "127.0.0.1:${OPENVOICE_HOST_PORT:-8093}:8093"
+    volumes:
+      - ./ea/.piper:/opt/piper:ro
+      - ./ea/third_party/OpenVoice:/app/third_party/OpenVoice:ro
+      - ./ea/.models/openvoice:/models/openvoice:ro
+      - ./ea/.models/piper:/models/piper:ro
+      - ea_openvoice_data:/data/openvoice
+
   ea-teable-relay:
     build:
       context: .
       dockerfile: ea/Dockerfile
-    image: ea-rewrite:latest
+    image: ea-teable-relay:latest
     container_name: ea-teable-relay
     restart: unless-stopped
     env_file:
@@ -31,7 +67,7 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
-    image: ea-rewrite:latest
+    image: ea-runtime:latest
     container_name: ea-api
     restart: unless-stopped
     mem_limit: 4g
@@ -55,6 +91,7 @@ services:
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
       - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
       - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/mnt/pcloud/EA/public_memorials}
+      - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
@@ -72,13 +109,15 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
+      ea-openvoice:
+        condition: service_healthy
       ea-teable-relay:
         condition: service_healthy
       ea-db:
         condition: service_healthy
 
   ea-responses-proxy:
-    image: ea-rewrite:latest
+    image: ea-runtime:latest
     container_name: ea-responses-proxy
     restart: unless-stopped
     mem_limit: 2g
@@ -119,7 +158,7 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
-    image: ea-rewrite:latest
+    image: ea-runtime:latest
     container_name: ea-worker
     restart: unless-stopped
     env_file:
@@ -160,7 +199,7 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile
-    image: ea-rewrite:latest
+    image: ea-runtime:latest
     container_name: ea-scheduler
     restart: unless-stopped
     env_file:
@@ -212,6 +251,7 @@ services:
 
 volumes:
   ea_artifacts: {}
+  ea_openvoice_data: {}
   ea_pgdata: {}
   ea_public_tours: {}
   ea_provider_ledger: {}

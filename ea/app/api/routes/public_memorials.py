@@ -8,11 +8,23 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
+import requests
+
+from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL
+from app.services.memorial_openvoice import (
+    OPENVOICE_TTS_PLUGIN_ID,
+    openvoice_clone_request,
+    openvoice_memorial_voice_id,
+    openvoice_plugin_option,
+    openvoice_synthesize_request_with_variant,
+)
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.responses_upstream import ResponsesUpstreamError, generate_text
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 
 router = APIRouter(tags=["public-memorials"])
@@ -27,6 +39,11 @@ _ONEMIN_SPEECH_AUDIO_TYPES = {
     "audio/x-wav",
     "audio/flac",
 }
+_BROWSER_SPEECH_TTS_PLUGIN_ID = "browser_speech_synthesis"
+_TTS_PLUGIN_DEFAULT_ID = _BROWSER_SPEECH_TTS_PLUGIN_ID
+_LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
+_TTS_MAX_CLONE_FILES = 3
+_TTS_MAX_TEXT_LEN = 3000
 
 
 def _memorial_dir() -> Path:
@@ -93,6 +110,8 @@ def _collect_memorial_write_tokens(payload: dict[str, object]) -> list[str]:
     if env_token:
         raw_values.append(env_token)
     for raw_value in raw_values:
+        if raw_value is None:
+            continue
         if isinstance(raw_value, (list, tuple, set)):
             values = [str(item).strip() for item in raw_value]
         else:
@@ -140,6 +159,155 @@ def _text(value: object, fallback: str = "") -> str:
 
 def _list_of_dicts(value: object) -> list[dict[str, object]]:
     return [dict(item) for item in (value or []) if isinstance(item, dict)]
+
+
+def _normalize_memorial_text_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        raw_values = value.replace("\n", ",").split(",")
+    elif isinstance(value, (list, tuple, set)):
+        raw_values = list(value)
+    else:
+        raw_values = []
+    values: list[str] = []
+    for raw_value in raw_values:
+        normalized = str(raw_value or "").strip()
+        if not normalized:
+            continue
+        if normalized not in values:
+            values.append(normalized)
+    return values
+
+
+def _normalize_memorial_chat_model_plugin_values(value: object) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    raw_items: list[object] = []
+    if isinstance(value, (str, dict)):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        return entries
+    for raw_item in raw_items:
+        if isinstance(raw_item, (list, tuple, set)):
+            entries.extend(_normalize_memorial_chat_model_plugin_values(list(raw_item)))
+            continue
+        if isinstance(raw_item, dict):
+            model = _text(
+                raw_item.get("model"),
+                _text(
+                    raw_item.get("id"),
+                    _text(raw_item.get("name"), _text(raw_item.get("value"), "")),
+                ),
+            )
+            if not model:
+                model = _text(raw_item.get("llm_model"), "")
+            if not model:
+                continue
+            label = _text(raw_item.get("label"), _text(raw_item.get("name"), model))
+            normalized_model = model.strip()
+            if normalized_model and (normalized_model, label) not in entries:
+                entries.append((normalized_model, label))
+            continue
+        if isinstance(raw_item, str):
+            for model in _normalize_memorial_text_list(raw_item):
+                normalized_model = str(model or "").strip()
+                if normalized_model and (normalized_model, normalized_model) not in entries:
+                    entries.append((normalized_model, normalized_model))
+            continue
+        normalized_model = str(raw_item or "").strip()
+        if normalized_model and (normalized_model, normalized_model) not in entries:
+            entries.append((normalized_model, normalized_model))
+    return entries
+
+
+def _normalize_memorial_chat_model_values(value: object) -> list[str]:
+    plugin_values = [item[0] for item in _normalize_memorial_chat_model_plugin_values(value)]
+    if plugin_values:
+        return plugin_values
+    return _normalize_memorial_text_list(value)
+
+
+def _memorial_chat_model_sources(payload: dict[str, object], private_profile: dict[str, object]) -> list[dict[str, object]]:
+    sources = [payload, private_profile]
+    profile_section = private_profile.get("memorial_chat")
+    if isinstance(profile_section, dict):
+        sources.append(profile_section)
+    return [dict(item) for item in sources if isinstance(item, dict)]
+
+
+def _collect_memorial_chat_models(payload: dict[str, object], private_profile: dict[str, object]) -> list[str]:
+    raw_candidates: list[object] = []
+    for source in _memorial_chat_model_sources(payload, private_profile):
+        raw_candidates.extend(
+            [
+                source.get("chat_model_plugins"),
+                source.get("chat_models"),
+                source.get("chat_model_catalog"),
+                source.get("llm_chat_models"),
+            ]
+        )
+    raw_candidates.append(os.getenv("EA_PUBLIC_MEMORIAL_CHAT_MODELS", ""))
+    models: list[str] = []
+    for raw_candidate in raw_candidates:
+        for candidate in _normalize_memorial_chat_model_values(raw_candidate):
+            if candidate not in models:
+                models.append(candidate)
+    if not models:
+        fallback = _text(os.getenv("EA_PUBLIC_MEMORIAL_CHAT_MODEL"), "")
+        if fallback:
+            models.append(fallback)
+    if not models:
+        models.append(DEFAULT_PUBLIC_MODEL)
+    return models
+
+
+def _collect_memorial_chat_model_options(
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+    models: list[str],
+) -> list[dict[str, str]]:
+    model_labels: dict[str, str] = {}
+    for source in _memorial_chat_model_sources(payload, private_profile):
+        for key in ("chat_model_plugins", "chat_models", "chat_model_catalog", "llm_chat_models"):
+            for model, label in _normalize_memorial_chat_model_plugin_values(source.get(key)):
+                if model in models and model not in model_labels:
+                    model_labels[model] = label or model
+    options: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for model in models:
+        if model in seen:
+            continue
+        seen.add(model)
+        options.append({"value": model, "label": model_labels.get(model, model)})
+    return options
+
+
+def _resolve_memorial_chat_default_model(payload: dict[str, object], private_profile: dict[str, object], models: list[str]) -> str:
+    for source in _memorial_chat_model_sources(payload, private_profile):
+        for key in ("chat_model_default", "default_chat_model", "memorial_chat_default_model", "llm_default_model"):
+            value = _text(source.get(key), "")
+            if not value:
+                continue
+            if value in models:
+                return value
+    fallback = _text(os.getenv("EA_PUBLIC_MEMORIAL_CHAT_MODEL"), "")
+    if fallback and (not models or fallback in models):
+        return fallback
+    return models[0] if models else DEFAULT_PUBLIC_MODEL
+
+
+def _resolve_memorial_chat_model(
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+    requested_model: str | None,
+) -> tuple[str, list[str], str]:
+    models = _collect_memorial_chat_models(payload, private_profile)
+    default_model = _resolve_memorial_chat_default_model(payload, private_profile, models)
+    requested = _text(requested_model, "")
+    selected = requested or default_model
+    if requested and requested not in models:
+        raise HTTPException(status_code=400, detail="invalid_llm_model")
+    return selected, models, default_model
 
 
 def _load_private_profile(slug: str) -> dict[str, object]:
@@ -195,6 +363,101 @@ def _public_voice_profile_summary(slug: str) -> dict[str, object]:
     }
 
 
+def _normalize_tts_text(value: object) -> str:
+    return " ".join(str(value or "").split()).strip()[:_TTS_MAX_TEXT_LEN]
+
+
+def _safe_tts_plugin_id(value: object) -> str:
+    normalized = str(value or "").strip()
+    if normalized == _LEGACY_ELEVENLABS_TTS_PLUGIN_ID:
+        return _TTS_PLUGIN_DEFAULT_ID
+    return normalized
+
+
+def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool) -> list[dict[str, object]]:
+    configured_voice_id = _text(payload.get("tts_plugin_voice_id"), openvoice_memorial_voice_id())
+    return [
+        {
+            "tts_plugin": _BROWSER_SPEECH_TTS_PLUGIN_ID,
+            "tts_plugin_enabled": True,
+            "tts_plugin_needs_clone": False,
+            "tts_plugin_clone_capable": False,
+            "tts_plugin_voice_id": "",
+            "tts_plugin_label": "Browser Speech",
+            "tts_plugin_description": "Verwendet die eingebaute SpeechSynthesisUtterance-Stimme des Browsers.",
+        },
+        openvoice_plugin_option(
+            configured_voice_id=configured_voice_id,
+            voice_profile_ready=bool(voice_profile_ready),
+        )
+    ]
+
+
+def _resolve_tts_plugin(*, payload: dict[str, object], options: list[dict[str, object]]) -> tuple[str, dict[str, object]]:
+    requested = _safe_tts_plugin_id(payload.get("tts_plugin"))
+    if not requested:
+        requested = _safe_tts_plugin_id(payload.get("tts_mode"))
+    if not requested:
+        requested = _TTS_PLUGIN_DEFAULT_ID
+    if requested:
+        for option in options:
+            if option.get("tts_plugin") != requested:
+                continue
+            return requested, option
+    for option in options:
+        if option.get("tts_plugin_enabled"):
+            return str(option.get("tts_plugin") or _TTS_PLUGIN_DEFAULT_ID), option
+    if options:
+        first = options[0]
+        return _safe_tts_plugin_id(first.get("tts_plugin")) or _TTS_PLUGIN_DEFAULT_ID, first
+    return _TTS_PLUGIN_DEFAULT_ID, {
+        "tts_plugin": _TTS_PLUGIN_DEFAULT_ID,
+        "tts_plugin_enabled": False,
+        "tts_plugin_needs_clone": False,
+        "tts_plugin_voice_id": "",
+        "tts_plugin_label": "OpenVoice Local Clone",
+        "tts_plugin_description": "Keine Voice-Konfiguration aktiv.",
+    }
+
+
+def _tts_media_type(content_type: str, fallback: str = "audio/mpeg") -> str:
+    normalized = str(content_type or "").split(";", 1)[0].strip().lower()
+    if normalized:
+        return normalized
+    return fallback
+
+
+def _profile_clip_assets_for_memorial(*, slug: str) -> list[Path]:
+    summary = load_memorial_voice_profile(slug=slug)
+    profile_root = (_private_profile_dir() / _safe_slug(slug)).resolve()
+    assets: list[Path] = []
+    if not isinstance(summary, dict):
+        return assets
+    for item in _list_of_dicts(summary.get("audio_assets")):
+        if _text(item.get("analysis_status"), "failed").lower() != "ok":
+            continue
+        relpath = _text(item.get("asset_relpath"), "")
+        if not relpath:
+            continue
+        candidate = (profile_root / relpath).resolve()
+        if profile_root not in candidate.parents and candidate != profile_root:
+            continue
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        if not candidate.name.lower().endswith((".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm")):
+            continue
+        assets.append(candidate)
+    return assets
+
+
+def _openvoice_clone_from_memorial(*, slug: str, voice_label: str) -> str:
+    sample_paths = _profile_clip_assets_for_memorial(slug=slug)
+    if not sample_paths:
+        raise HTTPException(status_code=400, detail="voice_profile_no_samples")
+    usable_sample_paths = sample_paths[:_TTS_MAX_CLONE_FILES]
+    return openvoice_clone_request(slug=slug, voice_label=voice_label, sample_paths=usable_sample_paths)
+
+
 def _float_between(value: object, *, fallback: float, minimum: float, maximum: float) -> float:
     try:
         parsed = float(value)
@@ -205,7 +468,7 @@ def _float_between(value: object, *, fallback: float, minimum: float, maximum: f
 
 def _load_voice_config(slug: str) -> dict[str, object]:
     default_config = {
-        "tts_mode": "browser_speech_synthesis",
+        "tts_plugin": _TTS_PLUGIN_DEFAULT_ID,
         "voice_profile_id": "default-browser-synthetic",
         "voice_label": "Austauschbare synthetische Stimme",
         "lang": "de-AT",
@@ -213,8 +476,10 @@ def _load_voice_config(slug: str) -> dict[str, object]:
         "pitch": 0.92,
         "volume": 1.0,
         "voice_name_hints": ["de-AT", "de-DE", "German"],
-        "synthetic_voice_clone_of_memorial_person": False,
+        "tts_plugin_voice_id": openvoice_memorial_voice_id(),
         "consent_basis": "generic_or_owner_consented_voice",
+        "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
+        "synthetic_voice_clone_of_memorial_person": False,
     }
     safe = _safe_slug(slug)
     root = _private_profile_dir().resolve()
@@ -225,9 +490,13 @@ def _load_voice_config(slug: str) -> dict[str, object]:
         except Exception:
             payload = {}
         if isinstance(payload, dict):
+            persisted_tts_plugin = _safe_tts_plugin_id(_text(payload.get("tts_plugin"), _text(payload.get("tts_mode"))))
+            if not persisted_tts_plugin:
+                persisted_tts_plugin = _TTS_PLUGIN_DEFAULT_ID
             default_config.update(
                 {
-                    "tts_mode": _text(payload.get("tts_mode"), str(default_config["tts_mode"])),
+                    "tts_plugin": persisted_tts_plugin,
+                    "tts_plugin_voice_id": _text(payload.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])),
                     "voice_profile_id": _text(payload.get("voice_profile_id"), str(default_config["voice_profile_id"])),
                     "voice_label": _text(payload.get("voice_label"), str(default_config["voice_label"])),
                     "lang": _text(payload.get("lang"), str(default_config["lang"])),
@@ -240,13 +509,22 @@ def _load_voice_config(slug: str) -> dict[str, object]:
                         if str(item).strip()
                     ][:8],
                     "consent_basis": _text(payload.get("consent_basis"), str(default_config["consent_basis"])),
+                    "notes": _text(payload.get("notes"), str(default_config["notes"])),
                 }
             )
-    # Safety invariant: production never reports full speech cloning support to memorial users.
-    # Keep provider-compatible fields but clearly expose safe-profile policy only.
-    default_config["tts_mode"] = "browser_speech_synthesis"
-    default_config["synthetic_voice_clone_of_memorial_person"] = False
-    default_config.update(_public_voice_profile_summary(slug))
+    voice_profile_summary = _public_voice_profile_summary(slug)
+    default_config.update(voice_profile_summary)
+    tts_options = _tts_plugin_options(
+        payload=default_config,
+        voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")),
+    )
+    selected_plugin, selected_option = _resolve_tts_plugin(payload=default_config, options=tts_options)
+    default_config["tts_plugin"] = selected_plugin or _TTS_PLUGIN_DEFAULT_ID
+    default_config["tts_mode"] = default_config["tts_plugin"]
+    default_config["tts_plugin_voice_id"] = _text(selected_option.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"]))
+    if not default_config["tts_plugin_voice_id"]:
+        default_config["tts_plugin_voice_id"] = _text(openvoice_memorial_voice_id(), "")
+    default_config["tts_plugin_options"] = tts_options
     return default_config
 
 
@@ -272,7 +550,11 @@ def _safe_voice_name_hints(value: object) -> list[str]:
 
 
 def _voice_config_to_public_payload(payload: dict[str, object], slug: str) -> dict[str, object]:
+    selected_plugin = _safe_tts_plugin_id(_text(payload.get("tts_plugin"), _TTS_PLUGIN_DEFAULT_ID))
+    if not selected_plugin:
+        selected_plugin = _TTS_PLUGIN_DEFAULT_ID
     safe_config = {
+        "tts_plugin": selected_plugin,
         "voice_profile_id": _text(payload.get("voice_profile_id"), f"tts-{slug}"),
         "voice_label": _text(payload.get("voice_label"), "Austauschbare synthetische Stimme"),
         "lang": _text(payload.get("lang"), "de-AT")[:16] or "de-AT",
@@ -280,7 +562,11 @@ def _voice_config_to_public_payload(payload: dict[str, object], slug: str) -> di
         "pitch": _float_between(payload.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
         "volume": _float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
         "voice_name_hints": _safe_voice_name_hints(payload.get("voice_name_hints")),
+        "tts_plugin_voice_id": _text(payload.get("tts_plugin_voice_id"), openvoice_memorial_voice_id()),
+        "notes": _text(payload.get("notes"), ""),
+        "synthetic_voice_clone_of_memorial_person": False,
     }
+    safe_config["tts_mode"] = selected_plugin
     safe_config["consent_basis"] = _text(payload.get("consent_basis"), "generic_or_owner_consented_voice")
     return safe_config
 
@@ -296,8 +582,11 @@ def _normalize_voice_name_hints_csv(value: object) -> list[str]:
 
 
 def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, object]:
+    requested_plugin = _safe_tts_plugin_id(_text(payload.get("tts_plugin"), _text(payload.get("tts_mode"), _TTS_PLUGIN_DEFAULT_ID)))
+    if not requested_plugin:
+        requested_plugin = _TTS_PLUGIN_DEFAULT_ID
     default_config = {
-        "tts_mode": "browser_speech_synthesis",
+        "tts_mode": _TTS_PLUGIN_DEFAULT_ID,
         "voice_profile_id": "default-browser-synthetic",
         "voice_label": "Austauschbare synthetische Stimme",
         "lang": "de-AT",
@@ -305,10 +594,16 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "pitch": 0.92,
         "volume": 1.0,
         "voice_name_hints": ["de-AT", "de-DE", "German"],
+        "tts_plugin": _TTS_PLUGIN_DEFAULT_ID,
+        "tts_plugin_voice_id": openvoice_memorial_voice_id(),
         "consent_basis": "generic_or_owner_consented_voice",
+        "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
     }
+    default_config["tts_mode"] = requested_plugin
+    default_config["tts_plugin"] = requested_plugin
     return {
-        "tts_mode": "browser_speech_synthesis",
+        "tts_plugin": requested_plugin,
+        "tts_plugin_voice_id": _text(payload.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])),
         "voice_profile_id": _text(payload.get("voice_profile_id") if isinstance(payload, dict) else None, str(default_config["voice_profile_id"])),
         "voice_label": _text(payload.get("voice_label") if isinstance(payload, dict) else None, str(default_config["voice_label"])),
         "lang": _text(payload.get("lang") if isinstance(payload, dict) else None, str(default_config["lang"]))[:16] or "de-AT",
@@ -317,6 +612,8 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "volume": _float_between(payload.get("volume") if isinstance(payload, dict) else None, fallback=1.0, minimum=0.0, maximum=1.0),
         "voice_name_hints": _normalize_voice_name_hints_csv(payload.get("voice_name_hints") if isinstance(payload, dict) else None),
         "consent_basis": _text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
+        "notes": _text(payload.get("notes") if isinstance(payload, dict) else None, str(default_config["notes"])),
+        "tts_mode": requested_plugin,
     }
 
 
@@ -356,12 +653,18 @@ def _compact_public_facts(payload: dict[str, object]) -> list[str]:
 
 
 def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
-    normalized = _voice_config_to_public_payload(_normalize_voice_config_payload(payload), slug=slug)
-    normalized.update({
-        "tts_mode": "browser_speech_synthesis",
-        "synthetic_voice_clone_of_memorial_person": False,
-    })
-    _write_json_atomic(_voice_config_path(slug=slug), normalized)
+    stored = _voice_config_to_public_payload(_normalize_voice_config_payload(payload), slug=slug)
+    tts_options = _tts_plugin_options(payload=stored, voice_profile_ready=bool(_public_voice_profile_summary(slug=slug).get("voice_profile_ready")))
+    selected_plugin, selected_option = _resolve_tts_plugin(payload=stored, options=tts_options)
+    selected_plugin = selected_plugin or _TTS_PLUGIN_DEFAULT_ID
+    selected_option = dict(selected_option)
+    stored["tts_plugin"] = selected_plugin
+    stored["tts_mode"] = selected_plugin
+    selected_voice_id = _text(selected_option.get("tts_plugin_voice_id"), str(stored.get("tts_plugin_voice_id")))
+    if not selected_voice_id:
+        selected_voice_id = _text(stored.get("tts_plugin_voice_id"), "")
+    stored["tts_plugin_voice_id"] = selected_voice_id
+    _write_json_atomic(_voice_config_path(slug=slug), stored)
 
 
 def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) -> list[Path]:
@@ -383,7 +686,25 @@ def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) 
     return paths
 
 
-def _memorial_chat_answer(payload: dict[str, object], question: str, private_profile: dict[str, object]) -> dict[str, object]:
+def _memorial_chat_source_labels(payload: dict[str, object]) -> list[str]:
+    return [
+        label
+        for label in (
+            "Originalaufnahme: Hanusch Krankenhaus",
+            *[_text(source.get("label")) for source in _list_of_dicts(payload.get("external_sources"))],
+        )
+        if label
+    ][:4]
+
+
+def _memorial_chat_fallback_answer(
+    payload: dict[str, object],
+    question: str,
+    private_profile: dict[str, object],
+    *,
+    llm_model: str = "",
+    fallback_reason: str = "",
+) -> dict[str, object]:
     person_name = _text(payload.get("person_name"), "Manfred")
     normalized_question = " ".join(str(question or "").strip().split())
     if not normalized_question:
@@ -393,11 +714,7 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
     lowered = normalized_question.lower()
     facts = _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
-    source_labels = ["Originalaufnahme: Hanusch Krankenhaus"] + [
-        _text(source.get("label"))
-        for source in _list_of_dicts(payload.get("external_sources"))
-        if _text(source.get("label"))
-    ][:4]
+    source_labels = _memorial_chat_source_labels(payload)
     if any(token in lowered for token in ("bist du", "sprichst du", "lebst du", "wirklich")):
         body = (
             "Ich bin hier als Erinnerung ansprechbar, nicht als Beweis, dass ich wirklich da bin. "
@@ -464,7 +781,7 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
             f"Ich weiss nicht mehr, als hier von mir aufgehoben ist. Aber daran kannst du dich halten: {fact_line} "
             "Frag mich ruhig konkreter. Dann antworte ich naeher an dem, was wirklich von mir geblieben ist."
         )
-    return {
+    response = {
         "person_name": person_name,
         "mode": "memorial_first_person_memory_chat",
         "question": normalized_question,
@@ -472,7 +789,107 @@ def _memorial_chat_answer(payload: dict[str, object], question: str, private_pro
         "sources": [item for item in source_labels if item],
         "private_context_used": bool(private_notes),
         "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+        "llm_model": llm_model or "",
+        "llm_fallback_used": True,
     }
+    if fallback_reason:
+        response["fallback_reason"] = fallback_reason
+    return response
+
+
+def _build_memorial_chat_messages(
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+    question: str,
+) -> list[dict[str, str]]:
+    normalized_question = " ".join(str(question or "").strip().split())
+    if not normalized_question:
+        raise HTTPException(status_code=400, detail="question_missing")
+    if len(normalized_question) > 1200:
+        raise HTTPException(status_code=400, detail="question_too_long")
+    person_name = _text(payload.get("person_name"), "Manfred")
+    relationship = _text(payload.get("relationship"), "Vater")
+    facts = _compact_public_facts(payload)
+    private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
+    context_bits = [
+        f"Person: {person_name}",
+        f"Beziehung: {relationship}",
+    ]
+    if facts:
+        context_bits.append("Quellen aus Archiv: " + " | ".join(facts))
+    if private_notes:
+        private_lines: list[str] = []
+        for note in private_notes[:4]:
+            trait = _text(note.get("trait"))
+            evidence = _text(note.get("evidence"))
+            if trait and evidence:
+                private_lines.append(f"{trait}: {evidence}")
+        if private_lines:
+            context_bits.append("Privatkontext (kurz): " + " | ".join(private_lines))
+    source_labels = _memorial_chat_source_labels(payload)
+    if source_labels:
+        context_bits.append("Externe Quellen: " + "; ".join(source_labels))
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Du bist ein vorsichtiger Erinnerungs-Assistent fuer eine Gedenkseite. "
+                "Antworte in ruhiger Ich-Perspektive und vermeide dramatische Uebertreibungen. "
+                "Du simulierst eine rekonstruktive Erinnerung auf Grundlage archivierter Aufnahmen, Belege und Familienkontext. "
+                "Du behauptest NIE, dass du die verstorbene Person wirklich bist oder real antwortest. "
+                "Wenn etwas ungeklärt ist, sage offen, dass es nicht belegt ist und bitte um eine präzisere Frage. "
+                "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten."
+            ),
+        },
+        {"role": "system", "content": " | ".join(context_bits)},
+        {"role": "user", "content": normalized_question},
+    ]
+
+
+def _memorial_chat_answer(
+    payload: dict[str, object],
+    question: str,
+    private_profile: dict[str, object],
+    requested_model: str,
+) -> dict[str, object]:
+    person_name = _text(payload.get("person_name"), "Manfred")
+    normalized_question = " ".join(str(question or "").strip().split())
+    if not normalized_question:
+        raise HTTPException(status_code=400, detail="question_missing")
+    if len(normalized_question) > 1200:
+        raise HTTPException(status_code=400, detail="question_too_long")
+    source_labels = _memorial_chat_source_labels(payload)
+    messages = _build_memorial_chat_messages(payload, private_profile, normalized_question)
+    try:
+        result = generate_text(
+            messages=messages,
+            requested_model=requested_model,
+            max_output_tokens=360,
+        )
+        generated = _text(result.text, "")
+        if not generated:
+            raise RuntimeError("empty_upstream_answer")
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": generated,
+            "sources": [item for item in source_labels if item],
+            "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": _text(result.model, requested_model),
+            "llm_provider": _text(result.provider_key, ""),
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+        }
+    except ResponsesUpstreamError as exc:
+        return _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            llm_model=requested_model,
+            fallback_reason=f"upstream_unavailable:{exc}",
+        )
 
 
 def _normalize_memorial_transcript_text(value: object) -> str:
@@ -600,7 +1017,12 @@ def _convert_audio_to_wav(*, payload: bytes, extension: str) -> bytes:
         return output_path.read_bytes()
 
 
-def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
+def _memorial_html(
+    payload: dict[str, object],
+    *,
+    hostname: str = "",
+    private_profile: dict[str, object] | None = None,
+) -> str:
     slug = _text(payload.get("slug"))
     if not slug:
         raise HTTPException(status_code=500, detail="memorial_slug_missing")
@@ -625,6 +1047,22 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
     profile_notes = _list_of_dicts(payload.get("source_grounded_profile"))
     external_sources = _list_of_dicts(payload.get("external_sources"))
     suggested_prompts = [str(item).strip() for item in (payload.get("suggested_prompts") or []) if str(item).strip()]
+    resolved_private_profile = private_profile or _load_private_profile(slug)
+    chat_models = _collect_memorial_chat_models(payload, resolved_private_profile)
+    chat_model_default = _resolve_memorial_chat_default_model(payload, resolved_private_profile, chat_models)
+    chat_model_options = _collect_memorial_chat_model_options(payload, resolved_private_profile, chat_models)
+    if chat_model_options:
+        if chat_model_default not in {item["value"] for item in chat_model_options}:
+            chat_model_default = chat_model_options[0]["value"]
+    else:
+        chat_model_options = [{"value": model, "label": model} for model in chat_models]
+    chat_model_option_lines: list[str] = []
+    for option in chat_model_options:
+        option_value = html.escape(option["value"])
+        option_label = html.escape(option["label"] or option["value"])
+        selected = " selected" if option["value"] == chat_model_default else ""
+        chat_model_option_lines.append(f'<option value="{option_value}"{selected}>{option_label}</option>')
+    chat_models_html = "\n          ".join(chat_model_option_lines)
     page_title = html.escape(title)
     voice_config = _load_voice_config(slug)
     voice_label = html.escape(_text(voice_config.get("voice_label"), "Austauschbare synthetische Stimme"))
@@ -638,6 +1076,27 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         for item in list(dict.fromkeys(voice_config.get("voice_name_hints") or []))[:8]
         if str(item or "").strip()
     )
+    tts_plugin_options = list(_tts_plugin_options(payload=voice_config, voice_profile_ready=bool(voice_profile_ready))
+    )
+    tts_plugin_options_html_lines: list[str] = []
+    for option in tts_plugin_options:
+        option_value = html.escape(str(option.get("tts_plugin") or ""))
+        option_label = html.escape(str(option.get("tts_plugin_label") or option_value))
+        selected = " selected" if option.get("tts_plugin") == _safe_tts_plugin_id(voice_config.get("tts_plugin")) else ""
+        disabled = " disabled" if not bool(option.get("tts_plugin_enabled")) else ""
+        clone_required = "1" if bool(option.get("tts_plugin_needs_clone")) else "0"
+        requires_voice_id = "1" if bool(option.get("tts_plugin_requires_voice_id")) else "0"
+        plugin_enabled = "1" if bool(option.get("tts_plugin_enabled")) else "0"
+        data_voice_id = html.escape(_text(option.get("tts_plugin_voice_id"), ""))
+        tts_plugin_options_html_lines.append(
+            f'<option value="{option_value}"{selected}{disabled} '
+            f'data-clone-required="{clone_required}" data-requires-voice-id="{requires_voice_id}" '
+            f'data-enabled="{plugin_enabled}" data-voice-id="{data_voice_id}" '
+            f'data-description="{html.escape(_text(option.get("tts_plugin_description"), ""))}">{option_label}</option>'
+        )
+    tts_plugin_options_html = "\n            ".join(tts_plugin_options_html_lines)
+    if not tts_plugin_options_html:
+        tts_plugin_options_html = '<option value="" disabled selected>Keine TTS-Plug-ins verfügbar</option>'
     voice_build_default_query = html.escape(f"{person_name} interview")
     clickrank_html = clickrank_head_snippet(hostname)
     clips_html = "\n".join(
@@ -722,21 +1181,41 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
     {clickrank_html}
     <style>
       :root {{
-        --paper: #f7f1e8;
-        --ink: #211f1b;
-        --muted: #665f55;
-        --line: rgba(33, 31, 27, 0.16);
-        --panel: #fffaf2;
-        --sage: #53685b;
-        --wine: #7d3236;
-        --blue: #2e5266;
+        --sky-top: #a9bdd0;
+        --sky-mid: #d7e0e5;
+        --paper: #f4ecdf;
+        --paper-deep: #e5d7c0;
+        --panel: rgba(252, 247, 239, 0.88);
+        --panel-strong: rgba(255, 250, 242, 0.97);
+        --ink: #2b211c;
+        --muted: #6f6255;
+        --line: rgba(65, 53, 43, 0.14);
+        --line-strong: rgba(65, 53, 43, 0.24);
+        --sage: #65745f;
+        --wine: #87535d;
+        --blue: #48677e;
+        --gold: #b48d51;
+        --shadow: 0 20px 48px rgba(56, 45, 36, 0.11);
       }}
       * {{ box-sizing: border-box; }}
       body {{
         margin: 0;
-        background: var(--paper);
+        background:
+          radial-gradient(circle at 22% 14%, rgba(255,255,255,.86) 0, rgba(255,255,255,0) 16%),
+          radial-gradient(circle at 78% 10%, rgba(255,250,244,.82) 0, rgba(255,250,244,0) 15%),
+          linear-gradient(180deg, #9bb0c2 0%, #c6d2da 12%, #e9e1d5 32%, var(--paper) 100%);
         color: var(--ink);
-        font: 16px/1.6 ui-serif, Georgia, "Times New Roman", serif;
+        font: 16px/1.7 Georgia, "Times New Roman", serif;
+        position: relative;
+      }}
+      body::before {{
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: .24;
+        background:
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='900' viewBox='0 0 1600 900'%3E%3Cg fill='none'%3E%3Cpath d='M128 188c26-46 95-58 139-20 31-21 79-19 110 10 36-11 80 6 95 37 49-8 84 29 77 74H30c-8-48 24-85 74-87 4-6 10-11 24-14Z' fill='%23fffaf4' fill-opacity='.62'/%3E%3Cpath d='M1058 122c20-35 74-45 112-16 24-16 62-14 86 8 31-10 65 4 78 31 41-7 71 24 66 62H986c-5-41 21-72 60-74 3-4 7-8 12-11Z' fill='%23fff8ee' fill-opacity='.56'/%3E%3Cpath d='M1180 294c18-30 64-38 98-14 23-14 53-11 72 8 28-8 56 4 67 27 35-5 62 19 57 52h-382c-4-33 18-58 51-60 4-6 9-10 17-13Z' fill='%23fff6ea' fill-opacity='.42'/%3E%3C/g%3E%3C/svg%3E") center top / 100% auto no-repeat;
       }}
       a {{ color: inherit; }}
       .wrap {{ width: min(1120px, calc(100vw - 36px)); margin: 0 auto; }}
@@ -744,53 +1223,164 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         min-height: 86vh;
         display: grid;
         align-items: end;
-        border-bottom: 1px solid var(--line);
+        border-bottom: 1px solid rgba(64,98,123,.16);
         background:
-          linear-gradient(180deg, rgba(247,241,232,0.58), rgba(247,241,232,0.98)),
-          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='720' viewBox='0 0 1200 720'%3E%3Crect width='1200' height='720' fill='%23efe2d0'/%3E%3Cpath d='M0 520 C220 420 340 590 560 500 C780 410 880 260 1200 320 L1200 720 L0 720 Z' fill='%2353685b' opacity='.28'/%3E%3Cpath d='M0 420 C230 330 390 430 620 360 C850 290 970 160 1200 210 L1200 720 L0 720 Z' fill='%232e5266' opacity='.20'/%3E%3Ccircle cx='940' cy='170' r='80' fill='%23fff7dc' opacity='.72'/%3E%3C/svg%3E");
+          linear-gradient(180deg, rgba(128,153,172,0.18), rgba(244,236,223,0.44) 55%, rgba(244,236,223,0.98)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1400' height='820' viewBox='0 0 1400 820'%3E%3Cdefs%3E%3ClinearGradient id='sky' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0%25' stop-color='%2394aabd'/%3E%3Cstop offset='38%25' stop-color='%23c5d0d7'/%3E%3Cstop offset='72%25' stop-color='%23e6ddd0'/%3E%3Cstop offset='100%25' stop-color='%23f1e7d8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1400' height='820' fill='url(%23sky)'/%3E%3Cg fill='%23fff9f0' fill-opacity='.62'%3E%3Cpath d='M164 168c28-52 109-67 157-23 37-25 86-21 118 12 39-14 86 6 103 42 55-8 96 33 88 84H58c-7-53 26-95 82-98 5-7 12-13 24-17Z'/%3E%3Cpath d='M890 118c21-39 84-50 123-18 26-18 68-15 94 9 33-12 70 4 84 34 43-6 74 25 68 66H810c-5-44 22-77 68-79 4-5 8-9 12-12Z'/%3E%3C/g%3E%3Cpath d='M0 548c158-40 259-10 382-44 112-31 200-96 334-108 151-14 232 45 372 27 125-16 211-58 312-92V820H0Z' fill='%23ccb08a' fill-opacity='.34'/%3E%3Cpath d='M0 614c138-53 262-16 412-57 150-41 223-140 415-145 149-4 245 78 388 73 71-2 124-20 185-44V820H0Z' fill='%2365745f' fill-opacity='.20'/%3E%3Cpath d='M0 688c183-43 309-5 465-44 169-42 255-114 445-97 166 14 256 80 490 48V820H0Z' fill='%2348677e' fill-opacity='.19'/%3E%3Cg stroke='%236b5a4c' stroke-opacity='.20' fill='none'%3E%3Cpath d='M944 520c36-34 77-48 113-45 34 2 62 20 90 44 18 16 48 23 80 20'/%3E%3Cpath d='M986 570c44-31 95-37 134-20 31 13 56 38 84 59 16 12 35 18 56 18'/%3E%3C/g%3E%3Cg fill='%237d4851' fill-opacity='.44' font-family='Georgia' font-size='18'%3E%3Ctext x='962' y='504'%3ED%C3%B6bling%3C/text%3E%3Ctext x='1016' y='560'%3EGrinzing%3C/text%3E%3Ctext x='1098' y='620'%3EHeiligenstadt%3C/text%3E%3C/g%3E%3Ccircle cx='1152' cy='150' r='58' fill='%23f9e6b8' fill-opacity='.60'/%3E%3C/svg%3E");
         background-size: cover;
         background-position: center;
+        position: relative;
+        overflow: hidden;
       }}
-      .hero {{ padding: 42px 0 34px; max-width: 820px; }}
+      header::after {{
+        content: "";
+        position: absolute;
+        inset: auto 0 0 0;
+        height: 180px;
+        background: linear-gradient(180deg, rgba(247,243,234,0), rgba(247,243,234,0.88) 45%, var(--paper) 100%);
+        pointer-events: none;
+      }}
+      .hero {{
+        padding: 64px 0 54px;
+        max-width: 860px;
+        position: relative;
+        z-index: 1;
+      }}
       .eyebrow {{
         margin: 0 0 10px;
         color: var(--wine);
-        font: 700 12px/1.2 ui-sans-serif, system-ui, sans-serif;
-        letter-spacing: .08em;
+        font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .14em;
         text-transform: uppercase;
       }}
-      h1 {{ margin: 0; font-size: clamp(2.3rem, 7vw, 5.6rem); line-height: .96; font-weight: 560; }}
-      h2 {{ margin: 0 0 12px; font-size: clamp(1.55rem, 3vw, 2.4rem); line-height: 1.1; font-weight: 560; }}
+      h1 {{
+        margin: 0;
+        font-size: clamp(2.6rem, 7vw, 5.9rem);
+        line-height: .94;
+        font-weight: 560;
+        letter-spacing: -.03em;
+        text-wrap: balance;
+      }}
+      h2 {{
+        margin: 0 0 12px;
+        font-size: clamp(1.7rem, 3vw, 2.5rem);
+        line-height: 1.06;
+        font-weight: 560;
+        letter-spacing: -.02em;
+      }}
       h3 {{ margin: 0 0 6px; font-size: 1.06rem; line-height: 1.25; }}
       p {{ margin: 0; }}
-      .lead {{ margin-top: 20px; max-width: 64ch; color: var(--muted); font-size: 1.12rem; }}
-      .notice {{
-        margin-top: 22px;
-        max-width: 760px;
-        padding: 14px 16px;
-        border-left: 4px solid var(--sage);
-        background: rgba(255,250,242,.82);
-        color: var(--muted);
+      .lead {{ margin-top: 20px; max-width: 64ch; color: var(--muted); font-size: 1.12rem; text-wrap: pretty; }}
+      .chat-model-row {{
+        display: grid;
+        gap: 6px;
+        margin-top: 14px;
+        width: min(340px, 100%);
       }}
-      main {{ padding: 44px 0 72px; }}
-      section {{ margin-top: 44px; }}
+      .chat-model-select {{
+        max-width: 340px;
+      }}
+      .notice {{
+        margin-top: 28px;
+        max-width: 760px;
+        padding: 16px 18px;
+        border: 1px solid rgba(95,116,100,.16);
+        border-left: 4px solid var(--gold);
+        border-radius: 14px;
+        backdrop-filter: blur(10px);
+        background: rgba(254,249,241,.62);
+        color: var(--muted);
+        box-shadow: var(--shadow);
+      }}
+      main {{ padding: 54px 0 88px; position: relative; z-index: 1; }}
+      section {{ margin-top: 52px; }}
       .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
       .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{
         border: 1px solid var(--line);
         background: var(--panel);
-        border-radius: 8px;
-        padding: 18px;
+        backdrop-filter: blur(8px);
+        border-radius: 22px;
+        padding: 22px;
+        box-shadow: var(--shadow);
       }}
-      .voice-tools {{ background: #f7f9f8; border-color: rgba(83,104,91,.24); }}
+      .memory, .candidate, .profile-note {{
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.52), rgba(255,255,255,.12)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='620' viewBox='0 0 900 620'%3E%3Crect width='900' height='620' fill='%23f7efdf'/%3E%3Cg opacity='.18' stroke='%2382684d' fill='none'%3E%3Cpath d='M64 118c108-24 182 14 252-12 48-18 87-61 151-68 72-8 118 24 184 14 61-9 101-36 154-62'/%3E%3Cpath d='M48 236c102-34 176-12 248-35 63-21 101-72 180-82 79-9 129 30 204 18 50-8 84-22 126-44'/%3E%3Cpath d='M72 370c84-24 134 12 204-6 67-18 110-75 190-84 78-9 126 36 194 27 46-7 90-28 146-48'/%3E%3C/g%3E%3Cg opacity='.16' stroke='%239f835c' stroke-width='1.2'%3E%3Cpath d='M170 70v470'/%3E%3Cpath d='M330 54v496'/%3E%3Cpath d='M514 66v470'/%3E%3Cpath d='M686 78v450'/%3E%3Cpath d='M90 146h694'/%3E%3Cpath d='M64 278h724'/%3E%3Cpath d='M88 402h692'/%3E%3C/g%3E%3Cg fill='%237d4851' fill-opacity='.62' font-family='Georgia' font-size='24'%3E%3Ctext x='94' y='104'%3ED%C3%B6bling 1954%3C/text%3E%3Ctext x='560' y='140'%3EGrinzing%3C/text%3E%3Ctext x='114' y='438'%3EHeiligenstadt%3C/text%3E%3Ctext x='590' y='410'%3ENussdorf%3C/text%3E%3C/g%3E%3Cg fill='%23b89559' fill-opacity='.24'%3E%3Ccircle cx='220' cy='188' r='48'/%3E%3Ccircle cx='624' cy='214' r='38'/%3E%3Ccircle cx='294' cy='472' r='34'/%3E%3Ccircle cx='684' cy='358' r='44'/%3E%3C/g%3E%3C/svg%3E") center/cover,
+          var(--panel);
+        border-color: var(--line-strong);
+      }}
+      .memory:nth-of-type(4n+1), .candidate:nth-of-type(4n+1), .profile-note:nth-of-type(4n+1) {{
+        background-position: center, left top, center;
+      }}
+      .memory:nth-of-type(4n+2), .candidate:nth-of-type(4n+2), .profile-note:nth-of-type(4n+2) {{
+        background-image:
+          linear-gradient(180deg, rgba(255,255,255,.56), rgba(255,255,255,.14)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='620' viewBox='0 0 900 620'%3E%3Crect width='900' height='620' fill='%23f6eedc'/%3E%3Cg opacity='.17' stroke='%23836b55' fill='none'%3E%3Cpath d='M92 86c78 36 150 35 225 8 62-22 124-12 196 22 74 34 145 37 232 14'/%3E%3Cpath d='M86 206c76 28 145 24 220-10 61-28 122-17 197 14 78 33 149 38 243 16'/%3E%3Cpath d='M70 332c96 35 166 18 236-11 58-24 122-18 196 11 72 30 147 39 244 14'/%3E%3Cpath d='M116 468c72 27 132 24 198 5 61-18 124-7 188 16 79 29 152 32 226 11'/%3E%3C/g%3E%3Cg opacity='.18' stroke='%23987852'%3E%3Cpath d='M154 56v506'/%3E%3Cpath d='M286 56v506'/%3E%3Cpath d='M450 56v506'/%3E%3Cpath d='M618 56v506'/%3E%3Cpath d='M756 56v506'/%3E%3Cpath d='M62 148h774'/%3E%3Cpath d='M62 268h774'/%3E%3Cpath d='M62 392h774'/%3E%3Cpath d='M62 500h774'/%3E%3C/g%3E%3Cg fill='%2340627b' fill-opacity='.60' font-family='Georgia' font-size='23'%3E%3Ctext x='122' y='132'%3ED%C3%B6blinger Hauptstra%C3%9Fe%3C/text%3E%3Ctext x='520' y='184'%3EWien 1950er%3C/text%3E%3Ctext x='114' y='430'%3EGrinzing / Sievering%3C/text%3E%3C/g%3E%3C/svg%3E"),
+          var(--panel);
+      }}
+      .memory:nth-of-type(4n+3), .candidate:nth-of-type(4n+3), .profile-note:nth-of-type(4n+3) {{
+        background-image:
+          linear-gradient(180deg, rgba(255,255,255,.56), rgba(255,255,255,.12)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='620' viewBox='0 0 900 620'%3E%3Crect width='900' height='620' fill='%23f8f0e2'/%3E%3Cg fill='none' stroke='%23856f58' opacity='.18'%3E%3Cpath d='M88 106c42 0 80 31 130 31 73 0 99-59 175-59 67 0 104 43 167 43 53 0 96-22 152-22 53 0 93 18 112 34'/%3E%3Cpath d='M86 252c35 0 73 27 132 27 76 0 115-70 198-70 61 0 103 39 162 39 64 0 118-30 176-30 42 0 67 10 88 22'/%3E%3Cpath d='M90 410c58 0 92 31 155 31 78 0 111-55 190-55 68 0 103 36 163 36 48 0 95-17 161-17 47 0 82 10 118 28'/%3E%3C/g%3E%3Cg stroke='%23b89559' opacity='.14'%3E%3Cpath d='M210 52v510'/%3E%3Cpath d='M390 52v510'/%3E%3Cpath d='M560 52v510'/%3E%3Cpath d='M716 52v510'/%3E%3Cpath d='M58 164h790'/%3E%3Cpath d='M58 308h790'/%3E%3Cpath d='M58 470h790'/%3E%3C/g%3E%3Cg fill='%237d4851' fill-opacity='.58' font-family='Georgia' font-size='26'%3E%3Ctext x='94' y='154'%3EAlt-D%C3%B6bling%3C/text%3E%3Ctext x='528' y='332'%3EHeiligenst%C3%A4dter Stra%C3%9Fe%3C/text%3E%3Ctext x='118' y='456'%3EKahlenbergerdorf%3C/text%3E%3C/g%3E%3C/svg%3E"),
+          var(--panel);
+      }}
+      .memory:nth-of-type(4n), .candidate:nth-of-type(4n), .profile-note:nth-of-type(4n) {{
+        background-image:
+          linear-gradient(180deg, rgba(255,255,255,.54), rgba(255,255,255,.10)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='620' viewBox='0 0 900 620'%3E%3Crect width='900' height='620' fill='%23f3ead8'/%3E%3Cg opacity='.16' fill='none' stroke='%238d6f51'%3E%3Cpath d='M70 130c79-21 144 20 219 2 62-15 105-68 184-74 82-6 140 42 216 34 48-5 95-27 141-45'/%3E%3Cpath d='M70 274c69-19 148 17 219 3 59-12 96-58 177-68 81-9 145 35 225 25 51-6 92-24 139-39'/%3E%3Cpath d='M70 430c72-24 144 16 215 0 69-16 108-58 191-66 80-8 141 31 217 20 43-7 88-23 137-46'/%3E%3C/g%3E%3Cg stroke='%23b89559' opacity='.16'%3E%3Cpath d='M130 72v484'/%3E%3Cpath d='M302 72v484'/%3E%3Cpath d='M472 72v484'/%3E%3Cpath d='M644 72v484'/%3E%3Cpath d='M772 72v484'/%3E%3Cpath d='M56 176h792'/%3E%3Cpath d='M56 322h792'/%3E%3Cpath d='M56 470h792'/%3E%3C/g%3E%3Cg fill='%2340627b' fill-opacity='.58' font-family='Georgia' font-size='25'%3E%3Ctext x='94' y='118'%3EWien-D%C3%B6bling 1956%3C/text%3E%3Ctext x='134' y='354'%3ENussdorfer Platz%3C/text%3E%3Ctext x='534' y='470'%3EObkirchergasse%3C/text%3E%3C/g%3E%3C/svg%3E"),
+          var(--panel);
+      }}
+      .voice-tools {{
+        background:
+          linear-gradient(180deg, rgba(180,141,81,.08), rgba(255,255,255,0)),
+          rgba(246,249,247,.9);
+        border-color: rgba(83,104,91,.24);
+      }}
       .voice-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
       .voice-field {{ display: grid; gap: 6px; }}
       .voice-actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }}
+      .voice-variant-group {{ display: grid; gap: 8px; }}
+      .voice-variant-toggle {{
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 6px;
+        border: 1px solid rgba(46,82,102,.18);
+        border-radius: 999px;
+        background: rgba(255,250,242,.92);
+      }}
+      .voice-variant-button {{
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 10px 14px;
+        min-width: 110px;
+      }}
+      .voice-variant-button.active {{
+        background: var(--blue);
+        color: #fffaf2;
+      }}
+      .voice-variant-button:disabled {{ opacity: .48; }}
+      .voice-variant-chip {{
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid rgba(46,82,102,.22);
+        border-radius: 999px;
+        padding: 5px 10px;
+        background: rgba(255,250,242,.88);
+        color: var(--blue);
+        font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .03em;
+        text-transform: uppercase;
+      }}
       .voice-input {{
         width: 100%;
         border: 1px solid rgba(46,82,102,.28);
-        border-radius: 8px;
-        padding: 10px;
-        background: #fffaf2;
+        border-radius: 14px;
+        padding: 11px 12px;
+        background: var(--panel-strong);
         color: var(--ink);
         font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
       }}
@@ -799,6 +1389,12 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .status-note {{ margin-top: 12px; color: var(--muted); }}
       label {{ font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.01em; }}
       .clip {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .65fr); gap: 18px; align-items: center; }}
+      .clip audio {{
+        padding: 10px;
+        border-radius: 18px;
+        background: rgba(255,255,255,.72);
+        border: 1px solid rgba(64,98,123,.14);
+      }}
       audio {{ width: 100%; }}
       .memory p:last-child, .clip p:last-child, .chat p {{ color: var(--muted); }}
       .candidates {{ display: grid; gap: 10px; }}
@@ -808,7 +1404,12 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .sources {{ list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }}
       .sources li {{ border-bottom: 1px solid var(--line); padding: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; }}
       .sources span {{ color: var(--muted); }}
-      .chat {{ background: #eef3ef; border-color: rgba(83,104,91,.24); }}
+      .chat {{
+        background:
+          radial-gradient(circle at top right, rgba(255,255,255,.38), rgba(255,255,255,0) 32%),
+          #eef0ea;
+        border-color: rgba(83,104,91,.24);
+      }}
       .prompt-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }}
       .chat-form {{ display: grid; gap: 12px; margin-top: 18px; }}
       .voice-build {{ display: grid; gap: 10px; margin-top: 12px; }}
@@ -818,9 +1419,9 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         min-height: 112px;
         resize: vertical;
         border: 1px solid rgba(46,82,102,.28);
-        border-radius: 8px;
+        border-radius: 16px;
         padding: 12px;
-        background: #fffaf2;
+        background: var(--panel-strong);
         color: var(--ink);
         font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
       }}
@@ -828,27 +1429,44 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       .speech-note {{ color: var(--muted); font-size: .94rem; }}
       .chat-answer {{
         margin-top: 16px;
-        padding: 16px;
+        padding: 18px;
         border: 1px solid rgba(83,104,91,.24);
-        border-radius: 8px;
-        background: rgba(255,250,242,.72);
+        border-radius: 18px;
+        background: rgba(255,250,242,.78);
         white-space: pre-wrap;
         color: var(--ink);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
       }}
       .chat-answer:empty {{ display: none; }}
       button {{
         border: 1px solid rgba(46,82,102,.28);
-        background: #fffaf2;
+        background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(248,241,231,.96));
         color: var(--blue);
         border-radius: 999px;
-        padding: 9px 12px;
+        padding: 10px 14px;
         font: 650 14px/1 ui-sans-serif, system-ui, sans-serif;
+        box-shadow: 0 8px 16px rgba(64,98,123,.08);
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
       }}
-      footer {{ border-top: 1px solid var(--line); padding: 24px 0; color: var(--muted); }}
+      button:hover {{
+        transform: translateY(-1px);
+        box-shadow: 0 12px 22px rgba(64,98,123,.12);
+        border-color: rgba(64,98,123,.34);
+      }}
+      button:active {{
+        transform: translateY(0);
+      }}
+      footer {{
+        border-top: 1px solid var(--line);
+        padding: 30px 0;
+        color: var(--muted);
+        background: linear-gradient(180deg, rgba(247,243,234,0), rgba(237,228,212,.56));
+      }}
       @media (max-width: 760px) {{
         header {{ min-height: 78vh; }}
-        .grid, .clip {{ grid-template-columns: 1fr; }}
+        .grid, .clip, .voice-grid {{ grid-template-columns: 1fr; }}
         .wrap {{ width: min(100vw - 28px, 1120px); }}
+        .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{ border-radius: 18px; padding: 18px; }}
       }}
     </style>
   </head>
@@ -880,8 +1498,17 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       <section class="voice-tools">
         <p class="eyebrow">Stimme und Sprachmodell</p>
         <h2>Stimmenprofil verwalten</h2>
-        <p class="lead">Die Seite nutzt Browser-STT/TTS. Du kannst eine bevorzugte Stimme wählen und einen Fingerprint auf Basis echter Audioquellen aufbauen.</p>
+        <p class="lead">Wähle ein TTS-Plugin und nutze die echte Stimme, nachdem ein Voice-Clone aktiv gesetzt ist.</p>
         <form class="voice-grid" id="memorial-voice-config-form">
+          <div class="voice-field">
+            <label for="memorial-tts-plugin">TTS-Plugin</label>
+            <select id="memorial-tts-plugin" class="voice-input">
+              {tts_plugin_options_html}
+            </select>
+            <span class="status-note" id="memorial-tts-plugin-note">Plugin wird geladen...</span>
+            <button type="button" id="memorial-voice-clone">Voice klonen</button>
+            <span class="status-note" id="memorial-tts-clone-status"></span>
+          </div>
           <div class="voice-field">
             <label for="memorial-voice-label">Stimmenlabel</label>
             <input id="memorial-voice-label" class="voice-input" type="text" value="{voice_label}" autocomplete="off">
@@ -889,6 +1516,15 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           <div class="voice-field">
             <label for="memorial-voice-lang">Sprache</label>
             <input id="memorial-voice-lang" class="voice-input" type="text" value="{html.escape(_text(voice_config.get('lang'), 'de-AT'))[:16]}">
+          </div>
+          <div class="voice-field voice-variant-group">
+            <label>Basisstimme fuer Clone</label>
+            <div class="voice-variant-toggle" id="memorial-tts-base-voice-toggle">
+              <button type="button" class="voice-variant-button{' active' if _text(voice_config.get('tts_base_voice_variant'), 'high') == 'high' else ''}" data-variant="high">High</button>
+              <button type="button" class="voice-variant-button{' active' if _text(voice_config.get('tts_base_voice_variant'), 'high') == 'balanced' else ''}" data-variant="balanced">Balanced</button>
+            </div>
+            <input id="memorial-tts-base-voice-variant" type="hidden" value="{html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}">
+            <span class="status-note">Waehlt die lokale Piper-Basis unter dem Manfred-Clone.</span>
           </div>
           <div class="voice-field">
             <label for="memorial-voice-rate">Sprechtempo ({voice_config.get("rate", 0.92)})</label>
@@ -941,21 +1577,29 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         <h2>Sprich mit der Erinnerung.</h2>
         <p>Die Antworten bleiben aus Archiv, Originalstimme und Familienkontext zusammengesetzt, aber sie duerfen nah und persoenlich klingen.</p>
         <div class="prompt-row">{prompts_html}</div>
-        <div class="speech-row">
+        <div class="chat-model-row">
+          <label for="memorial-chat-model">Sprachmodell (Plugin-Auswahl)</label>
+          <select id="memorial-chat-model" class="voice-input chat-model-select">
+            {chat_models_html}
+          </select>
+        </div>
+      <div class="speech-row">
           <button type="button" id="memorial-conversation">Gespräch starten</button>
-          <button type="button" id="memorial-speech-listen" hidden>Mikrofon starten</button>
-          <button type="button" id="memorial-server-stt" hidden>Server-STT starten</button>
-          <button type="button" id="memorial-speech-speak" hidden>Antwort vorlesen</button>
-          <button type="button" id="memorial-speech-stop" hidden>Stopp</button>
-          <span class="speech-note" id="memorial-speech-note">Browser-STT/TTS, {voice_label}.</span>
+          <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
+          <button type="button" id="memorial-server-stt">Server-STT starten</button>
+          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
+          <button type="button" id="memorial-speech-stop">Stopp</button>
+          <span class="voice-variant-chip" id="memorial-speech-voice-chip">Basis: {html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}</span>
+          <span class="speech-note" id="memorial-speech-note">Antwort wird mit Server-Voice-Clone vorgelesen, {voice_label}.</span>
         </div>
         <form class="chat-form" id="memorial-chat-form">
           <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
-          <div class="chat-actions">
+        <div class="chat-actions">
             <button type="submit">Antwort formulieren</button>
             <span id="memorial-chat-status"></span>
           </div>
         </form>
+        <audio id="memorial-speech-audio" preload="none"></audio>
         <div class="chat-answer" id="memorial-chat-answer"></div>
       </section>
     </main>
@@ -965,6 +1609,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <script>
       const form = document.getElementById("memorial-chat-form");
       const question = document.getElementById("memorial-chat-question");
+      const chatModelSelect = document.getElementById("memorial-chat-model");
       const answer = document.getElementById("memorial-chat-answer");
       const statusNode = document.getElementById("memorial-chat-status");
       const voiceConfigForm = document.getElementById("memorial-voice-config-form");
@@ -979,14 +1624,23 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const voicePitchInput = document.getElementById("memorial-voice-pitch");
       const voiceVolumeInput = document.getElementById("memorial-voice-volume");
       const voiceHintsInput = document.getElementById("memorial-voice-hints");
+      const ttsBaseVoiceVariantInput = document.getElementById("memorial-tts-base-voice-variant");
+      const ttsBaseVoiceToggle = document.getElementById("memorial-tts-base-voice-toggle");
+      const ttsBaseVoiceButtons = Array.from(document.querySelectorAll("[data-variant]"));
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
       const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
+      const ttsPluginSelect = document.getElementById("memorial-tts-plugin");
+      const ttsPluginNote = document.getElementById("memorial-tts-plugin-note");
+      const ttsCloneButton = document.getElementById("memorial-voice-clone");
+      const ttsCloneStatus = document.getElementById("memorial-tts-clone-status");
+      const speechAudio = document.getElementById("memorial-speech-audio");
       const listenButton = document.getElementById("memorial-speech-listen");
       const serverSttButton = document.getElementById("memorial-server-stt");
       const conversationButton = document.getElementById("memorial-conversation");
       const speakButton = document.getElementById("memorial-speech-speak");
       const stopButton = document.getElementById("memorial-speech-stop");
+      const speechVoiceChip = document.getElementById("memorial-speech-voice-chip");
       const speechNote = document.getElementById("memorial-speech-note");
       let lastAnswerText = "";
       let activeRecognition = null;
@@ -998,30 +1652,55 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       let activeSilenceTimer = null;
       let activeMaxTimer = null;
       let speechHadError = false;
-      let speechSynthesisDoneTimer = null;
+      let speechObjectUrl = null;
       let memorialVoiceConfig = {{
-        tts_mode: "browser_speech_synthesis",
+        tts_plugin: "browser_speech_synthesis",
+        tts_plugin_voice_id: "",
+        tts_plugin_options: [],
         voice_label: "Austauschbare synthetische Stimme",
         lang: "de-AT",
+        tts_base_voice_variant: "high",
         rate: 0.92,
         pitch: 0.92,
         volume: 1,
         voice_name_hints: ["de-AT", "de-DE", "German"],
         synthetic_voice_clone_of_memorial_person: false
       }};
+      function currentBaseVoiceVariant() {{
+        return String(ttsBaseVoiceVariantInput ? (ttsBaseVoiceVariantInput.value || "high") : memorialVoiceConfig.tts_base_voice_variant || "high");
+      }}
+      function updateBaseVoiceVariantUi() {{
+        const selected = currentBaseVoiceVariant();
+        for (const button of ttsBaseVoiceButtons) {{
+          const isActive = String(button.getAttribute("data-variant") || "") === selected;
+          button.classList.toggle("active", isActive);
+          button.setAttribute("aria-pressed", isActive ? "true" : "false");
+        }}
+        if (speechVoiceChip) {{
+          speechVoiceChip.textContent = "Basis: " + selected;
+        }}
+      }}
       async function loadVoiceConfig() {{
         try {{
           const response = await fetch("/memorials/{html.escape(slug)}/voice-config");
           if (!response.ok) return;
           const payload = await response.json();
           memorialVoiceConfig = Object.assign(memorialVoiceConfig, payload || {{}});
+          if (ttsPluginSelect && payload.tts_plugin_options && Array.isArray(payload.tts_plugin_options)) {{
+            memorialVoiceConfig.tts_plugin_options = payload.tts_plugin_options;
+          }}
           if (voiceLabelInput) voiceLabelInput.value = memorialVoiceConfig.voice_label || "";
           if (voiceLangInput) voiceLangInput.value = memorialVoiceConfig.lang || "de-AT";
+          if (ttsBaseVoiceVariantInput) ttsBaseVoiceVariantInput.value = String(memorialVoiceConfig.tts_base_voice_variant || "high");
+          updateBaseVoiceVariantUi();
           if (voiceRateInput) voiceRateInput.value = String(memorialVoiceConfig.rate || 0.92);
           if (voicePitchInput) voicePitchInput.value = String(memorialVoiceConfig.pitch || 0.92);
           if (voiceVolumeInput) voiceVolumeInput.value = String(memorialVoiceConfig.volume || 1);
           if (voiceHintsInput) voiceHintsInput.value = (Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints : []).join(", ");
-          speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
+          if (ttsPluginSelect && memorialVoiceConfig.tts_plugin) {{
+            ttsPluginSelect.value = String(memorialVoiceConfig.tts_plugin || "");
+          }}
+          applyTtsPluginState();
           if (payload.voice_profile_sources) {{
             const source = payload.voice_profile_sources;
             const status = "Stimmenprofil: " + (payload.voice_profile_ready ? "aktiv" : "nicht aktiv") + " (Samples " + (source.total || 0) + ", verarbeitet " + (source.ready || 0) + ", Fehler " + (source.failed || 0) + ")";
@@ -1035,6 +1714,55 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
             if (voiceProfileSummary) voiceProfileSummary.textContent = status + (summaryParts.length ? " · " + summaryParts.join(" · ") : "");
           }}
         }} catch (error) {{}}
+      }}
+      function getActiveTtsPluginOption() {{
+        const selected = String(ttsPluginSelect ? ttsPluginSelect.value : memorialVoiceConfig.tts_plugin || "");
+        const candidates = Array.isArray(memorialVoiceConfig.tts_plugin_options) ? memorialVoiceConfig.tts_plugin_options : [];
+        for (const option of candidates) {{
+          if (String(option.tts_plugin || "") === selected) {{
+            return option;
+          }}
+        }}
+        for (const option of candidates) {{
+          if (option.tts_plugin_enabled) {{
+            return option;
+          }}
+        }}
+        return candidates[0] || {{}};
+      }}
+      function applyTtsPluginState() {{
+        if (ttsPluginSelect) {{
+          const selected = String(memorialVoiceConfig.tts_plugin || ttsPluginSelect.value || "");
+          if (selected) ttsPluginSelect.value = selected;
+        }}
+        const option = getActiveTtsPluginOption();
+        const optionEnabled = Boolean(option.tts_plugin_enabled);
+        const optionNeedsClone = Boolean(option.tts_plugin_needs_clone);
+        const optionLabel = String(option.tts_plugin_label || "TTS Plugin").trim() || "TTS Plugin";
+        const optionDescription = String(option.tts_plugin_description || "").trim() || "";
+        const voiceReady = Boolean(option.tts_plugin_voice_id || optionNeedsClone === false || option.tts_plugin_requires_voice_id === false);
+        const variantEnabled = String(option.tts_plugin || "") === "{OPENVOICE_TTS_PLUGIN_ID}";
+        for (const button of ttsBaseVoiceButtons) {{
+          button.disabled = !variantEnabled;
+        }}
+        updateBaseVoiceVariantUi();
+        if (ttsPluginNote) {{
+          if (optionEnabled) {{
+            ttsPluginNote.textContent = optionDescription || (optionLabel + (voiceReady ? " aktiv." : " aktiv, aber ID fehlt."));
+          }} else {{
+            ttsPluginNote.textContent = optionDescription || "Plugin nicht verfügbar.";
+          }}
+        }}
+        if (speechNote) {{
+          speechNote.textContent = (optionEnabled ? "Antwort aus " : "Plugin aktivieren: ") + optionLabel + (voiceReady ? "" : " (Voice-ID fehlt)");
+        }}
+        if (ttsCloneButton) {{
+          ttsCloneButton.disabled = !Boolean(option.tts_plugin_clone_capable && optionEnabled);
+          ttsCloneButton.style.display = option.tts_plugin_clone_capable ? "inline-block" : "none";
+        }}
+        if (ttsCloneStatus && !ttsCloneStatus.textContent) {{
+          ttsCloneStatus.textContent = optionNeedsClone ? "Klon noch nicht vorhanden." : "";
+        }}
       }}
       function buildProfileSummaryText(payload) {{
         const source = payload.voice_profile_sources || {{}};
@@ -1068,9 +1796,17 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       async function saveVoiceConfig() {{
         if (!voiceConfigForm) return;
         if (voiceProfileStatus) voiceProfileStatus.textContent = "Speichere Stimmenprofil...";
+        const selectedTtsPlugin = getActiveTtsPluginOption();
+        const selectedPluginId = String(ttsPluginSelect ? (ttsPluginSelect.value || "") : String(memorialVoiceConfig.tts_plugin || ""));
+        const selectedVoiceId = String(
+          (selectedTtsPlugin && selectedTtsPlugin.tts_plugin_voice_id ? selectedTtsPlugin.tts_plugin_voice_id : memorialVoiceConfig.tts_plugin_voice_id) || ""
+        );
         const payload = {{
+          tts_plugin: selectedPluginId,
+          tts_plugin_voice_id: selectedVoiceId,
           voice_label: String(voiceLabelInput ? (voiceLabelInput.value || "") : memorialVoiceConfig.voice_label || ""),
           lang: String(voiceLangInput ? (voiceLangInput.value || "") : memorialVoiceConfig.lang || "de-AT").slice(0, 16),
+          tts_base_voice_variant: currentBaseVoiceVariant(),
           rate: Number(voiceRateInput ? voiceRateInput.value || 0.92 : memorialVoiceConfig.rate || 0.92),
           pitch: Number(voicePitchInput ? voicePitchInput.value || 0.92 : memorialVoiceConfig.pitch || 0.92),
           volume: Number(voiceVolumeInput ? voiceVolumeInput.value || 1 : memorialVoiceConfig.volume || 1),
@@ -1084,8 +1820,20 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           }});
           const updated = await readJsonResponse(response);
           memorialVoiceConfig = Object.assign(memorialVoiceConfig, updated || {{}});
+          if (updated && Array.isArray(updated.tts_plugin_options)) {{
+            memorialVoiceConfig.tts_plugin_options = updated.tts_plugin_options;
+          }}
+          if (ttsPluginSelect && updated && updated.tts_plugin) {{
+            ttsPluginSelect.value = String(updated.tts_plugin);
+          }}
+          if (memorialVoiceConfig.tts_plugin_voice_id && ttsPluginSelect) {{
+            const active = getActiveTtsPluginOption();
+            if (active && active.tts_plugin_requires_voice_id && !active.tts_plugin_voice_id) {{
+              active.tts_plugin_voice_id = memorialVoiceConfig.tts_plugin_voice_id;
+            }}
+          }}
           if (voiceProfileStatus) voiceProfileStatus.textContent = "Einstellungen gespeichert.";
-          speechNote.textContent = "Browser-STT/TTS, " + (memorialVoiceConfig.voice_label || "synthetische Stimme") + ".";
+          applyTtsPluginState();
         }} catch (error) {{
           if (voiceProfileStatus) voiceProfileStatus.textContent = "Speichern fehlgeschlagen: " + String(error.message || error);
         }}
@@ -1111,31 +1859,88 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }}
         await refreshVoiceProfileSummary();
       }}
+      async function cloneVoiceProfile() {{
+        if (!ttsCloneButton) return;
+        if (ttsCloneStatus) ttsCloneStatus.textContent = "Starte Stimmklon...";
+        ttsCloneButton.disabled = true;
+        const profileLabel = String(
+          voiceLabelInput ? (voiceLabelInput.value || memorialVoiceConfig.voice_label || "Memorial") : (memorialVoiceConfig.voice_label || "Memorial")
+        ).trim();
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-clone", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ voice_label: profileLabel }}),
+          }});
+          const updated = await readJsonResponse(response);
+          memorialVoiceConfig = Object.assign(memorialVoiceConfig, updated || {{}});
+          if (updated && Array.isArray(updated.tts_plugin_options)) {{
+            memorialVoiceConfig.tts_plugin_options = updated.tts_plugin_options;
+          }}
+          if (memorialVoiceConfig.tts_plugin && ttsPluginSelect) {{
+            ttsPluginSelect.value = String(memorialVoiceConfig.tts_plugin);
+          }}
+          if (memorialVoiceConfig.tts_plugin_voice_id && ttsPluginSelect) {{
+            const active = getActiveTtsPluginOption();
+            if (active && active.tts_plugin_requires_voice_id && !active.tts_plugin_voice_id) {{
+              active.tts_plugin_voice_id = memorialVoiceConfig.tts_plugin_voice_id;
+            }}
+          }}
+          applyTtsPluginState();
+          if (ttsCloneStatus) ttsCloneStatus.textContent = "Klon-ID gespeichert.";
+          if (voiceProfileStatus) voiceProfileStatus.textContent = "Klon erstellt.";
+        }} catch (error) {{
+          if (ttsCloneStatus) ttsCloneStatus.textContent = "Klon fehlgeschlagen: " + String(error.message || error);
+          if (voiceProfileStatus) voiceProfileStatus.textContent = "Klon fehlgeschlagen.";
+        }} finally {{
+          await refreshVoiceProfileSummary();
+          const activeOption = getActiveTtsPluginOption();
+          const activeEnabled = Boolean(activeOption && activeOption.tts_plugin_enabled);
+          ttsCloneButton.disabled = !Boolean(activeOption && activeOption.tts_plugin_clone_capable && activeEnabled);
+        }}
+      }}
       function normalizeTranscriptText(value) {{
         return String(value || "").replace(/\\s+/g, " ").trim();
       }}
-      async function resolveSpeechVoices() {{
-        const current = window.speechSynthesis.getVoices();
-        if (Array.isArray(current) && current.length > 0) return current;
-        return await new Promise((resolve) => {{
-          const timeout = setTimeout(() => {{
-            window.speechSynthesis.onvoiceschanged = null;
-            resolve(window.speechSynthesis.getVoices() || []);
-          }}, 1500);
-          window.speechSynthesis.onvoiceschanged = () => {{
-            clearTimeout(timeout);
-            window.speechSynthesis.onvoiceschanged = null;
-            resolve(window.speechSynthesis.getVoices() || []);
-          }};
-        }});
+      function stopSpeechPlayback() {{
+        if (speechAudio) {{
+          try {{
+            speechAudio.pause();
+          }} catch (error) {{}}
+          speechAudio.onended = null;
+          speechAudio.onerror = null;
+        }}
+        if (speechObjectUrl) {{
+          try {{
+            URL.revokeObjectURL(speechObjectUrl);
+          }} catch (error) {{}}
+          speechObjectUrl = null;
+        }}
+        if (speechAudio) {{
+          try {{
+            speechAudio.src = "";
+          }} catch (error) {{}}
+        }}
       }}
-      function pickSpeechVoice(voices) {{
-        const hints = Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints : [];
-        return (
-          voices.find((voice) => hints.some((hint) => String(voice.name + " " + voice.lang).toLowerCase().includes(String(hint).toLowerCase()))) ||
-          voices.find((voice) => /de[-_](AT|DE)/i.test(voice.lang || "")) ||
-          voices.find((voice) => /^de/i.test(voice.lang || ""))
-        );
+      function currentTtsOptionOrDefault() {{
+        const option = getActiveTtsPluginOption();
+        const plugin = String(ttsPluginSelect ? (ttsPluginSelect.value || memorialVoiceConfig.tts_plugin || "") : String(memorialVoiceConfig.tts_plugin || ""));
+        const voiceId = String(option.tts_plugin_voice_id || memorialVoiceConfig.tts_plugin_voice_id || "");
+        return {{
+          tts_plugin: plugin,
+          tts_plugin_voice_id: voiceId,
+          tts_plugin_label: String(option.tts_plugin_label || "TTS Plugin"),
+          tts_plugin_enabled: Boolean(option.tts_plugin_enabled),
+        }};
+      }}
+      async function parseSpeakError(response) {{
+        const raw = await response.text();
+        try {{
+          const payload = JSON.parse(raw);
+          return String(payload.detail || payload.message || payload.error || raw || "request_failed");
+        }} catch (error) {{
+          return String(raw || "request_failed");
+        }}
       }}
       async function readJsonResponse(response) {{
         const raw = await response.text();
@@ -1156,11 +1961,14 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         if (!text) return;
         statusNode.textContent = "Formuliere...";
         answer.textContent = "";
+        const selectedModel = chatModelSelect ? String(chatModelSelect.value || "").trim() : "";
+        const requestPayload = {{ question: text }};
+        if (selectedModel) requestPayload.llm_model = selectedModel;
         try {{
           const response = await fetch("/memorials/{html.escape(slug)}/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify({{ question: text }})
+            body: JSON.stringify(requestPayload)
           }});
           const payload = await readJsonResponse(response);
           lastAnswerText = String(payload.answer || "");
@@ -1175,49 +1983,103 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         }}
       }}
       async function speakText(value, onDone = null) {{
-        if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {{
-          speechNote.textContent = "Text-to-Speech wird von diesem Browser nicht unterstuetzt.";
+        const text = normalizeTranscriptText(value || lastAnswerText || "");
+        if (!text) {{
           if (onDone) onDone();
           return;
         }}
-        const text = normalizeTranscriptText(value || lastAnswerText || "");
-        if (!text) return;
-        window.speechSynthesis.cancel();
-        if (speechSynthesisDoneTimer) {{
-          clearTimeout(speechSynthesisDoneTimer);
-          speechSynthesisDoneTimer = null;
-        }}
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = memorialVoiceConfig.lang || "de-AT";
-        utterance.rate = Number(memorialVoiceConfig.rate || 0.92);
-        utterance.pitch = Number(memorialVoiceConfig.pitch || 0.92);
-        utterance.volume = Number(memorialVoiceConfig.volume ?? 1);
-        const voices = await resolveSpeechVoices();
-        const preferred = pickSpeechVoice(voices);
-        if (preferred) utterance.voice = preferred;
-        const finishSpeech = () => {{
-          if (speechSynthesisDoneTimer) {{
-            clearTimeout(speechSynthesisDoneTimer);
-            speechSynthesisDoneTimer = null;
-          }}
+        stopSpeechPlayback();
+        const pluginConfig = currentTtsOptionOrDefault();
+        if (!pluginConfig.tts_plugin_enabled) {{
+          speechNote.textContent = "Ausgewähltes TTS-Plugin ist nicht aktiviert.";
           if (onDone) onDone();
-        }};
-        utterance.onend = () => {{
-          finishSpeech();
-        }};
-        utterance.onerror = () => {{
-          finishSpeech();
-        }};
-        utterance.oncancel = () => {{
-          finishSpeech();
-        }};
-        window.speechSynthesis.speak(utterance);
-        const estimatedMs = Math.min(20000, Math.max(900, Math.ceil(text.length * 45)));
-        speechSynthesisDoneTimer = setTimeout(() => {{
-          speechSynthesisDoneTimer = null;
-          finishSpeech();
-        }}, estimatedMs);
-        speechNote.textContent = "Antwort wird mit " + (memorialVoiceConfig.voice_label || "synthetischer Stimme") + " vorgelesen.";
+          return;
+        }}
+        if (pluginConfig.tts_plugin === "browser_speech_synthesis") {{
+          const synth = window.speechSynthesis;
+          if (!synth || typeof SpeechSynthesisUtterance === "undefined") {{
+            speechNote.textContent = "Browser-Sprachausgabe ist nicht verfügbar.";
+            if (onDone) onDone();
+            return;
+          }}
+          try {{
+            synth.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = String(memorialVoiceConfig.lang || "de-AT");
+            utterance.rate = Number(memorialVoiceConfig.rate || 0.92);
+            utterance.pitch = Number(memorialVoiceConfig.pitch || 0.92);
+            utterance.volume = Number(memorialVoiceConfig.volume || 1);
+            const hints = Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints.map((item) => String(item || "").toLowerCase()) : [];
+            const voices = typeof synth.getVoices === "function" ? synth.getVoices() : [];
+            const matchedVoice = voices.find((voice) => {{
+              const name = String(voice && voice.name || "").toLowerCase();
+              const lang = String(voice && voice.lang || "").toLowerCase();
+              return hints.some((hint) => hint && (name.includes(hint) || lang.includes(hint)));
+            }});
+            if (matchedVoice) utterance.voice = matchedVoice;
+            utterance.onend = () => {{
+              speechNote.textContent = "Sprachausgabe bereit.";
+              if (onDone) onDone();
+            }};
+            utterance.onerror = (event) => {{
+              speechNote.textContent = "Browser-Sprachausgabe fehlgeschlagen.";
+              if (onDone) onDone();
+            }};
+            speechNote.textContent = "Sprachausgabe mit Browser Speech.";
+            synth.speak(utterance);
+          }} catch (error) {{
+            speechNote.textContent = "Browser-Sprachausgabe fehlgeschlagen: " + String(error.message || error);
+            if (onDone) onDone();
+          }}
+          return;
+        }}
+        if (!speechAudio) {{
+          if (onDone) onDone();
+          return;
+        }}
+        speechNote.textContent = "Erzeuge Sprachausgabe mit " + String(pluginConfig.tts_plugin_label || pluginConfig.tts_plugin || "TTS Plugin") + ".";
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/speech-synthesize", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+              text: text,
+              tts_plugin: pluginConfig.tts_plugin,
+              tts_plugin_voice_id: pluginConfig.tts_plugin_voice_id,
+              tts_base_voice_variant: currentBaseVoiceVariant(),
+            }}),
+          }});
+          if (!response.ok) {{
+            const message = await parseSpeakError(response);
+            throw new Error(message || "speech_synthesis_failed");
+          }}
+          const blob = await response.blob();
+          if (!blob || !blob.size) {{
+            throw new Error("speech_synthesis_empty_audio");
+          }}
+          speechObjectUrl = URL.createObjectURL(blob);
+          speechAudio.src = speechObjectUrl;
+          speechAudio.onended = () => {{
+            stopSpeechPlayback();
+            if (onDone) onDone();
+          }};
+          speechAudio.onerror = () => {{
+            speechNote.textContent = "Wiedergabe fehlgeschlagen.";
+            stopSpeechPlayback();
+            if (onDone) onDone();
+          }};
+          await speechAudio.play();
+        }} catch (error) {{
+          if (speechAudio) speechAudio.src = "";
+          if (speechObjectUrl) {{
+            try {{
+              URL.revokeObjectURL(speechObjectUrl);
+            }} catch (error) {{}}
+            speechObjectUrl = null;
+          }}
+          speechNote.textContent = "Sprachausgabe fehlgeschlagen: " + String(error.message || error);
+          if (onDone) onDone();
+        }}
       }}
       function releaseConversationAudio() {{
         if (activeSilenceTimer) clearTimeout(activeSilenceTimer);
@@ -1263,7 +2125,6 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           try {{ activeRecognition.stop(); }} catch (error) {{}}
           activeRecognition = null;
         }}
-        window.speechSynthesis && window.speechSynthesis.cancel();
         const recognition = new Recognition();
         activeRecognition = recognition;
         speechHadError = false;
@@ -1474,17 +2335,12 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
         conversationActive = !conversationActive;
         setConversationUi(conversationActive);
         if (conversationActive) {{
-          if ("speechSynthesis" in window) window.speechSynthesis.cancel();
           recordConversationTurn();
         }} else {{
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        if (speechSynthesisDoneTimer) {{
-          clearTimeout(speechSynthesisDoneTimer);
-          speechSynthesisDoneTimer = null;
-        }}
         speechNote.textContent = "Gespräch beendet.";
       }}
       }}
@@ -1508,11 +2364,7 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-        if (speechSynthesisDoneTimer) {{
-          clearTimeout(speechSynthesisDoneTimer);
-          speechSynthesisDoneTimer = null;
-        }}
+        stopSpeechPlayback();
         speechNote.textContent = "Gestoppt.";
         listenButton.disabled = false;
         serverSttButton.disabled = false;
@@ -1522,8 +2374,25 @@ def _memorial_html(payload: dict[str, object], *, hostname: str = "") -> str:
       if (voiceConfigForm && voiceProfileSaveButton) {{
         voiceProfileSaveButton.addEventListener("click", saveVoiceConfig);
       }}
+      if (ttsBaseVoiceToggle && ttsBaseVoiceVariantInput) {{
+        ttsBaseVoiceToggle.addEventListener("click", (event) => {{
+          const target = event.target instanceof HTMLElement ? event.target.closest("[data-variant]") : null;
+          if (!target) return;
+          const selected = String(target.getAttribute("data-variant") || "").trim();
+          if (!selected) return;
+          ttsBaseVoiceVariantInput.value = selected;
+          memorialVoiceConfig.tts_base_voice_variant = selected;
+          updateBaseVoiceVariantUi();
+        }});
+      }}
       if (voiceBuildButton) {{
         voiceBuildButton.addEventListener("click", buildVoiceProfile);
+      }}
+      if (ttsCloneButton) {{
+        ttsCloneButton.addEventListener("click", cloneVoiceProfile);
+      }}
+      if (ttsPluginSelect) {{
+        ttsPluginSelect.addEventListener("change", applyTtsPluginState);
       }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{
@@ -1612,7 +2481,9 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid_json")
     payload = _load_memorial(slug)
-    answer = _memorial_chat_answer(payload, _text(body.get("question")), _load_private_profile(slug))
+    private_profile = _load_private_profile(slug)
+    selected_model, _, _ = _resolve_memorial_chat_model(payload, private_profile, _text(body.get("llm_model")))
+    answer = _memorial_chat_answer(payload, _text(body.get("question")), private_profile, requested_model=selected_model)
     return JSONResponse(answer)
 
 
@@ -1624,11 +2495,89 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
     return JSONResponse(_memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
 
 
+@router.post("/memorials/{slug}/speech-synthesize")
+async def public_memorial_speech_synthesize(slug: str, request: Request) -> Response:
+    _load_memorial(slug)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_json")
+    base_config = _load_voice_config(slug)
+    merged_config = dict(base_config)
+    merged_config.update(body)
+    tts_options = _tts_plugin_options(
+        payload=merged_config,
+        voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+    )
+    selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
+    if selected_plugin != OPENVOICE_TTS_PLUGIN_ID:
+        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+    if not bool(selected_option.get("tts_plugin_enabled")):
+        raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
+    text = _normalize_tts_text(body.get("text"))
+    if not text:
+        raise HTTPException(status_code=400, detail="tts_text_missing")
+    voice_id = _text(
+        merged_config.get("tts_plugin_voice_id"),
+        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+    )
+    if not voice_id:
+        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+    audio, content_type = openvoice_synthesize_request_with_variant(
+        text=text,
+        voice_id=voice_id,
+        lang=_text(merged_config.get("lang"), "de-AT"),
+        base_voice_variant=_text(merged_config.get("tts_base_voice_variant"), "default"),
+    )
+    return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/memorials/{slug}/voice-clone")
+async def public_memorial_voice_clone(slug: str, request: Request) -> JSONResponse:
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(body, dict):
+        body = {}
+    memory_person_name = _text(memorial.get("person_name"), "Memorial")
+    voice_label = _text(body.get("voice_label"), _text(body.get("label"), f"{memory_person_name} OpenVoice"))
+    cloned_voice_id = _openvoice_clone_from_memorial(slug=slug, voice_label=voice_label)
+    _save_voice_config_payload(
+        slug=slug,
+        payload={
+            "tts_plugin": OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": cloned_voice_id,
+        },
+    )
+    return JSONResponse(_load_voice_config(slug))
+
+
 @router.get("/memorials/{slug}", response_class=HTMLResponse)
 def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
-    return HTMLResponse(_memorial_html(_load_memorial(slug), hostname=request_hostname(request)))
+    payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
+    return HTMLResponse(
+        _memorial_html(
+            payload,
+            private_profile=private_profile,
+            hostname=request_hostname(request),
+        )
+    )
 
 
 @router.head("/memorials/{slug}")
 def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
-    return HTMLResponse(_memorial_html(_load_memorial(slug), hostname=request_hostname(request)))
+    payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
+    return HTMLResponse(
+        _memorial_html(
+            payload,
+            private_profile=private_profile,
+            hostname=request_hostname(request),
+        )
+    )

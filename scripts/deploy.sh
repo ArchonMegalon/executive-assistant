@@ -2,19 +2,39 @@
 set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EXTRA_COMPOSE_OVERRIDES=()
 
-if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-  cat <<'EOF'
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h)
+      cat <<'EOF'
 Usage:
-  bash scripts/deploy.sh
+  bash scripts/deploy.sh [--compose-override <file>]...
+
+Options:
+  --compose-override <file>  Layer an extra compose override onto the deploy topology.
 
 Environment:
   EA_MEMORY_ONLY=1       Deploy API service using docker-compose.memory.yml override.
   EA_BOOTSTRAP_DB=1      Run db bootstrap after deploy (ignored if EA_MEMORY_ONLY=1).
   EA_ENABLE_FASTESTVPN=1 Layer docker-compose.fastestvpn.yml when FastestVPN *.ovpn profiles are present.
 EOF
-  exit 0
-fi
+      exit 0
+      ;;
+    --compose-override)
+      if [[ $# -lt 2 ]]; then
+        echo "--compose-override requires a compose file path" >&2
+        exit 1
+      fi
+      EXTRA_COMPOSE_OVERRIDES+=("$2")
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 echo "== EA rewrite deploy: ${EA_ROOT} =="
 
@@ -31,7 +51,7 @@ else
   DC=(docker-compose)
 fi
 
-COMPOSE_ARGS=(-f docker-compose.yml)
+COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.prod.yml)
 FASTESTVPN_OVERLAY_ENABLED=0
 if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
   if find "${EA_ROOT}/vpn/fastestvpn" -maxdepth 1 -type f -name '*.ovpn' | grep -q .; then
@@ -43,8 +63,27 @@ if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
   fi
 fi
 
+for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
+  if [[ ! -f "${EA_ROOT}/${override}" && ! -f "${override}" ]]; then
+    echo "Compose override not found: ${override}" >&2
+    exit 1
+  fi
+  COMPOSE_ARGS+=(-f "${override}")
+done
+
 compose() {
-  "${DC[@]}" "${COMPOSE_ARGS[@]}" "$@"
+  COMPOSE_IGNORE_ORPHANS=1 "${DC[@]}" "${COMPOSE_ARGS[@]}" "$@"
+}
+
+build_and_recreate_services() {
+  local -a build_services=("$@")
+  if [[ "${#build_services[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  compose build "${build_services[@]}"
+  compose up -d --no-build ea-db ea-openvoice
+  compose up -d --no-build --no-deps --force-recreate "${build_services[@]}"
 }
 
 service_container_ready() {
@@ -73,14 +112,15 @@ if [[ "${EA_MEMORY_ONLY:-0}" == "1" ]]; then
   COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.memory.yml)
   TOPOLOGY_SERVICES=(ea-api)
   FAILURE_LOG_SERVICES=(ea-api)
-  "${DC[@]}" -f docker-compose.yml -f docker-compose.memory.yml up -d --build ea-api
+  COMPOSE_IGNORE_ORPHANS=1 "${DC[@]}" -f docker-compose.yml -f docker-compose.memory.yml up -d --build ea-api
 else
-  TOPOLOGY_SERVICES=(ea-api ea-worker ea-scheduler)
-  FAILURE_LOG_SERVICES=(ea-api ea-worker ea-scheduler ea-db)
+  RUNTIME_BUILD_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler)
+  TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
+  FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)
   if [[ "${FASTESTVPN_OVERLAY_ENABLED}" == "1" ]]; then
     FAILURE_LOG_SERVICES+=(ea-fastestvpn-proxy ea-fastestvpn-proxy-ie ea-fastestvpn-proxy-nl)
   fi
-  compose up -d --build
+  build_and_recreate_services "${RUNTIME_BUILD_SERVICES[@]}"
 fi
 
 if [[ "${EA_BOOTSTRAP_DB:-0}" == "1" ]]; then

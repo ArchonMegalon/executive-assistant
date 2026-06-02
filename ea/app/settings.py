@@ -194,7 +194,7 @@ class Settings:
             return False
         override = self.runtime.storage_fallback_allowed_override
         if override is None:
-            return False
+            return True
         return override
 
     @property

@@ -36,19 +36,19 @@ bash scripts/db_bootstrap.sh
 The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or Docker socket control:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.host-tools.yml up -d --build
+bash scripts/deploy.sh --compose-override docker-compose.host-tools.yml
 ```
 
 To expose the stack through Cloudflare Tunnel, layer the tunnel override explicitly and set `EA_CF_TUNNEL_TOKEN` in your local `.env` first:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.cloudflared.yml up -d --build
+bash scripts/deploy.sh --compose-override docker-compose.cloudflared.yml
 ```
 
 For an explicit durable deployment profile, layer the prod override on top of the base compose:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+bash scripts/deploy.sh
 ```
 
 To expose the Gemini Vortex-backed Responses model aliases locally, layer the Gemini override onto the API service so the container can execute the host Gemini CLI with the host credential directory:

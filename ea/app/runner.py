@@ -425,114 +425,126 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             )
 
         browseract_attempted = len(browseract_billing_jobs)
-        effective_browseract_parallelism = 1 if all_owner_account_rows else max(
-            1,
-            min(
-                browseract_parallelism,
-                len(
-                    {
-                        str(job.get("binding_id") or "").strip()
-                        for job in browseract_billing_jobs
-                        if str(job.get("binding_id") or "").strip()
-                    }
-                )
-                or 1,
-            ),
-        )
-        billing_results, billing_errors = providers_route._run_onemin_browseract_jobs(
-            jobs=browseract_billing_jobs,
-            max_workers=effective_browseract_parallelism,
-            tool_name="browseract.onemin_billing_usage",
-            stop_on_failure_codes={
-                "auth_request_failed",
-                "challenge_required",
-                "session_expired",
-                "timeout",
-                "ui_worker_failed",
-                "lane_unavailable",
-            },
-            max_consecutive_stop_failures=providers_route._onemin_browseract_systemic_failure_threshold(),
-            invoke_job=lambda job: providers_route._invoke_browseract_tool(
-                container=container,
-                principal_id=str(job.get("principal_id") or ""),
-                tool_name="browseract.onemin_billing_usage",
-                action_kind="billing.inspect",
-                payload_json={
-                    "binding_id": str(job.get("binding_id") or ""),
-                    "account_label": str(job.get("account_label") or ""),
-                    "capture_raw_text": False,
-                    **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
-                    **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
-                    "timeout_seconds": browseract_timeout_seconds,
-                },
-            ),
-        )
-        browseract_attempted_labels = {
-            str(row.get("account_label") or "").strip()
-            for row in [*billing_results, *billing_errors]
-            if str(row.get("account_label") or "").strip()
-        }
-        browseract_attempted = len(browseract_attempted_labels)
-        browseract_refreshed = len(billing_results)
-
-        successful_labels = {
-            str(row.get("account_label") or "").strip()
-            for row in billing_results
-            if str(row.get("account_label") or "").strip()
-        }
-        browseract_member_jobs = [
-            dict(job)
-            for job in browseract_billing_jobs
-            if str(job.get("account_label") or "").strip() in successful_labels
-            and (
-                str(job.get("members_run_url") or "").strip()
-                or str(job.get("members_workflow_id") or "").strip()
-                or bool(job.get("member_login_ready"))
+        with providers_route._managed_fastestvpn_services(
+            service_names=providers_route._browseract_fastestvpn_service_names(browseract_billing_jobs),
+            reason="scheduler.onemin.browseract.refresh",
+        ):
+            effective_browseract_parallelism = 1 if all_owner_account_rows else max(
+                1,
+                min(
+                    browseract_parallelism,
+                    len(
+                        {
+                            str(job.get("binding_id") or "").strip()
+                            for job in browseract_billing_jobs
+                            if str(job.get("binding_id") or "").strip()
+                        }
+                    )
+                    or 1,
+                ),
             )
-        ]
-        effective_member_parallelism = 1 if all_owner_account_rows else max(
-            1,
-            min(
-                browseract_parallelism,
-                len(
-                    {
-                        str(job.get("binding_id") or "").strip()
-                        for job in browseract_member_jobs
-                        if str(job.get("binding_id") or "").strip()
-                    }
-                )
-                or 1,
-            ),
-        )
-        member_results, member_errors = providers_route._run_onemin_browseract_jobs(
-            jobs=browseract_member_jobs,
-            max_workers=effective_member_parallelism,
-            tool_name="browseract.onemin_member_reconciliation",
-            stop_on_failure_codes={
-                "auth_request_failed",
-                "challenge_required",
-                "session_expired",
-                "timeout",
-                "ui_worker_failed",
-                "lane_unavailable",
-            },
-            max_consecutive_stop_failures=providers_route._onemin_browseract_systemic_failure_threshold(),
-            invoke_job=lambda job: providers_route._invoke_browseract_tool(
-                container=container,
-                principal_id=str(job.get("principal_id") or ""),
-                tool_name="browseract.onemin_member_reconciliation",
-                action_kind="billing.reconcile_members",
-                payload_json={
-                    "binding_id": str(job.get("binding_id") or ""),
-                    "account_label": str(job.get("account_label") or ""),
-                    "capture_raw_text": False,
-                    **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
-                    **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
-                    "timeout_seconds": browseract_timeout_seconds,
+            billing_results, billing_errors = providers_route._run_onemin_browseract_jobs(
+                jobs=browseract_billing_jobs,
+                max_workers=effective_browseract_parallelism,
+                tool_name="browseract.onemin_billing_usage",
+                stop_on_failure_codes={
+                    "auth_request_failed",
+                    "challenge_required",
+                    "session_expired",
+                    "timeout",
+                    "ui_worker_failed",
+                    "lane_unavailable",
                 },
-            ),
-        )
-        member_reconciled = len(member_results)
+                max_consecutive_stop_failures=providers_route._onemin_browseract_systemic_failure_threshold(),
+                invoke_job=lambda job: providers_route._invoke_browseract_tool(
+                    container=container,
+                    principal_id=str(job.get("principal_id") or ""),
+                    tool_name="browseract.onemin_billing_usage",
+                    action_kind="billing.inspect",
+                    payload_json={
+                        "binding_id": str(job.get("binding_id") or ""),
+                        "account_label": str(job.get("account_label") or ""),
+                        "capture_raw_text": False,
+                        **({"run_url": str(job.get("billing_run_url") or "")} if str(job.get("billing_run_url") or "").strip() else {}),
+                        **({"workflow_id": str(job.get("billing_workflow_id") or "")} if str(job.get("billing_workflow_id") or "").strip() else {}),
+                        **providers_route._browseract_proxy_payload(
+                            binding_metadata=dict(job.get("binding_metadata") or {}),
+                            account_label=str(job.get("account_label") or ""),
+                        ),
+                        "timeout_seconds": browseract_timeout_seconds,
+                    },
+                ),
+            )
+            browseract_attempted_labels = {
+                str(row.get("account_label") or "").strip()
+                for row in [*billing_results, *billing_errors]
+                if str(row.get("account_label") or "").strip()
+            }
+            browseract_attempted = len(browseract_attempted_labels)
+            browseract_refreshed = len(billing_results)
+
+            successful_labels = {
+                str(row.get("account_label") or "").strip()
+                for row in billing_results
+                if str(row.get("account_label") or "").strip()
+            }
+            browseract_member_jobs = [
+                dict(job)
+                for job in browseract_billing_jobs
+                if str(job.get("account_label") or "").strip() in successful_labels
+                and (
+                    str(job.get("members_run_url") or "").strip()
+                    or str(job.get("members_workflow_id") or "").strip()
+                    or bool(job.get("member_login_ready"))
+                )
+            ]
+            effective_member_parallelism = 1 if all_owner_account_rows else max(
+                1,
+                min(
+                    browseract_parallelism,
+                    len(
+                        {
+                            str(job.get("binding_id") or "").strip()
+                            for job in browseract_member_jobs
+                            if str(job.get("binding_id") or "").strip()
+                        }
+                    )
+                    or 1,
+                ),
+            )
+            member_results, member_errors = providers_route._run_onemin_browseract_jobs(
+                jobs=browseract_member_jobs,
+                max_workers=effective_member_parallelism,
+                tool_name="browseract.onemin_member_reconciliation",
+                stop_on_failure_codes={
+                    "auth_request_failed",
+                    "challenge_required",
+                    "session_expired",
+                    "timeout",
+                    "ui_worker_failed",
+                    "lane_unavailable",
+                },
+                max_consecutive_stop_failures=providers_route._onemin_browseract_systemic_failure_threshold(),
+                invoke_job=lambda job: providers_route._invoke_browseract_tool(
+                    container=container,
+                    principal_id=str(job.get("principal_id") or ""),
+                    tool_name="browseract.onemin_member_reconciliation",
+                    action_kind="billing.reconcile_members",
+                    payload_json={
+                        "binding_id": str(job.get("binding_id") or ""),
+                        "account_label": str(job.get("account_label") or ""),
+                        "capture_raw_text": False,
+                        **({"run_url": str(job.get("members_run_url") or "")} if str(job.get("members_run_url") or "").strip() else {}),
+                        **({"workflow_id": str(job.get("members_workflow_id") or "")} if str(job.get("members_workflow_id") or "").strip() else {}),
+                        **providers_route._browseract_proxy_payload(
+                            binding_metadata=dict(job.get("binding_metadata") or {}),
+                            account_label=str(job.get("account_label") or ""),
+                        ),
+                        "timeout_seconds": browseract_timeout_seconds,
+                    },
+                ),
+            )
+            member_reconciled = len(member_results)
         browseract_failed_labels = {
             str(row.get("account_label") or "").strip()
             for row in [*billing_errors, *member_errors]
@@ -547,25 +559,31 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             if label and label not in browseract_attempted_labels
         }
         if browseract_failed_labels:
-            (
-                api_billing_results,
-                api_member_results,
-                fallback_api_errors,
-                api_attempted,
-                _api_skipped,
-                api_rate_limited,
-            ) = providers_route._refresh_onemin_via_provider_api(
-                include_members=True,
-                timeout_seconds=180,
-                all_accounts=False,
-                continue_on_rate_limit=False,
-                account_labels=browseract_failed_labels | unattempted_browseract_labels,
-                account_login_credentials={
-                    account_label: credentials
-                    for account_label, credentials in all_account_login_credentials.items()
-                    if account_label in (browseract_failed_labels | unattempted_browseract_labels)
-                },
-            )
+            with providers_route._managed_fastestvpn_services(
+                service_names=providers_route._onemin_direct_api_fastestvpn_service_names(
+                    account_labels=browseract_failed_labels | unattempted_browseract_labels
+                ),
+                reason="scheduler.onemin.provider_api.recovery",
+            ):
+                (
+                    api_billing_results,
+                    api_member_results,
+                    fallback_api_errors,
+                    api_attempted,
+                    _api_skipped,
+                    api_rate_limited,
+                ) = providers_route._refresh_onemin_via_provider_api(
+                    include_members=True,
+                    timeout_seconds=180,
+                    all_accounts=False,
+                    continue_on_rate_limit=False,
+                    account_labels=browseract_failed_labels | unattempted_browseract_labels,
+                    account_login_credentials={
+                        account_label: credentials
+                        for account_label, credentials in all_account_login_credentials.items()
+                        if account_label in (browseract_failed_labels | unattempted_browseract_labels)
+                    },
+                )
             recovered_browseract_labels.update(
                 str(row.get("account_label") or "").strip()
                 for row in [*api_billing_results, *api_member_results]
@@ -581,42 +599,52 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
             )
         elif _scheduler_onemin_global_provider_api_sweep_enabled():
             if unattempted_browseract_labels:
-                (
-                    _api_billing_results,
-                    _api_member_results,
-                    api_errors,
-                    global_api_attempted,
-                    _api_skipped,
-                    global_api_rate_limited,
-                ) = providers_route._refresh_onemin_via_provider_api(
-                    include_members=True,
-                    timeout_seconds=180,
-                    all_accounts=False,
-                    continue_on_rate_limit=False,
-                    account_labels=unattempted_browseract_labels,
-                    account_login_credentials={
-                        account_label: credentials
-                        for account_label, credentials in all_account_login_credentials.items()
-                        if account_label in unattempted_browseract_labels
-                    },
-                )
+                with providers_route._managed_fastestvpn_services(
+                    service_names=providers_route._onemin_direct_api_fastestvpn_service_names(
+                        account_labels=unattempted_browseract_labels
+                    ),
+                    reason="scheduler.onemin.provider_api.gap_recovery",
+                ):
+                    (
+                        _api_billing_results,
+                        _api_member_results,
+                        api_errors,
+                        global_api_attempted,
+                        _api_skipped,
+                        global_api_rate_limited,
+                    ) = providers_route._refresh_onemin_via_provider_api(
+                        include_members=True,
+                        timeout_seconds=180,
+                        all_accounts=False,
+                        continue_on_rate_limit=False,
+                        account_labels=unattempted_browseract_labels,
+                        account_login_credentials={
+                            account_label: credentials
+                            for account_label, credentials in all_account_login_credentials.items()
+                            if account_label in unattempted_browseract_labels
+                        },
+                    )
                 api_attempted += global_api_attempted
                 api_rate_limited = api_rate_limited or global_api_rate_limited
                 error_count += len(api_errors)
             elif not browseract_target_label_order:
-                (
-                    _api_billing_results,
-                    _api_member_results,
-                    api_errors,
-                    global_api_attempted,
-                    _api_skipped,
-                    global_api_rate_limited,
-                ) = providers_route._refresh_onemin_via_provider_api(
-                    include_members=True,
-                    timeout_seconds=180,
-                    all_accounts=True,
-                    continue_on_rate_limit=False,
-                )
+                with providers_route._managed_fastestvpn_services(
+                    service_names=providers_route._onemin_direct_api_fastestvpn_service_names(account_labels=None),
+                    reason="scheduler.onemin.provider_api.global",
+                ):
+                    (
+                        _api_billing_results,
+                        _api_member_results,
+                        api_errors,
+                        global_api_attempted,
+                        _api_skipped,
+                        global_api_rate_limited,
+                    ) = providers_route._refresh_onemin_via_provider_api(
+                        include_members=True,
+                        timeout_seconds=180,
+                        all_accounts=True,
+                        continue_on_rate_limit=False,
+                    )
                 api_attempted += global_api_attempted
                 api_rate_limited = api_rate_limited or global_api_rate_limited
                 error_count += len(api_errors)
@@ -1277,6 +1305,17 @@ def _run_api() -> None:
     uvicorn.run("app.main:app", host=s.host, port=s.port, log_level=s.log_level.lower())
 
 
+def _run_openvoice() -> None:
+    host = str(os.environ.get("OPENVOICE_HOST") or "0.0.0.0").strip() or "0.0.0.0"
+    raw_port = str(os.environ.get("OPENVOICE_PORT") or "8093").strip()
+    try:
+        port = int(raw_port)
+    except ValueError:
+        port = 8093
+    log_level = str(os.environ.get("OPENVOICE_LOG_LEVEL") or get_settings().log_level).strip().lower() or "info"
+    uvicorn.run("app.openvoice_app:app", host=host, port=port, log_level=log_level)
+
+
 def _run_execution_worker(role: str) -> None:
     stop = {"flag": False}
 
@@ -1466,6 +1505,9 @@ def main() -> None:
     configure_logging(s.log_level)
     if s.role == "api":
         _run_api()
+        return
+    if s.role == "openvoice":
+        _run_openvoice()
         return
     _run_execution_worker(s.role)
 

@@ -581,7 +581,7 @@ def handoff_detail(
                 if property_tour_followup_open
                 else "Tour actions are available only for property-tour followups.",
                 "Tour",
-                href=handoff.tour_url or handoff.vendor_tour_url or "",
+                href=handoff.tour_url or "",
                 action_href=f"/app/actions/handoffs/{handoff_ref}/recreate" if property_tour_followup_open else "",
                 action_label="Recreate tour" if property_tour_followup_open else "",
                 action_method="post" if property_tour_followup_open else "",
@@ -734,7 +734,7 @@ def thread_detail(
                 if property_tour_followup_open
                 else "No property-tour followup action is available for this thread.",
                 "Tour",
-                href=(linked_handoff.tour_url or linked_handoff.vendor_tour_url) if linked_handoff is not None else "",
+                href=linked_handoff.tour_url if linked_handoff is not None else "",
                 action_href=(
                     f"/app/actions/handoffs/{linked_handoff_ref}/recreate"
                     if linked_handoff_ref and property_tour_followup_open

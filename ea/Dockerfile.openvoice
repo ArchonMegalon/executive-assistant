@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl espeak-ng ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt /app/requirements.txt
+COPY requirements-openvoice.txt /app/requirements-openvoice.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt && \
+    pip install --no-cache-dir -r /app/requirements-openvoice.txt
+
+COPY app /app/app
+COPY scripts /app/scripts
+RUN find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
+
+HEALTHCHECK --interval=30s --timeout=15s --start-period=45s --retries=5 \
+  CMD ["/bin/sh", "-ec", "port=${OPENVOICE_PORT:-8093}; curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:${port}/health/ready >/dev/null"]
+
+CMD ["uvicorn", "app.openvoice_app:app", "--host", "0.0.0.0", "--port", "8093"]

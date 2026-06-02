@@ -1,10 +1,36 @@
 services:
+  ea-openvoice:
+    environment:
+      OPENVOICE_PORT: 8093
+      OPENVOICE_BASE_TTS: piper
+      OPENVOICE_HOST: 0.0.0.0
+      OPENVOICE_DATA_DIR: /data/openvoice
+      OPENVOICE_CHECKPOINT_ROOT: /models/openvoice
+      OPENVOICE_SOURCE_DIR: /app/third_party/OpenVoice
+      PIPER_BIN: /opt/piper/piper
+      PIPER_MODEL_PATH: /models/piper/de_DE-thorsten-high.onnx
+      PIPER_MODEL_PATH_ALT: /models/piper/de_DE-thorsten-medium.onnx
+      PIPER_DEFAULT_VARIANT: high
+      PIPER_ALT_VARIANT: balanced
+      OPENVOICE_MAX_CLONE_FILES: 4
+      OPENVOICE_MAX_UPLOAD_BYTES: 20971520
+      OPENVOICE_MAX_TOTAL_UPLOAD_BYTES: 50331648
+      OPENVOICE_MAX_TTS_TEXT_LEN: 3000
+      TZ: Europe/Vienna
+
   ea-api:
     environment:
       EA_RUNTIME_MODE: prod
       EA_STORAGE_BACKEND: postgres
+      OPENVOICE_BASE_URL: ${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
+      EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA
+      EA_FASTESTVPN_ON_DEMAND_ENABLED: ${EA_FASTESTVPN_ON_DEMAND_ENABLED:-1}
+      EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
+    volumes:
+      - .:/docker/EA:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-worker:
     environment:
@@ -12,6 +38,12 @@ services:
       EA_STORAGE_BACKEND: postgres
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
+      EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA
+      EA_FASTESTVPN_ON_DEMAND_ENABLED: ${EA_FASTESTVPN_ON_DEMAND_ENABLED:-1}
+      EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
+    volumes:
+      - .:/docker/EA:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-scheduler:
     environment:
@@ -19,3 +51,9 @@ services:
       EA_STORAGE_BACKEND: postgres
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
+      EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA
+      EA_FASTESTVPN_ON_DEMAND_ENABLED: ${EA_FASTESTVPN_ON_DEMAND_ENABLED:-1}
+      EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH: ${EA_FASTESTVPN_AUTO_STOP_AFTER_REFRESH:-1}
+    volumes:
+      - .:/docker/EA:ro
+      - /var/run/docker.sock:/var/run/docker.sock

@@ -127,3 +127,65 @@ def test_session_steps_project_blocked_dependency_state_when_waiting_human() -> 
     assert steps["step_artifact_save"]["dependency_step_ids"]["step_human_review"] == steps["step_human_review"]["step_id"]
     assert steps["step_artifact_save"]["blocked_dependency_keys"] == ["step_human_review"]
     assert steps["step_artifact_save"]["dependencies_satisfied"] is False
+
+
+def test_rewrite_contract_reset_clears_human_review_gate_and_preserves_approval_projection() -> None:
+    client = _client(approval_threshold_chars=5)
+
+    human_review_contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "rewrite_text",
+            "deliverable_type": "rewrite_note",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {
+                "class": "low",
+                "human_review_role": "communications_reviewer",
+                "human_review_task_type": "communications_review",
+                "human_review_brief": "Review the rewrite before finalizing it.",
+                "human_review_priority": "high",
+                "human_review_sla_minutes": 45,
+                "human_review_desired_output_json": {"format": "review_packet"},
+            },
+        },
+    )
+    assert human_review_contract.status_code == 200
+
+    reset_contract = client.post(
+        "/v1/tasks/contracts",
+        json={
+            "task_key": "rewrite_text",
+            "deliverable_type": "rewrite_note",
+            "default_risk_class": "low",
+            "default_approval_class": "none",
+            "allowed_tools": ["artifact_repository"],
+            "evidence_requirements": ["stakeholder_context"],
+            "memory_write_policy": "reviewed_only",
+            "budget_policy_json": {"class": "low"},
+        },
+    )
+    assert reset_contract.status_code == 200
+    assert reset_contract.json()["budget_policy_json"] == {"class": "low"}
+    assert reset_contract.json()["runtime_policy_json"]["human_review_role"] == ""
+
+    created = client.post("/v1/rewrite/artifact", json={"text": "approval gated dependency projection"})
+    assert created.status_code == 202
+    body = created.json()
+    assert body["status"] == "awaiting_approval"
+    assert body.get("human_task_id", "") == ""
+    assert body.get("approval_id", "")
+
+    session = client.get(f"/v1/rewrite/sessions/{body['session_id']}")
+    assert session.status_code == 200
+
+    steps = _steps_by_key(session.json())
+    assert "step_human_review" not in steps
+    assert steps["step_artifact_save"]["state"] == "waiting_approval"
+    assert steps["step_artifact_save"]["dependency_keys"] == ["step_policy_evaluate"]
+    assert steps["step_artifact_save"]["dependency_states"] == {"step_policy_evaluate": "completed"}
+    assert steps["step_artifact_save"]["blocked_dependency_keys"] == []
+    assert steps["step_artifact_save"]["dependencies_satisfied"] is True
