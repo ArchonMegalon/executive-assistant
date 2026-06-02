@@ -14,21 +14,44 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     adduser --system --uid 10001 --group ea
 
 WORKDIR /app
-COPY ea/requirements.txt .
+
+COPY . /tmp/src
+
+RUN set -eu; \
+    if [ -f /tmp/src/requirements.txt ] && [ -d /tmp/src/app ]; then \
+      APP_SRC=/tmp/src; \
+    elif [ -f /tmp/src/ea/requirements.txt ] && [ -d /tmp/src/ea/app ]; then \
+      APP_SRC=/tmp/src/ea; \
+    else \
+      echo "application source not found in build context" >&2; \
+      exit 1; \
+    fi; \
+    cp "$APP_SRC/requirements.txt" /app/requirements.txt; \
+    cp -r "$APP_SRC/app" /app/; \
+    cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
+    if [ -f "$APP_SRC/LTDs.md" ]; then \
+      cp "$APP_SRC/LTDs.md" /app/LTDs.md; \
+    elif [ -f /tmp/src/LTDs.md ]; then \
+      cp /tmp/src/LTDs.md /app/LTDs.md; \
+    fi; \
+    mkdir -p /app/scripts; \
+    if [ -d /tmp/src/scripts ]; then \
+      for script in /tmp/src/scripts/*.py; do \
+        [ -e "$script" ] || continue; \
+        cp "$script" /app/scripts/; \
+      done; \
+    elif [ -d "$APP_SRC/scripts" ]; then \
+      for script in "$APP_SRC"/scripts/*.py; do \
+        [ -e "$script" ] || continue; \
+        cp "$script" /app/scripts/; \
+      done; \
+    fi; \
+    chown -R ea:ea /app /usr/local/bin/docker-entrypoint.sh; \
+    rm -rf /tmp/src
+
 RUN pip install --no-cache-dir -r requirements.txt
-COPY ea/app ./app
-COPY LTDs.md /app/LTDs.md
-COPY scripts/avomap_flyover_worker.py /app/scripts/avomap_flyover_worker.py
-COPY scripts/browseract_template_service_worker.py /app/scripts/browseract_template_service_worker.py
-COPY scripts/booka_book_worker.py /app/scripts/booka_book_worker.py
-COPY scripts/crezlo_property_tour_worker.py /app/scripts/crezlo_property_tour_worker.py
-COPY scripts/ea_responses_proxy.py /app/scripts/ea_responses_proxy.py
-COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
-COPY scripts/publish_browseract_ui_results.py /app/scripts/publish_browseract_ui_results.py
-COPY scripts/teable_host_proxy.py /app/scripts/teable_host_proxy.py
-COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
-COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chown -R ea:ea /app && chmod +x /usr/local/bin/docker-entrypoint.sh
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER root
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \

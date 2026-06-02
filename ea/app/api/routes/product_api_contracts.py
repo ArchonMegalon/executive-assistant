@@ -1342,6 +1342,33 @@ class PropertyScoutSyncOut(BaseModel):
     sources: list[PropertyScoutSourceOut] = Field(default_factory=list)
 
 
+class PropertySearchRunStartIn(BaseModel):
+    selected_platforms: list[str] = Field(default_factory=list)
+    property_preferences: dict[str, object] = Field(default_factory=dict)
+    force_refresh: bool = False
+    max_results_per_source: int | None = None
+
+
+class PropertySearchRunStatusOut(BaseModel):
+    generated_at: str
+    run_id: str = ""
+    principal_id: str = ""
+    status: str = "queued"
+    status_url: str = ""
+    selected_platforms: list[str] = Field(default_factory=list)
+    progress: int = 0
+    current_step: str = ""
+    message: str = ""
+    stages_total: int = 0
+    steps_completed: int = 0
+    summary: dict[str, object] = Field(default_factory=dict)
+    events: list[dict[str, object]] = Field(default_factory=list)
+
+
+class PropertySearchRunStartOut(PropertySearchRunStatusOut):
+    pass
+
+
 class GooglePhotosPickerSessionIn(BaseModel):
     account_email: str = ""
     binding_id: str = ""

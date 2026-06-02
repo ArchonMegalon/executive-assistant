@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import hmac
 import mimetypes
 import os
 import subprocess
@@ -74,6 +75,52 @@ def _load_memorial(slug: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="memorial_payload_invalid")
     return payload
+
+
+def _collect_memorial_write_tokens(payload: dict[str, object]) -> list[str]:
+    tokens: list[str] = []
+    raw_values: list[object] = []
+    raw_values.extend(
+        [
+            payload.get("write_token"),
+            payload.get("write_tokens"),
+            payload.get("admin_token"),
+            payload.get("management_token"),
+            payload.get("owner_token"),
+        ]
+    )
+    env_token = str(os.getenv("EA_PUBLIC_MEMORIAL_WRITE_TOKEN") or "").strip()
+    if env_token:
+        raw_values.append(env_token)
+    for raw_value in raw_values:
+        if isinstance(raw_value, (list, tuple, set)):
+            values = [str(item).strip() for item in raw_value]
+        else:
+            values = [str(raw_value).strip()]
+        for value in values:
+            if value and value not in tokens:
+                tokens.append(value)
+    return tokens
+
+
+def _require_public_memorial_write_access(*, slug: str, request: Request, memorial: dict[str, object] | None = None) -> None:
+    payload = memorial or _load_memorial(slug)
+    allowed_tokens = _collect_memorial_write_tokens(payload)
+    if not allowed_tokens:
+        return
+    provided = str(
+        request.headers.get("x-memorial-write-token")
+        or request.headers.get("x-memorial-admin-token")
+        or request.query_params.get("memorial_write_token")
+        or request.query_params.get("token")
+        or ""
+    ).strip()
+    if not provided:
+        raise HTTPException(status_code=403, detail="memorial_write_unauthorized")
+    for candidate in allowed_tokens:
+        if len(provided) == len(candidate) and hmac.compare_digest(provided, candidate):
+            return
+    raise HTTPException(status_code=403, detail="memorial_write_unauthorized")
 
 
 def _asset_file(slug: str, asset_path: str) -> Path:
@@ -1503,7 +1550,8 @@ def public_memorial_voice_config(slug: str) -> JSONResponse:
 
 @router.post("/memorials/{slug}/voice-config")
 async def public_memorial_voice_config_update(slug: str, request: Request) -> JSONResponse:
-    _load_memorial(slug)
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     try:
         payload = await request.json()
     except Exception as exc:
@@ -1523,6 +1571,7 @@ def public_memorial_voice_profile(slug: str) -> JSONResponse:
 @router.post("/memorials/{slug}/voice-profile/build")
 async def public_memorial_voice_profile_build(slug: str, request: Request) -> JSONResponse:
     memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     try:
         payload = await request.json()
     except Exception as exc:

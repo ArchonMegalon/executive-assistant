@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -222,6 +223,24 @@ _PROPERTY_SCOUT_LISTING_HOSTS = (
     "immobilienscout24.at",
     "immobilienscout24.de",
 )
+_PROPERTY_SEARCH_PLATFORM_ALIASES = {
+    "willhaben": "willhaben",
+    "immmo": "immmo",
+    "immoscout24": "immoscout",
+    "immo24": "immoscout",
+    "immobilienscout": "immoscout",
+    "immobilienscout24": "immoscout",
+    "kalandra": "kalandra",
+    "w": "willhaben",
+    "willi": "willhaben",
+    "all": "all",
+}
+_PROPERTY_PLATFORM_HOST_MARKERS = {
+    "willhaben": ("willhaben.at",),
+    "immmo": ("immmo.at",),
+    "immoscout": ("immoscout24.at", "immoscout24.com", "immobilienscout24.at", "immobilienscout24.de", "immobilienscout24.com"),
+    "kalandra": ("kalandra.at",),
+}
 _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "360.kalandra.at",
     "matterport.com",
@@ -229,11 +248,147 @@ _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "ogulo.de",
     "feelestate.com",
 )
+_PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
+_PROPERTY_SEARCH_RUN_STAGES = 8
+_PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
+_PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
+
+
+def _property_search_platform_aliases() -> tuple[str, ...]:
+    return tuple({
+        platform for platform in dict.fromkeys(_PROPERTY_SEARCH_PLATFORM_ALIASES.values())
+        if platform and platform != "all"
+    })
+
+
+def _is_known_property_search_platform(platform: str) -> bool:
+    normalized = _normalize_property_search_platform(platform)
+    return normalized in _property_search_platform_aliases()
+
+
+def _normalize_property_search_platform_inputs(value: object) -> tuple[str, ...]:
+    normalized: list[str] = []
+    if isinstance(value, (list, tuple, set)):
+        candidates = tuple(str(item or "").strip() for item in value)
+    elif value is None:
+        candidates = ()
+    else:
+        candidates = (str(value or "").strip(),)
+    for raw in candidates:
+        current = _normalize_property_search_platform(raw)
+        if not current or current in normalized:
+            continue
+        if current != "all" and not _is_known_property_search_platform(current):
+            continue
+        normalized.append(current)
+    if not normalized:
+        return ()
+    if any(item == "all" for item in normalized):
+        return ("all",)
+    return tuple(normalized)
+
+
+def _property_search_run_expired(at_iso: str, *, ttl_seconds: int = _PROPERTY_SEARCH_RUN_TTL_SECONDS) -> bool:
+    parsed = _parse_utcish(at_iso)
+    if parsed is None:
+        return True
+    return (datetime.now(timezone.utc) - parsed).total_seconds() > float(ttl_seconds)
+
+
+def _property_search_run_default_summary() -> dict[str, object]:
+    return {
+        "generated_at": _now_iso(),
+        "status": "queued",
+        "sources_total": 0,
+        "listing_total": 0,
+        "review_created_total": 0,
+        "review_existing_total": 0,
+        "notified_total": 0,
+        "tour_created_total": 0,
+        "tour_existing_total": 0,
+        "high_fit_total": 0,
+        "watch_notified_total": 0,
+        "top_fit_score": 0.0,
+        "sources": [],
+    }
+
+
+def _new_property_search_run_record(
+    *,
+    run_id: str,
+    principal_id: str,
+    selected_platforms: tuple[str, ...],
+    property_search_preferences: dict[str, object] | None,
+    force_refresh: bool,
+) -> dict[str, object]:
+    requested_preferences = dict(property_search_preferences or {})
+    if selected_platforms:
+        requested_preferences["selected_platforms"] = list(selected_platforms)
+    requested_preferences["force_refresh"] = bool(force_refresh)
+    return {
+        "run_id": str(run_id or "").strip(),
+        "principal_id": str(principal_id or "").strip(),
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+        "status": "queued",
+        "status_url": "",
+        "selected_platforms": list(selected_platforms),
+        "progress": 0,
+        "current_step": "queued",
+        "message": "Queued for execution.",
+        "stages_total": _PROPERTY_SEARCH_RUN_STAGES,
+        "steps_completed": 0,
+        "summary": _property_search_run_default_summary(),
+        "events": [
+            {
+                "at": _now_iso(),
+                "step": "queued",
+                "message": "Search run queued",
+                "status": "queued",
+            }
+        ],
+        "property_search_preferences": requested_preferences,
+        "force_refresh": bool(force_refresh),
+        "generated_at": _now_iso(),
+    }
+
+
+def _prune_property_search_runs() -> None:
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        expired = [
+            run_id
+            for run_id, state in list(_PROPERTY_SEARCH_RUN_REGISTRY.items())
+            if _property_search_run_expired(str(state.get("updated_at") or state.get("created_at") or ""), ttl_seconds=_PROPERTY_SEARCH_RUN_TTL_SECONDS)
+        ]
+        for run_id in expired:
+            _PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
 
 
 def _property_alert_gmail_query() -> str:
     configured = str(os.getenv("EA_PROPERTY_ALERT_GMAIL_QUERY") or "").strip()
     return configured or _PROPERTY_ALERT_GMAIL_QUERY
+
+
+def _normalize_property_search_platform(value: str) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    normalized = re.sub(r"[^a-z0-9]+", "", raw)
+    if not normalized:
+        return ""
+    return _PROPERTY_SEARCH_PLATFORM_ALIASES.get(normalized, normalized)
+
+
+def _property_scout_platform_from_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(urllib.parse.urldefrag(str(url or "").strip())[0])
+    host = str(parsed.netloc or "").lower()
+    for platform, markers in _PROPERTY_PLATFORM_HOST_MARKERS.items():
+        if any(marker in host for marker in markers):
+            return platform
+    for platform in dict.fromkeys(_PROPERTY_SEARCH_PLATFORM_ALIASES.values()):
+        if platform and platform in host:
+            return platform
+    return ""
 
 
 def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
@@ -252,6 +407,12 @@ def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
         url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
         if not url:
             continue
+        raw_platform = _normalize_property_search_platform(str(row.get("platform") or ""))
+        platform = raw_platform or _property_scout_platform_from_url(url)
+        try:
+            max_results = max(1, min(int(row.get("max_results") or 3), 10))
+        except Exception:
+            max_results = 3
         specs.append(
             {
                 "url": url,
@@ -265,7 +426,8 @@ def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
                 or "self",
                 "account_email": str(row.get("account_email") or "").strip().lower(),
                 "notify_telegram": bool(row.get("notify_telegram", True)),
-                "max_results": max(1, min(int(row.get("max_results") or 3), 10)),
+                "platform": platform,
+                "max_results": max_results,
             }
         )
     return tuple(specs)
@@ -12707,18 +12869,313 @@ class ProductService:
             dedupe_key_prefix="google-willhaben-signal-sync",
         )
 
+    def _snapshot_property_search_run(self, *, run_id: str, principal_id: str) -> dict[str, object] | None:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_run_id or not normalized_principal:
+            return None
+        _prune_property_search_runs()
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
+            if not isinstance(state, dict):
+                return None
+            if str(state.get("principal_id") or "").strip() != normalized_principal:
+                return None
+            return {
+                **dict(state),
+                "summary": dict(dict(state.get("summary") or {})),
+                "events": [dict(item) for item in list(state.get("events") or [])],
+                "selected_platforms": list(state.get("selected_platforms") or ()),
+            }
+
+
+    def _record_property_search_run_event(
+        self,
+        *,
+        run_id: str,
+        principal_id: str,
+        step: str,
+        message: str,
+        status: str = "in_progress",
+        steps_delta: int = 1,
+        summary_updates: dict[str, object] | None = None,
+        force_status: str = "",
+    ) -> None:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_run_id or not normalized_principal:
+            return
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
+            if not isinstance(state, dict):
+                return
+            if str(state.get("principal_id") or "").strip() != normalized_principal:
+                return
+            updated_status = str(force_status or status or "in_progress").strip().lower() or "in_progress"
+            state["status"] = updated_status
+            state["current_step"] = compact_text(str(step), fallback="run_step")
+            state["message"] = compact_text(str(message), fallback="", limit=280)
+            stages_total = max(1, int(state.get("stages_total") or _PROPERTY_SEARCH_RUN_STAGES))
+            state["steps_completed"] = min(stages_total, max(0, int(state.get("steps_completed") or 0) + int(steps_delta)))
+            state["progress"] = int((int(state["steps_completed"]) * 100) / stages_total)
+            if summary_updates:
+                summary = dict(state.get("summary") or {})
+                summary.update(dict(summary_updates))
+                state["summary"] = summary
+            events = list(state.get("events") or [])
+            events.append(
+                {
+                    "at": _now_iso(),
+                    "step": compact_text(str(step), fallback="run_step"),
+                    "message": compact_text(str(message), fallback="", limit=320),
+                    "status": updated_status,
+                }
+            )
+            if len(events) > 240:
+                events = events[-240:]
+            state["events"] = events
+            state["updated_at"] = _now_iso()
+
+
+    def _resolve_property_search_run_preferences(
+        self,
+        *,
+        principal_id: str,
+        selected_platforms: tuple[str, ...],
+        property_preferences: dict[str, object] | None,
+        max_results_per_source: int | None,
+        force_refresh: bool,
+    ) -> tuple[tuple[str, ...], dict[str, object], int | None]:
+        merged_preferences = dict(property_preferences or {})
+        try:
+            onboarding_state = self._container.onboarding.status(principal_id=principal_id)
+            onboarding_preferences = dict(onboarding_state.get("property_search_preferences") or {})
+            for key, value in onboarding_preferences.items():
+                merged_preferences.setdefault(key, value)
+        except Exception:
+            onboarding_preferences = {}
+
+        explicit_platform_input = bool(selected_platforms)
+        normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+        if explicit_platform_input and not normalized_platforms:
+            raise ValueError("invalid_property_search_platform")
+        if not normalized_platforms and not explicit_platform_input:
+            normalized_platforms = _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms"))
+            if not normalized_platforms:
+                normalized_platforms = ()
+
+        merged_preferences["selected_platforms"] = list(normalized_platforms)
+        merged_preferences["preference_person_id"] = str(
+            merged_preferences.get("preference_person_id")
+            or os.getenv("EA_PROPERTY_ALERT_DEFAULT_PERSON_ID")
+            or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
+            or "self"
+        ).strip() or "self"
+        merged_preferences["force_refresh"] = bool(force_refresh)
+
+        merged_max_results = merged_preferences.get("max_results_per_source")
+        if max_results_per_source is None:
+            try:
+                resolved_max_results = max(1, min(10, int(merged_max_results))) if merged_max_results else None
+            except Exception:
+                resolved_max_results = None
+        else:
+            resolved_max_results = max(1, min(10, int(max_results_per_source)))
+
+        if resolved_max_results and resolved_max_results > 0:
+            merged_preferences["max_results_per_source"] = resolved_max_results
+        elif "max_results_per_source" in merged_preferences:
+            merged_preferences.pop("max_results_per_source", None)
+
+        return normalized_platforms, merged_preferences, resolved_max_results
+
+
+    def start_property_search_run(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...],
+        property_search_preferences: dict[str, object],
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        if not normalized_principal:
+            raise ValueError("principal_id_required")
+        run_platforms, run_preferences, run_max_results = self._resolve_property_search_run_preferences(
+            principal_id=normalized_principal,
+            selected_platforms=tuple(selected_platforms or ()),
+            property_preferences=property_search_preferences,
+            max_results_per_source=max_results_per_source,
+            force_refresh=force_refresh,
+        )
+        run_id = uuid4().hex
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            _PROPERTY_SEARCH_RUN_REGISTRY[run_id] = _new_property_search_run_record(
+                run_id=run_id,
+                principal_id=normalized_principal,
+                selected_platforms=run_platforms,
+                property_search_preferences=run_preferences,
+                force_refresh=force_refresh,
+            )
+        _prune_property_search_runs()
+
+        def _progress(
+            *,
+            step: str,
+            message: str,
+            status: str = "in_progress",
+            steps_delta: int = 1,
+            summary_updates: dict[str, object] | None = None,
+        ) -> None:
+            self._record_property_search_run_event(
+                run_id=run_id,
+                principal_id=normalized_principal,
+                step=step,
+                message=message,
+                status=status,
+                steps_delta=steps_delta,
+                summary_updates=summary_updates,
+                force_status=status,
+            )
+
+        def _worker() -> None:
+            try:
+                _progress(
+                    step="starting",
+                    message="Starting property search run.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
+                result = self.sync_direct_property_scout(
+                    principal_id=normalized_principal,
+                    actor=actor,
+                    selected_platforms=run_platforms,
+                    property_search_preferences=run_preferences,
+                    max_results_per_source=run_max_results,
+                    force_refresh=bool(force_refresh),
+                    progress_callback=_progress,
+                )
+                final_status = str(result.get("status") or "processed").strip().lower() or "processed"
+                if final_status == "noop":
+                    final_status = "processed"
+                self._record_property_search_run_event(
+                    run_id=run_id,
+                    principal_id=normalized_principal,
+                    step="completed",
+                    message=f"Search run completed with status {final_status}.",
+                    status=final_status,
+                    steps_delta=max(0, _PROPERTY_SEARCH_RUN_STAGES),
+                    summary_updates=result,
+                    force_status=final_status,
+                )
+            except Exception as exc:
+                self._record_property_search_run_event(
+                    run_id=run_id,
+                    principal_id=normalized_principal,
+                    step="failed",
+                    message=compact_text(str(exc or "search run failed"), fallback="", limit=320),
+                    status="failed",
+                    steps_delta=0,
+                    force_status="failed",
+                )
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return self._snapshot_property_search_run(run_id=run_id, principal_id=normalized_principal) or _new_property_search_run_record(
+            run_id=run_id,
+            principal_id=normalized_principal,
+            selected_platforms=run_platforms,
+            property_search_preferences=run_preferences,
+            force_refresh=force_refresh,
+        )
+
+
+    def get_property_search_run_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+    ) -> dict[str, object] | None:
+        return self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+
+
     def sync_direct_property_scout(
         self,
         *,
         principal_id: str,
         actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
     ) -> dict[str, object]:
+        run_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+
+        def _report(
+            *,
+            step: str,
+            message: str,
+            status: str = "in_progress",
+            steps_delta: int = 1,
+            summary_updates: dict[str, object] | None = None,
+        ) -> None:
+            if not callable(progress_callback):
+                return
+            try:
+                progress_callback(
+                    step=step,
+                    message=message,
+                    status=status,
+                    steps_delta=steps_delta,
+                    summary_updates=summary_updates or {},
+                )
+            except Exception:
+                pass
+
+        request_preferences = dict(property_search_preferences or {})
+        effective_force_refresh = bool(force_refresh)
+        try:
+            resolved_max_results = (
+                max(1, min(10, int(max_results_per_source)))
+                if max_results_per_source is not None
+                else None
+            )
+        except Exception:
+            resolved_max_results = None
+
+        if resolved_max_results is None:
+            try:
+                requested_max = request_preferences.get("max_results_per_source")
+                if requested_max is not None:
+                    resolved_max_results = max(1, min(10, int(requested_max)))
+            except Exception:
+                resolved_max_results = None
+
+        preference_person_id = str(
+            request_preferences.get("preference_person_id")
+            or os.getenv("EA_PROPERTY_ALERT_DEFAULT_PERSON_ID")
+            or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
+            or "self"
+        ).strip() or "self"
+
         specs = [
             dict(spec)
             for spec in _property_scout_source_specs()
-            if not str(spec.get("principal_id") or "").strip()
-            or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip()
+            if (not str(spec.get("principal_id") or "").strip()
+                or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip())
+            and (not run_platforms or "all" in run_platforms or str(spec.get("platform") or "").strip() in run_platforms)
         ]
+
+        _report(
+            step="sources_resolved",
+            message=f"Resolved {len(specs)} source(s) for scanning.",
+            status="in_progress",
+            summary_updates={"sources_total": len(specs)},
+            steps_delta=1,
+        )
+
         if not specs:
             return {
                 "generated_at": _now_iso(),
@@ -12727,8 +13184,15 @@ class ProductService:
                 "listing_total": 0,
                 "review_created_total": 0,
                 "review_existing_total": 0,
+                "notified_total": 0,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "high_fit_total": 0,
                 "failed_total": 0,
+                "watch_notified_total": 0,
+                "sources": [],
             }
+
         listing_total = 0
         review_created_total = 0
         review_existing_total = 0
@@ -12737,15 +13201,28 @@ class ProductService:
         tour_existing_total = 0
         high_fit_total = 0
         failed_total = 0
+        watch_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
         for source_spec in specs:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
-            max_results = max(1, min(int(source_spec.get("max_results") or 3), 10))
+            default_max = max(1, min(int(source_spec.get("max_results") or 3), 10))
+            max_results = default_max if resolved_max_results is None else resolved_max_results
+            max_results = max(1, min(10, int(max_results)))
             notify_telegram = bool(source_spec.get("notify_telegram", True))
             account_email = str(source_spec.get("account_email") or "").strip().lower()
-            preference_person_id = str(source_spec.get("preference_person_id") or "self").strip() or "self"
+            source_preference_person_id = str(source_spec.get("preference_person_id") or "").strip() or preference_person_id
+            if effective_force_refresh:
+                source_preference_person_id = preference_person_id
+
+            _report(
+                step="source_started",
+                message=f"Scanning source {source_label}.",
+                status="in_progress",
+                steps_delta=1,
+            )
+
             try:
                 html = _property_scout_fetch_html(source_url)
                 listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=html)
@@ -12755,7 +13232,7 @@ class ProductService:
                     {
                         "source_url": source_url,
                         "source_label": source_label,
-                        "preference_person_id": preference_person_id,
+                        "preference_person_id": source_preference_person_id,
                         "listing_total": 0,
                         "review_created_total": 0,
                         "review_existing_total": 0,
@@ -12763,6 +13240,7 @@ class ProductService:
                     }
                 )
                 continue
+
             listing_urls = listing_urls[: max_results * 4]
             ranked_rows: list[dict[str, object]] = []
             for ordinal, property_url in enumerate(listing_urls, start=1):
@@ -12779,7 +13257,7 @@ class ProductService:
                 assessment = _property_alert_personal_fit_assessment(
                     preference_profiles=self._preference_profiles,
                     principal_id=principal_id,
-                    person_id=preference_person_id,
+                    person_id=source_preference_person_id,
                     property_url=property_url,
                 )
                 ranked_rows.append(
@@ -12797,6 +13275,7 @@ class ProductService:
                         ),
                     }
                 )
+
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             ranked_rows = ranked_rows[:max_results]
             listing_total += len(ranked_rows)
@@ -12811,6 +13290,7 @@ class ProductService:
                 }
                 for row in ranked_rows[:3]
             )
+
             created_for_source = 0
             existing_for_source = 0
             notified_for_source = 0
@@ -12819,6 +13299,7 @@ class ProductService:
             high_fit_for_source = 0
             watch_notified_for_source = 0
             top_watch_candidate: dict[str, object] | None = None
+
             for row in ranked_rows:
                 property_url = str(row.get("property_url") or "").strip()
                 listing_id = str(row.get("listing_id") or "").strip() or property_url
@@ -12841,6 +13322,7 @@ class ProductService:
                         "assessment": assessment,
                         "fit_score": fit_score,
                     }
+
                 opened = self._open_property_alert_review(
                     principal_id=principal_id,
                     title=title,
@@ -12854,7 +13336,7 @@ class ProductService:
                     notify_telegram=False,
                     candidate_properties=candidate_properties,
                     personal_fit_assessment=assessment,
-                    preference_person_id=preference_person_id,
+                    preference_person_id=source_preference_person_id,
                 )
                 if str(opened.get("status") or "").strip() == "opened":
                     created_for_source += 1
@@ -12862,6 +13344,7 @@ class ProductService:
                 else:
                     existing_for_source += 1
                     review_existing_total += 1
+
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
                 if is_good_fit:
                     tour_result = self._maybe_auto_create_property_scout_tour(
@@ -12878,6 +13361,7 @@ class ProductService:
                     elif str(tour_result.get("status") or "").strip() == "existing":
                         tour_existing_for_source += 1
                         tour_existing_total += 1
+
                 if notify_telegram and is_good_fit:
                     notify_result = self._send_property_scout_hit_telegram(
                         principal_id=principal_id,
@@ -12890,13 +13374,14 @@ class ProductService:
                         source_ref=source_ref,
                         assessment=assessment,
                         fit_score=fit_score,
-                        preference_person_id=preference_person_id,
+                        preference_person_id=source_preference_person_id,
                         tour_result=tour_result,
                         candidate_properties=candidate_properties,
                     )
                     if str(notify_result.get("status") or "").strip() == "sent":
                         notified_for_source += 1
                         notified_total += 1
+
             if (
                 notify_telegram
                 and high_fit_for_source == 0
@@ -12914,7 +13399,7 @@ class ProductService:
                     source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
                     assessment=dict(top_watch_candidate.get("assessment") or {}),
                     fit_score=float(top_watch_candidate.get("fit_score") or 0.0),
-                    preference_person_id=preference_person_id,
+                    preference_person_id=source_preference_person_id,
                     tour_result={"status": "skipped", "tour_url": "", "blocked_reason": ""},
                     candidate_properties=candidate_properties,
                 )
@@ -12922,11 +13407,12 @@ class ProductService:
                     watch_notified_for_source += 1
                     notified_for_source += 1
                     notified_total += 1
+
             source_summaries.append(
                 {
                     "source_url": source_url,
                     "source_label": source_label,
-                    "preference_person_id": preference_person_id,
+                    "preference_person_id": source_preference_person_id,
                     "listing_total": len(ranked_rows),
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
@@ -12938,6 +13424,14 @@ class ProductService:
                     "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
                 }
             )
+            _report(
+                step="source_completed",
+                message=f"Completed scanning {source_label}.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={"sources": source_summaries},
+            )
+
         payload = {
             "generated_at": _now_iso(),
             "status": "processed",
@@ -12949,6 +13443,7 @@ class ProductService:
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,
             "high_fit_total": high_fit_total,
+            "watch_notified_total": watch_notified_total,
             "failed_total": failed_total,
             "sources": source_summaries,
         }
@@ -12958,6 +13453,13 @@ class ProductService:
             payload={**payload, "actor": str(actor or "").strip() or "property_scout"},
             source_id=f"property-scout-sync:{principal_id}",
             dedupe_key=f"{principal_id}|property-scout-sync|{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}",
+        )
+        _report(
+            step="completed",
+            message="Property scouting run completed.",
+            status="processed",
+            steps_delta=max(0, _PROPERTY_SEARCH_RUN_STAGES),
+            summary_updates=payload,
         )
         return payload
 

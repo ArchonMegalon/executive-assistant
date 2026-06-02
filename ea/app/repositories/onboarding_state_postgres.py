@@ -44,7 +44,7 @@ class PostgresOnboardingStateRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    CREATE TABLE IF NOT EXISTS onboarding_states (
+                CREATE TABLE IF NOT EXISTS onboarding_states (
                         onboarding_id TEXT PRIMARY KEY,
                         principal_id TEXT NOT NULL UNIQUE,
                         workspace_name TEXT NOT NULL DEFAULT '',
@@ -53,6 +53,7 @@ class PostgresOnboardingStateRepository:
                         language TEXT NOT NULL DEFAULT '',
                         timezone TEXT NOT NULL DEFAULT '',
                         selected_channels_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        property_search_preferences_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         privacy_preferences_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         channel_preferences_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         brief_preview_json JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -62,6 +63,7 @@ class PostgresOnboardingStateRepository:
                     )
                     """
                 )
+                cur.execute("ALTER TABLE onboarding_states ADD COLUMN IF NOT EXISTS property_search_preferences_json JSONB NOT NULL DEFAULT '{}'::jsonb")
                 cur.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_onboarding_states_updated
@@ -79,6 +81,7 @@ class PostgresOnboardingStateRepository:
             language,
             timezone,
             selected_channels_json,
+            property_search_preferences_json,
             privacy_preferences_json,
             channel_preferences_json,
             brief_preview_json,
@@ -95,6 +98,7 @@ class PostgresOnboardingStateRepository:
             language=str(language or ""),
             timezone=str(timezone or ""),
             selected_channels=tuple(str(v).strip().lower() for v in (selected_channels_json or []) if str(v).strip()),
+            property_search_preferences_json=dict(property_search_preferences_json or {}),
             privacy_preferences_json=dict(privacy_preferences_json or {}),
             channel_preferences_json=dict(channel_preferences_json or {}),
             brief_preview_json=dict(brief_preview_json or {}),
@@ -114,6 +118,7 @@ class PostgresOnboardingStateRepository:
         language: str = "",
         timezone: str = "",
         selected_channels: tuple[str, ...] = (),
+        property_search_preferences_json: dict[str, object] | None = None,
         privacy_preferences_json: dict[str, object] | None = None,
         channel_preferences_json: dict[str, object] | None = None,
         brief_preview_json: dict[str, object] | None = None,
@@ -137,6 +142,11 @@ class PostgresOnboardingStateRepository:
             selected_channels=tuple(str(v).strip().lower() for v in selected_channels if str(v).strip())
             if selected_channels
             else (existing.selected_channels if existing else ()),
+            property_search_preferences_json=dict(
+                property_search_preferences_json
+                if property_search_preferences_json is not None
+                else (existing.property_search_preferences_json if existing else {})
+            ),
             privacy_preferences_json=dict(
                 privacy_preferences_json
                 if privacy_preferences_json is not None
@@ -159,24 +169,25 @@ class PostgresOnboardingStateRepository:
                 cur.execute(
                     """
                     INSERT INTO onboarding_states
-                    (onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
-                     selected_channels_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
+                (onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
+                     selected_channels_json, property_search_preferences_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
                      status, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (principal_id) DO UPDATE
-                    SET workspace_name = EXCLUDED.workspace_name,
-                        workspace_mode = EXCLUDED.workspace_mode,
-                        region = EXCLUDED.region,
-                        language = EXCLUDED.language,
-                        timezone = EXCLUDED.timezone,
-                        selected_channels_json = EXCLUDED.selected_channels_json,
-                        privacy_preferences_json = EXCLUDED.privacy_preferences_json,
-                        channel_preferences_json = EXCLUDED.channel_preferences_json,
-                        brief_preview_json = EXCLUDED.brief_preview_json,
-                        status = EXCLUDED.status,
-                        updated_at = EXCLUDED.updated_at
-                    RETURNING onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
-                              selected_channels_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (principal_id) DO UPDATE
+                SET workspace_name = EXCLUDED.workspace_name,
+                    workspace_mode = EXCLUDED.workspace_mode,
+                    region = EXCLUDED.region,
+                    language = EXCLUDED.language,
+                    timezone = EXCLUDED.timezone,
+                    selected_channels_json = EXCLUDED.selected_channels_json,
+                    property_search_preferences_json = EXCLUDED.property_search_preferences_json,
+                    privacy_preferences_json = EXCLUDED.privacy_preferences_json,
+                    channel_preferences_json = EXCLUDED.channel_preferences_json,
+                    brief_preview_json = EXCLUDED.brief_preview_json,
+                    status = EXCLUDED.status,
+                    updated_at = EXCLUDED.updated_at
+                RETURNING onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
+                              selected_channels_json, property_search_preferences_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
                               status, created_at, updated_at
                     """,
                     (
@@ -188,6 +199,7 @@ class PostgresOnboardingStateRepository:
                         row.language,
                         row.timezone,
                         self._json_value(list(row.selected_channels)),
+                        self._json_value(dict(row.property_search_preferences_json)),
                         self._json_value(dict(row.privacy_preferences_json)),
                         self._json_value(dict(row.channel_preferences_json)),
                         self._json_value(dict(row.brief_preview_json)),
@@ -208,7 +220,7 @@ class PostgresOnboardingStateRepository:
                 cur.execute(
                     """
                     SELECT onboarding_id, principal_id, workspace_name, workspace_mode, region, language, timezone,
-                           selected_channels_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
+                           selected_channels_json, property_search_preferences_json, privacy_preferences_json, channel_preferences_json, brief_preview_json,
                            status, created_at, updated_at
                     FROM onboarding_states
                     WHERE principal_id = %s

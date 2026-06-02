@@ -186,7 +186,10 @@ def _workspace_session_payload(request: Request, container: AppContainer) -> dic
         setattr(request.state, "workspace_access_session_payload", False)
         return None
     payload = _verify_signed_payload(secret=_workspace_access_secret(container), token=token)
-    if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
+    if payload is None or not hmac.compare_digest(
+        str(payload.get("token_kind") or "").strip(),
+        "workspace_access_session",
+    ):
         setattr(request.state, "workspace_access_session_payload", False)
         return None
     principal_id = str(payload.get("principal_id") or "").strip()
@@ -474,7 +477,7 @@ def get_request_context(
     token_authenticated_on_loopback = False
     if loopback_no_auth_allowed:
         expected = _configured_api_token(container)
-        token_authenticated_on_loopback = bool(expected and _extract_token(request) == expected)
+        token_authenticated_on_loopback = bool(expected and hmac.compare_digest(_extract_token(request), expected))
     if loopback_no_auth_allowed and not token_authenticated_on_loopback:
         principal_id = _resolved_principal_id(request, container=container, authenticated=True)
         if not principal_id:
@@ -495,7 +498,7 @@ def get_request_context(
             _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=False)
             raise HTTPException(status_code=401, detail="auth_required")
         provided = _extract_token(request)
-        if provided != expected:
+        if not hmac.compare_digest(provided, expected):
             _log_auth_failure(request, detail="auth_required", profile=profile, expected_token_configured=True)
             raise HTTPException(status_code=401, detail="auth_required")
         authenticated = True

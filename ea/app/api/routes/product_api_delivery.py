@@ -40,6 +40,9 @@ from app.api.routes.product_api_contracts import (
     PocketSignalImportOut,
     PocketSignalSyncOut,
     PropertyScoutSyncOut,
+    PropertySearchRunStartIn,
+    PropertySearchRunStartOut,
+    PropertySearchRunStatusOut,
     SignalIngestEndpointCreateIn,
     SignalIngestEndpointOut,
     WillhabenPropertyTourIn,
@@ -555,7 +558,7 @@ def sync_google_workspace_signals(
             email_limit=email_limit,
             calendar_limit=calendar_limit,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return GoogleSignalSyncOut(**payload)
 
@@ -597,6 +600,48 @@ def sync_direct_property_scout(
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return PropertyScoutSyncOut(**payload)
+
+
+@router.post("/signals/property/search/run", response_model=PropertySearchRunStartOut)
+def start_property_search_run(
+    body: PropertySearchRunStartIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertySearchRunStartOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "property_search").strip()
+    try:
+        payload = service.start_property_search_run(
+            principal_id=context.principal_id,
+            actor=actor,
+            selected_platforms=tuple(body.selected_platforms),
+            property_search_preferences=dict(body.property_preferences),
+            force_refresh=bool(body.force_refresh),
+            max_results_per_source=body.max_results_per_source,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    payload["status_url"] = f"{_public_base_url(request=request)}/app/api/signals/property/search/run/{payload.get('run_id')}"
+    return PropertySearchRunStartOut(**payload)
+
+
+@router.get("/signals/property/search/run/{run_id}", response_model=PropertySearchRunStatusOut)
+def property_search_run_status(
+    run_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertySearchRunStatusOut:
+    service = build_product_service(container)
+    payload = service.get_property_search_run_status(
+        principal_id=context.principal_id,
+        run_id=run_id,
+    )
+    if not payload:
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+    return PropertySearchRunStatusOut(**payload)
 
 
 @router.post("/signals/google/photos/session", response_model=GooglePhotosPickerSessionOut)

@@ -266,6 +266,18 @@ class OnboardingWhatsappExportAckOut(OnboardingEnvelopeOut):
     whatsapp_export: dict[str, object] = Field(default_factory=dict)
 
 
+class OnboardingPropertySearchPreferencesIn(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    selected_platforms: list[str] = Field(default_factory=list)
+    max_results_per_source: int | None = None
+    preference_person_id: str = "self"
+
+
+class OnboardingPropertySearchPreferencesOut(OnboardingEnvelopeOut):
+    selected_platforms: list[str] = Field(default_factory=list)
+
+
 class OnboardingFlagshipStartIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
     workspace_name: str = Field(default="Executive Workspace", min_length=1, max_length=200)
@@ -432,11 +444,14 @@ def register_verify(
     request: Request = None,
 ) -> dict[str, object]:
     payload = _verify_registration_payload(container=container, token=body.verification_token)
-    if payload is None or str(payload.get("token_kind") or "").strip() != "register_challenge":
+    if payload is None or not hmac.compare_digest(
+        str(payload.get("token_kind") or "").strip(),
+        "register_challenge",
+    ):
         raise HTTPException(status_code=400, detail="registration_verification_invalid")
     expected_code = str(payload.get("verification_code") or "").strip()
     provided_code = str(body.verification_code or "").strip()
-    if not provided_code or provided_code != expected_code:
+    if not provided_code or not hmac.compare_digest(provided_code, expected_code):
         raise HTTPException(status_code=400, detail="registration_verification_code_invalid")
     email = str(payload.get("email") or "").strip().lower()
     principal_id = _registration_principal_id(email)
@@ -526,6 +541,29 @@ def onboarding_flagship_start(
 
 @router.get("/status", response_model=OnboardingStartOut)
 def onboarding_status(
+    principal_id: str | None = None,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    resolved = resolve_principal_id(principal_id, context)
+    return container.onboarding.status(principal_id=resolved)
+
+
+@router.post("/property-search/preferences", response_model=OnboardingPropertySearchPreferencesOut)
+def onboarding_upsert_property_search_preferences(
+    body: OnboardingPropertySearchPreferencesIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    principal_id = resolve_principal_id(None, context)
+    return container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json=dict(body.model_dump()),
+    )
+
+
+@router.get("/property-search/preferences", response_model=OnboardingPropertySearchPreferencesOut)
+def onboarding_get_property_search_preferences(
     principal_id: str | None = None,
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),

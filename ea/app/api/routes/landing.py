@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hmac
 import os
 import urllib.parse
 from datetime import datetime, timezone
@@ -233,7 +234,7 @@ def _browser_form_context(
     expected = _expected_api_token(container)
     if access_identity is None and _token_required(container):
         api_token = _form_value(form_data, "api_token", "")
-        if not expected or api_token != expected:
+        if not expected or not hmac.compare_digest(api_token, expected):
             raise HTTPException(status_code=401, detail="auth_required")
     if access_identity is not None:
         requested = _form_value(form_data, "principal_id", access_identity.principal_id)

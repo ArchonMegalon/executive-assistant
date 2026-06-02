@@ -151,10 +151,36 @@ class OnboardingService(AssistantOnboardingService):
             language=language,
             timezone=timezone,
             selected_channels=normalized_channels,
+            property_search_preferences_json=dict(state.property_search_preferences_json if state is not None else {}),
             channel_preferences_json=channel_preferences,
             privacy_preferences_json=dict(state.privacy_preferences_json if state is not None else {}),
             brief_preview_json={},
             status="started",
+        )
+        return self.status(principal_id=principal_id, state_override=saved)
+
+    def upsert_property_search_preferences(
+        self,
+        *,
+        principal_id: str,
+        property_search_preferences_json: dict[str, object],
+    ) -> dict[str, object]:
+        state = self._ensure_state(principal_id)
+        normalized_preferences = self._normalize_property_search_preferences(property_search_preferences_json)
+        saved = self._repo.upsert_state(
+            principal_id=state.principal_id,
+            onboarding_id=state.onboarding_id,
+            workspace_name=state.workspace_name,
+            workspace_mode=state.workspace_mode,
+            region=state.region,
+            language=state.language,
+            timezone=state.timezone,
+            selected_channels=state.selected_channels,
+            property_search_preferences_json=normalized_preferences,
+            privacy_preferences_json=dict(state.privacy_preferences_json),
+            channel_preferences_json=dict(state.channel_preferences_json),
+            brief_preview_json=dict(state.brief_preview_json),
+            status=state.status,
         )
         return self.status(principal_id=principal_id, state_override=saved)
 
@@ -717,6 +743,7 @@ class OnboardingService(AssistantOnboardingService):
                 "timezone": state.timezone if state is not None else "",
             },
             "selected_channels": list(state.selected_channels if state is not None else ()),
+            "property_search_preferences": dict(state.property_search_preferences_json if state is not None else {}),
             "privacy": dict(state.privacy_preferences_json) if state is not None else {},
             "delivery_preferences": {"morning_memo": morning_memo_schedule},
             "assistant_modes": [dict(row) for row in ASSISTANT_MODE_CATALOG],
@@ -1060,6 +1087,38 @@ class OnboardingService(AssistantOnboardingService):
         if normalized in AUTO_BRIEF_DELIVERY_CHANNELS:
             return normalized
         return "email"
+
+    @staticmethod
+    def _normalize_property_search_preferences(value: dict[str, object] | None) -> dict[str, object]:
+        raw = dict(value or {})
+        selected_platforms: list[str] = []
+        raw_selected_platforms = raw.get("selected_platforms")
+        if isinstance(raw_selected_platforms, (list, tuple, set)):
+            for item in raw_selected_platforms:
+                normalized = str(item or "").strip().lower()
+                if normalized and normalized not in selected_platforms:
+                    selected_platforms.append(normalized)
+        raw_platform = raw.get("platform")
+        if raw_platform:
+            normalized_platform = str(raw_platform or "").strip().lower()
+            if normalized_platform and normalized_platform not in selected_platforms:
+                selected_platforms.append(normalized_platform)
+
+        max_results_per_source = raw.get("max_results_per_source")
+        try:
+            normalized_max = int(max_results_per_source) if max_results_per_source is not None else None
+            if normalized_max is not None and normalized_max <= 0:
+                normalized_max = None
+        except Exception:
+            normalized_max = None
+
+        preference_person_id = str(raw.get("preference_person_id") or "self").strip() or "self"
+        return {
+            "selected_platforms": selected_platforms,
+            "max_results_per_source": normalized_max,
+            "preference_person_id": preference_person_id,
+            "raw_preferences": dict(raw),
+        }
 
     @staticmethod
     def _normalize_clock_time(value: str, *, default: str) -> str:

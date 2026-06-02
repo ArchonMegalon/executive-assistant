@@ -1193,6 +1193,7 @@ class OnboardingState:
     language: str
     timezone: str
     selected_channels: tuple[str, ...]
+    property_search_preferences_json: dict[str, Any]
     privacy_preferences_json: dict[str, Any]
     channel_preferences_json: dict[str, Any]
     brief_preview_json: dict[str, Any]

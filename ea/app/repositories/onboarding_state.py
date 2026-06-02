@@ -18,6 +18,7 @@ class OnboardingStateRepository(Protocol):
         language: str = "",
         timezone: str = "",
         selected_channels: tuple[str, ...] = (),
+        property_search_preferences_json: dict[str, object] | None = None,
         privacy_preferences_json: dict[str, object] | None = None,
         channel_preferences_json: dict[str, object] | None = None,
         brief_preview_json: dict[str, object] | None = None,
@@ -51,6 +52,7 @@ class InMemoryOnboardingStateRepository:
         language: str = "",
         timezone: str = "",
         selected_channels: tuple[str, ...] = (),
+        property_search_preferences_json: dict[str, object] | None = None,
         privacy_preferences_json: dict[str, object] | None = None,
         channel_preferences_json: dict[str, object] | None = None,
         brief_preview_json: dict[str, object] | None = None,
@@ -77,6 +79,11 @@ class InMemoryOnboardingStateRepository:
             selected_channels=tuple(str(v).strip().lower() for v in selected_channels if str(v).strip())
             if selected_channels
             else (existing.selected_channels if existing else ()),
+            property_search_preferences_json=dict(
+                property_search_preferences_json
+                if property_search_preferences_json is not None
+                else (existing.property_search_preferences_json if existing else {})
+            ),
             privacy_preferences_json=dict(
                 privacy_preferences_json
                 if privacy_preferences_json is not None
