@@ -1480,6 +1480,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     ea_release_provenance_subject = "ea: harden release provenance and browser workflow stability"
     release_readiness_audit_commit = "39bfa26"
     release_readiness_audit_subject = "ea: finalize release readiness audit fixes"
+    m142_family_packet_refresh_commit = "0199aff"
+    m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
+    mirror_bundle_hardening_commit = "72eae4d"
+    mirror_bundle_hardening_subject = "Harden design mirror bundle verification and m141-m143 source path canonicalization"
+    mirror_bundle_hardening_paths = {
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+        ".codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+        ".codex-design/product/README.md",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+        ".env.example",
+        ".env.local.example",
+        "LTDs.md",
+        "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+        "scripts/materialize_next90_m141_ea_route_local_screenshot_packs.py",
+        "scripts/materialize_next90_m142_ea_family_local_screenshot_and_interaction_packs.py",
+        "scripts/materialize_next90_m143_ea_route_specific_compare_packs.py",
+        "scripts/verify_design_mirror_bundle.py",
+        "tests/test_chummer_governor_packet_pack.py",
+        "tests/test_design_mirror_bundle_contracts.py",
+    }
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
@@ -1558,6 +1580,14 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/repo/IMPLEMENTATION_SCOPE.md" in paths, (commit, sorted(paths))
             assert ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" in paths, (commit, sorted(paths))
             assert ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json" in paths, (commit, sorted(paths))
+            continue
+        if commit == m142_family_packet_refresh_commit:
+            assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
+            continue
+        if commit == mirror_bundle_hardening_commit:
+            assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
@@ -1892,6 +1922,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" in paths, (commit, sorted(paths))
             assert ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json" in paths, (commit, sorted(paths))
             continue
+        if commit == m142_family_packet_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
+            continue
+        if commit == mirror_bundle_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
+            continue
         if commit == gold_ci_gate_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2152,6 +2204,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" in paths, (commit, sorted(paths))
             assert ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json" in paths, (commit, sorted(paths))
             continue
+        if commit == mirror_bundle_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
+            continue
         if commit == gold_ci_gate_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2182,6 +2245,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json" in paths, (commit, sorted(paths))
             assert "scripts/verify_flagship_release_readiness.py" in paths, (commit, sorted(paths))
             assert "tests/test_flagship_release_readiness_gate.py" in paths, (commit, sorted(paths))
+            continue
+        if commit == m142_family_packet_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
+            continue
+        if commit == mirror_bundle_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(
