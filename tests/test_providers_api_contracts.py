@@ -378,6 +378,101 @@ def test_onboarding_google_start_reports_missing_oauth_configuration(
     assert body["channels"]["google"]["status"] == "credentials_missing"
 
 
+def test_onboarding_flagship_start_bootstraps_google_telegram_whatsapp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-flagship")
+
+    payload = owner.post(
+        "/v1/onboarding/flagship/start",
+        json={
+            "workspace_name": "Flagship Suite",
+            "workspace_mode": "executive_ops",
+            "telegram_ref": "@ops-suite",
+            "whatsapp_export_label": "Ops Suite Export",
+            "selected_channels": ["google", "telegram", "whatsapp"],
+            "scope_bundle": "full_workspace",
+        },
+    )
+    assert payload.status_code == 200
+    body = payload.json()
+    assert body["workspace"]["name"] == "Flagship Suite"
+    assert body["workspace"]["mode"] == "executive_ops"
+    assert body["selected_channels"] == ["google", "telegram", "whatsapp"]
+    assert body["channels"]["google"]["status"] == "ready_to_connect"
+    assert body["channels"]["telegram"]["status"] == "guided_manual"
+    assert body["channels"]["whatsapp"]["status"] == "export_planned"
+    assert body["flagship_start"]["profile"] == "executive_flagship"
+    assert body["flagship_start"]["google_bundle"] == "full_workspace"
+    assert body["flagship_start"]["telegram_started"] is True
+    assert body["flagship_start"]["whatsapp_export_started"] is True
+    assert body["google_start"]["ready"] is True
+    assert body["google_start"]["oauth_bundle"] == "full_workspace"
+    assert "https://www.googleapis.com/auth/calendar" in body["google_start"]["requested_scopes"]
+    assert body["telegram_start"]["status"] == "guided_manual"
+    assert body["whatsapp_export"]["status"] == "export_planned"
+
+
+def test_onboarding_flagship_start_continues_without_google_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.delenv("EA_PROVIDER_SECRET_KEY", raising=False)
+
+    owner = _client(principal_id="exec-flagship-missing-google")
+
+    payload = owner.post(
+        "/v1/onboarding/flagship/start",
+        json={
+            "workspace_name": "Flagship Recovery",
+            "scope_bundle": "core",
+            "selected_channels": ["telegram", "whatsapp"],
+        },
+    )
+    assert payload.status_code == 200
+    body = payload.json()
+    assert body["flagship_start"]["profile"] == "executive_flagship"
+    assert body["flagship_start"]["stage"] == "partial"
+    assert body["flagship_start"]["telegram_started"] is True
+    assert body["flagship_start"]["whatsapp_export_started"] is True
+    assert "google" not in body["selected_channels"]
+    assert body["channels"]["telegram"]["status"] == "guided_manual"
+    assert body["channels"]["whatsapp"]["status"] == "export_planned"
+
+
+def test_onboarding_flagship_start_marks_partial_if_google_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("EA_GOOGLE_OAUTH_STATE_SECRET", raising=False)
+    monkeypatch.delenv("EA_PROVIDER_SECRET_KEY", raising=False)
+
+    owner = _client(principal_id="exec-flagship-google-missing")
+
+    payload = owner.post(
+        "/v1/onboarding/flagship/start",
+        json={
+            "workspace_name": "Flagship Recovery",
+            "scope_bundle": "core",
+            "selected_channels": ["google", "telegram"],
+        },
+    )
+    assert payload.status_code == 200
+    body = payload.json()
+    assert body["flagship_start"]["profile"] == "executive_flagship"
+    assert body["flagship_start"]["google_bundle"] == "core"
+    assert body["flagship_start"]["stage"] == "partial"
+    assert body["channels"]["google"]["status"] == "credentials_missing"
+    assert body["google_start"]["ready"] is False
+    assert body["google_start"]["error"] in {"google_oauth_client_id_missing", "google_oauth_client_secret_missing"}
+    assert body["channels"]["telegram"]["status"] == "guided_manual"
+
+
 def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")

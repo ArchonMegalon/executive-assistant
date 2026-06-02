@@ -158,6 +158,93 @@ class OnboardingService(AssistantOnboardingService):
         )
         return self.status(principal_id=principal_id, state_override=saved)
 
+    def start_flagship(
+        self,
+        *,
+        principal_id: str,
+        workspace_name: str,
+        workspace_mode: str,
+        region: str,
+        language: str,
+        timezone: str,
+        selected_channels: tuple[str, ...],
+        scope_bundle: str,
+        telegram_ref: str,
+        telegram_identity_mode: str,
+        telegram_history_mode: str,
+        telegram_assistant_surfaces: tuple[str, ...],
+        whatsapp_export_label: str,
+        whatsapp_include_media: bool,
+    ) -> dict[str, object]:
+        normalized_channels = self._normalize_channels(selected_channels)
+        selected_channels_set = set(normalized_channels)
+        selected_channels_list = list(dict.fromkeys(normalized_channels))
+        status = self.start_workspace(
+            principal_id=principal_id,
+            workspace_name=workspace_name,
+            workspace_mode=workspace_mode,
+            region=region,
+            language=language,
+            timezone=timezone,
+            selected_channels=normalized_channels,
+        )
+        google_start: dict[str, object] = {}
+        telegram_start: dict[str, object] = {}
+        whatsapp_export: dict[str, object] = {}
+
+        if "google" in selected_channels_set:
+            status = self.start_google(
+                principal_id=principal_id,
+                scope_bundle=scope_bundle,
+                browser_source="flagship",
+            )
+            google_start = dict(status.get("google_start") or {})
+        if "telegram" in selected_channels_set:
+            status = self.start_telegram(
+                principal_id=principal_id,
+                telegram_ref=telegram_ref,
+                identity_mode=telegram_identity_mode,
+                history_mode=telegram_history_mode,
+                assistant_surfaces=telegram_assistant_surfaces,
+            )
+            telegram_start = dict(status.get("telegram_start") or {})
+        if "whatsapp" in selected_channels_set:
+            export_label = str(whatsapp_export_label or "").strip() or f"{workspace_name} Flagship Export"
+            status = self.import_whatsapp_export(
+                principal_id=principal_id,
+                export_label=export_label,
+                selected_chat_labels=(),
+                include_media=bool(whatsapp_include_media),
+            )
+            whatsapp_export = dict(status.get("whatsapp_export") or {})
+
+        if google_start:
+            status["google_start"] = google_start
+        if telegram_start:
+            status["telegram_start"] = telegram_start
+        if whatsapp_export:
+            status["whatsapp_export"] = whatsapp_export
+
+        status["flagship_start"] = {
+            "profile": "executive_flagship",
+            "selected_channels": selected_channels_list,
+            "google_bundle": scope_bundle if "google" in selected_channels_set else "",
+            "telegram_started": "telegram" in selected_channels_set,
+            "whatsapp_export_started": "whatsapp" in selected_channels_set,
+            "stage": (
+                "ready_for_activation"
+                if (
+                    "google" in selected_channels_set
+                    and str(
+                        dict((status.get("channels", {}) or {}).get("google") or {}).get("status") or ""
+                    ).lower()
+                    == "ready_to_connect"
+                )
+                else "partial"
+            ),
+        }
+        return status
+
     def start_google(
         self,
         *,

@@ -266,6 +266,30 @@ class OnboardingWhatsappExportAckOut(OnboardingEnvelopeOut):
     whatsapp_export: dict[str, object] = Field(default_factory=dict)
 
 
+class OnboardingFlagshipStartIn(BaseModel):
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    workspace_name: str = Field(default="Executive Workspace", min_length=1, max_length=200)
+    workspace_mode: str = Field(default="executive_ops", min_length=1, max_length=50)
+    region: str = Field(default="AT", max_length=80)
+    language: str = Field(default="en", max_length=80)
+    timezone: str = Field(default="Europe/Vienna", max_length=80)
+    selected_channels: list[str] = Field(default_factory=lambda: ["google", "telegram", "whatsapp"])
+    scope_bundle: str = Field(default="full_workspace", min_length=1, max_length=50)
+    telegram_ref: str = Field(default="", max_length=200)
+    telegram_identity_mode: str = Field(default="login_widget", min_length=1, max_length=80)
+    telegram_history_mode: str = Field(default="future_only", min_length=1, max_length=80)
+    telegram_assistant_surfaces: list[str] = Field(default_factory=lambda: ["dm", "group"])
+    whatsapp_export_label: str = Field(default="", max_length=200)
+    whatsapp_include_media: bool = Field(default=False)
+
+
+class OnboardingFlagshipStartOut(OnboardingEnvelopeOut):
+    flagship_start: dict[str, object] = Field(default_factory=dict)
+    google_start: dict[str, object] = Field(default_factory=dict)
+    telegram_start: dict[str, object] = Field(default_factory=dict)
+    whatsapp_export: dict[str, object] = Field(default_factory=dict)
+
+
 class OnboardingCallbackOut(BaseModel):
     provider_key: str
     principal_id: str
@@ -472,6 +496,31 @@ def onboarding_start(
         language=body.language,
         timezone=body.timezone,
         selected_channels=tuple(body.selected_channels),
+    )
+
+
+@router.post("/flagship/start", response_model=OnboardingFlagshipStartOut)
+def onboarding_flagship_start(
+    body: OnboardingFlagshipStartIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    principal_id = resolve_principal_id(body.principal_id, context)
+    return container.onboarding.start_flagship(
+        principal_id=principal_id,
+        workspace_name=body.workspace_name,
+        workspace_mode=body.workspace_mode,
+        region=body.region,
+        language=body.language,
+        timezone=body.timezone,
+        selected_channels=tuple(body.selected_channels),
+        scope_bundle=body.scope_bundle,
+        telegram_ref=body.telegram_ref,
+        telegram_identity_mode=body.telegram_identity_mode,
+        telegram_history_mode=body.telegram_history_mode,
+        telegram_assistant_surfaces=tuple(body.telegram_assistant_surfaces),
+        whatsapp_export_label=body.whatsapp_export_label,
+        whatsapp_include_media=bool(body.whatsapp_include_media),
     )
 
 
