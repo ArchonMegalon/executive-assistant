@@ -1585,6 +1585,24 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
             continue
+        if commit == "ff8493d":
+            assert subject == "chore: harden parity lab post-receipt tests and refresh generated packets", (
+                commit,
+                subject,
+                sorted(paths),
+            )
+            assert paths == {
+                ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+                ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml",
+                "LTDs.md",
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md",
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+                "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
+                "tests/test_chummer5a_parity_lab_pack.py",
+            }, (commit, sorted(paths))
+            continue
         if commit == "d60875e":
             assert subject == "chore: harden post-receipt guard for mirror bundle commit", (
                 commit,
@@ -1941,6 +1959,31 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
             continue
+        if commit == "ff8493d":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "chore: harden parity lab post-receipt tests and refresh generated packets", (
+                commit,
+                subject,
+                sorted(paths),
+            )
+            assert paths == {
+                ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+                ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml",
+                "LTDs.md",
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md",
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+                "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
+                "tests/test_chummer5a_parity_lab_pack.py",
+            }, (commit, sorted(paths))
+            continue
         if commit == "d60875e":
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2279,6 +2322,31 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
+            continue
+        if commit == "ff8493d":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "chore: harden parity lab post-receipt tests and refresh generated packets", (
+                commit,
+                subject,
+                sorted(paths),
+            )
+            assert paths == {
+                ".codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+                ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml",
+                "LTDs.md",
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md",
+                "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md",
+                "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+                "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
+                "tests/test_chummer5a_parity_lab_pack.py",
+            }, (commit, sorted(paths))
             continue
         if commit == "d60875e":
             subject = subprocess.run(
