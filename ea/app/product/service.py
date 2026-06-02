@@ -4557,7 +4557,9 @@ def _is_branded_public_tour_url(value: object) -> bool:
     configured_hosts = _configured_public_tour_hosts()
     if configured_hosts:
         return host in configured_hosts
-    return "/tours/" in normalized and not _is_crezlo_tour_host(normalized)
+    if host.endswith("myexternalbrain.com") and "/tours/" in normalized:
+        return not _is_crezlo_tour_host(normalized)
+    return False
 
 
 def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[str, str]:
@@ -4567,24 +4569,16 @@ def _resolve_property_tour_urls(structured_output: dict[str, object]) -> tuple[s
     crezlo_public_url = _first_non_empty_text(structured_output.get("crezlo_public_url"))
 
     branded_tour_url = _first_non_empty_text(
-        hosted_url,
+        hosted_url if _is_branded_public_tour_url(hosted_url) else "",
         public_url if _is_branded_public_tour_url(public_url) else "",
         crezlo_public_url if _is_branded_public_tour_url(crezlo_public_url) else "",
         share_url if _is_branded_public_tour_url(share_url) else "",
     )
     vendor_tour_url = _first_non_empty_text(
-        crezlo_public_url if _is_crezlo_tour_host(crezlo_public_url) else "",
-        public_url if _is_crezlo_tour_host(public_url) else "",
-        share_url if _is_crezlo_tour_host(share_url) else "",
+        public_url if public_url != branded_tour_url else "",
+        share_url if share_url != branded_tour_url else "",
+        crezlo_public_url if crezlo_public_url != branded_tour_url else "",
     )
-    if not branded_tour_url:
-        branded_tour_url = _first_non_empty_text(public_url, share_url, crezlo_public_url)
-    if not vendor_tour_url:
-        vendor_tour_url = _first_non_empty_text(
-            public_url if public_url != branded_tour_url else "",
-            share_url if share_url != branded_tour_url else "",
-            crezlo_public_url if crezlo_public_url != branded_tour_url else "",
-        )
     return branded_tour_url, vendor_tour_url
 
 
@@ -14976,11 +14970,23 @@ class ProductService:
         if existing_event is not None:
             existing_payload = dict(existing_event.get("payload") or {})
             existing_tour_url = str(existing_payload.get("tour_url") or "").strip()
-            if existing_tour_url:
+            existing_vendor_tour_url = str(existing_payload.get("vendor_tour_url") or "").strip()
+            existing_branded_tour_url, existing_vendor_url = _resolve_property_tour_urls(
+                {
+                    "hosted_url": existing_tour_url,
+                    "public_url": existing_tour_url,
+                    "share_url": existing_vendor_tour_url,
+                    "crezlo_public_url": existing_vendor_tour_url,
+                }
+            )
+            if existing_branded_tour_url:
                 return {
                     "status": "existing",
-                    "tour_url": existing_tour_url,
-                    "vendor_tour_url": str(existing_payload.get("vendor_tour_url") or "").strip(),
+                    "tour_url": existing_branded_tour_url,
+                    "vendor_tour_url": _first_non_empty_text(
+                        existing_vendor_url,
+                        existing_vendor_tour_url,
+                    ),
                     "blocked_reason": "",
                     "event_type": str(existing_event.get("event_type") or "").strip(),
                 }

@@ -4079,6 +4079,105 @@ def test_property_tour_url_resolver_prefers_branded_link_even_when_legacy_fields
     assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
 
 
+def test_property_tour_url_resolver_does_not_fallback_to_vendor_as_primary(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    branded_url, vendor_url = product_service._resolve_property_tour_urls(
+        {
+            "public_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
+            "share_url": "https://vendor.example.com/share/brigittenau-apartment-a",
+        }
+    )
+    assert branded_url == ""
+    assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
+
+
+def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Office")
+    service = ProductService(client.app.state.container)
+    source_ref = "gmail-thread:tibor.girschele@gmail.com:legacy-kalandra-tour"
+
+    service._record_product_event(
+        principal_id=principal_id,
+        event_type="generic_property_tour_created",
+        source_id=source_ref,
+        payload={
+            "tour_url": "https://www.kalandra.at/objekt/legacy-tour-1",
+            "vendor_tour_url": "https://vendor.example.com/tours/legacy-tour-1",
+        },
+    )
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_willhaben_property_tour(**kwargs: object) -> dict[str, object]:
+        create_calls.append(dict(kwargs))
+        return {
+            "status": "created",
+            "tour_url": "https://myexternalbrain.com/tours/recreated-tour-1",
+            "vendor_tour_url": "https://vendor.example.com/tours/recreated-tour-1",
+            "blocked_reason": "",
+        }
+
+    monkeypatch.setattr(service, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+
+    result = service._maybe_auto_create_property_scout_tour(
+        principal_id=principal_id,
+        actor="property-scout",
+        property_url="https://www.kalandra.at/objekt/14997053",
+        source_ref=source_ref,
+        assessment={"fit_score": 95.0, "recommendation": "shortlist"},
+    )
+
+    assert result["status"] == "created"
+    assert result["tour_url"].startswith("https://myexternalbrain.com/tours/")
+    assert len(create_calls) == 1
+
+
+def test_property_scout_tour_auto_create_reuses_existing_branded_url(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Office")
+    service = ProductService(client.app.state.container)
+    source_ref = "gmail-thread:tibor.girschele@gmail.com:branded-tourexisting"
+
+    service._record_product_event(
+        principal_id=principal_id,
+        event_type="generic_property_tour_created",
+        source_id=source_ref,
+        payload={
+            "tour_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
+            "vendor_tour_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
+        },
+    )
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_willhaben_property_tour(**kwargs: object) -> dict[str, object]:
+        create_calls.append(dict(kwargs))
+        return {
+            "status": "created",
+            "tour_url": "https://myexternalbrain.com/tours/recreated-tour-2",
+            "vendor_tour_url": "https://vendor.example.com/tours/recreated-tour-2",
+            "blocked_reason": "",
+        }
+
+    monkeypatch.setattr(service, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+
+    result = service._maybe_auto_create_property_scout_tour(
+        principal_id=principal_id,
+        actor="property-scout",
+        property_url="https://www.kalandra.at/objekt/14997053",
+        source_ref=source_ref,
+        assessment={"fit_score": 95.0, "recommendation": "shortlist"},
+    )
+
+    assert result["status"] == "existing"
+    assert result["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
+    assert result["vendor_tour_url"] == "https://vendor.example.com/tours/brigittenau-apartment-a"
+    assert not create_calls
+
+
 def test_existing_hosted_property_tour_url_requires_real_bundle_assets(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
