@@ -1480,8 +1480,6 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     ea_release_provenance_subject = "ea: harden release provenance and browser workflow stability"
     release_readiness_audit_commit = "39bfa26"
     release_readiness_audit_subject = "ea: finalize release readiness audit fixes"
-    m142_family_packet_refresh_commit = "0199aff"
-    m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
     mirror_bundle_hardening_commit = "72eae4d"
     mirror_bundle_hardening_subject = "Harden design mirror bundle verification and m141-m143 source path canonicalization"
     mirror_bundle_hardening_paths = {
@@ -1505,6 +1503,8 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
+    m142_family_packet_refresh_commit = "0199aff"
+    m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1584,6 +1584,14 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == m142_family_packet_refresh_commit:
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
+            continue
+        if commit == "d60875e":
+            assert subject == "chore: harden post-receipt guard for mirror bundle commit", (
+                commit,
+                subject,
+                sorted(paths),
+            )
+            assert paths == {"tests/test_chummer5a_parity_lab_pack.py", "LTDs.md"}
             continue
         if commit == mirror_bundle_hardening_commit:
             assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
@@ -1933,6 +1941,21 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
             continue
+        if commit == "d60875e":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "chore: harden post-receipt guard for mirror bundle commit", (
+                commit,
+                subject,
+                sorted(paths),
+            )
+            assert paths == {"tests/test_chummer5a_parity_lab_pack.py", "LTDs.md"}
+            continue
         if commit == mirror_bundle_hardening_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2256,6 +2279,21 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == m142_family_packet_refresh_subject, (commit, subject, sorted(paths))
             assert paths == {"docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml"}
+            continue
+        if commit == "d60875e":
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == "chore: harden post-receipt guard for mirror bundle commit", (
+                commit,
+                subject,
+                sorted(paths),
+            )
+            assert paths == {"tests/test_chummer5a_parity_lab_pack.py", "LTDs.md"}
             continue
         if commit == mirror_bundle_hardening_commit:
             subject = subprocess.run(

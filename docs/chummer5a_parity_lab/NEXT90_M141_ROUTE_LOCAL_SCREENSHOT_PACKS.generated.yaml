@@ -1,5 +1,5 @@
 contract_name: ea.next90_m141_route_local_screenshot_packs
-generated_at: '2026-05-31T10:58:05Z'
+generated_at: '2026-06-02T04:28:39Z'
 package_id: next90-m141-ea-compile-route-local-screenshot-packs-and-compare-packets-for-translator-x
 title: Compile route-local screenshot packs and compare packets for translator, XML
   amendment, Hero Lab, and import-oracle proof without inventing parity.
@@ -20,7 +20,7 @@ summary:
   family_count: 2
   family_pass_count: 2
   fleet_gate_status: pass
-  desktop_client_status: ready
+  desktop_client_status: missing
   queue_ready_to_mark_complete: false
 source_inputs:
   ea_compare_packs:
@@ -92,41 +92,41 @@ source_inputs:
     row_fingerprint: bdb133de7739dd71eec0b07f1a8d970b1bb6300c72b9f0ff7bcd90cdf43361cb
   parity_audit:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
-    generated_at: '2026-05-31T08:49:19.507110Z'
+    generated_at: '2026-06-02T04:24:34.866871Z'
   ui_flagship_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
-    generated_at: '2026-05-31T08:48:57.778224Z'
+    generated_at: '2026-06-02T04:24:34.910451Z'
   desktop_visual_familiarity_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-05-31T08:48:58.649701Z'
+    generated_at: '2026-06-02T04:24:35.244993Z'
   desktop_workflow_execution_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-05-31T08:49:03.676738Z'
+    generated_at: '2026-06-02T04:22:22.708022Z'
   veteran_task_time_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
-    generated_at: '2026-05-31T08:49:07.293430Z'
+    generated_at: '2026-06-02T04:22:24.957257Z'
   ui_direct_import_route_proof:
     path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
-    generated_at: '2026-05-31T08:49:03Z'
+    generated_at: '2026-06-02T04:22:22Z'
   import_parity_certification:
     path: /docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json
-    generated_at: '2026-05-22T17:00:28Z'
+    generated_at: '2026-06-01T20:05:28Z'
   import_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
     generated_at: '2026-05-06T19:55:29Z'
   import_receipts_json:
     path: /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json
-    generated_at: '2026-05-22T15:04:39Z'
+    generated_at: '2026-06-01T20:04:04Z'
   fleet_m141_gate:
     path: /docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json
     generated_at: '2026-05-06T04:08:53Z'
   flagship_readiness:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
-    status: ready
-    summary: Desktop install, release-channel, and flagship workbench proof are current.
-    reason_count: 0
-    row_fingerprint: 7480732248f3c21223a733576fe9307e6f88dfca43d658b67829337a3acdb75b
+    status: missing
+    summary: Desktop flagship proof is still incomplete.
+    reason_count: 11
+    row_fingerprint: 98cdbccfc2bd922a7ebcc8caf86d7d033f7800c251039a256080f953cd46add8
 canonical_monitors:
   guide_markers:
     wave: true
@@ -171,10 +171,32 @@ canonical_monitors:
     runtime_blocker_count: 0
 desktop_client_readiness:
   coverage_key: desktop_client
-  status: ready
-  summary: Desktop install, release-channel, and flagship workbench proof are current.
-  reason_count: 0
-  reasons: []
+  status: missing
+  summary: Desktop flagship proof is still incomplete.
+  reason_count: 11
+  reasons:
+  - Executable desktop exit gate proof is missing or not passed. Desktop shell/install/support
+    liveliness must be proven from shipped artifacts.
+  - 'Executable gate blocker: Promoted release-channel artifact size does not match
+    local bytes for chummer-avalonia-linux-x64-installer.deb.'
+  - 'Executable gate blocker: Promoted release-channel artifact sha256 does not match
+    local bytes for chummer-avalonia-linux-x64-installer.deb.'
+  - 'Executable gate blocker: Promoted release-channel artifact size does not match
+    local bytes for chummer-avalonia-osx-arm64-installer.dmg.'
+  - 'Executable gate blocker: Promoted release-channel artifact sha256 does not match
+    local bytes for chummer-avalonia-osx-arm64-installer.dmg.'
+  - 'Executable gate blocker: Promoted release-channel artifact size does not match
+    local bytes for chummer-avalonia-win-x64-installer.exe.'
+  - 'Executable gate blocker: Promoted release-channel artifact sha256 does not match
+    local bytes for chummer-avalonia-win-x64-installer.exe.'
+  - 'Executable gate blocker: Windows desktop exit gate installer bytes do not match
+    the local promoted desktop shelf artifact.'
+  - 'Executable gate blocker: macOS desktop exit gate installer bytes do not match
+    the local promoted desktop shelf artifact.'
+  - Release channel publishes Windows installer media, but executable-gate evidence
+    is missing passing Windows startup-smoke tuple proof.
+  - Release channel publishes macOS installer media, but executable-gate evidence
+    is missing passing macOS startup-smoke tuple proof.
 route_local_screenshot_packs:
 - route_id: menu:translator
   label: Translator route
