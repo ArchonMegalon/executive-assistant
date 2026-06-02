@@ -159,6 +159,24 @@ cards:
     audience: public
     image_family: streetfront
     action_label: See continuity in preview
+  - id: real_mobile_projection
+    bucket: whats_real_now
+    title: Mobile projection
+    summary: Inspect the mobile and PWA projection lane without treating it as a replacement for desktop rules truth.
+    href: /mobile
+    badge: Preview lane
+    audience: public
+    image_family: streetfront
+    action_label: Open mobile projection
+  - id: real_package_browser
+    bucket: whats_real_now
+    title: Package browser
+    summary: Browse public package routes and generated proof bundles without severing first-party Chummer provenance.
+    href: /packages
+    badge: Live now
+    audience: public
+    image_family: prop_cluster
+    action_label: Browse packages
   - id: real_release_shelf
     bucket: whats_real_now
     title: Preview releases, channels, and notes
