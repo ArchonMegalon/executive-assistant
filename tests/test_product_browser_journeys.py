@@ -74,8 +74,9 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     onboarding = client.get("/register")
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
-    assert "Google Core" in onboarding.text
-    assert "Workspace shape" in onboarding.text
+    assert "Google sign-in" in onboarding.text
+    assert "Search shape" in onboarding.text
+    assert "Digest cadence" in onboarding.text
     assert 'href="/app/properties"' in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text
@@ -259,6 +260,20 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     assert register.status_code == 200
     assert "Create your property workspace" in register.text
     assert "ranked shortlist" in register.text.lower()
+
+
+def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:
+    client = build_product_client(principal_id="propertyquarry-default-brand")
+
+    landing = client.get("/")
+    assert landing.status_code == 200
+    assert "PropertyQuarry" in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Executive Assistant" not in landing.text
+
+    register = client.get("/register")
+    assert register.status_code == 200
+    assert "Create your property workspace" in register.text
 
 
 def test_browser_journey_updates_after_approval_and_commitment_closure() -> None:
@@ -563,52 +578,14 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
 
 
 def test_google_settings_surface_can_email_full_access_connect_link(monkeypatch) -> None:
-    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
-    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
     principal_id = "cf-email:browser.office@example.com"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Founder Office")
 
-    from app.product import service as product_service
-    from app.services.registration_email import RegistrationEmailReceipt
-
-    observed: dict[str, object] = {}
-
-    def _fake_send_google_connect_email(**kwargs) -> RegistrationEmailReceipt:
-        observed.update(kwargs)
-        return RegistrationEmailReceipt(
-            provider="emailit",
-            message_id="google-connect-message-1",
-            accepted_at="2026-05-02T00:00:00+00:00",
-        )
-
-    monkeypatch.setattr(product_service, "send_google_connect_email", _fake_send_google_connect_email)
-
     settings = client.get("/app/settings/google")
     assert settings.status_code == 200
-    assert "Email full-access link" in settings.text
-    assert "Ready to send a full-access Google link to browser.office@example.com" in settings.text
-
-    sent = client.post(
-        "/app/actions/google/email-connect-link?recipient_email=browser.office@example.com&scope_bundle=full_workspace",
-        data={"return_to": "https://evil.example/phish"},
-        follow_redirects=False,
-    )
-    assert sent.status_code == 303
-    assert sent.headers["location"].startswith("/app/settings/google?")
-    assert "email_link_status=sent" in sent.headers["location"]
-    sent_page = client.get(sent.headers["location"])
-    assert sent_page.status_code == 200
-    assert "Sent Google Full Workspace link to browser.office@example.com" in sent_page.text
-    assert observed["recipient_email"] == "browser.office@example.com"
-    assert observed["workspace_name"] == "Founder Office"
-    assert observed["scope_label"] == "Google Full Workspace"
-    assert str(observed["connect_url"]).startswith("https://myexternalbrain.com/workspace-access/")
-    parsed = urllib.parse.urlparse(str(observed["connect_url"]))
-    outer_query = urllib.parse.parse_qs(parsed.query)
-    nested_return_to = urllib.parse.unquote(str(outer_query["return_to"][0]))
-    nested_query = urllib.parse.parse_qs(urllib.parse.urlparse(nested_return_to).query)
-    assert nested_query["scope_bundle"] == ["full_workspace"]
+    assert "Email full-access link" not in settings.text
+    assert "Google email links are disabled on this product surface." in settings.text
 
 
 def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch) -> None:
@@ -646,7 +623,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
 
     started_primary = client.get(
         "/app/actions/google/connect",
-        params={"return_to": "/app/settings/google", "scope_bundle": "send"},
+        params={"return_to": "/app/settings/google", "scope_bundle": "identity"},
         follow_redirects=False,
     )
     assert started_primary.status_code == 303
@@ -667,13 +644,12 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     )
     assert primary_callback.status_code == 303
     assert "account_status=account_connected" in primary_callback.headers["location"]
-    assert "sync_status=completed" in primary_callback.headers["location"]
+    assert "sync_error=google_identity_only" in primary_callback.headers["location"]
     primary_connected = client.get(primary_callback.headers["location"])
     assert primary_connected.status_code == 200
-    assert "Inbox connected." in primary_connected.text
+    assert "Google is linked for sign-in and verified return access only." in primary_connected.text
     assert "tibor@girschele.com" in primary_connected.text
-    assert "Last manual sync" in primary_connected.text
-    assert "Completed" in primary_connected.text
+    assert "Google link posture" in primary_connected.text
 
     started_secondary = client.get(
         "/app/actions/google/connect",
@@ -682,6 +658,22 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     )
     assert started_secondary.status_code == 303
     secondary_query = urllib.parse.parse_qs(urllib.parse.urlparse(started_secondary.headers["location"]).query)
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token-2",
+            "refresh_token": "refresh-token-2",
+            "scope": (
+                "openid email profile "
+                "https://www.googleapis.com/auth/gmail.send "
+                "https://www.googleapis.com/auth/gmail.metadata "
+                "https://www.googleapis.com/auth/calendar.readonly "
+                "https://www.googleapis.com/auth/contacts.readonly"
+            ),
+            "expires_in": 3600,
+        },
+    )
     monkeypatch.setattr(
         google_service,
         "_fetch_google_userinfo",
@@ -1593,7 +1585,7 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert access_url in access_page.text
     access_preview = client.get(access_url, follow_redirects=False)
     assert access_preview.status_code == 303
-    assert access_preview.headers["location"] == "/app/today"
+    assert access_preview.headers["location"] == "/app/properties"
     revoked_access = client.post(
         f"/app/actions/access-sessions/{session_id}/revoke",
         data={"return_to": "/app/settings/access"},
