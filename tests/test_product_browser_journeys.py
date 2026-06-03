@@ -201,10 +201,13 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Review packet" in response.text
     assert "Open 360" in response.text
     assert "What the product has learned from feedback" in response.text
+    assert 'data-property-learning-list' in response.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
     assert "Plus checkout" in response.text
     assert 'data-console-form-variant="property_search"' in response.text
+    assert "Saved. Learning loop updated." in response.text
+    assert "Reload the page to see the updated learning summary." not in response.text
 
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:

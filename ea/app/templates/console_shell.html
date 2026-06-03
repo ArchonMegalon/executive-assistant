@@ -959,9 +959,9 @@
             <div class="property-shortlist-head">
               <div>
                 <strong>{{ candidate.get('title') }}</strong>
-                <div class="property-shortlist-meta">{{ candidate.get('source_label') }} | {{ candidate.get('fit_summary') or candidate.get('detail') }}</div>
+                <div class="property-shortlist-meta" data-property-fit-summary>{{ candidate.get('source_label') }} | {{ candidate.get('fit_summary') or candidate.get('detail') }}</div>
               </div>
-              <span class="console-tag">{{ candidate.get('tag') or 'Candidate' }}</span>
+              <span class="console-tag" data-property-tag>{{ candidate.get('tag') or 'Candidate' }}</span>
             </div>
             {% if candidate.get('detail') %}
             <div class="property-shortlist-copy">{{ candidate.get('detail') }}</div>
@@ -1025,12 +1025,15 @@
 {% if extra_cards %}
 <section class="console-section-grid">
   {% for card in extra_cards if card %}
-  <section class="console-section">
+  {% set is_property_learning_card = current_nav == 'properties' and (card.eyebrow or '') == 'Learning loop' %}
+  <section class="console-section"{% if is_property_learning_card %} data-property-learning-card{% endif %}>
     <div class="console-kicker">{{ card.eyebrow if card.eyebrow else 'Workspace' }}</div>
     <h2>{{ card.title }}</h2>
     {% if card.body %}<p class="console-copy">{{ card.body }}</p>{% endif %}
     {% if card['items'] %}
+      {% if is_property_learning_card %}<div data-property-learning-list>{% endif %}
       {{ rows(card['items'], 'Open', 'Presented as part of the same daily loop.') }}
+      {% if is_property_learning_card %}</div>{% endif %}
     {% endif %}
   </section>
   {% endfor %}
@@ -1043,6 +1046,13 @@
   if (!forms.length) return;
 
   const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled']);
+
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 
   const fieldValue = (form, name) => {
     const node = form.querySelector(`[name="${name}"]`);
@@ -1081,6 +1091,100 @@
 
   const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
   const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
+
+  const titleCase = (value) => String(value || '')
+    .replaceAll('_', ' ')
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+
+  const propertyFitScoreLabel = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '';
+    const score = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
+    return `${score}/100`;
+  };
+
+  const learningSummaryRows = (summary) => {
+    const likes = Array.isArray(summary?.likes) ? summary.likes.slice(0, 4) : [];
+    const dislikes = Array.isArray(summary?.dislikes) ? summary.dislikes.slice(0, 4) : [];
+    const hardRules = Array.isArray(summary?.hard_rules) ? summary.hard_rules.slice(0, 3) : [];
+    const recentFeedback = Array.isArray(summary?.recent_feedback) ? summary.recent_feedback.slice(0, 4) : [];
+    const rows = [];
+    for (const entry of likes) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Learned positive preference from explicit filters or listing feedback.', tag: 'Learnt' });
+    }
+    for (const entry of dislikes) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Negative preference that should suppress future shortlist candidates.', tag: 'Avoid' });
+    }
+    for (const entry of hardRules) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Hard rule that should fail or demote mismatching listings.', tag: 'Rule' });
+    }
+    if (rows.length) return rows;
+    for (const entry of recentFeedback) {
+      const reasons = Array.isArray(entry?.reasons) ? entry.reasons.slice(0, 3).map((item) => String(item || '').trim()).filter(Boolean).join(', ') : '';
+      const note = String(entry?.note || '').trim();
+      const recordedAt = String(entry?.recorded_at || '').trim().slice(0, 10);
+      const detail = [reasons, note, recordedAt].filter(Boolean).join(' | ') || 'Structured feedback recorded.';
+      rows.push({
+        title: titleCase(entry?.reaction || 'feedback'),
+        detail,
+        tag: 'Feedback',
+      });
+    }
+    if (rows.length) return rows;
+    return [{
+      title: 'No learned preferences yet',
+      detail: 'Use the hosted review packets to record feedback. The learned likes, dislikes, and hard rules will surface here.',
+      tag: 'Waiting',
+    }];
+  };
+
+  const renderConsoleRows = (items) => {
+    const rows = Array.isArray(items) ? items : [];
+    return `<div class="console-list">${rows.map((item) => `
+      <div class="console-row">
+        <div>
+          <strong>${escapeHtml(item.title || item.label || 'Open item')}</strong>
+          <small>${escapeHtml(item.detail || 'Presented as part of the same daily loop.')}</small>
+        </div>
+        <div class="console-row-actions">
+          <div class="console-tag">${escapeHtml(item.tag || 'Open')}</div>
+        </div>
+      </div>`).join('')}</div>`;
+  };
+
+  const refreshLearningSummary = (form, learningSummary) => {
+    const stage = form.closest('.console-stage')?.parentElement || document;
+    const listNode = stage.querySelector('[data-property-learning-list]');
+    if (!listNode) return;
+    listNode.innerHTML = renderConsoleRows(learningSummaryRows(learningSummary || {}));
+  };
+
+  const applyUpdatedAssessment = (card, assessment) => {
+    if (!card || !assessment || typeof assessment !== 'object') return;
+    const tagNode = card.querySelector('[data-property-tag]');
+    const metaNode = card.querySelector('[data-property-fit-summary]');
+    const scoreLabel = propertyFitScoreLabel(assessment.fit_score);
+    const recommendation = titleCase(assessment.recommendation || assessment.predicted_reaction || 'candidate');
+    const matchReasons = Array.isArray(assessment.match_reasons_json) ? assessment.match_reasons_json : [];
+    const mismatchReasons = Array.isArray(assessment.mismatch_reasons_json) ? assessment.mismatch_reasons_json : [];
+    const primaryReason = String(matchReasons[0] || mismatchReasons[0] || '').trim();
+    if (tagNode && recommendation) {
+      tagNode.textContent = recommendation;
+    }
+    if (metaNode) {
+      const sourceLabel = String((metaNode.textContent || '').split('|')[0] || '').trim();
+      const parts = [];
+      if (sourceLabel) parts.push(sourceLabel);
+      if (scoreLabel) parts.push(`Personal fit ${scoreLabel}`);
+      if (recommendation) parts.push(recommendation);
+      if (primaryReason) parts.push(primaryReason);
+      metaNode.textContent = parts.join(' | ');
+    }
+  };
 
   const collectPayload = (form) => {
     const selectedPlatforms = selectedPlatformsForForm(form);
@@ -1388,7 +1492,9 @@
           });
           const body = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
-          statusNode.textContent = 'Saved. Reload the page to see the updated learning summary.';
+          refreshLearningSummary(form, body.learning_summary || {});
+          applyUpdatedAssessment(card, body.updated_assessment || {});
+          statusNode.textContent = 'Saved. Learning loop updated.';
         } catch (error) {
           statusNode.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
         }
