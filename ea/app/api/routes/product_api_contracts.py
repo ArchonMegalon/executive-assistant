@@ -1369,6 +1369,36 @@ class PropertySearchRunStartOut(PropertySearchRunStatusOut):
     pass
 
 
+class PropertyBillingCheckoutCreateIn(BaseModel):
+    plan_key: str = Field(min_length=1, max_length=40)
+
+
+class PropertyBillingCheckoutOut(BaseModel):
+    generated_at: str
+    plan_key: str
+    order_id: str
+    approve_url: str
+    status: str = ""
+    amount_eur: str = ""
+
+
+class PropertyBillingCaptureIn(BaseModel):
+    order_id: str = Field(min_length=1, max_length=80)
+    plan_key: str = Field(min_length=1, max_length=40)
+
+
+class PropertyBillingCaptureOut(BaseModel):
+    generated_at: str
+    order_id: str
+    plan_key: str
+    capture_id: str = ""
+    payment_status: str = ""
+    payer_email: str = ""
+    amount_eur: str = ""
+    active_until: str = ""
+    current_plan_key: str = "free"
+
+
 class GooglePhotosPickerSessionIn(BaseModel):
     account_email: str = ""
     binding_id: str = ""

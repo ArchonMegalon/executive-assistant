@@ -2614,7 +2614,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             </div>
             <div class="stack">
               <div class="kv"><b>Brand</b>{brand_html}</div>
-              <div class="kv"><b>Experience</b>Hosted on myexternalbrain.com</div>
+              <div class="kv"><b>Experience</b>Hosted on {html.escape(hostname or 'this domain')}</div>
             </div>
           </div>
           <div class="live-frame-wrap">

@@ -194,17 +194,31 @@ operator_curl() {
     return
   fi
   local operator_container=""
-  operator_container="$(resolve_api_container)"
-  if [[ -n "${operator_container}" ]] && docker exec "${operator_container}" /bin/sh -lc 'for i in 1 2 3; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
+  local attempt=0
+  while (( attempt < 30 )); do
+    operator_container="$(resolve_api_container)"
+    if [[ -n "${operator_container}" ]] && docker exec "${operator_container}" /bin/sh -lc 'for i in 1 2 3 4 5; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
+      local arg
+      local translated=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
+      for arg in "$@"; do
+        if [[ "${arg}" == "${BASE}"* ]]; then
+          arg="${arg/${BASE}/http://127.0.0.1:8090}"
+        fi
+        translated+=("$(printf '%q' "${arg}")")
+      done
+      docker exec "${operator_container}" /bin/sh -lc "curl -fsS ${translated[*]}"
+      return
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  if curl -fsS "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" "${BASE}/health" >/dev/null 2>&1; then
     local arg
-    local translated=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
+    local translated=("${AUTH_ARGS[@]}" -H "X-EA-Principal-ID: ${PRINCIPAL_ID}")
     for arg in "$@"; do
-      if [[ "${arg}" == "${BASE}"* ]]; then
-        arg="${arg/${BASE}/http://127.0.0.1:8090}"
-      fi
-      translated+=("$(printf '%q' "${arg}")")
+      translated+=("${arg}")
     done
-    docker exec "${operator_container}" /bin/sh -lc "curl -fsS ${translated[*]}"
+    curl -fsS "${translated[@]}"
     return
   fi
   echo "operator context unavailable for control-plane smoke calls" >&2

@@ -43,6 +43,7 @@ except Exception:  # pragma: no cover - optional OCR fallback
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
+from app.services.property_billing import enforce_property_plan_limits
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -103,6 +104,19 @@ from app.services.registration_email import (
     send_property_tour_email,
     send_workspace_access_email,
     send_workspace_invitation_email,
+)
+from app.services.property_market_catalog import (
+    default_platforms_for_country,
+    generated_source_specs as generated_property_source_specs,
+    is_known_property_platform,
+    normalize_country_code,
+    normalize_listing_mode,
+    normalize_property_platform,
+    normalize_property_search_preferences,
+    property_platform_keys,
+    property_provider_for_platform,
+    provider_host_markers,
+    provider_listing_markers_for_host,
 )
 from app.settings import resolve_signing_secret
 
@@ -214,33 +228,7 @@ _GOOGLE_LOCATION_PORTABILITY_RESOURCE = "myactivity.maps"
 _GOOGLE_LOCATION_PORTABILITY_AUTH_SCOPES = (_GOOGLE_LOCATION_PORTABILITY_SCOPE,)
 _GOOGLE_LOCATION_PORTABILITY_API_BASE = "https://dataportability.googleapis.com/v1"
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
-_PROPERTY_SCOUT_LISTING_HOSTS = (
-    "willhaben.at",
-    "immmo.at",
-    "kalandra.at",
-    "immoscout24.at",
-    "immoscout24.com",
-    "immobilienscout24.at",
-    "immobilienscout24.de",
-)
-_PROPERTY_SEARCH_PLATFORM_ALIASES = {
-    "willhaben": "willhaben",
-    "immmo": "immmo",
-    "immoscout24": "immoscout",
-    "immo24": "immoscout",
-    "immobilienscout": "immoscout",
-    "immobilienscout24": "immoscout",
-    "kalandra": "kalandra",
-    "w": "willhaben",
-    "willi": "willhaben",
-    "all": "all",
-}
-_PROPERTY_PLATFORM_HOST_MARKERS = {
-    "willhaben": ("willhaben.at",),
-    "immmo": ("immmo.at",),
-    "immoscout": ("immoscout24.at", "immoscout24.com", "immobilienscout24.at", "immobilienscout24.de", "immobilienscout24.com"),
-    "kalandra": ("kalandra.at",),
-}
+_PROPERTY_SCOUT_LISTING_HOSTS = provider_host_markers()
 _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "360.kalandra.at",
     "matterport.com",
@@ -255,15 +243,11 @@ _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
 
 
 def _property_search_platform_aliases() -> tuple[str, ...]:
-    return tuple({
-        platform for platform in dict.fromkeys(_PROPERTY_SEARCH_PLATFORM_ALIASES.values())
-        if platform and platform != "all"
-    })
+    return tuple(property_platform_keys())
 
 
 def _is_known_property_search_platform(platform: str) -> bool:
-    normalized = _normalize_property_search_platform(platform)
-    return normalized in _property_search_platform_aliases()
+    return is_known_property_platform(platform)
 
 
 def _normalize_property_search_platform_inputs(value: object) -> tuple[str, ...]:
@@ -286,6 +270,16 @@ def _normalize_property_search_platform_inputs(value: object) -> tuple[str, ...]
     if any(item == "all" for item in normalized):
         return ("all",)
     return tuple(normalized)
+
+
+def _property_search_pref_value_missing(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, set, dict)):
+        return len(value) == 0
+    return False
 
 
 def _property_search_run_expired(at_iso: str, *, ttl_seconds: int = _PROPERTY_SEARCH_RUN_TTL_SECONDS) -> bool:
@@ -370,23 +364,15 @@ def _property_alert_gmail_query() -> str:
 
 
 def _normalize_property_search_platform(value: str) -> str:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return ""
-    normalized = re.sub(r"[^a-z0-9]+", "", raw)
-    if not normalized:
-        return ""
-    return _PROPERTY_SEARCH_PLATFORM_ALIASES.get(normalized, normalized)
+    return normalize_property_platform(value)
 
 
 def _property_scout_platform_from_url(url: str) -> str:
     parsed = urllib.parse.urlparse(urllib.parse.urldefrag(str(url or "").strip())[0])
     host = str(parsed.netloc or "").lower()
-    for platform, markers in _PROPERTY_PLATFORM_HOST_MARKERS.items():
-        if any(marker in host for marker in markers):
-            return platform
-    for platform in dict.fromkeys(_PROPERTY_SEARCH_PLATFORM_ALIASES.values()):
-        if platform and platform in host:
+    for platform in property_platform_keys():
+        provider = property_provider_for_platform(platform)
+        if provider is not None and any(marker in host for marker in provider.host_markers):
             return platform
     return ""
 
@@ -431,6 +417,42 @@ def _property_scout_source_specs() -> tuple[dict[str, object], ...]:
             }
         )
     return tuple(specs)
+
+
+def _merged_property_scout_source_specs(
+    *,
+    preferences: dict[str, object] | None,
+    selected_platforms: tuple[str, ...],
+    principal_id: str,
+    max_results_per_source: int | None,
+    default_person_id: str,
+) -> tuple[dict[str, object], ...]:
+    raw_preferences = dict(preferences or {})
+    configured = _property_scout_source_specs()
+    should_prefer_configured_only = bool(configured) and not selected_platforms and not any(
+        str(raw_preferences.get(key) or "").strip()
+        for key in ("country_code", "location_query", "keywords", "listing_mode", "property_type")
+    )
+    if should_prefer_configured_only:
+        generated: tuple[dict[str, object], ...] = ()
+    else:
+        generated = generated_property_source_specs(
+        preferences=preferences,
+        selected_platforms=selected_platforms,
+        principal_id=principal_id,
+        default_person_id=default_person_id,
+        max_results=max_results_per_source,
+    )
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in (*generated, *configured):
+        row = dict(item or {})
+        url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        rows.append(row)
+    return tuple(rows)
 
 
 def _property_alert_preference_person_id(payload: dict[str, object] | None = None) -> str:
@@ -482,10 +504,7 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
         return "/iad/immobilien/d/" in path or (path == "/iad/object" and bool(query.get("adId") or query.get("adid")))
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
-    return any(
-        marker in path
-        for marker in ("/expose/", "/objekt/", "/immobilien/", "/detail/", "/d/", "/angebote/")
-    )
+    return any(marker in path for marker in provider_listing_markers_for_host(host))
 
 
 def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
@@ -502,6 +521,21 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
         urllib.parse.urljoin(source_url, match.group(1).strip())
         for match in re.finditer(r"""href=["']([^"']+)["']""", normalized_html, re.IGNORECASE)
     )
+    parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
+    path_markers = provider_listing_markers_for_host(parsed_source.netloc.lower())
+    if path_markers:
+        escaped_markers = sorted((re.escape(marker) for marker in path_markers if str(marker or "").strip()), key=len, reverse=True)
+        if escaped_markers:
+            path_pattern = re.compile(
+                r'((?:https?:)?//[^"\']+|(?:'
+                + "|".join(escaped_markers)
+                + r')[^"\'\s<>{}]*)',
+                re.IGNORECASE,
+            )
+            raw_urls.extend(
+                urllib.parse.urljoin(source_url, str(match.group(1) or "").strip())
+                for match in path_pattern.finditer(normalized_html)
+            )
     for raw_url in raw_urls:
         normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
         if not normalized or normalized in seen:
@@ -3031,6 +3065,7 @@ def _property_alert_review_telegram_text(
     candidate_properties: tuple[dict[str, object], ...] = (),
     score_override: float | None = None,
     tour_url: str = "",
+    review_url: str = "",
     preference_person_id: str = "",
 ) -> str:
     top_listing_title = ""
@@ -3068,7 +3103,7 @@ def _property_alert_review_telegram_text(
             extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
         if top_summary:
             extra_lines.append(f"Top candidate: {top_summary}")
-        if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip():
+        if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip() and not str(review_url or "").strip():
             extra_lines.append(f"Top listing: {top_url}")
         top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
         next_action = _property_alert_next_action_text(top_assessment, property_url=top_url)
@@ -3085,8 +3120,18 @@ def _property_alert_review_telegram_text(
     extra_lines.append("EA queued a property review and can score it, compare it, generate a tour, or ignore it.")
     if str(preference_person_id or "").strip() and str(preference_person_id or "").strip() != "self":
         extra_lines.append(f"Preference profile: {str(preference_person_id or '').strip()}")
-    visible_property_url = str(tour_url or "").strip() or str(property_url or "").strip()
-    visible_property_label = "3D tour" if str(tour_url or "").strip() else "Listing"
+    visible_property_url = (
+        str(tour_url or "").strip()
+        or str(review_url or "").strip()
+        or str(property_url or "").strip()
+    )
+    visible_property_label = (
+        "3D tour"
+        if str(tour_url or "").strip()
+        else "Review"
+        if str(review_url or "").strip()
+        else "Listing"
+    )
     return _property_scout_brief_text(
         title=headline,
         property_url=visible_property_url,
@@ -4687,6 +4732,8 @@ def _willhaben_packet_panorama_source(packet: dict[str, object]) -> str:
 def _configured_public_tour_hosts() -> tuple[str, ...]:
     hosts: list[str] = []
     for raw in (
+        str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip(),
+        str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip(),
         str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip(),
         str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip(),
     ):
@@ -4697,6 +4744,22 @@ def _configured_public_tour_hosts() -> tuple[str, ...]:
         if host and host not in hosts:
             hosts.append(host)
     return tuple(hosts)
+
+
+def _public_app_base_url() -> str:
+    return str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://myexternalbrain.com").strip().rstrip("/")
+
+
+def _property_public_app_base_url() -> str:
+    return str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or _public_app_base_url()).strip().rstrip("/")
+
+
+def _property_public_tour_base_url() -> str:
+    return str(
+        os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL")
+        or os.getenv("EA_PUBLIC_TOUR_BASE_URL")
+        or f"{_property_public_app_base_url()}/tours"
+    ).strip().rstrip("/")
 
 
 def _is_crezlo_tour_host(value: object) -> bool:
@@ -4719,7 +4782,7 @@ def _is_branded_public_tour_url(value: object) -> bool:
     configured_hosts = _configured_public_tour_hosts()
     if configured_hosts:
         return host in configured_hosts
-    if host.endswith("myexternalbrain.com") and "/tours/" in normalized:
+    if (host.endswith("myexternalbrain.com") or host.endswith("propertyquarry.com")) and "/tours/" in normalized:
         return not _is_crezlo_tour_host(normalized)
     return False
 
@@ -4801,7 +4864,7 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     slug = str(structured_output.get("slug") or "").strip()
     if not slug:
         return ""
-    base_url = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
+    base_url = _property_public_tour_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
     bundle_manifest = public_dir / slug / "tour.json"
@@ -4897,7 +4960,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     parsed_live = urllib.parse.urlparse(live_url)
     if "360.kalandra.at" not in parsed_live.netloc.lower() and "feelestate" not in parsed_live.netloc.lower():
         raise RuntimeError("pure_360_source_unsupported")
-    base_url = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
+    base_url = _property_public_tour_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
     bundle_dir = public_dir / slug
@@ -9763,7 +9826,40 @@ class ProductService:
         return None
 
     def _handoff_from_human_task(self, task: HumanTask) -> HandoffNote:
-        return handoff_from_human_task(task)
+        handoff = handoff_from_human_task(task)
+        if str(handoff.task_type or "").strip() == "property_alert_review" and not str(handoff.editor_url or "").strip():
+            return replace(handoff, editor_url=f"/app/handoffs/{handoff.id}")
+        return handoff
+
+    def _property_alert_review_access_url(
+        self,
+        *,
+        principal_id: str,
+        handoff_ref: str,
+    ) -> str:
+        target_path = str(handoff_ref or "").strip()
+        if not target_path:
+            return ""
+        if not target_path.startswith("/"):
+            target_path = f"/app/handoffs/{target_path}"
+        principal_email = _principal_email_hint(principal_id)
+        if not principal_email:
+            return ""
+        session = self.issue_workspace_access_session(
+            principal_id=principal_id,
+            email=principal_email,
+            role="principal",
+            display_name=_display_name_from_email(principal_email),
+            source_kind="property_alert_review_telegram",
+            expires_in_hours=72,
+            default_target=target_path,
+        )
+        access_url = str(session.get("access_url") or "").strip()
+        if not access_url:
+            return ""
+        absolute_access_url = urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+        separator = "&" if "?" in absolute_access_url else "?"
+        return f"{absolute_access_url}{separator}return_to={urllib.parse.quote(target_path, safe='/?:=&')}"
 
     def _provider_summary(self, registry: dict[str, object]) -> dict[str, object]:
         provider_rows = [dict(row) for row in (registry.get("providers") or []) if isinstance(row, dict)]
@@ -10463,7 +10559,7 @@ class ProductService:
         )
         if existing is not None:
             existing_input = dict(getattr(existing, "input_json", {}) or {})
-            return {
+            payload = {
                 "status": "existing",
                 "human_task_id": f"human_task:{existing.human_task_id}",
                 "queue_item_ref": f"human_task:{existing.human_task_id}",
@@ -10475,6 +10571,13 @@ class ProductService:
                 "willhaben_fit_score": float(existing_input.get("willhaben_fit_score") or 0.0),
                 "personal_fit_rank": str(existing_input.get("personal_fit_rank") or "").strip(),
             }
+            review_url = self._property_alert_review_access_url(
+                principal_id=principal_id,
+                handoff_ref=payload["human_task_id"],
+            )
+            if review_url:
+                payload["editor_url"] = review_url
+            return payload
         normalized_tour_url = str(tour_url or "").strip()
         session_id = self._start_product_review_session(
             principal_id=principal_id,
@@ -10526,6 +10629,12 @@ class ProductService:
             "personal_fit_rank": str(personal_fit_assessment.get("recommendation") or "").strip() if isinstance(personal_fit_assessment, dict) else "",
             "tour_url": normalized_tour_url,
         }
+        review_url = self._property_alert_review_access_url(
+            principal_id=principal_id,
+            handoff_ref=payload["human_task_id"],
+        )
+        if review_url:
+            payload["editor_url"] = review_url
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_alert_review_created",
@@ -10597,12 +10706,13 @@ class ProductService:
                         property_url=property_url,
                         personal_fit_assessment=personal_fit_assessment,
                         candidate_properties=candidate_properties,
-                        score_override=fit_score,
-                        tour_url=normalized_tour_url,
-                        preference_person_id=preference_person_id,
-                    ),
-                    inline_buttons=list(feedback_prompt.get("button_rows") or []),
-                )
+                score_override=fit_score,
+                tour_url=normalized_tour_url,
+                review_url=review_url,
+                preference_person_id=preference_person_id,
+            ),
+            inline_buttons=list(feedback_prompt.get("button_rows") or []),
+        )
                 payload["telegram_delivery_status"] = "sent"
                 payload["telegram_message_ids"] = list(telegram_receipt.message_ids)
                 payload["telegram_chat_ref"] = str(telegram_receipt.chat_id or "").strip()
@@ -12949,11 +13059,15 @@ class ProductService:
         merged_preferences = dict(property_preferences or {})
         try:
             onboarding_state = self._container.onboarding.status(principal_id=principal_id)
-            onboarding_preferences = dict(onboarding_state.get("property_search_preferences") or {})
+            onboarding_preferences_payload = dict(onboarding_state.get("property_search_preferences") or {})
+            onboarding_preferences = dict(onboarding_preferences_payload.get("raw_preferences") or onboarding_preferences_payload)
             for key, value in onboarding_preferences.items():
-                merged_preferences.setdefault(key, value)
+                if key not in merged_preferences or _property_search_pref_value_missing(merged_preferences.get(key)):
+                    merged_preferences[key] = value
         except Exception:
             onboarding_preferences = {}
+
+        merged_preferences = normalize_property_search_preferences(merged_preferences)
 
         explicit_platform_input = bool(selected_platforms)
         normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
@@ -12962,9 +13076,11 @@ class ProductService:
         if not normalized_platforms and not explicit_platform_input:
             normalized_platforms = _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms"))
             if not normalized_platforms:
-                normalized_platforms = ()
+                normalized_platforms = tuple(default_platforms_for_country(merged_preferences.get("country_code")))
 
         merged_preferences["selected_platforms"] = list(normalized_platforms)
+        merged_preferences["country_code"] = normalize_country_code(merged_preferences.get("country_code"))
+        merged_preferences["listing_mode"] = normalize_listing_mode(merged_preferences.get("listing_mode"))
         merged_preferences["preference_person_id"] = str(
             merged_preferences.get("preference_person_id")
             or os.getenv("EA_PROPERTY_ALERT_DEFAULT_PERSON_ID")
@@ -13009,6 +13125,11 @@ class ProductService:
             property_preferences=property_search_preferences,
             max_results_per_source=max_results_per_source,
             force_refresh=force_refresh,
+        )
+        enforce_property_plan_limits(
+            property_preferences=run_preferences,
+            selected_platforms=run_platforms,
+            max_results_per_source=run_max_results,
         )
         run_id = uuid4().hex
         with _PROPERTY_SEARCH_RUN_LOCK:
@@ -13162,7 +13283,13 @@ class ProductService:
 
         specs = [
             dict(spec)
-            for spec in _property_scout_source_specs()
+            for spec in _merged_property_scout_source_specs(
+                preferences=request_preferences,
+                selected_platforms=run_platforms,
+                principal_id=principal_id,
+                max_results_per_source=resolved_max_results,
+                default_person_id=preference_person_id,
+            )
             if (not str(spec.get("principal_id") or "").strip()
                 or str(spec.get("principal_id") or "").strip() == str(principal_id or "").strip())
             and (not run_platforms or "all" in run_platforms or str(spec.get("platform") or "").strip() in run_platforms)
@@ -13344,6 +13471,8 @@ class ProductService:
                 else:
                     existing_for_source += 1
                     review_existing_total += 1
+                if top_watch_candidate is not None and str(top_watch_candidate.get("source_ref") or "").strip() == source_ref:
+                    top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
 
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
                 if is_good_fit:
@@ -13375,6 +13504,7 @@ class ProductService:
                         assessment=assessment,
                         fit_score=fit_score,
                         preference_person_id=source_preference_person_id,
+                        review_url=str(opened.get("editor_url") or "").strip(),
                         tour_result=tour_result,
                         candidate_properties=candidate_properties,
                     )
@@ -13400,6 +13530,7 @@ class ProductService:
                     assessment=dict(top_watch_candidate.get("assessment") or {}),
                     fit_score=float(top_watch_candidate.get("fit_score") or 0.0),
                     preference_person_id=source_preference_person_id,
+                    review_url=str(top_watch_candidate.get("review_url") or "").strip(),
                     tour_result={"status": "skipped", "tour_url": "", "blocked_reason": ""},
                     candidate_properties=candidate_properties,
                 )
@@ -15531,6 +15662,7 @@ class ProductService:
         assessment: dict[str, object] | None,
         fit_score: float,
         preference_person_id: str,
+        review_url: str = "",
         tour_result: dict[str, object] | None = None,
         candidate_properties: tuple[dict[str, object], ...] = (),
     ) -> dict[str, object]:
@@ -15544,6 +15676,7 @@ class ProductService:
             return {"status": "suppressed", "reason": "already_notified_today"}
         tour_payload = dict(tour_result or {})
         tour_url = str(tour_payload.get("tour_url") or "").strip()
+        review_url = str(review_url or "").strip()
         blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
         feedback_raw_signal = {
             "title": str(title or "").strip(),
@@ -15597,6 +15730,7 @@ class ProductService:
                     candidate_properties=candidate_properties,
                     score_override=float(fit_score or 0.0),
                     tour_url=tour_url,
+                    review_url=review_url,
                     preference_person_id=preference_person_id,
                 ),
                 inline_buttons=list(feedback_prompt.get("button_rows") or []),

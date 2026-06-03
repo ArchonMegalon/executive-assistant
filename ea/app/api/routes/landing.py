@@ -48,6 +48,22 @@ from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
+from app.services.property_billing import paypal_configured, property_commercial_snapshot
+from app.services.property_market_catalog import (
+    country_label as property_country_label,
+    country_options as property_country_options,
+    default_platforms_for_country,
+    language_label as property_language_label,
+    language_options as property_language_options,
+    listing_mode_label as property_listing_mode_label,
+    listing_mode_options as property_listing_mode_options,
+    normalize_country_code,
+    normalize_property_search_preferences,
+    property_type_label as property_type_label_for_value,
+    property_type_options as property_type_options_catalog,
+    provider_options as property_provider_options,
+)
+from app.services.public_branding import request_brand
 from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
 from app.services.registration_email import email_delivery_enabled
 
@@ -261,12 +277,14 @@ def _public_context(
     access_identity: CloudflareAccessIdentity | None,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    brand = request_brand(request)
     workspace = dict(status.get("workspace") or {})
     channels = dict(status.get("channels") or {})
     preview = dict(status.get("brief_preview") or {})
     selected_channels = [str(row) for row in (status.get("selected_channels") or []) if str(row).strip()]
     context: dict[str, object] = {
         "page_title": page_title,
+        "brand": brand,
         "public_nav": PUBLIC_NAV,
         "current_nav": current_nav,
         "access_identity": access_identity,
@@ -330,8 +348,10 @@ def _console_shell_context(
     stats: list[dict[str, str]],
     console_form: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    brand = request_brand(request)
     return {
         "page_title": page_title,
+        "brand": brand,
         "current_nav": current_nav,
         "nav_groups": nav_groups,
         "console_title": console_title,
@@ -349,6 +369,7 @@ def _console_shell_context(
 
 def _render_public_template(request: Request, template_name: str, **context: Any) -> HTMLResponse:
     context.setdefault("request", request)
+    context.setdefault("brand", request_brand(request))
     response = templates.TemplateResponse(request, template_name, context)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
@@ -432,12 +453,7 @@ def _app_live_feed(container: AppContainer, *, principal_id: str) -> dict[str, o
 
 
 def _property_search_platform_catalog() -> tuple[dict[str, str], ...]:
-    return (
-        {"value": "willhaben", "label": "Willhaben"},
-        {"value": "kalandra", "label": "Kalandra"},
-        {"value": "immmo", "label": "immmo"},
-        {"value": "immoscout", "label": "ImmoScout"},
-    )
+    return tuple(property_provider_options(country_code="AT"))
 
 
 def _property_console_context(
@@ -448,12 +464,18 @@ def _property_console_context(
     run_id: str = "",
 ) -> dict[str, object]:
     product = build_product_service(container)
-    preferences = dict(status.get("property_search_preferences") or {})
+    raw_property_preferences = dict(status.get("property_search_preferences") or {})
+    preferences = normalize_property_search_preferences(dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences))
+    selected_country = normalize_country_code(preferences.get("country_code"))
+    commercial = property_commercial_snapshot(preferences)
     selected_platforms = {
         str(value or "").strip().lower()
         for value in (preferences.get("selected_platforms") or [])
         if str(value or "").strip()
     }
+    if not selected_platforms:
+        selected_platforms = set(default_platforms_for_country(selected_country))
+    country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
     if normalized_run_id:
@@ -475,6 +497,7 @@ def _property_console_context(
             if task_type not in {"property_tour_followup", "property_alert_review"}:
                 continue
             hosted_url = str(getattr(handoff, "tour_url", "") or "").strip()
+            review_url = str(getattr(handoff, "editor_url", "") or "").strip()
             title = str(getattr(handoff, "summary", "") or "").strip() or str(getattr(handoff, "id", "") or "").strip() or "Property match"
             detail_parts = [
                 str(getattr(handoff, "delivery_reason", "") or "").strip(),
@@ -491,6 +514,10 @@ def _property_console_context(
                 row["action_href"] = hosted_url
                 row["action_method"] = "get"
                 row["action_label"] = "Open hosted page"
+            elif review_url:
+                row["action_href"] = review_url
+                row["action_method"] = "get"
+                row["action_label"] = "Open review"
             recent_matches.append(row)
             if len(recent_matches) >= 6:
                 break
@@ -498,13 +525,29 @@ def _property_console_context(
         recent_matches = []
 
     return {
-        "platform_options": [dict(option) for option in _property_search_platform_catalog()],
+        "platform_options": country_provider_options,
+        "platform_catalog_by_country": {
+            str(option.get("value") or "").strip(): property_provider_options(country_code=str(option.get("value") or "").strip())
+            for option in property_country_options()
+        },
+        "country_options": property_country_options(),
+        "language_options": property_language_options(),
+        "listing_mode_options": property_listing_mode_options(),
+        "property_type_options": property_type_options_catalog(),
+        "country_label": property_country_label(selected_country),
+        "language_label": property_language_label(preferences.get("language_code"), country_code=selected_country),
+        "listing_mode_label": property_listing_mode_label(preferences.get("listing_mode")),
+        "property_type_label": property_type_label_for_value(preferences.get("property_type")),
+        "provider_total_for_country": len(country_provider_options),
         "preferences": preferences,
         "selected_platforms": list(selected_platforms),
         "run": run_payload,
         "recent_matches": recent_matches,
         "start_endpoint": "/app/api/signals/property/search/run",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
+        "commercial": commercial,
+        "paypal_checkout_enabled": paypal_configured(),
+        "paypal_order_endpoint": "/app/api/signals/property/billing/paypal/order",
     }
 
 
@@ -515,13 +558,14 @@ def landing(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
+    brand = request_brand(request)
     return _render_public_template(
         request,
-        "marketing_home.html",
+        "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "marketing_home.html",
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="Executive Assistant",
+            page_title=brand["name"],
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -724,7 +768,7 @@ def sign_in_page(
         **_public_context(
             request=request,
             current_nav="sign-in",
-            page_title="Sign in to Executive Assistant",
+            page_title=f"Sign in to {request_brand(request)['name']}",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -817,7 +861,7 @@ def register_page(
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="Start your workspace",
+            page_title="Create your property workspace" if request_brand(request)["key"] == "propertyquarry" else "Start your workspace",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -1214,7 +1258,7 @@ def app_shell(
             "console_shell.html",
             **_console_shell_context(
                 request=request,
-                page_title="Executive Assistant Inline Loop",
+                page_title=f"{request_brand(request)['name']} Inline Loop",
                 current_nav="today",
                 context=context,
                 console_title=str(pack.get("headline") or "Inline loop"),
@@ -1309,7 +1353,7 @@ def app_shell(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title=f"Executive Assistant {payload['title']}",
+            page_title=f"{request_brand(request)['name']} {payload['title']}",
             current_nav=current_nav,
             context=context,
             console_title=str(payload["title"]),
@@ -1353,7 +1397,7 @@ def admin_shell(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title=f"Executive Assistant Admin {payload['title']}",
+            page_title=f"{request_brand(request)['name']} Admin {payload['title']}",
             current_nav=section,
             context=context,
             console_title=str(payload["title"]),

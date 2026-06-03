@@ -64,6 +64,18 @@ fi
 PRINCIPAL_ID="${EA_PRINCIPAL_ID:-exec-1}"
 MISMATCH_PRINCIPAL_ID="${EA_MISMATCH_PRINCIPAL_ID:-exec-2}"
 PRINCIPAL_ARGS=(-H "X-EA-Principal-ID: ${PRINCIPAL_ID}")
+
+reset_rewrite_contract() {
+  curl -fsS -X POST "${BASE}/v1/tasks/contracts" "${AUTH_ARGS[@]}" -H 'content-type: application/json' \
+    -d '{"task_key":"rewrite_text","deliverable_type":"rewrite_note","default_risk_class":"low","default_approval_class":"none","allowed_tools":["artifact_repository"],"evidence_requirements":["stakeholder_context"],"memory_write_policy":"reviewed_only","budget_policy_json":{"class":"low"}}' >/dev/null
+}
+
+cleanup_smoke_contract_state() {
+  reset_rewrite_contract || true
+}
+
+trap cleanup_smoke_contract_state EXIT
+
 APPROVAL_THRESHOLD_CHARS="${EA_APPROVAL_THRESHOLD_CHARS:-}"
 if [[ -z "${APPROVAL_THRESHOLD_CHARS}" && -f "${EA_ROOT}/.env" ]]; then
   APPROVAL_THRESHOLD_CHARS="$(grep -E '^EA_APPROVAL_THRESHOLD_CHARS=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
@@ -91,6 +103,7 @@ fi
 echo "openapi ok"
 
 echo "== smoke: rewrite =="
+reset_rewrite_contract
 REWRITE_JSON="$(curl -fsS -X POST "${BASE}/v1/rewrite/artifact" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"text":"smoke run"}')"
 echo "${REWRITE_JSON}"
 ARTIFACT_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("artifact_id",""))' <<<"${REWRITE_JSON}")"
@@ -1812,9 +1825,9 @@ if [[ "${BROWSERACT_INVENTORY_SESSION_FIELDS}" != "browseract_ltd_inventory_refr
   fail 12 "policy contract mismatch"
 fi
 TMP_LTD_MD="$(mktemp /tmp/tibor_ea_ltds_smoke.XXXXXX.md)"
-cp LTDs.md "${TMP_LTD_MD}"
+cp "${EA_ROOT}/LTDs.md" "${TMP_LTD_MD}"
 TMP_LTD_JSON="$(mktemp /tmp/tibor_ea_ltd_inventory.XXXXXX.json)"
-bash scripts/refresh_ltds_via_api.sh \
+bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh" \
   --host "${BASE}" \
   --api-token "${EA_API_TOKEN:-}" \
   --principal-id "${PRINCIPAL_ID}" \

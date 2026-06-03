@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import zipfile
 from datetime import timedelta
 from pathlib import Path
@@ -8,7 +9,10 @@ from types import SimpleNamespace
 from urllib.parse import urlparse
 from uuid import uuid4
 
+import pytest
+
 import app.api.routes.channels as channel_routes
+import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
@@ -642,6 +646,65 @@ def test_signal_ingest_property_alert_sends_telegram_review_summary(monkeypatch)
     assert observed_telegram["inline_buttons"]
 
 
+def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_principal(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Alert Telegram Office")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id=principal_id,
+        connector_name="telegram_identity",
+        external_account_ref="1354554303",
+        auth_metadata_json={"default_chat_ref": "1354554303", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-test")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+
+    observed_telegram: dict[str, object] = {}
+
+    class _TelegramReceipt:
+        chat_id = "1354554303"
+        message_ids = ("778",)
+
+    monkeypatch.setattr(
+        product_service,
+        "send_telegram_message_for_principal",
+        lambda tool_runtime, *, principal_id, text, inline_buttons=None: observed_telegram.update(
+            {"principal_id": principal_id, "text": text, "inline_buttons": inline_buttons}
+        ) or _TelegramReceipt(),
+    )
+
+    signal = client.post(
+        "/app/api/signals/ingest",
+        json={
+            "signal_type": "email_thread",
+            "channel": "gmail",
+            "title": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "summary": "1 neue Anzeige für Wohnungen mieten in Wien 2/20",
+            "text": "https://www.immobilienscout24.at/expose/telegram-test-property-2",
+            "counterparty": "IMMMO",
+            "source_ref": "gmail-thread:elisabeth.girschele@gmail.com:test-telegram-property-alert-2",
+            "external_id": "gmail-message:elisabeth.girschele@gmail.com:test-telegram-property-alert-2",
+            "payload": {
+                "from_email": "mailrobot@immmo.at",
+                "from_name": "IMMMO",
+                "account_email": "elisabeth.girschele@gmail.com",
+                "labels": ["CATEGORY_UPDATES", "INBOX"],
+            },
+        },
+    )
+    assert signal.status_code == 200
+    assert observed_telegram["principal_id"] == principal_id
+    assert "Review: https://myexternalbrain.com/workspace-access/" in str(observed_telegram["text"])
+    assert "Listing: https://www.immobilienscout24.at/expose/telegram-test-property-2" not in str(observed_telegram["text"])
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    property_handoff = next(item for item in handoffs.json() if item["task_type"] == "property_alert_review")
+    assert property_handoff["editor_url"].startswith("/app/handoffs/human_task:")
+
+
 def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority(monkeypatch) -> None:
     principal_id = "exec-product-signal-property-fit-priority"
     client = build_product_client(principal_id=principal_id)
@@ -891,6 +954,45 @@ def test_property_alert_email_url_extraction_skips_willhaben_campaign_links() ->
         "https://www.willhaben.at/iad/object?adId=1491222816&searchAgentQueryString=1",
     )
     assert first == "https://www.willhaben.at/iad/object?adId=2021345821&searchAgentQueryString=1"
+
+
+def test_property_scout_extract_listing_urls_reads_script_paths_for_js_heavy_search_pages() -> None:
+    html = """
+    <script type="application/json">
+      {"items":[{"url":"/for-sale/details/12345678/"},{"url":"/for-sale/details/87654321/"}]}
+    </script>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.zoopla.co.uk/for-sale/property/london/",
+        html=html,
+    )
+
+    assert urls == (
+        "https://www.zoopla.co.uk/for-sale/details/12345678/",
+        "https://www.zoopla.co.uk/for-sale/details/87654321/",
+    )
+
+
+def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
+    monkeypatch_json = json.dumps(
+        [
+            {
+                "url": "https://www.zoopla.co.uk/for-sale/property/london/",
+            }
+        ]
+    )
+    previous = os.environ.get("EA_PROPERTY_SCOUT_URLS_JSON")
+    os.environ["EA_PROPERTY_SCOUT_URLS_JSON"] = monkeypatch_json
+    try:
+        specs = product_service._property_scout_source_specs()
+    finally:
+        if previous is None:
+            os.environ.pop("EA_PROPERTY_SCOUT_URLS_JSON", None)
+        else:
+            os.environ["EA_PROPERTY_SCOUT_URLS_JSON"] = previous
+
+    assert specs[0]["platform"] == "zoopla"
 
 
 def test_property_scout_route_uses_explicit_preference_person_and_creates_reviews(monkeypatch) -> None:
@@ -1224,6 +1326,58 @@ def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatc
     assert body["notified_total"] == 1
     assert body["sources"][0]["watch_notified_total"] == 1
     assert "Personal fit 37/100" in str(observed_telegram["text"])
+    assert "Review: https://myexternalbrain.com/workspace-access/" in str(observed_telegram["text"])
+    assert f"Listing: {listing_url}" not in str(observed_telegram["text"])
+
+
+def test_property_alert_review_handoff_page_renders_research_packet() -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Review Packet Office")
+    product = ProductService(client.app.state.container)
+    result = product._open_property_alert_review(
+        principal_id=principal_id,
+        title="Watch fit apartment",
+        summary="Lift unclear, but floor plan and good transit look promising.",
+        source_ref="property-scout:watch-fit-1",
+        external_id="https://www.immobilienscout24.at/expose/watch-fit-1",
+        counterparty="IMMMO Wien rentals",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
+        actor="test",
+        notify_telegram=False,
+        candidate_properties=(
+            {
+                "property_url": "https://www.immobilienscout24.at/expose/watch-fit-1",
+                "listing_title": "Watch fit apartment",
+                "fit_summary": "Personal fit 91/100 · shortlist",
+                "assessment": {
+                    "fit_score": 91.0,
+                    "recommendation": "shortlist",
+                },
+            },
+        ),
+        personal_fit_assessment={
+            "fit_score": 91.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Good U-Bahn access.", "Floor plan is available."],
+            "mismatch_reasons_json": ["Lift not confirmed."],
+            "unknowns_json": ["Heating type needs research."],
+            "blocking_constraints_json": [],
+        },
+        preference_person_id="elisabeth",
+        tour_url="https://myexternalbrain.com/tours/watch-fit-1",
+    )
+
+    page = client.get(f"/app/handoffs/{result['human_task_id']}")
+    assert page.status_code == 200
+    assert "Property research, fit reasoning, and review actions for this alert." in page.text
+    assert "Watch fit apartment" in page.text
+    assert "Good U-Bahn access." in page.text
+    assert "Lift not confirmed." in page.text
+    assert "Heating type needs research." in page.text
+    assert "https://myexternalbrain.com/tours/watch-fit-1" in page.text
+    assert "https://www.immobilienscout24.at/expose/watch-fit-1" in page.text
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:
@@ -2764,6 +2918,32 @@ def test_property_alert_review_telegram_text_prefers_internal_tour_link() -> Non
     )
 
     assert "3D tour: https://myexternalbrain.com/tours/watch-fit-1" in text
+    assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
+    assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
+
+
+def test_property_alert_review_telegram_text_prefers_review_link_over_listing() -> None:
+    text = product_service._property_alert_review_telegram_text(
+        title="Watch fit apartment",
+        summary="Recent scout hit.",
+        counterparty="IMMMO",
+        account_email="elisabeth.girschele@gmail.com",
+        property_url="https://www.immobilienscout24.at/expose/watch-fit-1",
+        personal_fit_assessment={"fit_score": 91.0, "recommendation": "shortlist"},
+        candidate_properties=(
+            {
+                "property_url": "https://www.immobilienscout24.at/expose/watch-fit-1",
+                "listing_title": "Watch fit apartment",
+                "fit_score": 91.0,
+                "recommendation": "shortlist",
+                "fit_summary": "Personal fit 91/100 · shortlist",
+                "assessment": {"fit_score": 91.0, "recommendation": "shortlist"},
+            },
+        ),
+        review_url="https://myexternalbrain.com/workspace-access/test-token?return_to=%2Fapp%2Fhandoffs%2Fhuman_task%3Atest-1",
+    )
+
+    assert "Review: https://myexternalbrain.com/workspace-access/test-token" in text
     assert "Listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
     assert "Top listing: https://www.immobilienscout24.at/expose/watch-fit-1" not in text
 
@@ -11548,3 +11728,86 @@ def test_workspace_session_cookie_secure_for_proxy_protocol_chain(
     nonsecure_cookie = str(opened_nonsecure.headers.get("set-cookie") or "")
     assert "ea_workspace_session=" in nonsecure_cookie
     assert "Secure" not in nonsecure_cookie
+
+
+def test_property_search_run_blocks_free_plan_when_limits_exceed_free_tier() -> None:
+    principal_id = "exec-property-free-gate"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Free Gate Office")
+
+    response = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "selected_platforms": ["willhaben", "kalandra"],
+            "property_preferences": {"preference_person_id": "self"},
+            "max_results_per_source": 4,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["details"] == "property_plan_upgrade_required:plus"
+
+
+def test_property_paypal_checkout_and_capture_updates_property_commercial_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-paypal"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.setattr(product_api_delivery_routes, "paypal_configured", lambda: True)
+    monkeypatch.setattr(
+        product_api_delivery_routes,
+        "create_paypal_property_order",
+        lambda **_: {
+            "order_id": "ORDER-123",
+            "approve_url": "https://paypal.example/approve/ORDER-123",
+            "status": "created",
+            "plan_key": "plus",
+            "amount_eur": "29.00",
+        },
+    )
+    monkeypatch.setattr(
+        product_api_delivery_routes,
+        "capture_paypal_property_order",
+        lambda **_: {
+            "order_id": "ORDER-123",
+            "capture_id": "CAPTURE-123",
+            "payment_status": "completed",
+            "payer_email": "buyer@example.com",
+            "amount_eur": "29.00",
+        },
+    )
+
+    created = client.post(
+        "/app/api/signals/property/billing/paypal/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    created_body = created.json()
+    assert created_body["order_id"] == "ORDER-123"
+    assert created_body["approve_url"] == "https://paypal.example/approve/ORDER-123"
+
+    status_after_order = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_order.status_code == 200
+    pending = status_after_order.json()["property_search_preferences"]["property_commercial"]
+    assert pending["pending_order_id"] == "ORDER-123"
+    assert pending["pending_plan_key"] == "plus"
+
+    captured = client.post(
+        "/app/api/signals/property/billing/paypal/capture",
+        json={"order_id": "ORDER-123", "plan_key": "plus"},
+    )
+    assert captured.status_code == 200, captured.text
+    captured_body = captured.json()
+    assert captured_body["current_plan_key"] == "plus"
+    assert captured_body["payment_status"] == "completed"
+    assert captured_body["capture_id"] == "CAPTURE-123"
+
+    status_after_capture = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_capture.status_code == 200
+    commercial = status_after_capture.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "plus"
+    assert commercial["pending_order_id"] == ""
+    assert commercial["last_capture_id"] == "CAPTURE-123"
+    assert commercial["last_payer_email"] == "buyer@example.com"

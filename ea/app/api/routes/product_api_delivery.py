@@ -4,7 +4,7 @@ import os
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.product_api_contracts import (
@@ -39,6 +39,10 @@ from app.api.routes.product_api_contracts import (
     PocketSignalImportIn,
     PocketSignalImportOut,
     PocketSignalSyncOut,
+    PropertyBillingCaptureIn,
+    PropertyBillingCaptureOut,
+    PropertyBillingCheckoutCreateIn,
+    PropertyBillingCheckoutOut,
     PropertyScoutSyncOut,
     PropertySearchRunStartIn,
     PropertySearchRunStartOut,
@@ -57,6 +61,15 @@ from app.api.routes.product_api_contracts import (
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.property_billing import (
+    capture_paypal_property_order,
+    create_paypal_property_order,
+    enforce_property_plan_limits,
+    merge_property_commercial,
+    paid_plan_expiry,
+    paypal_configured,
+    property_plan_spec,
+)
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -71,6 +84,33 @@ def _public_base_url(request: Request) -> str:
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"
     return str(request.base_url).rstrip("/")
+
+
+def _property_preferences(container: AppContainer, *, principal_id: str) -> dict[str, object]:
+    state = container.onboarding.status(principal_id=principal_id)
+    preferences = dict(state.get("property_search_preferences") or {})
+    raw_preferences = dict(preferences.get("raw_preferences") or {})
+    return raw_preferences or preferences
+
+
+def _save_property_preferences(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    property_preferences: dict[str, object],
+) -> dict[str, object]:
+    return container.onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json=property_preferences,
+    )
+
+
+def _property_billing_return_path(plan_key: str) -> str:
+    return f"/app/api/signals/property/billing/paypal/return?plan_key={plan_key}"
+
+
+def _property_billing_cancel_path(plan_key: str) -> str:
+    return f"/app/api/signals/property/billing/paypal/cancel?plan_key={plan_key}"
 
 
 @router.get("/events", response_model=OfficeEventResponse)
@@ -612,6 +652,13 @@ def start_property_search_run(
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "property_search").strip()
     try:
+        merged_preferences = _property_preferences(container, principal_id=context.principal_id)
+        merged_preferences.update(dict(body.property_preferences))
+        enforce_property_plan_limits(
+            property_preferences=merged_preferences,
+            selected_platforms=tuple(body.selected_platforms),
+            max_results_per_source=body.max_results_per_source,
+        )
         payload = service.start_property_search_run(
             principal_id=context.principal_id,
             actor=actor,
@@ -626,6 +673,140 @@ def start_property_search_run(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     payload["status_url"] = f"{_public_base_url(request=request)}/app/api/signals/property/search/run/{payload.get('run_id')}"
     return PropertySearchRunStartOut(**payload)
+
+
+@router.post("/signals/property/billing/paypal/order", response_model=PropertyBillingCheckoutOut)
+def create_property_billing_order(
+    body: PropertyBillingCheckoutCreateIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyBillingCheckoutOut:
+    if not paypal_configured():
+        raise HTTPException(status_code=409, detail="paypal_not_configured")
+    try:
+        spec = property_plan_spec(body.plan_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if spec.plan_key == "free":
+        raise HTTPException(status_code=400, detail="property_plan_free_does_not_require_checkout")
+    base_url = _public_base_url(request)
+    try:
+        order = create_paypal_property_order(
+            principal_id=context.principal_id,
+            plan_key=spec.plan_key,
+            return_url=f"{base_url}{_property_billing_return_path(spec.plan_key)}",
+            cancel_url=f"{base_url}{_property_billing_cancel_path(spec.plan_key)}",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = merge_property_commercial(
+        _property_preferences(container, principal_id=context.principal_id),
+        updates={
+            "pending_order_id": str(order.get("order_id") or ""),
+            "pending_plan_key": spec.plan_key,
+            "pending_approval_url": str(order.get("approve_url") or ""),
+            "last_payment_status": str(order.get("status") or ""),
+            "plan_source": "paypal",
+        },
+    )
+    _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
+    return PropertyBillingCheckoutOut(
+        generated_at=now_iso(),
+        plan_key=spec.plan_key,
+        order_id=str(order.get("order_id") or ""),
+        approve_url=str(order.get("approve_url") or ""),
+        status=str(order.get("status") or ""),
+        amount_eur=str(order.get("amount_eur") or spec.amount_eur),
+    )
+
+
+@router.post("/signals/property/billing/paypal/capture", response_model=PropertyBillingCaptureOut)
+def capture_property_billing_order(
+    body: PropertyBillingCaptureIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyBillingCaptureOut:
+    try:
+        spec = property_plan_spec(body.plan_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if spec.plan_key == "free":
+        raise HTTPException(status_code=400, detail="property_plan_free_does_not_require_checkout")
+    try:
+        captured = capture_paypal_property_order(order_id=body.order_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    active_until = paid_plan_expiry(plan_key=spec.plan_key)
+    updated = merge_property_commercial(
+        _property_preferences(container, principal_id=context.principal_id),
+        updates={
+            "active_plan_key": spec.plan_key,
+            "status": "active",
+            "active_until": active_until,
+            "last_order_id": str(captured.get("order_id") or ""),
+            "last_capture_id": str(captured.get("capture_id") or ""),
+            "last_payment_status": str(captured.get("payment_status") or ""),
+            "last_payment_amount_eur": str(captured.get("amount_eur") or spec.amount_eur),
+            "last_payer_email": str(captured.get("payer_email") or ""),
+            "captured_at": now_iso(),
+            "pending_order_id": "",
+            "pending_plan_key": "",
+            "pending_approval_url": "",
+            "plan_source": "paypal",
+        },
+    )
+    _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
+    return PropertyBillingCaptureOut(
+        generated_at=now_iso(),
+        order_id=str(captured.get("order_id") or body.order_id),
+        plan_key=spec.plan_key,
+        capture_id=str(captured.get("capture_id") or ""),
+        payment_status=str(captured.get("payment_status") or ""),
+        payer_email=str(captured.get("payer_email") or ""),
+        amount_eur=str(captured.get("amount_eur") or spec.amount_eur),
+        active_until=active_until,
+        current_plan_key=spec.plan_key,
+    )
+
+
+@router.get("/signals/property/billing/paypal/return", include_in_schema=False)
+def capture_property_billing_order_return(
+    token: str = Query(default=""),
+    plan_key: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    order_id = str(token or "").strip()
+    if not order_id:
+        raise HTTPException(status_code=400, detail="paypal_order_id_required")
+    capture_property_billing_order(
+        PropertyBillingCaptureIn(order_id=order_id, plan_key=plan_key or "free"),
+        container=container,
+        context=context,
+    )
+    return RedirectResponse(f"/app/properties?billing=success&plan={plan_key}", status_code=303)
+
+
+@router.get("/signals/property/billing/paypal/cancel", include_in_schema=False)
+def cancel_property_billing_order_return(
+    plan_key: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    updated = merge_property_commercial(
+        _property_preferences(container, principal_id=context.principal_id),
+        updates={
+            "status": "free",
+            "pending_order_id": "",
+            "pending_plan_key": "",
+            "pending_approval_url": "",
+            "last_payment_status": "cancelled",
+            "plan_source": "paypal",
+        },
+    )
+    _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
+    return RedirectResponse(f"/app/properties?billing=cancelled&plan={plan_key}", status_code=303)
 
 
 @router.get("/signals/property/search/run/{run_id}", response_model=PropertySearchRunStatusOut)

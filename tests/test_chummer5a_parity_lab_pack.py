@@ -1523,6 +1523,51 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
         "tests/test_chummer5a_parity_lab_pack.py",
     }
+    flagship_runtime_gate_hardening_commit = "f443f64"
+    flagship_runtime_gate_hardening_subject = "feat: harden flagship runtime and release gates"
+    flagship_runtime_gate_hardening_paths = {
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".dockerignore",
+        ".gitignore",
+        "LTDs.md",
+        "README.md",
+        "RUNBOOK.md",
+        "docker-compose.prod.yml",
+        "docker-compose.yml",
+        "ea/.dockerignore",
+        "ea/Dockerfile",
+        "ea/Dockerfile.openvoice",
+        "ea/app/api/errors.py",
+        "ea/app/api/routes/landing.py",
+        "ea/app/api/routes/landing_content.py",
+        "ea/app/api/routes/landing_objects.py",
+        "ea/app/api/routes/landing_view_models.py",
+        "ea/app/api/routes/providers.py",
+        "ea/app/api/routes/public_memorials.py",
+        "ea/app/openvoice_app.py",
+        "ea/app/repositories/onboarding_state_postgres.py",
+        "ea/app/runner.py",
+        "ea/app/services/memorial_openvoice.py",
+        "ea/app/services/memorial_voice_profile.py",
+        "ea/app/services/openvoice_runtime.py",
+        "ea/app/settings.py",
+        "ea/app/templates/console_shell.html",
+        "ea/app/templates/register.html",
+        "ea/requirements-openvoice.txt",
+        "ea/requirements.txt",
+        "ea/scripts/run_openvoice_sidecar.sh",
+        "ea/scripts/setup_openvoice.sh",
+        "scripts/deploy.sh",
+        "scripts/smoke_api.sh",
+        "tests/test_browser_surface_contracts.py",
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "tests/test_onboarding_state_postgres.py",
+        "tests/test_operator_contracts.py",
+        "tests/test_product_browser_journeys.py",
+        "tests/test_providers_api_contracts.py",
+        "tests/test_rewrite_dependency_projection_contracts.py",
+        "tests/test_runner.py",
+    }
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1607,6 +1652,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
             continue
+        if commit == flagship_runtime_gate_hardening_commit:
+            assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
+            continue
         if commit == "ff8493d":
             assert subject == "chore: harden parity lab post-receipt tests and refresh generated packets", (
                 commit,
@@ -1689,6 +1738,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
+            continue
+        if commit == flagship_runtime_gate_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
             continue
         if paths == artifact_expansion_paths:
             subject = subprocess.run(
@@ -1838,6 +1898,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
             continue
+        if commit == flagship_runtime_gate_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
+            continue
         if paths == artifact_expansion_paths:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2053,6 +2124,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == flagship_runtime_gate_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             subject = subprocess.run(
@@ -2428,6 +2510,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == parity_lab_post_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == parity_lab_post_receipt_refresh_paths, (commit, sorted(paths))
+            continue
+        if commit == flagship_runtime_gate_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(

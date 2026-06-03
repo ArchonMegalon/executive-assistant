@@ -269,7 +269,17 @@ class OnboardingWhatsappExportAckOut(OnboardingEnvelopeOut):
 class OnboardingPropertySearchPreferencesIn(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    country_code: str = "AT"
+    language_code: str = "de"
+    listing_mode: str = "rent"
+    property_type: str = "any"
+    location_query: str = ""
+    keywords: str = ""
     selected_platforms: list[str] = Field(default_factory=list)
+    property_commercial: dict[str, object] = Field(default_factory=dict)
+    max_price_eur: int | None = None
+    min_rooms: int | None = None
+    min_area_m2: int | None = None
     max_results_per_source: int | None = None
     preference_person_id: str = "self"
 

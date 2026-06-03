@@ -62,6 +62,14 @@ def test_docs_explain_pgdata_volume_usage() -> None:
     assert "not RAM" in runbook
 
 
+def test_operator_summary_lists_ltd_release_gates() -> None:
+    operator_summary = (ROOT / "scripts/operator_summary.sh").read_text(encoding="utf-8")
+
+    assert "ltd gates:         make ltd-release-gates" in operator_summary
+    assert "ltd critical:      make verify-ltd-critical-entries" in operator_summary
+    assert "ltd flagship:      make verify-ltd-flagship-subset" in operator_summary
+
+
 def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
@@ -1354,6 +1362,15 @@ def test_ltd_discovery_api_refresh_runner_is_documented_and_guarded() -> None:
 
     capability = next(entry for entry in milestone["capabilities"] if entry["name"] == "ltd_discovery_api_refresh_runner")
     assert capability["status"] == "released"
+
+
+def test_tibor_smoke_runner_uses_repo_rooted_ltd_and_rewrite_reset_contracts() -> None:
+    smoke_script = (ROOT / "scripts/smoke_api_tibor.sh").read_text(encoding="utf-8")
+
+    assert "reset_rewrite_contract()" in smoke_script
+    assert "trap cleanup_smoke_contract_state EXIT" in smoke_script
+    assert 'cp "${EA_ROOT}/LTDs.md"' in smoke_script
+    assert 'bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh"' in smoke_script
 
 
 def test_artifact_evidence_pack_output_template_is_documented_and_guarded() -> None:

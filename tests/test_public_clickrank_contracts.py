@@ -63,6 +63,21 @@ def test_request_hostname_uses_public_base_host_for_proxied_opaque_origin(
     assert request_hostname(request) == "myexternalbrain.com"
 
 
+def test_request_hostname_keeps_unknown_public_host_for_proxied_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    request = SimpleNamespace(
+        headers={
+            "host": "propertyquarry.com",
+            "cf-ray": "ray-id",
+        },
+        url=SimpleNamespace(hostname="propertyquarry.com"),
+    )
+
+    assert request_hostname(request) == "propertyquarry.com"
+
+
 def test_clickrank_site_id_for_hostname_uses_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_ENABLE_CLICKRANK", "1")
     monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", "configured-site-id")

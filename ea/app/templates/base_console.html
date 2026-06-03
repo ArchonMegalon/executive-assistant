@@ -601,14 +601,14 @@
   <div class="console">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">EA</span>
-        <span>Executive Assistant</span>
+        <span class="brand-mark">{{ brand.mark }}</span>
+        <span>{{ brand.name }}</span>
       </div>
 
       <div class="workspace-card">
         <div class="label">Workspace</div>
         <strong>{{ workspace_label }}</strong>
-        <div>Assistant workspace</div>
+        <div>{{ brand.workspace_label }}</div>
       </div>
 
       {% for group in nav_groups %}

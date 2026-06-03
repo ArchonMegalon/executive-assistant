@@ -126,6 +126,10 @@ Auth:
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, and `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS` enable and tune the live Magicx fallback probe so provider health reflects a real upstream readiness check.
 - After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](/docker/EA/LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
 - When the local API is already running, `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --service-name Teable --write` can execute the BrowserAct-backed `ltd_inventory_refresh` skill via `/v1/plans/execute`, save the raw inventory payload if requested, and update [LTDs.md](/docker/EA/LTDs.md) in one pass.
+- `python3 scripts/verify_ltd_critical_entries.py` is the hard verifier for the currently depended-on LTD lanes. It fails closed if [LTDs.md](/docker/EA/LTDs.md) or the live env drift away from the required `1min.AI`, `Prompt Architects`, BrowserAct, and Teable facts.
+- `python3 scripts/verify_ltd_flagship_subset.py` is the broader release gate for the current flagship verified subset. It intentionally covers a named subset instead of pretending all `manual_seeded` or `missing` LTD rows are already proven.
+- `make ltd-release-gates` runs both LTD release verifiers together.
+- `make verify-ltd-critical-entries` and `make verify-ltd-flagship-subset` are the corresponding operator entrypoints and are included by `make hard-exit-gates`.
 
 Runtime mode:
 - Set `EA_RUNTIME_MODE=prod` for durable environments; the app will fail fast instead of falling back from `EA_STORAGE_BACKEND=auto` or `memory` to in-process storage.
@@ -248,6 +252,10 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/smoke_help.sh` | `bash scripts/smoke_help.sh --help` | Verify `--help` usage contracts for operator scripts |
 | `scripts/smoke_postgres.sh` | `bash scripts/smoke_postgres.sh --help` | Run end-to-end Postgres-backed smoke contract |
 | `scripts/test_postgres_contracts.sh` | `bash scripts/test_postgres_contracts.sh --help` | Run isolated Postgres-backed repository contract tests |
+| `scripts/hard_exit_gates.sh` | `bash scripts/hard_exit_gates.sh --help` | Run the full flagship hard-exit bundle |
+| `scripts/runtime_hard_exit_gates.sh` | `bash scripts/runtime_hard_exit_gates.sh --help` | Run the deploy-safe runtime hard-exit bundle |
+| `scripts/verify_ltd_critical_entries.py` | `python3 scripts/verify_ltd_critical_entries.py --help` | Fail closed on runtime-critical LTD drift |
+| `scripts/verify_ltd_flagship_subset.py` | `python3 scripts/verify_ltd_flagship_subset.py --help` | Fail closed on the named flagship LTD subset |
 | `scripts/list_endpoints.sh` | `bash scripts/list_endpoints.sh --help` | Print live endpoint inventory from OpenAPI |
 | `scripts/version_info.sh` | `bash scripts/version_info.sh --help` | Print git and milestone/version fingerprint |
 | `scripts/export_openapi.sh` | `bash scripts/export_openapi.sh --help` | Export timestamped OpenAPI snapshot |
@@ -280,6 +288,8 @@ EA product canon for those claims now lives in `.codex-design/ea/START_HERE.md`.
   - `make verify-release-assets`
   - `make verify-flagship-release-readiness`
   - `make verify-generated-release-artifacts-clean`
+  - `make runtime-hard-exit-gates`
+  - `make hard-exit-gates`
 - Postgres smoke jobs:
   - `bash scripts/smoke_postgres.sh`
   - `bash scripts/test_postgres_contracts.sh`
@@ -297,6 +307,12 @@ Local mirror including Postgres smoke:
 
 ```bash
 make ci-gates-postgres
+```
+
+Aggregate LTD release verification:
+
+```bash
+make ltd-release-gates
 ```
 
 Isolated Postgres repository-contract run:
@@ -715,6 +731,7 @@ make operator-summary
 ```
 
 The operator summary includes release smoke/readiness commands plus legacy smoke/parity shortcuts, release/support commands such as `make release-preflight` and `make support-bundle`, and task-archive shortcuts.
+It also includes the aggregate LTD release gate shortcut `make ltd-release-gates`.
 
 ## 15) Generate Support Bundle
 
@@ -780,6 +797,8 @@ make all-local
 ```
 
 `make all-local` is a lightweight readiness pass that still checks release assets, flagship release readiness, and generated release artifact cleanliness. Use `make release-preflight` for release-stage smoke and operator checks.
+
+Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe and excludes the deeper `smoke_api_tibor.sh` contract lane; that lane remains part of `make hard-exit-gates`.
 
 Release preflight aggregate (asset checks + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
 

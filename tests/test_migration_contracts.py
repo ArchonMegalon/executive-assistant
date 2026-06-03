@@ -201,6 +201,66 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     assert "- `make verify-generated-release-artifacts-clean`" in runbook
 
 
+def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+    readme = (ROOT / "README.md").read_text()
+    runbook = (ROOT / "RUNBOOK.md").read_text()
+    deploy = (ROOT / "scripts/deploy.sh").read_text()
+    runtime_gate = (ROOT / "scripts/runtime_hard_exit_gates.sh").read_text()
+    full_gate = (ROOT / "scripts/hard_exit_gates.sh").read_text()
+    tibor_smoke = (ROOT / "scripts/smoke_api_tibor.sh").read_text()
+
+    runtime_target = _make_target_body(makefile, "runtime-hard-exit-gates")
+    hard_target = _make_target_body(makefile, "hard-exit-gates")
+    ltd_target = _make_target_body(makefile, "ltd-release-gates")
+    critical_target = _make_target_body(makefile, "verify-ltd-critical-entries")
+    flagship_target = _make_target_body(makefile, "verify-ltd-flagship-subset")
+    test_all = _make_target_body(makefile, "test-all")
+
+    assert "scripts/runtime_hard_exit_gates.sh" in runtime_target
+    assert "scripts/hard_exit_gates.sh" in hard_target
+    assert "verify-ltd-critical-entries" in ltd_target
+    assert "verify-ltd-flagship-subset" in ltd_target
+    assert "scripts/verify_ltd_critical_entries.py" in critical_target
+    assert "scripts/verify_ltd_flagship_subset.py" in flagship_target
+    assert "pytest -q" in test_all
+
+    assert "bash scripts/smoke_help.sh" in runtime_gate
+    assert "env -u EA_API_TOKEN bash scripts/smoke_api.sh" in runtime_gate
+    assert "smoke_api_tibor.sh` stays in the full hard-exit bundle" in runtime_gate
+    assert 'PYTHON_BIN="${PYTHON_BIN:-}"' in runtime_gate
+    assert '"${PYTHON_BIN}" scripts/verify_pocket_audio_archive.py' in runtime_gate
+
+    assert "make release-preflight" in full_gate
+    assert "make test-postgres-contracts" in full_gate
+    assert "make smoke-postgres" in full_gate
+    assert "make smoke-postgres-legacy" in full_gate
+    assert "make smoke-api-tibor" in full_gate
+    assert "make verify-pocket-audio-archive" in full_gate
+    assert "make verify-ltd-critical-entries" in full_gate
+    assert "make verify-ltd-flagship-subset" in full_gate
+    assert "pytest -q" in full_gate
+
+    assert "EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0" in deploy
+    assert 'EA_RUN_RUNTIME_HARD_EXIT_GATES:-1' in deploy
+    assert 'scripts/runtime_hard_exit_gates.sh' in deploy
+
+    assert "make runtime-hard-exit-gates" in readme
+    assert "make hard-exit-gates" in readme
+    assert "make ltd-release-gates" in readme
+    assert "make verify-ltd-critical-entries" in readme
+    assert "make verify-ltd-flagship-subset" in readme
+    assert "hard-exit and LTD verifier scripts" in readme
+    assert "make runtime-hard-exit-gates" in runbook
+    assert "make hard-exit-gates" in runbook
+    assert "make ltd-release-gates" in runbook
+    assert "verify_ltd_critical_entries.py" in runbook
+    assert "verify_ltd_flagship_subset.py" in runbook
+    assert 'cp "${EA_ROOT}/LTDs.md"' in tibor_smoke
+    assert 'bash "${EA_ROOT}/scripts/refresh_ltds_via_api.sh"' in tibor_smoke
+    assert "PYTHON_BIN" in (ROOT / "scripts/smoke_help.sh").read_text()
+
+
 def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text()
     makefile = (ROOT / "Makefile").read_text()
@@ -224,3 +284,11 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
 
     assert "Usage:" in smoke_help
     assert "scripts/smoke_help.sh" in makefile
+    for rel in (
+        "scripts/hard_exit_gates.sh",
+        "scripts/runtime_hard_exit_gates.sh",
+        "scripts/verify_ltd_critical_entries.py",
+        "scripts/verify_ltd_flagship_subset.py",
+    ):
+        assert rel in makefile
+        assert rel in smoke_help

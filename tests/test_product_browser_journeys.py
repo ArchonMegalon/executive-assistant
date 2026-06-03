@@ -91,11 +91,19 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     principal_id = "exec-browser-properties"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
+    monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
+    monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
 
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={
-            "selected_platforms": ["willhaben", "kalandra"],
+            "country_code": "DE",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "location_query": "Berlin",
+            "keywords": "lift family balcony",
+            "selected_platforms": ["immoscout_de", "immowelt"],
             "preference_person_id": "elisabeth",
             "max_results_per_source": 4,
         },
@@ -111,7 +119,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
             "principal_id": principal_id,
             "status_url": f"/app/api/signals/property/search/run/{run_id}",
             "status": "processed",
-            "selected_platforms": ["willhaben", "kalandra"],
+            "selected_platforms": ["immoscout_de", "immowelt"],
             "progress": 100,
             "current_step": "completed",
             "message": "Property scouting run completed.",
@@ -124,7 +132,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
                 "tour_existing_total": 1,
                 "sources": [
                     {
-                        "source_label": "Willhaben Rentals",
+                        "source_label": "ImmoScout24 Germany",
                         "listing_total": 4,
                         "high_fit_total": 2,
                         "tour_created_total": 1,
@@ -162,12 +170,21 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     response = client.get("/app/properties", params={"run_id": "run-42"})
     assert response.status_code == 200
     assert "Search the major platforms" in response.text
-    assert "Willhaben" in response.text
-    assert "Kalandra" in response.text
+    assert "Country" in response.text
+    assert "Research language" in response.text
+    assert "Berlin" in response.text
+    assert "What this search is optimizing for" in response.text
+    assert "Germany" in response.text
+    assert "Buy" in response.text
+    assert "Apartment" in response.text
+    assert "lift family balcony" in response.text
+    assert "Which providers this country unlocks" in response.text
+    assert "ImmoScout24 Germany" in response.text
+    assert "Immowelt" in response.text
     assert "Property scouting run completed." in response.text
-    assert "Willhaben Rentals" in response.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
+    assert "Plus checkout" in response.text
     assert 'data-console-form-variant="property_search"' in response.text
 
 
@@ -200,6 +217,26 @@ def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(m
     assert "Review shortlisted property packet" in response.text
     assert "Open listing" not in response.text
     assert "https://www.kalandra.at/objekt/14997053" not in response.text
+
+
+def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
+    client = build_product_client(principal_id="propertyquarry-brand")
+
+    landing = client.get("/", headers={"host": "propertyquarry.com"})
+    assert landing.status_code == 200
+    assert "PropertyQuarry" in landing.text
+    assert "Search once. Rank hard. Research the shortlist." in landing.text
+    assert "Executive Assistant" not in landing.text
+
+    sign_in = client.get("/sign-in", headers={"host": "propertyquarry.com"})
+    assert sign_in.status_code == 200
+    assert "Sign in to PropertyQuarry" in sign_in.text
+    assert "property search" in sign_in.text.lower()
+
+    register = client.get("/register", headers={"host": "propertyquarry.com"})
+    assert register.status_code == 200
+    assert "Create your property workspace" in register.text
+    assert "ranked shortlist" in register.text.lower()
 
 
 def test_browser_journey_updates_after_approval_and_commitment_closure() -> None:

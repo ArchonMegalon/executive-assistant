@@ -1302,7 +1302,14 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
 
 def _run_api() -> None:
     s = get_settings()
-    uvicorn.run("app.main:app", host=s.host, port=s.port, log_level=s.log_level.lower())
+    uvicorn.run(
+        "app.main:app",
+        host=s.host,
+        port=s.port,
+        log_level=s.log_level.lower(),
+        ws_ping_interval=None,
+        ws_ping_timeout=None,
+    )
 
 
 def _run_openvoice() -> None:
@@ -1313,7 +1320,14 @@ def _run_openvoice() -> None:
     except ValueError:
         port = 8093
     log_level = str(os.environ.get("OPENVOICE_LOG_LEVEL") or get_settings().log_level).strip().lower() or "info"
-    uvicorn.run("app.openvoice_app:app", host=host, port=port, log_level=log_level)
+    uvicorn.run(
+        "app.openvoice_app:app",
+        host=host,
+        port=port,
+        log_level=log_level,
+        ws_ping_interval=None,
+        ws_ping_timeout=None,
+    )
 
 
 def _run_execution_worker(role: str) -> None:

@@ -90,7 +90,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
             "selected_platforms": ["willhaben"],
             "property_preferences": {"preference_person_id": "elisabeth"},
             "force_refresh": True,
-            "max_results_per_source": 3,
+            "max_results_per_source": 2,
         },
     )
     assert started.status_code == 200, started.text
@@ -109,7 +109,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert status["principal_id"] == principal_id
     assert observed["selected_platforms"] == ("willhaben",)
     assert observed["force_refresh"] is True
-    assert observed["max_results_per_source"] == 3
+    assert observed["max_results_per_source"] == 2
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
 
 
@@ -172,6 +172,7 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
             "selected_platforms": ["willhaben", "kalandra"],
             "preference_person_id": "elisabeth",
             "max_results_per_source": 2,
+            "property_commercial": {"active_plan_key": "plus", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
         },
     )
     assert owner.status_code == 200, owner.text
@@ -203,6 +204,7 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
             "selected_platforms": ["willhaben", "kalandra"],
             "preference_person_id": "elisabeth",
             "max_results_per_source": 50,
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
         },
     )
     assert stored.status_code == 200, stored.text
@@ -254,3 +256,60 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     assert set(observed.get("selected_platforms") or ()) == {"willhaben", "kalandra"}
     assert observed.get("preference_person_id") == "override"
     assert observed.get("max_results_per_source") == 10
+
+
+def test_property_search_run_defaults_platforms_from_country_preferences(monkeypatch) -> None:
+    principal_id = "exec-property-search-country-defaults"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Country Defaults")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "UK",
+            "language_code": "en",
+            "listing_mode": "rent",
+            "location_query": "London",
+            "selected_platforms": [],
+            "property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"},
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["selected_platforms"] = tuple(selected_platforms)
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 1,
+            "review_created_total": 1,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post("/app/api/signals/property/search/run", json={"property_preferences": {}})
+    assert started.status_code == 200, started.text
+    assert set(observed.get("selected_platforms") or ()) == {"rightmove", "zoopla", "onthemarket"}
+    assert observed["property_search_preferences"]["country_code"] == "UK"
+    assert observed["property_search_preferences"]["location_query"] == "London"

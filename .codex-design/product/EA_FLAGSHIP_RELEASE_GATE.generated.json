@@ -3,7 +3,7 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-01T17:07:28Z",
+  "generated_at": "2026-06-02T21:14:09Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "operator_summary": "EA flagship release truth is published as a machine-readable receipt and currently green.",

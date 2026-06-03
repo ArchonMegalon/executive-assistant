@@ -63,11 +63,11 @@
 <section class="access-grid">
   <section class="access-panel">
     <div class="kicker">Existing workspace</div>
-    <h1>Sign in if you already have workspace access.</h1>
-    <p class="lead">Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.</p>
+    <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have workspace access.{% endif %}</h1>
+    <p class="lead">{% if brand.key == 'propertyquarry' %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start by creating a property research account first.{% else %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.{% endif %}</p>
     <div class="cta-row">
-      <a class="btn primary" href="/app/today">Open current session</a>
-      <a class="btn" href="/register">Create personal workspace</a>
+      <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
+      <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     {% if sign_in_link_enabled %}
     <form class="access-form" method="post" action="/sign-in/email-link">
@@ -112,7 +112,7 @@
       </div>
       <div class="summary">
         <div class="label">New users</div>
-        <strong>Start at /register and prove value with a personal workspace first.</strong>
+        <strong>{% if brand.key == 'propertyquarry' %}Start at /register and set up the first search profile before running crawls.{% else %}Start at /register and prove value with a personal workspace first.{% endif %}</strong>
       </div>
       <div class="summary">
         <div class="label">Google</div>
@@ -123,7 +123,7 @@
 
   <section class="access-panel">
     <div class="kicker">What this page is for</div>
-    <h2>Return to an existing workspace.</h2>
+    <h2>{% if brand.key == 'propertyquarry' %}Return to an existing property workspace.{% else %}Return to an existing workspace.{% endif %}</h2>
     <div class="access-card-grid">
       <section class="access-card">
         <strong>Managed access</strong>

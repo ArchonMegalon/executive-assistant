@@ -31,6 +31,18 @@ def _google_delivery_action(reason: str, *, return_to: str) -> dict[str, str]:
     }
 
 
+def _property_fit_label(assessment: dict[str, object]) -> str:
+    fit_score = assessment.get("fit_score")
+    recommendation = str(assessment.get("recommendation") or "").strip().replace("_", " ")
+    try:
+        score_text = f"{float(fit_score):.0f}/100" if fit_score not in (None, "") else "unscored"
+    except (TypeError, ValueError):
+        score_text = "unscored"
+    if recommendation:
+        return f"{score_text} · {recommendation}"
+    return score_text
+
+
 @router.get("/app/people", response_class=HTMLResponse)
 def people_root(
     request: Request,
@@ -506,6 +518,129 @@ def handoff_detail(
         surface=f"handoff:{handoff_ref}",
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
+    task = container.orchestrator.fetch_human_task(task_id, principal_id=context.principal_id)
+    if str(handoff.task_type or "").strip() == "property_alert_review" and task is not None:
+        input_json = dict(getattr(task, "input_json", {}) or {})
+        assessment = dict(input_json.get("personal_fit_assessment") or {})
+        candidate_properties = [
+            dict(item)
+            for item in list(input_json.get("candidate_properties") or [])
+            if isinstance(item, dict)
+        ]
+        fit_details = [
+            _object_detail_row("Fit score", _property_fit_label(assessment), "Fit"),
+            _object_detail_row(
+                "Match reasons",
+                " | ".join(str(item).strip() for item in list(assessment.get("match_reasons_json") or []) if str(item).strip())
+                or "No explicit match reasons were projected.",
+                "Why",
+            ),
+            _object_detail_row(
+                "Mismatches",
+                " | ".join(str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip())
+                or "No explicit mismatches were projected.",
+                "Risk",
+            ),
+            _object_detail_row(
+                "Unknowns",
+                " | ".join(str(item).strip() for item in list(assessment.get("unknowns_json") or []) if str(item).strip())
+                or "No explicit unknowns were projected.",
+                "Unknown",
+            ),
+            _object_detail_row(
+                "Blocking constraints",
+                " | ".join(str(item).strip() for item in list(assessment.get("blocking_constraints_json") or []) if str(item).strip())
+                or "No hard blocker was projected.",
+                "Blockers",
+            ),
+        ]
+        candidate_rows = []
+        for item in candidate_properties[:8]:
+            candidate_url = str(item.get("property_url") or "").strip()
+            candidate_title = (
+                str(item.get("listing_title") or "").strip()
+                or str(item.get("title") or "").strip()
+                or candidate_url
+                or "Candidate property"
+            )
+            candidate_detail_parts = [
+                str(item.get("fit_summary") or "").strip(),
+                _property_fit_label(dict(item.get("assessment") or {})) if isinstance(item.get("assessment"), dict) else "",
+                str(item.get("summary") or "").strip(),
+            ]
+            candidate_rows.append(
+                _object_detail_row(
+                    candidate_title,
+                    " | ".join(part for part in candidate_detail_parts if part) or "Candidate projected from the property alert.",
+                    "Candidate",
+                    href=candidate_url,
+                    secondary_action_href=candidate_url,
+                    secondary_action_label="Open source" if candidate_url else "",
+                    secondary_action_method="get" if candidate_url else "",
+                )
+            )
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            page_title=f"Executive Assistant {handoff.summary}",
+            current_nav="settings",
+            console_title=input_json.get("title") or handoff.summary,
+            console_summary="Property research, fit reasoning, and review actions for this alert.",
+            object_kind="Property review",
+            object_title=str(input_json.get("title") or handoff.summary or "Property review"),
+            object_summary=f"{_property_fit_label(assessment)} · {str(input_json.get('counterparty') or handoff.owner or 'Property scout').strip()}",
+            object_meta=[
+                {"label": "Fit", "value": _property_fit_label(assessment)},
+                {"label": "Source", "value": str(input_json.get('counterparty') or "Property scout").strip() or "Property scout"},
+                {"label": "Preference profile", "value": str(input_json.get('preference_person_id') or "self").strip() or "self"},
+                {"label": "Candidates", "value": str(len(candidate_properties))},
+                {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
+            ],
+            object_sidebar_title="Review actions",
+            object_sidebar_copy="This page is the actual property review packet. It should answer why the alert matched and where to open the useful surfaces.",
+            object_sidebar_rows=[
+                _object_detail_row("Research summary", str(input_json.get("summary") or handoff.summary or "No research summary was captured.").strip(), "Summary"),
+                _object_detail_row(
+                    "Hosted tour",
+                    handoff.tour_url or str(input_json.get("tour_url") or "").strip() or "No hosted tour exists yet.",
+                    "Tour",
+                    href=handoff.tour_url or str(input_json.get("tour_url") or "").strip(),
+                    secondary_action_href=handoff.tour_url or str(input_json.get("tour_url") or "").strip(),
+                    secondary_action_label="Open hosted page" if (handoff.tour_url or str(input_json.get("tour_url") or "").strip()) else "",
+                    secondary_action_method="get" if (handoff.tour_url or str(input_json.get("tour_url") or "").strip()) else "",
+                ),
+                _object_detail_row(
+                    "Original listing",
+                    handoff.property_url or str(input_json.get("property_url") or "").strip() or "No source listing URL was stored.",
+                    "Listing",
+                    href=handoff.property_url or str(input_json.get("property_url") or "").strip(),
+                    secondary_action_href=handoff.property_url or str(input_json.get("property_url") or "").strip(),
+                    secondary_action_label="Open source" if (handoff.property_url or str(input_json.get("property_url") or "").strip()) else "",
+                    secondary_action_method="get" if (handoff.property_url or str(input_json.get("property_url") or "").strip()) else "",
+                ),
+                _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
+                _object_detail_row("Account", str(input_json.get("account_email") or "No account email stored.").strip(), "Inbox"),
+                _object_detail_row("Source ref", handoff.source_ref or str(input_json.get("source_ref") or "").strip() or "No source ref stored.", "Ref"),
+            ],
+            object_sections=[
+                {
+                    "eyebrow": "Fit reasoning",
+                    "title": "Why this property matched",
+                    "items": fit_details,
+                },
+                {
+                    "eyebrow": "Candidates",
+                    "title": "Properties projected from this alert",
+                    "items": candidate_rows or [_object_detail_row("No candidate properties", "This alert did not capture structured candidate rows.", "Candidates")],
+                },
+                {
+                    "eyebrow": "Evidence",
+                    "title": "Supporting evidence",
+                    "items": _evidence_detail_rows(handoff.evidence_refs),
+                },
+            ],
+        )
     return _render_console_object_detail(
         request=request,
         context=context,

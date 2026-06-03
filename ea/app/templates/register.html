@@ -167,24 +167,24 @@
 <section class="register-stage" data-register-app>
   <div class="register-shell">
     <section class="register-hero">
-      <div class="kicker">Personal workspace</div>
-      <h1>Start a workspace that shows the first useful loop.</h1>
-      <p class="lead">Connect Google, surface the first morning memo, and keep the first week narrow until the office loop is already useful.</p>
+      <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal workspace{% endif %}</div>
+      <h1>{% if brand.key == 'propertyquarry' %}Start a workspace that finds and ranks the right properties.{% else %}Start a workspace that shows the first useful loop.{% endif %}</h1>
+      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account, connect Google if you want delivery and memory, then move straight into the property brief and first crawl.{% else %}Connect Google, surface the first morning memo, and keep the first week narrow until the office loop is already useful.{% endif %}</p>
       <div class="register-note">
-        We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.
+        {% if brand.key == 'propertyquarry' %}We’ll use your email to create the account and reopen your saved search posture later. Google is optional account context, not the sign-in method.{% else %}We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.{% endif %}
       </div>
       <div class="summary-strip">
         <div class="summary">
           <div class="label">First goal</div>
-          <strong>One useful morning memo</strong>
+          <strong>{% if brand.key == 'propertyquarry' %}One useful ranked shortlist{% else %}One useful morning memo{% endif %}</strong>
         </div>
         <div class="summary">
-          <div class="label">Recommended connection</div>
-          <strong>Google Core</strong>
+          <div class="label">{% if brand.key == 'propertyquarry' %}Research lane{% else %}Recommended connection{% endif %}</div>
+          <strong>{% if brand.key == 'propertyquarry' %}Property search and review{% else %}Google Core{% endif %}</strong>
         </div>
         <div class="summary">
           <div class="label">Expand later</div>
-          <strong>Add shared review when the loop earns it.</strong>
+          <strong>{% if brand.key == 'propertyquarry' %}Unlock deeper research and more portals after the free shortlist proves useful.{% else %}Add shared review when the loop earns it.{% endif %}</strong>
         </div>
       </div>
     </section>

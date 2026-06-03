@@ -239,6 +239,38 @@
     color: #f0b7b7;
     font-size: 12px;
   }
+  .console-billing-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .console-plan-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    padding: 12px;
+    display: grid;
+    gap: 8px;
+  }
+  .console-plan-card.current {
+    border-color: rgba(214, 166, 63, 0.36);
+    background: rgba(214, 166, 63, 0.08);
+  }
+  .console-plan-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-plan-card li + li {
+    margin-top: 4px;
+  }
+  .console-plan-kicker {
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
   @media (max-width: 1080px) {
     .console-stage,
     .console-support-grid,
@@ -685,6 +717,50 @@
           {% endfor %}
         </div>
         {% if console_form.get('variant') == 'property_search' %}
+        {% set property_meta = console_form.get('meta') or {} %}
+        {% set commercial = property_meta.get('commercial') or {} %}
+        {% set plan_catalog = commercial.get('plan_catalog') or [] %}
+        {% if request.query_params.get('billing') %}
+        <div class="console-callout">
+          {% if request.query_params.get('billing') == 'success' %}
+          Payment captured. The {{ request.query_params.get('plan') or 'paid' }} plan is now active.
+          {% elif request.query_params.get('billing') == 'cancelled' %}
+          Payment was cancelled. The property workspace stays on the current plan.
+          {% endif %}
+        </div>
+        {% endif %}
+        <section class="console-plan-card current">
+          <div class="console-plan-kicker">Current property plan</div>
+          <strong>{{ commercial.get('current_plan_label') or 'Free' }}</strong>
+          <small class="console-run-note">
+            {{ commercial.get('research_depth') or 'shallow' }} research
+            {% if commercial.get('active_until') %} | active until {{ commercial.get('active_until') }}{% endif %}
+          </small>
+          <small class="console-run-note">
+            {{ commercial.get('max_platforms') or 1 }} platform{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}
+            | up to {{ commercial.get('max_results_per_source') or 2 }} results per source
+          </small>
+          <div class="console-inline-status" data-property-billing-status></div>
+          <div class="console-inline-error" data-property-billing-error></div>
+        </section>
+        {% if plan_catalog %}
+        <div class="console-billing-grid">
+          {% for plan in plan_catalog %}
+          <section class="console-plan-card{% if plan.get('is_current') %} current{% endif %}">
+            <div class="console-plan-kicker">{{ plan.get('display_name') }}</div>
+            <strong>{{ plan.get('checkout_label') }}</strong>
+            <ul>
+              {% for feature in plan.get('features') or [] %}
+              <li>{{ feature }}</li>
+              {% endfor %}
+            </ul>
+            {% if property_meta.get('paypal_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') %}
+            <button class="console-action" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
+            {% endif %}
+          </section>
+          {% endfor %}
+        </div>
+        {% endif %}
         <div class="console-inline-status" data-property-inline-status></div>
         <div class="console-inline-error" data-property-inline-error></div>
         <div class="console-action-row">
@@ -738,20 +814,62 @@
 
   const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled']);
 
+  const fieldValue = (form, name) => {
+    const node = form.querySelector(`[name="${name}"]`);
+    return node ? String(node.value || '').trim() : '';
+  };
+
+  const integerValue = (form, name) => {
+    const raw = fieldValue(form, name);
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const selectedPlatformsForForm = (form) => [...form.querySelectorAll('input[name="selected_platforms"]:checked')]
+    .map((node) => String(node.value || '').trim())
+    .filter(Boolean);
+
+  const renderPlatformOptions = (form, options, selectedValues) => {
+    const inputs = [...form.querySelectorAll('input[name="selected_platforms"]')];
+    const grid = inputs[0]?.closest('.console-choice-grid');
+    if (!grid) return;
+    const nextSelected = new Set((selectedValues || []).filter(Boolean));
+    grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
+      const value = String(option.value || '').trim();
+      const label = String(option.label || value || 'Platform').trim();
+      const detail = String(option.detail || option.description || '').trim();
+      return `
+        <label class="console-choice">
+          <input type="checkbox" name="selected_platforms" value="${value}" ${nextSelected.has(value) ? 'checked' : ''}>
+          <span>
+            <span class="console-choice-label">${label}</span>
+            ${detail ? `<span class="console-choice-detail">${detail}</span>` : ''}
+          </span>
+        </label>`;
+    }).join('');
+  };
+
   const collectPayload = (form) => {
-    const data = new FormData(form);
-    const selectedPlatforms = [...form.querySelectorAll('input[name="selected_platforms"]:checked')].map((node) => String(node.value || '').trim()).filter(Boolean);
-    const maxResultsRaw = String(data.get('max_results_per_source') || '').trim();
-    const parsedMaxResults = Number.parseInt(maxResultsRaw, 10);
+    const selectedPlatforms = selectedPlatformsForForm(form);
+    const parsedMaxResults = integerValue(form, 'max_results_per_source');
     return {
       selected_platforms: selectedPlatforms,
       property_preferences: {
         selected_platforms: selectedPlatforms,
-        preference_person_id: String(data.get('preference_person_id') || 'self').trim() || 'self',
-        max_results_per_source: Number.isFinite(parsedMaxResults) ? parsedMaxResults : null,
+        country_code: fieldValue(form, 'country_code') || 'AT',
+        language_code: fieldValue(form, 'language_code') || 'en',
+        listing_mode: fieldValue(form, 'listing_mode') || 'rent',
+        property_type: fieldValue(form, 'property_type') || 'any',
+        location_query: fieldValue(form, 'location_query'),
+        keywords: fieldValue(form, 'keywords'),
+        preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+        max_price_eur: integerValue(form, 'max_price_eur'),
+        min_rooms: integerValue(form, 'min_rooms'),
+        min_area_m2: integerValue(form, 'min_area_m2'),
+        max_results_per_source: parsedMaxResults,
       },
       force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
-      max_results_per_source: Number.isFinite(parsedMaxResults) ? parsedMaxResults : null,
+      max_results_per_source: parsedMaxResults,
     };
   };
 
@@ -819,6 +937,28 @@
     return body;
   };
 
+  const startCheckout = async (form, meta, planKey) => {
+    const statusNode = form.querySelector('[data-property-billing-status]');
+    const errorNode = form.querySelector('[data-property-billing-error]');
+    if (statusNode) statusNode.textContent = 'Opening PayPal checkout…';
+    if (errorNode) errorNode.textContent = '';
+    const response = await fetch(String(meta.paypal_order_endpoint || ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plan_key: planKey }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(String(body.detail || 'Could not start PayPal checkout.'));
+    }
+    if (statusNode) statusNode.textContent = 'Redirecting to PayPal…';
+    const approveUrl = String(body.approve_url || '').trim();
+    if (!approveUrl) {
+      throw new Error('PayPal approval URL missing.');
+    }
+    window.location.href = approveUrl;
+  };
+
   const pollRun = async (form, statusUrl) => {
     if (!statusUrl) return;
     while (true) {
@@ -842,6 +982,16 @@
       meta = metaRaw ? JSON.parse(metaRaw) : {};
     } catch (_error) {
       meta = {};
+    }
+    const countryField = form.querySelector('select[name="country_code"]');
+    if (countryField) {
+      countryField.addEventListener('change', () => {
+        const catalog = meta.platform_catalog_by_country || {};
+        const selectedCountry = String(countryField.value || '').trim();
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+        renderPlatformOptions(form, options, defaultSelection);
+      });
     }
     renderRun(form, meta.initial_run || {});
 
@@ -890,6 +1040,21 @@
         if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start property search.';
       }
     });
+
+    for (const button of [...form.querySelectorAll('[data-property-upgrade]')]) {
+      button.addEventListener('click', async () => {
+        const planKey = String(button.getAttribute('data-property-upgrade') || '').trim();
+        if (!planKey) return;
+        try {
+          await startCheckout(form, meta, planKey);
+        } catch (error) {
+          const errorNode = form.querySelector('[data-property-billing-error]');
+          const statusNode = form.querySelector('[data-property-billing-status]');
+          if (statusNode) statusNode.textContent = '';
+          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start PayPal checkout.';
+        }
+      });
+    }
   }
 })();
 </script>

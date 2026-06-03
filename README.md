@@ -97,6 +97,11 @@ Then open `http://localhost:8090/health`.
 - Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.
 - `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the LTD discovery table from structured BrowserAct inventory output.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.
+- `python3 scripts/verify_ltd_critical_entries.py` is the fail-closed check for the LTD lanes currently relied on in runtime (`1min.AI`, `Prompt Architects`, BrowserAct, and Teable). `scripts/hard_exit_gates.sh` now runs it before release smoke.
+- `python3 scripts/verify_ltd_flagship_subset.py` is the broader flagship inventory gate. It does not claim the whole LTD catalog is verified; it enforces that the named flagship subset (`1min.AI`, `Prompt Architects`, `PayFunnels`, BrowserAct, Teable, ClickRank.ai, Emailit, Pixefy, Rafter) stays on accepted verification sources before release.
+- `make verify-ltd-critical-entries` runs the critical runtime LTD verifier.
+- `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
+- `make ltd-release-gates` runs both LTD release verifiers together.
 - Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 
 ## Operator Shortcuts
@@ -375,7 +380,7 @@ stream_max_retries = 5
 
 - Bootstrap during deploy: `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh`
 - Memory-only local profile: `cp .env.local.example .env && EA_MEMORY_ONLY=1 bash scripts/deploy.sh`
-- Common targets: `make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
+- Common targets: `make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-api-tibor`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make runtime-hard-exit-gates`, `make hard-exit-gates`, `make ltd-release-gates`, `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
 - OpenAPI export/diff: `scripts/export_openapi.sh`, `scripts/diff_openapi.sh`, `make openapi-export`, `make openapi-diff`
 - Release checklist: `RELEASE_CHECKLIST.md`
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.
@@ -387,6 +392,7 @@ The operator summary includes smoke, readiness, CI parity, release/support, and 
 `bash scripts/operator_summary.sh --help` prints the usage contract and is included in `make operator-help`.
 Operator script usage index can be printed via `make operator-help`.
 Endpoint/version/OpenAPI helper scripts also expose `--help` and are included in `make operator-help`.
+`make operator-help` also includes the hard-exit and LTD verifier scripts, so the release-gate lane uses the same help surface as deploy and smoke.
 Support bundle export is available via `scripts/support_bundle.sh` or `make support-bundle`.
 Support bundles apply baseline redaction for common secret/token/password patterns.
 Set `SUPPORT_INCLUDE_DB=0` to skip DB logs in support bundle generation.
@@ -414,6 +420,9 @@ Local CI-parity compile checks can be run via `make ci-local`.
 One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, and generated release artifact cleanliness after the full memory-backed test suite.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
+Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper Tibor contract smoke stays in `make hard-exit-gates`.
+Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, Tibor smoke, and Pocket archive verification.
+Aggregate LTD release gates are available via `make ltd-release-gates`.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.

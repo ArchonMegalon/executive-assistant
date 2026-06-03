@@ -8072,6 +8072,7 @@ def _run_response(
 
         state: tuple[str, object] | None = None
         last_upstream_activity = time.monotonic()
+        yield _sse_heartbeat(sequence=_next_sequence(), response=in_progress_obj)
         while state is None:
             try:
                 next_state = result_queue.get(timeout=STREAM_HEARTBEAT_SECONDS)

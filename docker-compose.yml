@@ -90,7 +90,8 @@ services:
       - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
       - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
-      - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/mnt/pcloud/EA/public_memorials}
+      - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
+      - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
@@ -103,6 +104,7 @@ services:
       - ./config:/app/config:ro
       - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - ./memorial_data:/data/memorial_data:ro
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger

@@ -23,6 +23,8 @@ services:
       EA_RUNTIME_MODE: prod
       EA_STORAGE_BACKEND: postgres
       OPENVOICE_BASE_URL: ${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
+      EA_PUBLIC_MEMORIAL_DIR: ${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
+      EA_PRIVATE_MEMORIAL_PROFILE_DIR: ${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       EA_API_TOKEN: ${EA_API_TOKEN:?set EA_API_TOKEN in .env for prod deployments}
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env for prod deployments}
       EA_FASTESTVPN_COMPOSE_ROOT: /docker/EA

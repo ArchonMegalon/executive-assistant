@@ -33,6 +33,8 @@ def _hostname_can_fallback_to_public_base_url(hostname: str) -> bool:
         return True
     if normalized == "localhost":
         return False
+    if normalized.endswith((".internal", ".local", ".localhost")):
+        return True
     if "." not in normalized:
         return True
     try:
@@ -56,6 +58,7 @@ def request_hostname(request: Any) -> str:
         has_proxy_signal = bool(headers.get("x-forwarded-for") or headers.get("cf-connecting-ip") or headers.get("cf-ray"))
         if (
             normalized_header_host not in _CLICKRANK_HOST_CONFIG
+            and _hostname_can_fallback_to_public_base_url(normalized_header_host)
             and configured_base_host in _CLICKRANK_HOST_CONFIG
             and has_proxy_signal
         ):

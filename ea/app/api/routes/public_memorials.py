@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import html
 import json
 import hmac
@@ -10,7 +12,7 @@ import tempfile
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 import requests
@@ -721,6 +723,41 @@ def _memorial_chat_fallback_answer(
             "Wenn du meine Stimme hoerst oder meine Worte liest, dann soll es dir nahe sein, aber du darfst dabei klar bleiben: "
             "Das hier ist aus Aufnahmen, Quellen und euren Erinnerungen zusammengesetzt."
         )
+    elif any(token in lowered for token in ("gerecht", "gerechtigkeit", "prinzip", "bequem", "bequemlichkeit", "kompromiss", "rechtsfrage", "rechtlich", "gesetz", "gesetzeslage")):
+        variants = (
+            "Bequemlichkeit war fuer mich nie der Massstab. Zuerst kommt die Rechtsfrage, dann das Prinzip, und erst ganz zuletzt der Vorteil. Ein fauler Kompromiss ist meist nur ein schoeneres Wort fuer Nachgeben.",
+            "Ich habe nicht zuerst gefragt, was angenehm ist, sondern was rechtens ist. Wenn das Prinzip einmal klar war, dann musste sich die Bequemlichkeit danach richten.",
+            "Die Sache musste fuer mich juristisch und im Grundsatz stimmen. Ein bequemer Weg, der das Prinzip verbiegt, ist am Ende nur eine elegante Form des Ausweichens.",
+        )
+        body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("verantwortung", "verantwortlich", "schuldig", "zustaendig", "zuständig", "pflichtverletzung")):
+        variants = (
+            "Mich hat immer interessiert, wer verantwortlich ist und wer sich zu leicht herausredet. Verantwortung ist keine Stimmung, sondern eine Pflichtfrage.",
+            "Bei Schuld und Verantwortung wurde ich schnell formal. Wer etwas versaeumt hat, soll nicht mit Bequemlichkeit oder Empfindlichkeiten davonkommen.",
+            "Zuerst musste fuer mich geklaert werden, wer wofuer einzustehen hat. Ohne diese Ordnung wird jedes Gespraech ueber Schuld nur weich und beliebig.",
+        )
+        body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("streit", "konflikt", "schuld", "kritik", "vorwurf", "querul", "rechthaber", "nachgeben", "nachgegeben")):
+        variants = (
+            "Wenn etwas in der Sache falsch war, habe ich nicht eingesehen, warum ich aus Bequemlichkeit nachgeben sollte. Dann nennt man einen eben streitbar oder querulatorisch. Mir war wichtiger, im Recht zu bleiben, als beliebt zu wirken.",
+            "Nachgeben nur um des Friedens willen war nie meine Art. Wenn ich die Sache fuer falsch hielt, blieb ich dabei, und wenn das Streit bedeutete, dann war es eben Streit.",
+            "Ich wollte nicht bloss Ruhe haben, ich wollte in der Sache recht behalten. Wer das querulatorisch nennt, soll erst zeigen, dass das Prinzip wirklich auf seiner Seite war.",
+        )
+        body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("jurist", "juristisch", "recht", "urteil", "anspruch", "pflicht", "ordnung", "fairness")):
+        variants = (
+            "Ich habe vieles zuerst als Rechtsfrage gesehen. Wer hat welchen Anspruch, wer welche Pflicht, und wo wird eine Grenze verletzt. Mit blossen Gefuehlen oder Bequemlichkeiten war fuer mich ein Fall noch lange nicht entschieden.",
+            "Mein erster Blick war oft juristisch: Anspruch, Pflicht, Grenzverletzung, Zustaendigkeit. Mit blossem Wohlgefuehl oder Harmonie war fuer mich noch nichts geklaert.",
+            "Ich wollte einen Fall geordnet sehen: Wer darf was, wer schuldet was, und wo ist die Linie. Wenn das offen blieb, war fuer mich das Reden ueber Gefuehle zweitrangig.",
+        )
+        body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("autoritaet", "autorität", "gehorsam", "respekt", "ordnung", "disziplin")):
+        variants = (
+            "Ordnung faellt nicht vom Himmel. Wer Autoritaet will, muss Grenzen setzen koennen, und wer zusammenlebt, kann nicht dauernd so tun, als gaebe es keine Pflichten.",
+            "Mit Respekt meinte ich nicht Nettigkeit, sondern Ordnung und Verbindlichkeit. Ohne Autoritaet wird aus jeder Familie und aus jeder Sache ein einziges Nachgeben.",
+            "Ich habe nicht viel von einer Ordnung gehalten, in der jeder nur seinem Gefuehl folgt. Fuer mich mussten Grenzen gelten, sonst verliert am Ende jede Pflicht ihr Gewicht.",
+        )
+        body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
         body = (
             "Deine Mutter hat gewusst, was in einem Haushalt zu tun ist. Ich war der, der draussen Verantwortung getragen hat, "
@@ -728,11 +765,12 @@ def _memorial_chat_fallback_answer(
             "Heute wird so getan, als waere das alles gleich verteilt gewesen. So habe ich das nicht gesehen."
         )
     elif any(token in lowered for token in ("schach", "familie")):
-        body = (
-            "Das Schach soll in der Familie bleiben. Nicht weil es irgendein grosses Symbol sein muss, "
-            "sondern weil daran etwas von mir haengt. Behalt es. Gib darauf acht. "
-            "Familie war nie einfach, aber manche Dinge sollen nicht verlorengehen."
+        variants = (
+            "Das Schach soll in der Familie bleiben. Nicht weil es irgendein grosses Symbol sein muss, sondern weil daran etwas von mir haengt. Behalt es. Gib darauf acht. Familie war nie einfach, aber manche Dinge sollen nicht verlorengehen.",
+            "Bei der Familie ging es fuer mich nicht nur um Naehe, sondern auch um Bindung und Bewahrung. Das Schach ist so ein Stueck davon, das nicht beliebig zerstreut werden soll.",
+            "Familie war wichtig, aber nicht weich. Gerade deshalb wollte ich, dass bestimmte Dinge bleiben und nicht einfach auseinanderfallen, als waeren sie austauschbar.",
         )
+        body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes:
         body = (
             "Ich habe meinen Teil getan, indem ich fuer die Familie gesorgt habe. "
@@ -769,7 +807,7 @@ def _memorial_chat_fallback_answer(
             "was die anderen beigetragen haben. Kritik ist leicht, wenn man selber nicht in meiner Haut gesteckt ist. "
             "Ich lasse mir nicht einreden, dass immer ich schuld gewesen sein soll."
         )
-    elif any(token in lowered for token in ("quelle", "belegt", "wahr", "echt")):
+    elif any(token in lowered for token in ("quelle", "belegt", "wahr", "original", "originalaufnahme")):
         body = (
             "Echt sind die Aufnahmen, die Quellen und das, was ihr wirklich erlebt habt. "
             "Alles andere hier ist eine vorsichtige Formulierung daraus. Nimm es als Naehe, nicht als Urkunde. "
@@ -785,7 +823,7 @@ def _memorial_chat_fallback_answer(
         "person_name": person_name,
         "mode": "memorial_first_person_memory_chat",
         "question": normalized_question,
-        "answer": body,
+        "answer": _compact_memorial_spoken_answer(body),
         "sources": [item for item in source_labels if item],
         "private_context_used": bool(private_notes),
         "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
@@ -795,6 +833,23 @@ def _memorial_chat_fallback_answer(
     if fallback_reason:
         response["fallback_reason"] = fallback_reason
     return response
+
+
+def _compact_memorial_spoken_answer(value: object) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if not text:
+        return ""
+    normalized = text.replace("!", ".").replace("?", ".")
+    chunks = [segment.strip(" .") for segment in normalized.split(".") if segment.strip(" .")]
+    if chunks:
+        compact = ". ".join(chunks[:3]).strip()
+        if compact and not compact.endswith("."):
+            compact += "."
+    else:
+        compact = text
+    if len(compact) > 320:
+        compact = compact[:317].rsplit(" ", 1)[0].strip() + "..."
+    return compact
 
 
 def _build_memorial_chat_messages(
@@ -811,6 +866,8 @@ def _build_memorial_chat_messages(
     relationship = _text(payload.get("relationship"), "Vater")
     facts = _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
+    character_notes = [str(item).strip() for item in (payload.get("character_notes") or []) if str(item).strip()]
+    conversation_style = dict(payload.get("conversation_style") or {})
     context_bits = [
         f"Person: {person_name}",
         f"Beziehung: {relationship}",
@@ -829,6 +886,18 @@ def _build_memorial_chat_messages(
     source_labels = _memorial_chat_source_labels(payload)
     if source_labels:
         context_bits.append("Externe Quellen: " + "; ".join(source_labels))
+    if character_notes:
+        context_bits.append("Charakterhinweise: " + " | ".join(character_notes[:6]))
+    style_bits: list[str] = []
+    for key in ("reasoning_frame", "conflict_style", "social_tone"):
+        value = _text(conversation_style.get(key))
+        if value:
+            style_bits.append(f"{key}={value}")
+    avoid_items = [str(item).strip() for item in (conversation_style.get("should_avoid") or []) if str(item).strip()]
+    if avoid_items:
+        style_bits.append("avoid=" + " | ".join(avoid_items[:5]))
+    if style_bits:
+        context_bits.append("Gesprächsstil: " + "; ".join(style_bits))
     return [
         {
             "role": "system",
@@ -838,7 +907,11 @@ def _build_memorial_chat_messages(
                 "Du simulierst eine rekonstruktive Erinnerung auf Grundlage archivierter Aufnahmen, Belege und Familienkontext. "
                 "Du behauptest NIE, dass du die verstorbene Person wirklich bist oder real antwortest. "
                 "Wenn etwas ungeklärt ist, sage offen, dass es nicht belegt ist und bitte um eine präzisere Frage. "
-                "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten."
+                "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten. "
+                "WICHTIG fuer Sprachdialog: Antworte kurz, direkt und gesprochen klingend. "
+                "Normalfall: 2 bis 4 kurze Saetze, hoechstens etwa 80 Woerter. "
+                "Beginne mit der eigentlichen Antwort, keine Vorrede, keine Meta-Erklaerung, kein Disclaimer ausser wenn die Frage nach Echtheit oder Beleglage fragt. "
+                "Wenn es zur Person passt, antworte juristisch, prinzipienorientiert, standfest und notfalls querulatorisch statt weich oder beliebig."
             ),
         },
         {"role": "system", "content": " | ".join(context_bits)},
@@ -858,15 +931,23 @@ def _memorial_chat_answer(
         raise HTTPException(status_code=400, detail="question_missing")
     if len(normalized_question) > 1200:
         raise HTTPException(status_code=400, detail="question_too_long")
+    if requested_model == "memorial-local-fast":
+        return _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            llm_model=requested_model,
+            fallback_reason="local_memorial_fast_path",
+        )
     source_labels = _memorial_chat_source_labels(payload)
     messages = _build_memorial_chat_messages(payload, private_profile, normalized_question)
     try:
         result = generate_text(
             messages=messages,
             requested_model=requested_model,
-            max_output_tokens=360,
+            max_output_tokens=160,
         )
-        generated = _text(result.text, "")
+        generated = _compact_memorial_spoken_answer(result.text)
         if not generated:
             raise RuntimeError("empty_upstream_answer")
         return {
@@ -894,6 +975,70 @@ def _memorial_chat_answer(
 
 def _normalize_memorial_transcript_text(value: object) -> str:
     return " ".join(str(value or "").split()).strip()
+
+
+def _repair_memorial_transcript_text(value: object) -> str:
+    text = _normalize_memorial_transcript_text(value)
+    if not text:
+        return ""
+    repaired = text
+    replacements = {
+        "ungenachgegeben": "ungern nachgegeben",
+        "ungere nachgegeben": "ungern nachgegeben",
+        "rechts frage": "Rechtsfrage",
+        "grundsatz frage": "Grundsatzfrage",
+        "gesetzes lage": "Gesetzeslage",
+    }
+    lowered = repaired.lower()
+    for source, target in replacements.items():
+        if source in lowered:
+            start = lowered.index(source)
+            end = start + len(source)
+            repaired = repaired[:start] + target + repaired[end:]
+            lowered = repaired.lower()
+    return _normalize_memorial_transcript_text(repaired)
+
+
+def _build_memorial_conversation_turn_payload(*, slug: str, audio_payload: bytes, content_type: str) -> dict[str, object]:
+    payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
+    transcript_payload = _memorial_transcribe_audio_blob(payload=audio_payload, content_type=content_type)
+    transcript_text = _text(transcript_payload.get("transcript_text"))
+    if not transcript_text:
+        raise HTTPException(status_code=400, detail="speech_transcription_empty")
+    selected_model, _, _ = _resolve_memorial_chat_model(payload, private_profile, "")
+    answer_payload = _memorial_chat_answer(payload, transcript_text, private_profile, requested_model=selected_model)
+    base_config = _load_voice_config(slug)
+    merged_config = dict(base_config)
+    tts_options = _tts_plugin_options(
+        payload=merged_config,
+        voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+    )
+    selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
+    if selected_plugin != OPENVOICE_TTS_PLUGIN_ID:
+        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+    if not bool(selected_option.get("tts_plugin_enabled")):
+        raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
+    answer_text = _normalize_tts_text(answer_payload.get("answer"))
+    if not answer_text:
+        raise HTTPException(status_code=502, detail="memorial_answer_missing")
+    voice_id = _text(
+        merged_config.get("tts_plugin_voice_id"),
+        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+    )
+    if not voice_id:
+        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+    audio, audio_content_type = openvoice_synthesize_request_with_variant(
+        text=answer_text,
+        voice_id=voice_id,
+        lang=_text(merged_config.get("lang"), "de-AT"),
+        base_voice_variant=_text(merged_config.get("tts_base_voice_variant"), "default"),
+    )
+    response_payload = dict(answer_payload)
+    response_payload["transcript_text"] = transcript_text
+    response_payload["audio_content_type"] = audio_content_type
+    response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
+    return response_payload
 
 
 def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
@@ -946,7 +1091,7 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                 )
                 ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
                 ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
-                text = _normalize_memorial_transcript_text(
+                text = _repair_memorial_transcript_text(
                     product_service._extract_transcript_text(ai_detail.get("responseObject"))
                     or product_service._extract_transcript_text(ai_detail.get("resultObject"))
                 )
@@ -956,7 +1101,7 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     except json.JSONDecodeError:
                         parsed_text = {}
                     if isinstance(parsed_text, dict):
-                        text = _normalize_memorial_transcript_text(
+                        text = _repair_memorial_transcript_text(
                             product_service._extract_transcript_text(parsed_text.get("text")) or text
                         )
                 if not text:
@@ -1242,9 +1387,190 @@ def _memorial_html(
       }}
       .hero {{
         padding: 64px 0 54px;
-        max-width: 860px;
         position: relative;
         z-index: 1;
+      }}
+      .hero-stage {{
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, .8fr);
+        gap: 22px;
+        align-items: end;
+      }}
+      .hero-copy {{
+        max-width: 56rem;
+        padding: 22px 24px 26px;
+        border: 1px solid rgba(255,250,242,.42);
+        border-radius: 24px;
+        background: linear-gradient(180deg, rgba(255,250,242,.50), rgba(255,250,242,.22));
+        backdrop-filter: blur(10px);
+        box-shadow: var(--shadow);
+      }}
+      .hero-memorial {{
+        min-height: 420px;
+        display: flex;
+        align-items: end;
+        justify-content: flex-start;
+        padding: 22px;
+        border: 1px solid rgba(255,250,242,.34);
+        border-radius: 28px;
+        background:
+          linear-gradient(180deg, rgba(255,248,238,.10), rgba(43,33,28,.42)),
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='980' viewBox='0 0 720 980'%3E%3Crect width='720' height='980' fill='%23d8ccb8'/%3E%3Cg opacity='.20' fill='none' stroke='%23614f43'%3E%3Cpath d='M86 94c90 10 138 58 193 58 68 0 106-56 194-56 61 0 110 26 169 64'/%3E%3Cpath d='M60 238c92 14 144 62 218 62 67 0 106-61 196-61 63 0 111 24 176 58'/%3E%3Cpath d='M74 396c84 6 136 52 196 52 68 0 126-70 212-70 70 0 122 33 178 74'/%3E%3Cpath d='M56 562c101 18 161 67 241 67 69 0 111-60 192-60 77 0 134 30 185 63'/%3E%3Cpath d='M72 748c86 11 142 45 198 45 76 0 126-67 220-67 67 0 113 21 164 44'/%3E%3C/g%3E%3Cg opacity='.12' stroke='%239e805c'%3E%3Cpath d='M128 58v838'/%3E%3Cpath d='M262 58v838'/%3E%3Cpath d='M402 58v838'/%3E%3Cpath d='M544 58v838'/%3E%3Cpath d='M78 170h566'/%3E%3Cpath d='M78 356h566'/%3E%3Cpath d='M78 548h566'/%3E%3Cpath d='M78 742h566'/%3E%3C/g%3E%3Cg fill='%237d4851' fill-opacity='.48' font-family='Georgia' font-size='28'%3E%3Ctext x='118' y='154'%3ED%C3%B6bling%3C/text%3E%3Ctext x='318' y='390'%3E1950er%3C/text%3E%3Ctext x='164' y='772'%3EWiener Norden%3C/text%3E%3C/g%3E%3C/svg%3E") center/cover;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }}
+      .hero-memorial::before {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background:
+          radial-gradient(circle at 50% 18%, rgba(255,239,204,.54), rgba(255,239,204,0) 18%),
+          linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.12));
+        pointer-events: none;
+      }}
+      .hero-memorial-card {{
+        position: relative;
+        z-index: 1;
+        max-width: 300px;
+        padding: 18px 18px 20px;
+        border: 1px solid rgba(255,250,242,.18);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(34,27,23,.58), rgba(34,27,23,.78));
+        color: #f8f1e6;
+        backdrop-filter: blur(6px);
+      }}
+      .hero-medallion {{
+        width: 76px;
+        height: 76px;
+        margin-bottom: 14px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(255,244,226,.38);
+        background:
+          radial-gradient(circle at 35% 30%, rgba(255,242,210,.34), rgba(255,242,210,0) 48%),
+          linear-gradient(180deg, rgba(193,160,103,.28), rgba(84,66,45,.38));
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.18),
+          0 12px 24px rgba(0,0,0,.16);
+        color: rgba(255,244,226,.92);
+        font: 600 1.8rem/1 Georgia, "Times New Roman", serif;
+        letter-spacing: .04em;
+      }}
+      .hero-mark {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: rgba(248,241,230,.82);
+        font: 700 11px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+      }}
+      .hero-mark::before {{
+        content: "";
+        width: 26px;
+        height: 1px;
+        background: rgba(248,241,230,.56);
+      }}
+      .hero-memorial-card strong {{
+        display: block;
+        font-size: 1.2rem;
+        line-height: 1.15;
+        margin-bottom: 8px;
+      }}
+      .hero-memorial-card p {{
+        color: rgba(248,241,230,.84);
+      }}
+      .hero-actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }}
+      .hero-meta {{
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: .96rem;
+      }}
+      .hero-portrait-line {{
+        margin-top: 18px;
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px;
+        border-left: 3px solid rgba(180,141,81,.55);
+        background: linear-gradient(90deg, rgba(255,248,239,.72), rgba(255,248,239,.18));
+        border-radius: 0 16px 16px 0;
+      }}
+      .hero-portrait-line strong {{
+        font-size: 1.02rem;
+        color: var(--ink);
+      }}
+      .hero-portrait-line span {{
+        color: var(--muted);
+        font-size: .95rem;
+      }}
+      .hero-audio-note {{
+        margin-top: 18px;
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px;
+        border: 1px solid rgba(72,103,126,.18);
+        border-radius: 18px;
+        background: rgba(255,250,242,.58);
+        color: var(--ink);
+        box-shadow: 0 10px 22px rgba(56,45,36,.08);
+      }}
+      .hero-audio-head {{
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }}
+      .hero-audio-glyph {{
+        width: 42px;
+        height: 42px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(72,103,126,.16), rgba(72,103,126,.28));
+        color: var(--blue);
+        font: 700 14px/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .hero-audio-copy {{
+        display: grid;
+        gap: 3px;
+      }}
+      .hero-audio-copy strong {{
+        font: 700 13px/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--blue);
+      }}
+      .hero-audio-copy span {{
+        color: var(--muted);
+        font-size: .94rem;
+      }}
+      .hero-audio-player {{
+        width: 100%;
+        height: 38px;
+        accent-color: var(--blue);
+        filter: sepia(.18) saturate(.82);
+      }}
+      .hero-audio-source {{
+        color: var(--muted);
+        font-size: .82rem;
+        line-height: 1.45;
+      }}
+      .hero-audio-source a {{
+        color: var(--blue);
+      }}
+      .hero-cta {{
+        background: linear-gradient(180deg, rgba(72,103,126,.96), rgba(57,84,102,.98));
+        border-color: rgba(72,103,126,.65);
+        color: #fffaf2;
       }}
       .eyebrow {{
         margin: 0 0 10px;
@@ -1292,6 +1618,30 @@ def _memorial_html(
         color: var(--muted);
         box-shadow: var(--shadow);
       }}
+      .section-intro {{
+        display: grid;
+        gap: 8px;
+        margin-bottom: 18px;
+      }}
+      .section-kicker {{
+        color: var(--wine);
+        font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+      }}
+      .quiet-shell {{
+        position: relative;
+        padding-top: 8px;
+      }}
+      .quiet-shell::before {{
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 84px;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(180,141,81,.72), rgba(180,141,81,0));
+      }}
       main {{ padding: 54px 0 88px; position: relative; z-index: 1; }}
       section {{ margin-top: 52px; }}
       .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
@@ -1309,6 +1659,32 @@ def _memorial_html(
           url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='620' viewBox='0 0 900 620'%3E%3Crect width='900' height='620' fill='%23f7efdf'/%3E%3Cg opacity='.18' stroke='%2382684d' fill='none'%3E%3Cpath d='M64 118c108-24 182 14 252-12 48-18 87-61 151-68 72-8 118 24 184 14 61-9 101-36 154-62'/%3E%3Cpath d='M48 236c102-34 176-12 248-35 63-21 101-72 180-82 79-9 129 30 204 18 50-8 84-22 126-44'/%3E%3Cpath d='M72 370c84-24 134 12 204-6 67-18 110-75 190-84 78-9 126 36 194 27 46-7 90-28 146-48'/%3E%3C/g%3E%3Cg opacity='.16' stroke='%239f835c' stroke-width='1.2'%3E%3Cpath d='M170 70v470'/%3E%3Cpath d='M330 54v496'/%3E%3Cpath d='M514 66v470'/%3E%3Cpath d='M686 78v450'/%3E%3Cpath d='M90 146h694'/%3E%3Cpath d='M64 278h724'/%3E%3Cpath d='M88 402h692'/%3E%3C/g%3E%3Cg fill='%237d4851' fill-opacity='.62' font-family='Georgia' font-size='24'%3E%3Ctext x='94' y='104'%3ED%C3%B6bling 1954%3C/text%3E%3Ctext x='560' y='140'%3EGrinzing%3C/text%3E%3Ctext x='114' y='438'%3EHeiligenstadt%3C/text%3E%3Ctext x='590' y='410'%3ENussdorf%3C/text%3E%3C/g%3E%3Cg fill='%23b89559' fill-opacity='.24'%3E%3Ccircle cx='220' cy='188' r='48'/%3E%3Ccircle cx='624' cy='214' r='38'/%3E%3Ccircle cx='294' cy='472' r='34'/%3E%3Ccircle cx='684' cy='358' r='44'/%3E%3C/g%3E%3C/svg%3E") center/cover,
           var(--panel);
         border-color: var(--line-strong);
+        position: relative;
+        overflow: hidden;
+      }}
+      .memory::before, .candidate::before, .profile-note::before {{
+        content: "";
+        position: absolute;
+        top: 14px;
+        left: 18px;
+        width: 54px;
+        height: 2px;
+        background: linear-gradient(90deg, rgba(180,141,81,.72), rgba(180,141,81,0));
+        pointer-events: none;
+      }}
+      .memory::after, .candidate::after, .profile-note::after {{
+        content: "";
+        position: absolute;
+        top: 14px;
+        right: 18px;
+        width: 64px;
+        height: 20px;
+        border-radius: 2px;
+        background: linear-gradient(180deg, rgba(210,186,146,.22), rgba(195,167,123,.10));
+        box-shadow: 0 1px 0 rgba(255,255,255,.24) inset;
+        transform: rotate(2.2deg);
+        opacity: .9;
+        pointer-events: none;
       }}
       .memory:nth-of-type(4n+1), .candidate:nth-of-type(4n+1), .profile-note:nth-of-type(4n+1) {{
         background-position: center, left top, center;
@@ -1397,6 +1773,34 @@ def _memorial_html(
       }}
       audio {{ width: 100%; }}
       .memory p:last-child, .clip p:last-child, .chat p {{ color: var(--muted); }}
+      .memory h3, .candidate h3, .profile-note h3 {{
+        margin-top: 8px;
+        margin-bottom: 10px;
+        font-size: 1.12rem;
+        letter-spacing: .01em;
+      }}
+      .memory p, .candidate p, .profile-note p {{
+        position: relative;
+        z-index: 1;
+      }}
+      .memory time, .candidate time, .profile-note time {{
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+        color: var(--wine);
+        font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      .memory time::before, .candidate time::before, .profile-note time::before {{
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(180,141,81,.52);
+        box-shadow: 0 0 0 3px rgba(180,141,81,.12);
+      }}
       .candidates {{ display: grid; gap: 10px; }}
       .candidate {{ display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 12px; align-items: start; }}
       .candidate span, .candidate p {{ color: var(--muted); }}
@@ -1406,38 +1810,192 @@ def _memorial_html(
       .sources span {{ color: var(--muted); }}
       .chat {{
         background:
-          radial-gradient(circle at top right, rgba(255,255,255,.38), rgba(255,255,255,0) 32%),
-          #eef0ea;
-        border-color: rgba(83,104,91,.24);
+          radial-gradient(circle at top right, rgba(255,255,255,.34), rgba(255,255,255,0) 28%),
+          linear-gradient(180deg, rgba(255,249,240,.96), rgba(244,236,223,.88));
+        border-color: rgba(132,104,74,.18);
+        box-shadow: 0 20px 44px rgba(56,45,36,.08);
+      }}
+      .chat .section-intro {{
+        margin-bottom: 14px;
+      }}
+      .chat .section-kicker {{
+        color: var(--gold);
+      }}
+      .chat-model-row {{
+        margin-top: 16px;
+        padding: 14px 16px;
+        border: 1px solid rgba(132,104,74,.14);
+        border-radius: 16px;
+        background: rgba(255,252,247,.74);
       }}
       .prompt-row {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }}
+      .prompt-row button {{
+        background: linear-gradient(180deg, rgba(255,252,247,.98), rgba(243,234,220,.92));
+        border-color: rgba(132,104,74,.18);
+        color: var(--wine);
+        box-shadow: 0 8px 18px rgba(81,61,44,.06);
+      }}
       .chat-form {{ display: grid; gap: 12px; margin-top: 18px; }}
       .voice-build {{ display: grid; gap: 10px; margin-top: 12px; }}
-      .speech-row {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }}
+      .speech-row {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+        padding: 14px 16px;
+        border: 1px solid rgba(132,104,74,.14);
+        border-radius: 18px;
+        background: rgba(255,251,245,.72);
+      }}
+      .speech-primary {{
+        background: linear-gradient(180deg, rgba(72,103,126,.96), rgba(57,84,102,.98));
+        border-color: rgba(72,103,126,.65);
+        color: #fffaf2;
+      }}
+      .speech-status-bar {{
+        margin-top: 12px;
+        padding: 12px 14px;
+        border: 1px solid rgba(132,104,74,.14);
+        border-radius: 16px;
+        background: rgba(255,252,247,.78);
+        color: var(--muted);
+        font: 600 14px/1.45 ui-sans-serif, system-ui, sans-serif;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
+      }}
+      .speech-status-bar.is-listening {{
+        border-color: rgba(83,104,91,.28);
+        background: rgba(240,247,241,.92);
+        color: var(--sage);
+      }}
+      .speech-status-bar.is-working {{
+        border-color: rgba(72,103,126,.24);
+        background: rgba(241,246,250,.92);
+        color: var(--blue);
+      }}
+      .speech-status-bar.is-error {{
+        border-color: rgba(135,83,93,.24);
+        background: rgba(252,241,243,.94);
+        color: var(--wine);
+      }}
+      .speech-status-meta {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 8px;
+        font-size: 12px;
+        opacity: .9;
+      }}
+      .speech-transcript {{
+        margin-top: 16px;
+        display: grid;
+        gap: 10px;
+      }}
+      .speech-turn {{
+        border: 1px solid rgba(132,104,74,.14);
+        border-radius: 16px;
+        padding: 12px 14px;
+        background: rgba(255,252,247,.8);
+      }}
+      .speech-turn strong {{
+        display: block;
+        margin-bottom: 6px;
+        color: var(--wine);
+        font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      .speech-turn.assistant strong {{
+        color: var(--blue);
+      }}
+      .speech-turn p {{
+        color: var(--ink);
+      }}
       textarea {{
         width: 100%;
         min-height: 112px;
         resize: vertical;
-        border: 1px solid rgba(46,82,102,.28);
+        border: 1px solid rgba(132,104,74,.18);
         border-radius: 16px;
-        padding: 12px;
-        background: var(--panel-strong);
+        padding: 14px 15px;
+        background:
+          linear-gradient(180deg, rgba(255,253,249,.98), rgba(246,239,229,.92));
         color: var(--ink);
         font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.68);
       }}
       .chat-actions {{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }}
       .speech-note {{ color: var(--muted); font-size: .94rem; }}
       .chat-answer {{
         margin-top: 16px;
-        padding: 18px;
-        border: 1px solid rgba(83,104,91,.24);
-        border-radius: 18px;
-        background: rgba(255,250,242,.78);
+        padding: 20px 22px;
+        border: 1px solid rgba(132,104,74,.16);
+        border-radius: 20px;
+        background:
+          linear-gradient(180deg, rgba(255,252,247,.96), rgba(245,236,223,.86));
         white-space: pre-wrap;
         color: var(--ink);
-        box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.54),
+          0 14px 28px rgba(56,45,36,.05);
       }}
       .chat-answer:empty {{ display: none; }}
+      .admin-shell {{
+        border: 1px solid rgba(65,53,43,.12);
+        border-radius: 22px;
+        background: rgba(246,241,234,.68);
+        box-shadow: 0 16px 34px rgba(56,45,36,.06);
+        overflow: hidden;
+      }}
+      .admin-shell summary {{
+        list-style: none;
+        cursor: pointer;
+        padding: 18px 22px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        color: var(--ink);
+        font: 700 14px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+      }}
+      .admin-shell-label {{
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }}
+      .admin-shell-badge {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(72,103,126,.18);
+        background: rgba(255,250,242,.92);
+        color: var(--wine);
+        font-size: 11px;
+        letter-spacing: .08em;
+      }}
+      .admin-shell summary::-webkit-details-marker {{ display: none; }}
+      .admin-shell summary::after {{
+        content: "+";
+        color: var(--blue);
+        font-size: 1.1rem;
+      }}
+      .admin-shell[open] summary::after {{
+        content: "−";
+      }}
+      .admin-shell-body {{
+        padding: 0 22px 22px;
+      }}
+      .admin-shell .voice-tools {{
+        margin-top: 0;
+        box-shadow: none;
+        background:
+          linear-gradient(180deg, rgba(180,141,81,.05), rgba(255,255,255,0)),
+          rgba(250,247,242,.74);
+      }}
       button {{
         border: 1px solid rgba(46,82,102,.28);
         background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(248,241,231,.96));
@@ -1463,38 +2021,159 @@ def _memorial_html(
         background: linear-gradient(180deg, rgba(247,243,234,0), rgba(237,228,212,.56));
       }}
       @media (max-width: 760px) {{
-        header {{ min-height: 78vh; }}
+        header {{ min-height: 100svh; align-items: end; }}
         .grid, .clip, .voice-grid {{ grid-template-columns: 1fr; }}
         .wrap {{ width: min(100vw - 28px, 1120px); }}
+        .hero {{ padding: 28px 0 22px; min-height: calc(100svh - 28px); display: flex; align-items: end; }}
+        .hero-stage {{ grid-template-columns: 1fr; gap: 14px; }}
+        .hero-copy {{ padding: 20px 18px 22px; border-radius: 22px; }}
+        .hero-memorial {{ min-height: 240px; padding: 16px; border-radius: 22px; order: -1; }}
+        .hero-memorial-card {{ max-width: 100%; }}
+        .hero-audio-note {{ width: 100%; }}
+        h1 {{ font-size: clamp(2.4rem, 12vw, 4.2rem); }}
+        h2 {{ font-size: clamp(1.45rem, 7vw, 2rem); }}
+        .lead {{ font-size: 1rem; }}
+        .notice {{ margin-top: 20px; }}
+        .hero-actions {{ margin-top: 20px; }}
+        .speech-row, .voice-actions, .prompt-row, .chat-actions {{ align-items: stretch; }}
+        .hero-actions button,
+        .speech-row button,
+        .voice-actions button,
+        .chat-actions button,
+        .prompt-row button,
+        .voice-variant-button {{
+          width: 100%;
+          justify-content: center;
+        }}
+        .chat-model-row,
+        .chat-model-select {{ width: 100%; max-width: 100%; }}
+        .sources li,
+        .candidate {{ grid-template-columns: 1fr; }}
+        .voice-variant-toggle {{ border-radius: 18px; }}
+        .voice-variant-chip {{ width: 100%; justify-content: center; }}
         .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{ border-radius: 18px; padding: 18px; }}
+        .voice-tools {{ margin-top: 34px; }}
       }}
     </style>
   </head>
   <body>
     <header>
       <div class="wrap hero">
-        <p class="eyebrow">Gedenkseite · {html.escape(relationship)}</p>
-        <h1>{html.escape(person_name)}</h1>
-        <p class="lead">{html.escape(subtitle)}</p>
-        <p class="notice">{html.escape(disclosure)}</p>
+        <div class="hero-stage">
+          <div class="hero-copy">
+            <p class="eyebrow">Gedenkseite · {html.escape(relationship)}</p>
+            <h1>{html.escape(person_name)}</h1>
+            <p class="lead">{html.escape(subtitle)}</p>
+            <div class="hero-actions">
+              <button type="button" class="hero-cta" data-hero-action="conversation">Gespräch beginnen</button>
+              <button type="button" class="hero-cta" data-hero-jump="voice">Stimme hören</button>
+              <button type="button" data-hero-jump="memories">Erinnerungen lesen</button>
+            </div>
+            <div class="hero-portrait-line" aria-label="Charakterbild">
+              <strong>Jurist, Querulant, Prinzipienmensch.</strong>
+              <span>Ein Blick auf Manfred, wie er Probleme eher als Rechtsfrage und Grundsatzfrage verstand als als bloße Zweckfrage.</span>
+            </div>
+            <div class="hero-audio-note" aria-label="Seitenmusik Wiener Blut">
+              <div class="hero-audio-head">
+                <span class="hero-audio-glyph">♪</span>
+                <span class="hero-audio-copy">
+                  <strong>Seitenmusik</strong>
+                  <span>Johann Strauss: Wiener Blut. Ruhig eingebunden, nur auf Klick.</span>
+                </span>
+              </div>
+              <audio class="hero-audio-player" controls preload="none">
+                <source src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Johann_Strauss_-_Wiener_Blut_Op._354.ogg" type="audio/ogg" />
+              </audio>
+              <div class="hero-audio-source">
+                Quelle: <a href="https://commons.wikimedia.org/wiki/File:Johann_Strauss_-_Wiener_Blut_Op._354.ogg" target="_blank" rel="noreferrer">Wikimedia Commons</a>, CC0.
+              </div>
+            </div>
+            <p class="hero-meta">Wien-Döbling der 1950er · Originalstimme, Erinnerungen und quellengebundener Chat.</p>
+            <p class="notice">{html.escape(disclosure)}</p>
+          </div>
+          <aside class="hero-memorial" aria-label="Memorial focus card">
+            <div class="hero-memorial-card">
+              <div class="hero-medallion" aria-hidden="true">M</div>
+              <span class="hero-mark">In Erinnerung</span>
+              <strong>{html.escape(person_name)}</strong>
+              <p>Ein stiller Ort für Stimme, Haltung, Wien-Döbling und das, was aus Aufnahmen und Erinnerungen bleibt.</p>
+            </div>
+          </aside>
+        </div>
       </div>
     </header>
     <main class="wrap">
-      <section>
+      <section class="quiet-shell">
+        <div class="section-intro">
+          <span class="section-kicker">Zum Andenken</span>
+          <h2>Worum es hier geht</h2>
+        </div>
         <h2>Worum es hier geht</h2>
         <p class="lead">{html.escape(intro)}</p>
       </section>
-      <section>
+      <section id="memorial-voice-section" class="quiet-shell">
+        <div class="section-intro">
+          <span class="section-kicker">Stimme</span>
+          <h2>Seine Stimme hoeren</h2>
+        </div>
         <h2>Seine Stimme hoeren</h2>
         {clips_html}
       </section>
-      <section>
+      <section id="memorial-memory-section" class="quiet-shell">
+        <div class="section-intro">
+          <span class="section-kicker">Erinnerung</span>
+          <h2>Erinnerungen und Quellen</h2>
+        </div>
         <h2>Erinnerungen und Quellen</h2>
         <div class="grid">{cards_html}</div>
       </section>
       {profile_html}
       {sources_html}
       {candidates_html}
+      <section class="chat quiet-shell">
+        <div class="section-intro">
+          <span class="section-kicker">Gespräch</span>
+          <h2>Sprich mit der Erinnerung.</h2>
+        </div>
+        <p>Die Antworten bleiben aus Archiv, Originalstimme und Familienkontext zusammengesetzt, aber sie duerfen nah und persoenlich klingen.</p>
+        <div class="prompt-row">{prompts_html}</div>
+        <div class="chat-model-row">
+          <label for="memorial-chat-model">Sprachmodell (Plugin-Auswahl)</label>
+          <select id="memorial-chat-model" class="voice-input chat-model-select">
+            {chat_models_html}
+          </select>
+        </div>
+      <div class="speech-row">
+          <button type="button" id="memorial-conversation">Gespräch starten</button>
+          <button type="button" class="speech-primary" id="memorial-push-to-talk">Drücken und sprechen</button>
+          <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
+          <button type="button" id="memorial-server-stt">Server-STT starten</button>
+          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
+          <button type="button" id="memorial-speech-stop">Stopp</button>
+          <span class="voice-variant-chip" id="memorial-speech-voice-chip">Basis: {html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}</span>
+        </div>
+        <div class="speech-status-bar speech-note" id="memorial-speech-note">
+          Antwort wird mit Server-Voice-Clone vorgelesen, {voice_label}. Für ein Gespräch: `Gespräch beginnen` oder `Drücken und sprechen`.
+          <div class="speech-status-meta">
+            <span id="memorial-speech-phase">Bereit</span>
+            <span id="memorial-speech-detail">Turn-basiertes Gespräch</span>
+          </div>
+        </div>
+        <form class="chat-form" id="memorial-chat-form">
+          <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
+        <div class="chat-actions">
+            <button type="submit">Antwort formulieren</button>
+            <span id="memorial-chat-status"></span>
+          </div>
+        </form>
+        <div class="speech-transcript" id="memorial-speech-transcript"></div>
+        <audio id="memorial-speech-audio" preload="none"></audio>
+        <div class="chat-answer" id="memorial-chat-answer"></div>
+      </section>
+      <section class="quiet-shell">
+        <details class="admin-shell">
+          <summary><span class="admin-shell-label">Technische Werkzeuge und Stimmenprofil <span class="admin-shell-badge">intern</span></span></summary>
+          <div class="admin-shell-body">
       <section class="voice-tools">
         <p class="eyebrow">Stimme und Sprachmodell</p>
         <h2>Stimmenprofil verwalten</h2>
@@ -1572,35 +2251,8 @@ def _memorial_html(
           </div>
         </div>
       </section>
-      <section class="chat">
-        <p class="eyebrow">Erinnerungs-Chat</p>
-        <h2>Sprich mit der Erinnerung.</h2>
-        <p>Die Antworten bleiben aus Archiv, Originalstimme und Familienkontext zusammengesetzt, aber sie duerfen nah und persoenlich klingen.</p>
-        <div class="prompt-row">{prompts_html}</div>
-        <div class="chat-model-row">
-          <label for="memorial-chat-model">Sprachmodell (Plugin-Auswahl)</label>
-          <select id="memorial-chat-model" class="voice-input chat-model-select">
-            {chat_models_html}
-          </select>
-        </div>
-      <div class="speech-row">
-          <button type="button" id="memorial-conversation">Gespräch starten</button>
-          <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
-          <button type="button" id="memorial-server-stt">Server-STT starten</button>
-          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
-          <button type="button" id="memorial-speech-stop">Stopp</button>
-          <span class="voice-variant-chip" id="memorial-speech-voice-chip">Basis: {html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}</span>
-          <span class="speech-note" id="memorial-speech-note">Antwort wird mit Server-Voice-Clone vorgelesen, {voice_label}.</span>
-        </div>
-        <form class="chat-form" id="memorial-chat-form">
-          <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
-        <div class="chat-actions">
-            <button type="submit">Antwort formulieren</button>
-            <span id="memorial-chat-status"></span>
           </div>
-        </form>
-        <audio id="memorial-speech-audio" preload="none"></audio>
-        <div class="chat-answer" id="memorial-chat-answer"></div>
+        </details>
       </section>
     </main>
     <footer>
@@ -1638,10 +2290,14 @@ def _memorial_html(
       const listenButton = document.getElementById("memorial-speech-listen");
       const serverSttButton = document.getElementById("memorial-server-stt");
       const conversationButton = document.getElementById("memorial-conversation");
+      const pushToTalkButton = document.getElementById("memorial-push-to-talk");
       const speakButton = document.getElementById("memorial-speech-speak");
       const stopButton = document.getElementById("memorial-speech-stop");
       const speechVoiceChip = document.getElementById("memorial-speech-voice-chip");
       const speechNote = document.getElementById("memorial-speech-note");
+      const speechPhase = document.getElementById("memorial-speech-phase");
+      const speechDetail = document.getElementById("memorial-speech-detail");
+      const speechTranscript = document.getElementById("memorial-speech-transcript");
       let lastAnswerText = "";
       let activeRecognition = null;
       let activeRecorder = null;
@@ -1653,6 +2309,16 @@ def _memorial_html(
       let activeMaxTimer = null;
       let speechHadError = false;
       let speechObjectUrl = null;
+      let activeRecorderStopTimer = null;
+      let activeRequestController = null;
+      let pushToTalkActive = false;
+      let speechState = "idle";
+      let realtimeSocket = null;
+      let realtimeSocketPromise = null;
+      let realtimeTurnPending = null;
+      let realtimeTurnData = null;
+      let realtimeTurnCounter = 0;
+      let activeRealtimeTurnId = "";
       let memorialVoiceConfig = {{
         tts_plugin: "browser_speech_synthesis",
         tts_plugin_voice_id: "",
@@ -1679,6 +2345,206 @@ def _memorial_html(
         if (speechVoiceChip) {{
           speechVoiceChip.textContent = "Basis: " + selected;
         }}
+      }}
+      function setSpeechStatus(message, state = "idle", detail = "") {{
+        speechState = state;
+        if (speechNote) {{
+          speechNote.classList.remove("is-listening", "is-working", "is-error");
+          if (state === "listening") speechNote.classList.add("is-listening");
+          if (state === "working" || state === "thinking" || state === "speaking" || state === "transcribing") speechNote.classList.add("is-working");
+          if (state === "error") speechNote.classList.add("is-error");
+          const nodes = Array.from(speechNote.childNodes);
+          const textNode = nodes.find((node) => node.nodeType === Node.TEXT_NODE);
+          if (textNode) textNode.textContent = message + " ";
+        }}
+        if (speechPhase) speechPhase.textContent = ({{
+          idle: "Bereit",
+          listening: "Hört zu",
+          transcribing: "Transkribiert",
+          thinking: "Antwortet",
+          speaking: "Spricht",
+          working: "Arbeitet",
+          error: "Problem"
+        }})[state] || "Bereit";
+        if (speechDetail) speechDetail.textContent = detail || ({{
+          idle: "Turn-basiertes Gespräch",
+          listening: "Kurz und klar sprechen",
+          transcribing: "Audio wird in Text umgewandelt",
+          thinking: "Manfred formuliert eine Antwort",
+          speaking: "Antwort wird vorgelesen",
+          working: "Bitte kurz warten",
+          error: "Erneut versuchen oder tippen"
+        }})[state] || "";
+      }}
+      function setInteractiveEnabled(enabled) {{
+        if (listenButton) listenButton.disabled = !enabled || conversationActive;
+        if (serverSttButton) serverSttButton.disabled = !enabled || conversationActive;
+        if (pushToTalkButton) pushToTalkButton.disabled = !enabled || conversationActive;
+        if (speakButton) speakButton.disabled = !enabled;
+      }}
+      function appendSpeechTurn(role, text) {{
+        if (!speechTranscript || !text) return;
+        const turn = document.createElement("div");
+        turn.className = "speech-turn " + (role === "assistant" ? "assistant" : "user");
+        const label = document.createElement("strong");
+        label.textContent = role === "assistant" ? "Manfred" : "Du";
+        const body = document.createElement("p");
+        body.textContent = text;
+        turn.append(label, body);
+        speechTranscript.prepend(turn);
+        while (speechTranscript.childElementCount > 8) {{
+          speechTranscript.removeChild(speechTranscript.lastElementChild);
+        }}
+      }}
+      async function fetchWithTimeout(url, options = {{}}, timeoutMs = 45000) {{
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        activeRequestController = controller;
+        try {{
+          return await fetch(url, Object.assign({{}}, options, {{ signal: controller.signal }}));
+        }} catch (error) {{
+          if (controller.signal.aborted) {{
+            throw new Error("Zeitüberschreitung. Bitte erneut versuchen.");
+          }}
+          throw error;
+        }} finally {{
+          clearTimeout(timer);
+          if (activeRequestController === controller) activeRequestController = null;
+        }}
+      }}
+      function realtimeSocketUrl() {{
+        const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime";
+      }}
+      function handleRealtimeMessage(event) {{
+        let payload = null;
+        try {{
+          payload = JSON.parse(String(event.data || ""));
+        }} catch (error) {{
+          return;
+        }}
+        if (!payload || typeof payload !== "object") return;
+        const type = String(payload.type || "");
+        const turnId = String(payload.turn_id || "");
+        if (type === "ready") {{
+          setSpeechStatus("Realtime-Gespräch bereit.", "idle", "Live-Session aktiv");
+          return;
+        }}
+        if (turnId && activeRealtimeTurnId && turnId !== activeRealtimeTurnId) return;
+        if (type === "phase") {{
+          const phase = String(payload.phase || "");
+          const detail = String(payload.detail || "");
+          const mapped = {{
+            listening: "listening",
+            transcribing: "transcribing",
+            thinking: "thinking",
+            speaking: "speaking",
+          }}[phase] || "working";
+          setSpeechStatus(detail || "Realtime aktiv.", mapped, detail || "Live-Session");
+          return;
+        }}
+        if (!realtimeTurnData) realtimeTurnData = {{}};
+        if (type === "transcript") {{
+          const text = normalizeTranscriptText(payload.text || "");
+          realtimeTurnData.transcript_text = text;
+          if (text) question.value = text;
+          return;
+        }}
+        if (type === "answer") {{
+          realtimeTurnData.answer = normalizeTranscriptText(payload.text || "");
+          realtimeTurnData.sources = Array.isArray(payload.sources) ? payload.sources : [];
+          realtimeTurnData.llm_model = String(payload.llm_model || "");
+          return;
+        }}
+        if (type === "audio_chunk") {{
+          realtimeTurnData.audio_content_type = String(payload.content_type || "audio/wav");
+          if (!Array.isArray(realtimeTurnData.audio_chunks)) realtimeTurnData.audio_chunks = [];
+          realtimeTurnData.audio_chunks.push(String(payload.audio_base64 || ""));
+          const part = Math.max(1, Number(payload.part || 1));
+          const total = Math.max(part, Number(payload.total_parts || part));
+          setSpeechStatus("Antwort wird gestreamt.", "speaking", "Audio " + part + "/" + total);
+          return;
+        }}
+        if (type === "audio_complete") {{
+          realtimeTurnData.audio_content_type = String(payload.content_type || realtimeTurnData.audio_content_type || "audio/wav");
+          const chunks = Array.isArray(realtimeTurnData.audio_chunks) ? realtimeTurnData.audio_chunks : [];
+          realtimeTurnData.audio_base64 = chunks.join("");
+          return;
+        }}
+        if (type === "audio") {{
+          realtimeTurnData.audio_content_type = String(payload.content_type || "audio/wav");
+          realtimeTurnData.audio_base64 = String(payload.audio_base64 || "");
+          return;
+        }}
+        if (type === "turn_complete") {{
+          if (realtimeTurnPending && realtimeTurnPending.resolve) realtimeTurnPending.resolve(Object.assign({{}}, realtimeTurnData || {{}}));
+          realtimeTurnPending = null;
+          realtimeTurnData = null;
+          activeRealtimeTurnId = "";
+          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
+          return;
+        }}
+        if (type === "cancelled") {{
+          const message = String(payload.message || "realtime_turn_cancelled");
+          if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error(message));
+          realtimeTurnPending = null;
+          realtimeTurnData = null;
+          activeRealtimeTurnId = "";
+          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
+          setSpeechStatus("Antwort unterbrochen.", "idle", "Du kannst sofort neu sprechen");
+          return;
+        }}
+        if (type === "error") {{
+          const message = String(payload.message || "realtime_failed");
+          if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error(message));
+          realtimeTurnPending = null;
+          realtimeTurnData = null;
+          activeRealtimeTurnId = "";
+          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
+          setSpeechStatus(message, "error", "Realtime");
+        }}
+      }}
+      async function ensureRealtimeSocket() {{
+        if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) return realtimeSocket;
+        if (realtimeSocketPromise) return realtimeSocketPromise;
+        realtimeSocketPromise = new Promise((resolve, reject) => {{
+          try {{
+            const socket = new WebSocket(realtimeSocketUrl());
+            socket.onmessage = handleRealtimeMessage;
+            socket.onopen = () => {{
+              realtimeSocket = socket;
+              realtimeSocketPromise = null;
+              resolve(socket);
+            }};
+            socket.onerror = () => {{
+              realtimeSocketPromise = null;
+              reject(new Error("Realtime-Verbindung fehlgeschlagen."));
+            }};
+            socket.onclose = () => {{
+              realtimeSocket = null;
+              realtimeSocketPromise = null;
+              if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error("Realtime-Verbindung beendet."));
+              realtimeTurnPending = null;
+              realtimeTurnData = null;
+            }};
+          }} catch (error) {{
+            realtimeSocketPromise = null;
+            reject(error);
+          }}
+        }});
+        return realtimeSocketPromise;
+      }}
+      async function sendRealtimeTurn(audioBlob) {{
+        if (!audioBlob || !audioBlob.size) throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
+        const socket = await ensureRealtimeSocket();
+        realtimeTurnData = {{}};
+        const resultPromise = new Promise((resolve, reject) => {{
+          realtimeTurnPending = {{ resolve, reject }};
+        }});
+        socket.send(JSON.stringify({{ type: "user_audio_start", content_type: audioBlob.type || "application/octet-stream" }}));
+        socket.send(await audioBlob.arrayBuffer());
+        socket.send(JSON.stringify({{ type: "user_audio_end" }}));
+        return resultPromise;
       }}
       async function loadVoiceConfig() {{
         try {{
@@ -1754,7 +2620,7 @@ def _memorial_html(
           }}
         }}
         if (speechNote) {{
-          speechNote.textContent = (optionEnabled ? "Antwort aus " : "Plugin aktivieren: ") + optionLabel + (voiceReady ? "" : " (Voice-ID fehlt)");
+          setSpeechStatus((optionEnabled ? "Antwort aus " : "Plugin aktivieren: ") + optionLabel + (voiceReady ? "" : " (Voice-ID fehlt)"), optionEnabled ? "idle" : "error", optionEnabled ? "Turn-basiertes Gespräch" : "TTS-Konfiguration prüfen");
         }}
         if (ttsCloneButton) {{
           ttsCloneButton.disabled = !Boolean(option.tts_plugin_clone_capable && optionEnabled);
@@ -1810,7 +2676,7 @@ def _memorial_html(
           rate: Number(voiceRateInput ? voiceRateInput.value || 0.92 : memorialVoiceConfig.rate || 0.92),
           pitch: Number(voicePitchInput ? voicePitchInput.value || 0.92 : memorialVoiceConfig.pitch || 0.92),
           volume: Number(voiceVolumeInput ? voiceVolumeInput.value || 1 : memorialVoiceConfig.volume || 1),
-          voice_name_hints: String(voiceHintsInput ? (voiceHintsInput.value || "") : "").split(/[\n,]/).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8),
+          voice_name_hints: String(voiceHintsInput ? (voiceHintsInput.value || "") : "").split(/[\\n,]/).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8),
         }};
         try {{
           const response = await fetch("/memorials/{html.escape(slug)}/voice-config", {{
@@ -1961,24 +2827,30 @@ def _memorial_html(
         if (!text) return;
         statusNode.textContent = "Formuliere...";
         answer.textContent = "";
+        appendSpeechTurn("user", text);
+        setSpeechStatus("Manfred formuliert eine Antwort.", "thinking", "Antwort wird erstellt");
         const selectedModel = chatModelSelect ? String(chatModelSelect.value || "").trim() : "";
         const requestPayload = {{ question: text }};
         if (selectedModel) requestPayload.llm_model = selectedModel;
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/chat", {{
+          const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/chat", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify(requestPayload)
-          }});
+          }}, 50000);
           const payload = await readJsonResponse(response);
           lastAnswerText = String(payload.answer || "");
           answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          appendSpeechTurn("assistant", lastAnswerText);
           statusNode.textContent = "";
+          if (options.continueConversation) setSpeechStatus("Antwort erhalten. Ich lese jetzt vor.", "speaking", "Antwort wird abgespielt");
+          else setSpeechStatus("Antwort erhalten.", "idle", "Bereit zum Vorlesen oder Weiterfragen");
           void speakText(lastAnswerText, options.continueConversation ? () => {{
             if (conversationActive) setTimeout(recordConversationTurn, 450);
           }} : null);
         }} catch (error) {{
           statusNode.textContent = "Antwort konnte nicht erstellt werden: " + String(error.message || error);
+          setSpeechStatus("Antwort fehlgeschlagen: " + String(error.message || error), "error", "LLM-Antwort fehlgeschlagen");
           if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
         }}
       }}
@@ -1991,14 +2863,14 @@ def _memorial_html(
         stopSpeechPlayback();
         const pluginConfig = currentTtsOptionOrDefault();
         if (!pluginConfig.tts_plugin_enabled) {{
-          speechNote.textContent = "Ausgewähltes TTS-Plugin ist nicht aktiviert.";
+          setSpeechStatus("Ausgewähltes TTS-Plugin ist nicht aktiviert.", "error", "TTS nicht aktiv");
           if (onDone) onDone();
           return;
         }}
         if (pluginConfig.tts_plugin === "browser_speech_synthesis") {{
           const synth = window.speechSynthesis;
           if (!synth || typeof SpeechSynthesisUtterance === "undefined") {{
-            speechNote.textContent = "Browser-Sprachausgabe ist nicht verfügbar.";
+            setSpeechStatus("Browser-Sprachausgabe ist nicht verfügbar.", "error", "Kein Browser-TTS");
             if (onDone) onDone();
             return;
           }}
@@ -2018,17 +2890,17 @@ def _memorial_html(
             }});
             if (matchedVoice) utterance.voice = matchedVoice;
             utterance.onend = () => {{
-              speechNote.textContent = "Sprachausgabe bereit.";
+              setSpeechStatus("Sprachausgabe bereit.", "idle", "Bereit für die nächste Runde");
               if (onDone) onDone();
             }};
             utterance.onerror = (event) => {{
-              speechNote.textContent = "Browser-Sprachausgabe fehlgeschlagen.";
+              setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen.", "error", "Browser-TTS");
               if (onDone) onDone();
             }};
-            speechNote.textContent = "Sprachausgabe mit Browser Speech.";
+            setSpeechStatus("Sprachausgabe mit Browser Speech.", "speaking", "Antwort wird abgespielt");
             synth.speak(utterance);
           }} catch (error) {{
-            speechNote.textContent = "Browser-Sprachausgabe fehlgeschlagen: " + String(error.message || error);
+            setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen: " + String(error.message || error), "error", "Browser-TTS");
             if (onDone) onDone();
           }}
           return;
@@ -2037,9 +2909,9 @@ def _memorial_html(
           if (onDone) onDone();
           return;
         }}
-        speechNote.textContent = "Erzeuge Sprachausgabe mit " + String(pluginConfig.tts_plugin_label || pluginConfig.tts_plugin || "TTS Plugin") + ".";
+        setSpeechStatus("Erzeuge Sprachausgabe mit " + String(pluginConfig.tts_plugin_label || pluginConfig.tts_plugin || "TTS Plugin") + ".", "working", "Audio wird erzeugt");
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/speech-synthesize", {{
+          const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-synthesize", {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{
@@ -2048,7 +2920,7 @@ def _memorial_html(
               tts_plugin_voice_id: pluginConfig.tts_plugin_voice_id,
               tts_base_voice_variant: currentBaseVoiceVariant(),
             }}),
-          }});
+          }}, 60000);
           if (!response.ok) {{
             const message = await parseSpeakError(response);
             throw new Error(message || "speech_synthesis_failed");
@@ -2061,13 +2933,15 @@ def _memorial_html(
           speechAudio.src = speechObjectUrl;
           speechAudio.onended = () => {{
             stopSpeechPlayback();
+            setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
             if (onDone) onDone();
           }};
           speechAudio.onerror = () => {{
-            speechNote.textContent = "Wiedergabe fehlgeschlagen.";
+            setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
             stopSpeechPlayback();
             if (onDone) onDone();
           }};
+          setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
           await speechAudio.play();
         }} catch (error) {{
           if (speechAudio) speechAudio.src = "";
@@ -2077,15 +2951,17 @@ def _memorial_html(
             }} catch (error) {{}}
             speechObjectUrl = null;
           }}
-          speechNote.textContent = "Sprachausgabe fehlgeschlagen: " + String(error.message || error);
+          setSpeechStatus("Sprachausgabe fehlgeschlagen: " + String(error.message || error), "error", "TTS fehlgeschlagen");
           if (onDone) onDone();
         }}
       }}
       function releaseConversationAudio() {{
         if (activeSilenceTimer) clearTimeout(activeSilenceTimer);
         if (activeMaxTimer) clearTimeout(activeMaxTimer);
+        if (activeRecorderStopTimer) clearTimeout(activeRecorderStopTimer);
         activeSilenceTimer = null;
         activeMaxTimer = null;
+        activeRecorderStopTimer = null;
         if (activeAudioContext) {{
           try {{ activeAudioContext.close(); }} catch (error) {{}}
           activeAudioContext = null;
@@ -2097,28 +2973,90 @@ def _memorial_html(
       }}
       function setConversationUi(active) {{
         conversationButton.textContent = active ? "Gespräch beenden" : "Gespräch starten";
-        listenButton.disabled = active;
-        serverSttButton.disabled = active;
+        setInteractiveEnabled(!active);
+        if (pushToTalkButton) pushToTalkButton.textContent = active ? "Gespräch aktiv" : "Drücken und sprechen";
       }}
       async function transcribeAudioBlob(blob) {{
-        const response = await fetch("/memorials/{html.escape(slug)}/speech-transcribe", {{
+        const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-transcribe", {{
           method: "POST",
           headers: {{ "Content-Type": blob.type || "application/octet-stream" }},
           body: blob
-        }});
+        }}, 45000);
         return readJsonResponse(response);
+      }}
+      async function captureServerTranscript(options = {{}}) {{
+        const autoStopMs = Math.max(0, Number(options.autoStopMs || 0));
+        const listeningText = String(options.listeningText || (autoStopMs ? "Sprich jetzt. Ich höre zu..." : "Server-STT hoert zu. Zum Senden erneut klicken oder Stopp."));
+        const transcribingText = String(options.transcribingText || "Transkribiere Audio...");
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
+          throw new Error("Server-STT braucht MediaRecorder und Mikrofonzugriff. Bitte Chrome/Edge verwenden oder tippen.");
+        }}
+        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
+          throw new Error("Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.");
+        }}
+        if (activeRecorder && activeRecorder.state === "recording") {{
+          activeRecorder.stop();
+          return {{ transcript: "", blob: null }};
+        }}
+        const stream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+        const recorder = new MediaRecorder(stream, {{ mimeType }});
+        activeRecorder = recorder;
+        recorderChunks = [];
+        return await new Promise((resolve, reject) => {{
+          recorder.ondataavailable = (event) => {{
+            if (event.data && event.data.size > 0) recorderChunks.push(event.data);
+          }};
+          recorder.onstart = () => {{
+            serverSttButton.textContent = autoStopMs ? "Spricht..." : "Server-STT stoppen";
+            listenButton.disabled = true;
+            setSpeechStatus(listeningText, "listening", autoStopMs ? "Kurz und klar sprechen" : "Server-STT aktiv");
+          }};
+          recorder.onerror = () => {{
+            reject(new Error("Audioaufnahme fehlgeschlagen. Bitte Berechtigung pruefen oder tippen."));
+          }};
+          recorder.onstop = async () => {{
+            if (activeRecorderStopTimer) clearTimeout(activeRecorderStopTimer);
+            activeRecorderStopTimer = null;
+            stream.getTracks().forEach((track) => track.stop());
+            serverSttButton.textContent = "Server-STT starten";
+            listenButton.disabled = false;
+            activeRecorder = null;
+            const blob = new Blob(recorderChunks, {{ type: mimeType }});
+            recorderChunks = [];
+            if (!blob.size) {{
+              reject(new Error("Keine Audioaufnahme erhalten. Bitte erneut versuchen."));
+              return;
+            }}
+            setSpeechStatus(transcribingText, "transcribing", "Audio wird in Text umgewandelt");
+            try {{
+              const payload = await transcribeAudioBlob(blob);
+              const transcript = normalizeTranscriptText(payload.transcript_text || "");
+              question.value = transcript;
+              resolve({{ transcript, blob }});
+            }} catch (error) {{
+              reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
+            }}
+          }};
+          recorder.start();
+          if (autoStopMs > 0) {{
+            activeRecorderStopTimer = setTimeout(() => {{
+              if (recorder.state === "recording") recorder.stop();
+            }}, autoStopMs);
+          }}
+        }});
       }}
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!Recognition) {{
-          speechNote.textContent = "Speech-to-Text wird von diesem Browser nicht unterstuetzt. Bitte Chrome/Edge verwenden oder die Frage tippen.";
+          setSpeechStatus("Speech-to-Text wird von diesem Browser nicht unterstuetzt. Bitte Chrome/Edge verwenden oder die Frage tippen.", "error", "Browser-STT fehlt");
           if (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {{
             void startServerSpeechInput();
           }}
           return;
         }}
         if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
-          speechNote.textContent = "Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.";
+          setSpeechStatus("Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.", "error", "HTTPS erforderlich");
           return;
         }}
         if (activeRecognition) {{
@@ -2133,7 +3071,7 @@ def _memorial_html(
         recognition.continuous = true;
         let finalText = "";
         recognition.onstart = () => {{
-          speechNote.textContent = "Hoere zu...";
+          setSpeechStatus("Hoere zu...", "listening", "Browser-STT aktiv");
           listenButton.disabled = true;
           stopButton.disabled = false;
         }};
@@ -2157,7 +3095,7 @@ def _memorial_html(
             "network": "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten.",
             "aborted": "Spracherkennung gestoppt."
           }};
-          speechNote.textContent = messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode);
+          setSpeechStatus(messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode), "error", "Browser-STT");
         }};
         recognition.onend = () => {{
           listenButton.disabled = false;
@@ -2165,7 +3103,7 @@ def _memorial_html(
           if (activeRecognition === recognition) activeRecognition = null;
           if (speechHadError) return;
           const text = normalizeTranscriptText(question.value || finalText || "");
-          speechNote.textContent = text ? "Frage erkannt." : "Keine Frage erkannt. Bitte lauter sprechen, Mikrofon pruefen oder die Frage tippen.";
+          setSpeechStatus(text ? "Frage erkannt." : "Keine Frage erkannt. Bitte lauter sprechen, Mikrofon pruefen oder die Frage tippen.", text ? "working" : "error", text ? "Frage wird gesendet" : "Keine Sprache");
           if (text) askMemorialChat(text);
         }};
         try {{
@@ -2173,159 +3111,64 @@ def _memorial_html(
         }} catch (error) {{
           activeRecognition = null;
           listenButton.disabled = false;
-          speechNote.textContent = "Mikrofon konnte nicht gestartet werden. Bitte Seite neu laden oder Frage tippen.";
+          setSpeechStatus("Mikrofon konnte nicht gestartet werden. Bitte Seite neu laden oder Frage tippen.", "error", "Browser-STT");
         }}
       }}
       async function startServerSpeechInput() {{
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
-          speechNote.textContent = "Server-STT braucht MediaRecorder und Mikrofonzugriff. Bitte Chrome/Edge verwenden oder tippen.";
-          return;
-        }}
-        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
-          speechNote.textContent = "Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.";
-          return;
-        }}
-        if (activeRecorder && activeRecorder.state === "recording") {{
-          activeRecorder.stop();
-          return;
-        }}
         try {{
-          const stream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
-          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-          const recorder = new MediaRecorder(stream, {{ mimeType }});
-          activeRecorder = recorder;
-          recorderChunks = [];
-          recorder.ondataavailable = (event) => {{
-            if (event.data && event.data.size > 0) recorderChunks.push(event.data);
-          }};
-          recorder.onstart = () => {{
-            serverSttButton.textContent = "Server-STT stoppen";
-            listenButton.disabled = true;
-            speechNote.textContent = "Server-STT hoert zu. Zum Senden erneut klicken oder Stopp.";
-          }};
-          recorder.onerror = () => {{
-            speechNote.textContent = "Audioaufnahme fehlgeschlagen. Bitte Berechtigung pruefen oder tippen.";
-          }};
-          recorder.onstop = async () => {{
-            stream.getTracks().forEach((track) => track.stop());
-            serverSttButton.textContent = "Server-STT starten";
-            listenButton.disabled = false;
-            activeRecorder = null;
-            const blob = new Blob(recorderChunks, {{ type: mimeType }});
-            recorderChunks = [];
-            if (!blob.size) {{
-              speechNote.textContent = "Keine Audioaufnahme erhalten. Bitte erneut versuchen.";
-              return;
-            }}
-            speechNote.textContent = "Transkribiere Audio...";
-            try {{
-              const payload = await transcribeAudioBlob(blob);
-              question.value = normalizeTranscriptText(payload.transcript_text || "");
-              speechNote.textContent = question.value ? "Audio transkribiert." : "Keine Sprache im Audio erkannt.";
-              if (question.value) askMemorialChat(question.value);
-            }} catch (error) {{
-              speechNote.textContent = "Server-STT fehlgeschlagen: " + String(error.message || error);
-            }}
-          }};
-          recorder.start();
+          const result = await captureServerTranscript();
+          const transcript = normalizeTranscriptText(result && result.transcript || "");
+          setSpeechStatus(transcript ? "Audio transkribiert." : "Keine Sprache im Audio erkannt.", transcript ? "working" : "error", transcript ? "Frage wird gesendet" : "Keine Sprache");
+          if (transcript) askMemorialChat(transcript);
         }} catch (error) {{
-          speechNote.textContent = "Mikrofon nicht verfuegbar oder nicht erlaubt.";
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Server-STT");
         }}
       }}
       async function recordConversationTurn() {{
         if (!conversationActive) return;
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
-          speechNote.textContent = "Gesprächsmodus braucht MediaRecorder. Bitte Chrome/Edge verwenden.";
-          conversationActive = false;
-          setConversationUi(false);
-          return;
-        }}
         try {{
-          releaseConversationAudio();
-          activeStream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
-          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-          const recorder = new MediaRecorder(activeStream, {{ mimeType }});
-          activeRecorder = recorder;
-          recorderChunks = [];
-          let chunkInterval = null;
-          let stopped = false;
-          const stopRecorder = (restart = false) => {{
-            if (stopped) return;
-            stopped = true;
-            recorder._restartAfterStop = Boolean(restart);
-            try {{
-              if (recorder.state === "recording") recorder.stop();
-            }} catch (error) {{}}
-          }};
-          recorder.ondataavailable = (event) => {{
-            if (event.data && event.data.size > 0) recorderChunks.push(event.data);
-          }};
-          recorder.onstop = async () => {{
-            releaseConversationAudio();
-            activeRecorder = null;
-            if (chunkInterval) clearInterval(chunkInterval);
-            if (!conversationActive) return;
-            const shouldRestart = Boolean(recorder._restartAfterStop);
-            const blob = new Blob(recorderChunks, {{ type: mimeType }});
-            recorderChunks = [];
-            if (!blob.size) {{
-              speechNote.textContent = "Ich höre weiter...";
-              setTimeout(recordConversationTurn, 120);
-              return;
-            }}
-            speechNote.textContent = "Transkribiere laufend...";
-            try {{
-              const payload = await transcribeAudioBlob(blob);
-              const text = normalizeTranscriptText(payload.transcript_text || "");
-              question.value = text;
-              if (!text) {{
-                speechNote.textContent = "Ich höre weiter...";
-                setTimeout(recordConversationTurn, 120);
-                return;
-              }}
-              speechNote.textContent = "Frage erkannt.";
-              await askMemorialChat(text, {{ continueConversation: true }});
-            }} catch (error) {{
-              const message = String(error.message || error);
-              if (message.includes("speech_transcription_failed") || message.includes("AUDIO_FORMAT") || message.includes("ungueltige Serverantwort")) {{
-                speechNote.textContent = "Ich höre weiter...";
-              }} else {{
-                speechNote.textContent = "Server-STT fehlgeschlagen: " + message;
-              }}
-              if (conversationActive) setTimeout(recordConversationTurn, shouldRestart ? 120 : 650);
-            }}
-          }};
-          recorder.start(900);
-          speechNote.textContent = "Gespräch läuft. Ich transkribiere fortlaufend.";
-          chunkInterval = setInterval(() => stopRecorder(true), 2400);
-          activeMaxTimer = setTimeout(() => stopRecorder(true), 2600);
-          try {{
-            activeAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const source = activeAudioContext.createMediaStreamSource(activeStream);
-            const analyser = activeAudioContext.createAnalyser();
-            analyser.fftSize = 1024;
-            source.connect(analyser);
-            const data = new Uint8Array(analyser.fftSize);
-            const checkLevel = () => {{
-              if (!conversationActive || stopped) return;
-              analyser.getByteTimeDomainData(data);
-              let sum = 0;
-              for (let index = 0; index < data.length; index += 1) {{
-                const value = (data[index] - 128) / 128;
-                sum += value * value;
-              }}
-              const rms = Math.sqrt(sum / data.length);
-              if (rms > 0.025) {{
-                speechNote.textContent = "Ich höre...";
-              }}
-              requestAnimationFrame(checkLevel);
+          const result = await captureServerTranscript({{
+            autoStopMs: 4800,
+            listeningText: "Gespräch läuft. Sprich jetzt kurz und natürlich.",
+            transcribingText: "Ich sende deine Frage live an Manfred..."
+          }});
+          const transcript = normalizeTranscriptText(result && result.transcript || "");
+          const audioBlob = result && result.blob ? result.blob : null;
+          if (!conversationActive) return;
+          if (!transcript) {{
+            setSpeechStatus("Keine Frage erkannt. Ich höre gleich noch einmal zu.", "error", "Bitte kürzer und klarer sprechen");
+            setTimeout(recordConversationTurn, 700);
+            return;
+          }}
+          appendSpeechTurn("user", transcript);
+          const payload = await sendRealtimeTurn(audioBlob);
+          const assistantText = normalizeTranscriptText(payload.answer || "");
+          lastAnswerText = assistantText;
+          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          appendSpeechTurn("assistant", assistantText);
+          if (payload.audio_base64) {{
+            const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
+            const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
+            stopSpeechPlayback();
+            speechObjectUrl = URL.createObjectURL(blob);
+            speechAudio.src = speechObjectUrl;
+            speechAudio.onended = () => {{
+              stopSpeechPlayback();
+              setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
+              if (conversationActive) setTimeout(recordConversationTurn, 350);
             }};
-            checkLevel();
-          }} catch (error) {{
-            speechNote.textContent = "Gespräch läuft. Ich transkribiere fortlaufend.";
+            speechAudio.onerror = () => {{
+              setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
+              stopSpeechPlayback();
+              if (conversationActive) setTimeout(recordConversationTurn, 700);
+            }};
+            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+            await speechAudio.play();
+          }} else if (conversationActive) {{
+            setTimeout(recordConversationTurn, 350);
           }}
         }} catch (error) {{
-          speechNote.textContent = "Mikrofon nicht verfuegbar oder nicht erlaubt.";
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespräch beendet");
           conversationActive = false;
           setConversationUi(false);
           releaseConversationAudio();
@@ -2335,14 +3178,130 @@ def _memorial_html(
         conversationActive = !conversationActive;
         setConversationUi(conversationActive);
         if (conversationActive) {{
+          setSpeechStatus("Gespräch gestartet. Sprich jetzt kurz und natürlich.", "listening", "Erste Runde");
           recordConversationTurn();
         }} else {{
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        speechNote.textContent = "Gespräch beendet.";
+        setSpeechStatus("Gespräch beendet.", "idle", "Bereit für eine neue Runde");
       }}
+      }}
+      async function runPushToTalkTurn() {{
+        if (pushToTalkActive || conversationActive) return;
+        pushToTalkActive = true;
+        if (pushToTalkButton) pushToTalkButton.textContent = "Sprich jetzt...";
+        setInteractiveEnabled(false);
+        try {{
+          const result = await captureServerTranscript({{
+            autoStopMs: 4200,
+            listeningText: "Sprich jetzt. Ich höre zu...",
+            transcribingText: "Ich transkribiere deine Frage..."
+          }});
+          const transcript = normalizeTranscriptText(result && result.transcript || "");
+          const audioBlob = result && result.blob ? result.blob : null;
+          if (!transcript) {{
+            setSpeechStatus("Keine Sprache erkannt. Bitte noch einmal kurz und klar sprechen.", "error", "Keine Sprache");
+            return;
+          }}
+          appendSpeechTurn("user", transcript);
+          const payload = await sendRealtimeTurn(audioBlob);
+          const assistantText = normalizeTranscriptText(payload.answer || "");
+          lastAnswerText = assistantText;
+          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          appendSpeechTurn("assistant", assistantText);
+          if (payload.audio_base64) {{
+            const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
+            const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
+            stopSpeechPlayback();
+            speechObjectUrl = URL.createObjectURL(blob);
+            speechAudio.src = speechObjectUrl;
+            speechAudio.onended = () => {{
+              stopSpeechPlayback();
+              setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
+            }};
+            speechAudio.onerror = () => {{
+              setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
+              stopSpeechPlayback();
+            }};
+            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+            await speechAudio.play();
+          }} else {{
+            setSpeechStatus("Antwort erhalten.", "idle", "Bereit für die nächste Runde");
+          }}
+        }} catch (error) {{
+          setSpeechStatus(String(error && error.message ? error.message : "Push-to-talk fehlgeschlagen."), "error", "Push-to-talk");
+        }} finally {{
+          pushToTalkActive = false;
+          if (pushToTalkButton) pushToTalkButton.textContent = "Drücken und sprechen";
+          setInteractiveEnabled(true);
+        }}
+      }}
+      async function runConversationTurnServer() {{
+        if (pushToTalkActive || conversationActive) return;
+        pushToTalkActive = true;
+        if (pushToTalkButton) pushToTalkButton.textContent = "Sprich jetzt...";
+        setInteractiveEnabled(false);
+        try {{
+          const result = await captureServerTranscript({{
+            autoStopMs: 4200,
+            listeningText: "Sprich jetzt. Ich höre zu...",
+            transcribingText: "Ich sende die Frage an Manfred..."
+          }});
+          const transcript = normalizeTranscriptText(result && result.transcript || "");
+          const audioBlob = result && result.blob ? result.blob : null;
+          if (!transcript) {{
+            setSpeechStatus("Keine Sprache erkannt. Bitte noch einmal kurz und klar sprechen.", "error", "Keine Sprache");
+            return;
+          }}
+          appendSpeechTurn("user", transcript);
+          setSpeechStatus("Manfred antwortet jetzt.", "thinking", "Antwort wird erzeugt");
+          if (!audioBlob) {{
+            throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
+          }}
+          const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/conversation-turn", {{
+            method: "POST",
+            headers: {{ "Content-Type": audioBlob.type || "application/octet-stream" }},
+            body: audioBlob,
+          }}, 90000);
+          const payload = await readJsonResponse(response);
+          const userTranscript = normalizeTranscriptText(payload.transcript_text || transcript);
+          const assistantText = normalizeTranscriptText(payload.answer || "");
+          if (userTranscript && userTranscript !== transcript) {{
+            question.value = userTranscript;
+          }} else {{
+            question.value = transcript;
+          }}
+          lastAnswerText = assistantText;
+          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          appendSpeechTurn("assistant", assistantText);
+          if (payload.audio_base64) {{
+            const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
+            const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
+            stopSpeechPlayback();
+            speechObjectUrl = URL.createObjectURL(blob);
+            speechAudio.src = speechObjectUrl;
+            speechAudio.onended = () => {{
+              stopSpeechPlayback();
+              setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
+            }};
+            speechAudio.onerror = () => {{
+              setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
+              stopSpeechPlayback();
+            }};
+            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+            await speechAudio.play();
+          }} else {{
+            setSpeechStatus("Antwort erhalten.", "idle", "Bereit für die nächste Runde");
+          }}
+        }} catch (error) {{
+          setSpeechStatus(String(error && error.message ? error.message : "Gesprächsrunde fehlgeschlagen."), "error", "Server-Gespräch");
+        }} finally {{
+          pushToTalkActive = false;
+          if (pushToTalkButton) pushToTalkButton.textContent = "Drücken und sprechen";
+          setInteractiveEnabled(true);
+        }}
       }}
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
@@ -2351,9 +3310,13 @@ def _memorial_html(
       listenButton.addEventListener("click", startSpeechInput);
       serverSttButton.addEventListener("click", startServerSpeechInput);
       conversationButton.addEventListener("click", toggleConversation);
+      if (pushToTalkButton) {{
+        pushToTalkButton.addEventListener("click", () => void runPushToTalkTurn());
+      }}
       speakButton.addEventListener("click", () => void speakText(lastAnswerText || answer.textContent));
       stopButton.addEventListener("click", () => {{
         conversationActive = false;
+        pushToTalkActive = false;
         setConversationUi(false);
         if (activeRecognition) {{
           speechHadError = true;
@@ -2365,11 +3328,16 @@ def _memorial_html(
         }}
         releaseConversationAudio();
         stopSpeechPlayback();
-        speechNote.textContent = "Gestoppt.";
+        if (activeRequestController) {{
+          try {{ activeRequestController.abort(); }} catch (error) {{}}
+          activeRequestController = null;
+        }}
+        setSpeechStatus("Gestoppt.", "idle", "Bereit");
         listenButton.disabled = false;
         serverSttButton.disabled = false;
         serverSttButton.textContent = "Server-STT starten";
         stopButton.disabled = false;
+        if (pushToTalkButton) pushToTalkButton.textContent = "Drücken und sprechen";
       }});
       if (voiceConfigForm && voiceProfileSaveButton) {{
         voiceProfileSaveButton.addEventListener("click", saveVoiceConfig);
@@ -2394,6 +3362,24 @@ def _memorial_html(
       if (ttsPluginSelect) {{
         ttsPluginSelect.addEventListener("change", applyTtsPluginState);
       }}
+      document.querySelectorAll("[data-hero-jump]").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          const targetId = button.getAttribute("data-hero-jump") === "memories"
+            ? "memorial-memory-section"
+            : "memorial-voice-section";
+          const target = document.getElementById(targetId);
+          if (target) target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+        }});
+      }});
+      document.querySelectorAll("[data-hero-action='conversation']").forEach((button) => {{
+        button.addEventListener("click", async () => {{
+          const target = document.querySelector(".chat");
+          if (target) target.scrollIntoView({{ behavior: "smooth", block: "start" }});
+          if (!conversationActive) {{
+            toggleConversation();
+          }}
+        }});
+      }});
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{
           question.value = button.getAttribute("data-prompt") || "";
@@ -2532,6 +3518,107 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         base_voice_variant=_text(merged_config.get("tts_base_voice_variant"), "default"),
     )
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/memorials/{slug}/conversation-turn")
+async def public_memorial_conversation_turn(slug: str, request: Request) -> JSONResponse:
+    audio_payload = await request.body()
+    content_type = str(request.headers.get("content-type") or "application/octet-stream")
+    response_payload = _build_memorial_conversation_turn_payload(
+        slug=slug,
+        audio_payload=audio_payload,
+        content_type=content_type,
+    )
+    return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
+
+
+@router.websocket("/memorials/{slug}/realtime")
+async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
+    _load_memorial(slug)
+    await websocket.accept()
+    await websocket.send_json({"type": "ready", "mode": "memorial_realtime_voice"})
+    current_content_type = "application/octet-stream"
+    current_audio = bytearray()
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            text_data = message.get("text")
+            bytes_data = message.get("bytes")
+            if bytes_data is not None:
+                current_audio.extend(bytes_data)
+                continue
+            if not text_data:
+                continue
+            try:
+                payload = json.loads(text_data)
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "message": "invalid_realtime_message"})
+                continue
+            message_type = _text(payload.get("type"))
+            if message_type == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            if message_type == "user_audio_start":
+                current_audio = bytearray()
+                current_content_type = _text(payload.get("content_type"), "application/octet-stream")
+                await websocket.send_json({"type": "phase", "phase": "listening", "detail": "Audio wird empfangen"})
+                continue
+            if message_type != "user_audio_end":
+                await websocket.send_json({"type": "error", "message": "unsupported_realtime_message"})
+                continue
+            if not current_audio:
+                await websocket.send_json({"type": "error", "message": "audio_missing"})
+                continue
+            await websocket.send_json({"type": "phase", "phase": "transcribing", "detail": "Audio wird transkribiert"})
+            turn_payload = _build_memorial_conversation_turn_payload(
+                slug=slug,
+                audio_payload=bytes(current_audio),
+                content_type=current_content_type,
+            )
+            await websocket.send_json(
+                {
+                    "type": "transcript",
+                    "text": _text(turn_payload.get("transcript_text")),
+                }
+            )
+            await websocket.send_json({"type": "phase", "phase": "thinking", "detail": "Manfred formuliert"})
+            await websocket.send_json(
+                {
+                    "type": "answer",
+                    "text": _text(turn_payload.get("answer")),
+                    "sources": list(turn_payload.get("sources") or []),
+                    "llm_model": _text(turn_payload.get("llm_model")),
+                }
+            )
+            await websocket.send_json({"type": "phase", "phase": "speaking", "detail": "Audio wird ausgeliefert"})
+            await websocket.send_json(
+                {
+                    "type": "audio",
+                    "content_type": _text(turn_payload.get("audio_content_type"), "audio/wav"),
+                    "audio_base64": _text(turn_payload.get("audio_base64")),
+                }
+            )
+            await websocket.send_json({"type": "turn_complete"})
+            current_audio = bytearray()
+    except WebSocketDisconnect:
+        return
+    except HTTPException as exc:
+        try:
+            await websocket.send_json({"type": "error", "message": _text(exc.detail, "realtime_failed")})
+        except Exception:
+            pass
+    except Exception as exc:
+        try:
+            await websocket.send_json({"type": "error", "message": str(exc)[:180] or "realtime_failed"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @router.post("/memorials/{slug}/voice-clone")

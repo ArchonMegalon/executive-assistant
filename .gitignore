@@ -28,6 +28,7 @@ ea/.models/
 ea/.micromamba/
 ea/.piper/
 ea/third_party/
+memorial_data/
 
 # Editor/OS noise
 .DS_Store

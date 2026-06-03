@@ -601,8 +601,8 @@
   <header class="topbar">
     <div class="wrap topbar-inner">
       <a class="brand" href="/">
-        <span class="brand-mark">EA</span>
-        <span>Executive Assistant</span>
+        <span class="brand-mark">{{ brand.mark }}</span>
+        <span>{{ brand.name }}</span>
       </a>
       <nav class="nav">
         {% for item in public_nav %}
@@ -610,8 +610,8 @@
         {% endfor %}
       </nav>
       <div class="actions">
-        <a class="btn ghost" href="{% if access_identity %}/app/today{% else %}/sign-in{% endif %}">{% if access_identity %}Open current session{% else %}Sign in{% endif %}</a>
-        <a class="btn primary" href="/register">Create personal workspace</a>
+        <a class="btn ghost" href="{% if access_identity %}/app/today{% else %}/sign-in{% endif %}">{% if access_identity %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
+        <a class="btn primary" href="/register">{{ brand.create_label }}</a>
       </div>
     </div>
   </header>
@@ -624,7 +624,7 @@
 
   <footer>
     <div class="wrap footer">
-      <div>Executive Assistant</div>
+      <div>{{ brand.name }}</div>
       <nav>
         {% for item in public_nav %}
         <a href="{{ item.href }}">{{ item.label }}</a>
@@ -632,7 +632,7 @@
         <a href="/docs">Docs</a>
         <a href="/integrations">Integrations</a>
         <a href="/openapi.json">API</a>
-        <a href="https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md">Architecture</a>
+        <a href="{{ brand.repo_url }}">{% if brand.key == 'propertyquarry' %}Repository{% else %}Architecture{% endif %}</a>
       </nav>
     </div>
   </footer>

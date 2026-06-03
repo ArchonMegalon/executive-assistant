@@ -1,6 +1,11 @@
 # Changelog
 
-All notable changes to the rewrite-kernel baseline are documented here.
+All notable changes to the Executive Assistant runtime and product baseline are documented here.
+
+## 2026-06-02
+
+### Changed
+- Hardened the EA release/operator surface so the new hard-exit and LTD verification lanes are first-class operator commands rather than hidden implementation details: `make ltd-release-gates` now aggregates the critical and flagship LTD verifiers, `make operator-help` and `scripts/smoke_help.sh` cover the hard-exit/LTD scripts directly, and the README/RUNBOOK operator guidance now reflects the real release path.
 
 ## 2026-03-22
 
@@ -469,6 +474,7 @@ All notable changes to the rewrite-kernel baseline are documented here.
 - Endpoint, version, and OpenAPI helper scripts now expose `--help` contracts and are included in `make operator-help` / `scripts/smoke_help.sh`.
 - `scripts/smoke_help.sh` now exposes its own `--help` contract and is included in `make operator-help`.
 - Operator summary output now also includes task-archive shortcuts (`make tasks-archive`, `make tasks-archive-dry-run`, `make tasks-archive-prune`).
+- Added fail-closed LTD release gates for the runtime-critical inventory and a broader flagship verified subset, and surfaced both in the operator command surface.
 - `EA_STORAGE_BACKEND` is now documented as the canonical backend env var, with `EA_LEDGER_BACKEND` kept only as a deprecated compatibility alias.
 - Human task queue views now accept `sort=created_asc`, giving operators an explicit oldest-created FIFO mode across list, backlog, unassigned, and assigned-my-queue views without relying on SLA fields.
 - Human task queue views now accept `sort=priority_desc_created_asc`, keeping urgent and high packets ahead of normal work while preserving oldest-created order within each priority band across list, backlog, unassigned, and assigned-my-queue views.

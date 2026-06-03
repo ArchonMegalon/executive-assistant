@@ -8,6 +8,7 @@ from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRe
 from app.services.assistant_onboarding_service import AssistantOnboardingService
 from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_scope_bundle_details
 from app.services.memory_runtime import MemoryRuntimeService
+from app.services.property_billing import normalize_property_commercial
 from app.services.provider_registry import ProviderRegistryService
 from app.services.telegram_delivery import _telegram_binding_principal_candidates
 from app.services.tool_runtime import ToolRuntimeService
@@ -1113,10 +1114,16 @@ class OnboardingService(AssistantOnboardingService):
             normalized_max = None
 
         preference_person_id = str(raw.get("preference_person_id") or "self").strip() or "self"
+        property_commercial = normalize_property_commercial(
+            dict(raw.get("property_commercial") or {})
+            if isinstance(raw.get("property_commercial"), dict)
+            else {}
+        )
         return {
             "selected_platforms": selected_platforms,
             "max_results_per_source": normalized_max,
             "preference_person_id": preference_person_id,
+            "property_commercial": property_commercial,
             "raw_preferences": dict(raw),
         }
 

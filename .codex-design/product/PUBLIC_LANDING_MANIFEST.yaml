@@ -1,9 +1,9 @@
 product: chummer
 surface: chummer.run
 version: 1
-headline: Shadowrun rules truth, with receipts.
+headline: Shadowrun rules clarity for the table.
 subhead: Build characters, inspect rulings, and keep sessions moving with explainable
-  math, durable state, and clear proof of what works today.
+  math, durable state, and clear capabilities for tonight's game.
 proof_line: Public preview, honest status, and inspectable proof for the files, named
   flows, and recent checks posted today.
 no_provider_names: true
@@ -882,9 +882,9 @@ registered_routes:
 sections:
 - id: hero
   eyebrow: Explainable Shadowrun
-  title: Shadowrun rules truth, with receipts.
+  title: Shadowrun rules clarity for the table.
   intro: Build characters, inspect rulings, and keep sessions moving with explainable
-    math, durable state, and clear proof of what works today.
+    math, durable state, and clear capabilities for tonight's game.
   audience: public
   route: /
 - id: product_proof

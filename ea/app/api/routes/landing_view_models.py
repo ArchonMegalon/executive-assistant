@@ -235,6 +235,15 @@ def app_section_payload(
     property_preferences = dict(property_state.get("preferences") or {})
     property_run = dict(property_state.get("run") or {})
     property_summary = dict(property_run.get("summary") or {})
+    property_country_label = str(property_state.get("country_label") or "Austria")
+    property_language_label = str(property_state.get("language_label") or "Deutsch")
+    property_listing_mode_label = str(property_state.get("listing_mode_label") or "Rent")
+    property_type_label = str(property_state.get("property_type_label") or "Any type")
+    property_provider_total_for_country = int(property_state.get("provider_total_for_country") or 0)
+    country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
+    language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
+    listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
+    property_type_options = [dict(option) for option in list(property_state.get("property_type_options") or []) if isinstance(option, dict)]
     selected_platforms = {
         str(value or "").strip()
         for value in (property_state.get("selected_platforms") or [])
@@ -250,6 +259,20 @@ def app_section_payload(
         for option in platform_options
         if str(option.get("value") or "").strip() in selected_platforms
     ]
+    property_market_summary_items = [
+        row_item("Country", property_country_label, "Market"),
+        row_item("Research language", property_language_label, "Research"),
+        row_item("Search mode", property_listing_mode_label, "Mode"),
+        row_item("Property type", property_type_label, "Type"),
+    ]
+    if str(property_preferences.get("location_query") or "").strip():
+        property_market_summary_items.append(
+            row_item("Location query", str(property_preferences.get("location_query") or "").strip(), "Target")
+        )
+    if str(property_preferences.get("keywords") or "").strip():
+        property_market_summary_items.append(
+            row_item("Research focus", str(property_preferences.get("keywords") or "").strip(), "Focus")
+        )
     property_platform_rows = [
         row_item(
             str(option.get("label") or option.get("value") or "Platform"),
@@ -291,6 +314,15 @@ def app_section_payload(
         for source in list(property_summary.get("sources") or [])
         if isinstance(source, dict)
     ]
+    try:
+        property_plan_max_results = max(1, int(property_state.get("commercial", {}).get("max_results_per_source") or 2))
+    except Exception:
+        property_plan_max_results = 2
+    try:
+        property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
+    except Exception:
+        property_results_value = property_plan_max_results
+    property_results_value = max(1, min(property_results_value, property_plan_max_results))
     property_form = {
         "variant": "property_search",
         "title": "Search the major platforms",
@@ -299,11 +331,53 @@ def app_section_payload(
         "submit_label": "Start search",
         "fields": [
             {
+                "type": "select",
+                "name": "country_code",
+                "label": "Country",
+                "value": str(property_preferences.get("country_code") or "AT"),
+                "options": country_options,
+            },
+            {
+                "type": "select",
+                "name": "language_code",
+                "label": "Research language",
+                "value": str(property_preferences.get("language_code") or "de"),
+                "options": language_options,
+            },
+            {
+                "type": "select",
+                "name": "listing_mode",
+                "label": "Search mode",
+                "value": str(property_preferences.get("listing_mode") or "rent"),
+                "options": listing_mode_options,
+            },
+            {
+                "type": "select",
+                "name": "property_type",
+                "label": "Property type",
+                "value": str(property_preferences.get("property_type") or "any"),
+                "options": property_type_options,
+            },
+            {
+                "type": "text",
+                "name": "location_query",
+                "label": "Location query",
+                "value": str(property_preferences.get("location_query") or ""),
+                "placeholder": "Vienna, Berlin, Barcelona, Brooklyn",
+            },
+            {
                 "type": "checkbox_group",
                 "name": "selected_platforms",
                 "label": "Platforms",
                 "options": platform_options,
                 "values": list(selected_platforms),
+            },
+            {
+                "type": "text",
+                "name": "keywords",
+                "label": "Keywords",
+                "value": str(property_preferences.get("keywords") or ""),
+                "placeholder": "lift, family, balcony, no gas",
             },
             {
                 "type": "text",
@@ -314,11 +388,32 @@ def app_section_payload(
             },
             {
                 "type": "number",
+                "name": "max_price_eur",
+                "label": "Max budget",
+                "value": str(property_preferences.get("max_price_eur") or ""),
+                "min": "1",
+            },
+            {
+                "type": "number",
+                "name": "min_rooms",
+                "label": "Min rooms",
+                "value": str(property_preferences.get("min_rooms") or ""),
+                "min": "1",
+            },
+            {
+                "type": "number",
+                "name": "min_area_m2",
+                "label": "Min area m2",
+                "value": str(property_preferences.get("min_area_m2") or ""),
+                "min": "1",
+            },
+            {
+                "type": "number",
                 "name": "max_results_per_source",
                 "label": "Max results per source",
-                "value": str(property_preferences.get("max_results_per_source") or 3),
+                "value": str(property_results_value),
                 "min": "1",
-                "max": "10",
+                "max": str(property_plan_max_results),
             },
             {
                 "type": "checkbox",
@@ -333,6 +428,10 @@ def app_section_payload(
             "start_endpoint": str(property_state.get("start_endpoint") or ""),
             "run_id": str(property_run.get("run_id") or ""),
             "initial_run": property_run,
+            "platform_catalog_by_country": dict(property_state.get("platform_catalog_by_country") or {}),
+            "commercial": dict(property_state.get("commercial") or {}),
+            "paypal_checkout_enabled": bool(property_state.get("paypal_checkout_enabled")),
+            "paypal_order_endpoint": str(property_state.get("paypal_order_endpoint") or ""),
         },
     }
 
@@ -517,18 +616,19 @@ def app_section_payload(
             ),
             "cards": [
                 {
-                    "eyebrow": "Personalized brief",
+                    "eyebrow": "Search posture",
                     "title": "What this search is optimizing for",
-                    "body": "The search stays grounded in the saved preference profile, then ranks the best matches before tours and Telegram delivery happen.",
-                    "items": [
-                        row_item(
-                            "Active platforms",
-                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No platforms saved yet.",
-                            "Profile",
-                        ),
+                    "body": "The crawl posture stays explicit: market, research language, target location, property shape, and who the ranking is trying to satisfy.",
+                    "items": property_market_summary_items
+                    + [
                         row_item(
                             "Preference profile",
                             str(property_preferences.get("preference_person_id") or "self"),
+                            "Profile",
+                        ),
+                        row_item(
+                            "Active providers",
+                            ", ".join(property_selected_platform_labels) if property_selected_platform_labels else "No platforms saved yet.",
                             "Profile",
                         ),
                         row_item(
@@ -536,7 +636,24 @@ def app_section_payload(
                             str(property_preferences.get("max_results_per_source") or "3"),
                             "Guardrail",
                         ),
-                    ] + (property_platform_rows[:2] if property_platform_rows else []),
+                    ],
+                },
+                {
+                    "eyebrow": "Market coverage",
+                    "title": "Which providers this country unlocks",
+                    "body": "Each market switches the provider catalog. The saved selection should be a deliberate subset, not a hard-coded Austria-only list.",
+                    "items": [
+                        row_item(
+                            "Country bundle",
+                            f"{property_country_label} | {property_provider_total_for_country or len(platform_options)} supported providers",
+                            "Coverage",
+                        ),
+                        row_item(
+                            "Selected now",
+                            str(len(property_selected_platform_labels) or 0),
+                            "Selection",
+                        ),
+                    ] + (property_platform_rows[:4] if property_platform_rows else []),
                 },
                 {
                     "eyebrow": "Run status",
@@ -555,7 +672,7 @@ def app_section_payload(
                 {
                     "eyebrow": "Recent matches",
                     "title": "Hosted pages ready to review",
-                    "body": "Strong matches should resolve to MyExternalBrain-hosted property pages, not raw portal links.",
+                    "body": "Strong matches should resolve to branded hosted property pages, not raw portal links.",
                     "items": property_recent_matches
                     or [
                         row_item(
@@ -580,7 +697,8 @@ def app_section_payload(
                 },
             ],
             "stats": [
-                {"label": "Platforms", "value": str(len(property_selected_platform_labels) or 0)},
+                {"label": "Country", "value": property_country_label},
+                {"label": "Providers", "value": str(len(property_selected_platform_labels) or 0)},
                 {"label": "Sources", "value": str(int(property_summary.get("sources_total") or 0))},
                 {"label": "Listings", "value": str(int(property_summary.get("listing_total") or 0))},
                 {"label": "Hosted tours", "value": str(int(property_summary.get("tour_created_total") or 0) + int(property_summary.get("tour_existing_total") or 0))},
