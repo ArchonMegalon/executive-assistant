@@ -479,7 +479,7 @@ def _property_alert_preference_person_id(payload: dict[str, object] | None = Non
     )
 
 
-def _property_scout_fetch_html(url: str) -> str:
+def _property_scout_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
     request = urllib.request.Request(
         str(url or "").strip(),
         headers={
@@ -487,7 +487,7 @@ def _property_scout_fetch_html(url: str) -> str:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
     )
-    with urllib.request.urlopen(request, timeout=60) as response:
+    with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
         content = response.read()
     return content.decode("utf-8", "ignore")
 
@@ -613,25 +613,28 @@ def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: st
     return ""
 
 
-def _property_scout_page_preview(property_url: str) -> dict[str, object]:
+def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
     normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     if not normalized:
         return {}
-    if _is_willhaben_property_url(normalized):
-        packet = _load_willhaben_property_packet(normalized)
-        property_facts = dict(packet.get("property_facts_json") or {})
-        description = compact_text(
-            " | ".join(f"{key}: {value}" for key, value in property_facts.items() if str(value or "").strip()),
-            fallback="",
-            limit=300,
-        )
-        return {
-            "listing_id": str(packet.get("listing_id") or "").strip(),
-            "title": compact_text(str(packet.get("title") or "").strip(), fallback=normalized, limit=160),
-            "summary": description,
-            "property_facts_json": property_facts,
-        }
-    html = _property_scout_fetch_html(normalized)
+    if _is_willhaben_property_url(normalized) and not prefer_fast:
+        try:
+            packet = _load_willhaben_property_packet_compat(normalized, timeout_seconds=4)
+            property_facts = dict(packet.get("property_facts_json") or {})
+            description = compact_text(
+                " | ".join(f"{key}: {value}" for key, value in property_facts.items() if str(value or "").strip()),
+                fallback="",
+                limit=300,
+            )
+            return {
+                "listing_id": str(packet.get("listing_id") or "").strip(),
+                "title": compact_text(str(packet.get("title") or "").strip(), fallback=normalized, limit=160),
+                "summary": description,
+                "property_facts_json": property_facts,
+            }
+        except RuntimeError:
+            pass
+    html = _property_scout_fetch_html(normalized, timeout_seconds=4.0)
     title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     title = compact_text(title_match.group(1) if title_match else "", fallback="", limit=160)
     og_title = _property_scout_extract_meta_content(html, "og:title")
@@ -2150,15 +2153,18 @@ def _property_alert_facts_for_url(property_url: str) -> tuple[dict[str, object],
     if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
         return {}, ""
     if _is_willhaben_property_url(normalized_url):
-        packet = _load_willhaben_property_packet(normalized_url)
-        property_facts_json = dict(packet.get("property_facts_json") or {})
-        property_facts_json.update(
-            {
-                "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
-                "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
-            }
-        )
-        return property_facts_json, str(packet.get("listing_id") or "").strip() or normalized_url
+        try:
+            packet = _load_willhaben_property_packet_compat(normalized_url, timeout_seconds=4)
+            property_facts_json = dict(packet.get("property_facts_json") or {})
+            property_facts_json.update(
+                {
+                    "has_360": bool(_willhaben_packet_panorama_media_urls(packet) or _willhaben_packet_source_virtual_tour_url(packet)),
+                    "source_virtual_tour_url": _willhaben_packet_source_virtual_tour_url(packet),
+                }
+            )
+            return property_facts_json, str(packet.get("listing_id") or "").strip() or normalized_url
+        except Exception:
+            pass
     preview = _property_scout_page_preview(normalized_url)
     property_facts_json = _property_scout_candidate_payload_from_preview(
         property_url=normalized_url,
@@ -2450,8 +2456,8 @@ def _property_alert_ranked_candidates(
         seen.add(normalized)
         packet_title = ""
         try:
-            packet = _load_willhaben_property_packet(normalized)
-            packet_title = str(dict(packet or {}).get("title") or "").strip()
+            preview = _property_scout_page_preview(normalized)
+            packet_title = str(dict(preview or {}).get("title") or "").strip()
         except Exception:
             packet_title = ""
         assessment = _property_alert_personal_fit_assessment(
@@ -3020,14 +3026,30 @@ def _property_alert_personal_fit_assessment(
     person_id: str = "self",
     property_url: str,
 ) -> dict[str, object] | None:
+    assessment, _, _ = _property_alert_personal_fit_snapshot(
+        preference_profiles=preference_profiles,
+        principal_id=principal_id,
+        person_id=person_id,
+        property_url=property_url,
+    )
+    return assessment
+
+
+def _property_alert_personal_fit_snapshot(
+    *,
+    preference_profiles: object,
+    principal_id: str,
+    person_id: str = "self",
+    property_url: str,
+) -> tuple[dict[str, object] | None, dict[str, object], str]:
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
-        return None
+        return None, {}, ""
     try:
         property_facts_json, listing_id = _property_alert_facts_for_url(normalized_url)
         assess_candidate = getattr(preference_profiles, "assess_candidate", None)
         if not callable(assess_candidate):
-            return None
+            return None, property_facts_json, listing_id
         assessment = assess_candidate(
             principal_id=principal_id,
             person_id=str(person_id or "").strip() or "self",
@@ -3039,7 +3061,7 @@ def _property_alert_personal_fit_assessment(
             require_existing_profile=True,
         )
         if not isinstance(assessment, dict):
-            return None
+            return None, property_facts_json, listing_id
         result = dict(assessment or {})
         upstream_personalization = _property_alert_upstream_personalization(
             preference_profiles=preference_profiles,
@@ -3051,9 +3073,9 @@ def _property_alert_personal_fit_assessment(
         )
         if upstream_personalization:
             result["upstream_personalization"] = upstream_personalization
-        return result
+        return result, property_facts_json, listing_id
     except Exception:
-        return None
+        return None, {}, ""
 
 
 def _property_alert_review_telegram_text(
@@ -5200,7 +5222,7 @@ def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
     return metadata
 
 
-def _load_willhaben_property_packet(property_url: str) -> dict[str, object]:
+def _load_willhaben_property_packet(property_url: str, *, timeout_seconds: int = 180) -> dict[str, object]:
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     if not _is_willhaben_property_url(normalized_url):
         raise RuntimeError("willhaben_property_url_invalid")
@@ -5213,7 +5235,7 @@ def _load_willhaben_property_packet(property_url: str) -> dict[str, object]:
             check=False,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=max(1, int(timeout_seconds)),
         )
     except FileNotFoundError as exc:
         raise RuntimeError("python3_missing:willhaben_property_packet") from exc
@@ -5229,6 +5251,16 @@ def _load_willhaben_property_packet(property_url: str) -> dict[str, object]:
     if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
         raise RuntimeError("willhaben_property_packet_invalid")
     return dict(payload[0])
+
+
+def _load_willhaben_property_packet_compat(property_url: str, *, timeout_seconds: int = 180) -> dict[str, object]:
+    try:
+        return _load_willhaben_property_packet(property_url, timeout_seconds=timeout_seconds)
+    except TypeError as exc:
+        detail = str(exc)
+        if "unexpected keyword argument" not in detail and "positional argument" not in detail:
+            raise
+        return _load_willhaben_property_packet(property_url)
 
 
 def _load_optional_json_dict(path: Path) -> dict[str, object] | None:
@@ -13012,6 +13044,7 @@ class ProductService:
         steps_delta: int = 1,
         summary_updates: dict[str, object] | None = None,
         force_status: str = "",
+        stages_total_override: int | None = None,
     ) -> None:
         normalized_run_id = str(run_id or "").strip()
         normalized_principal = str(principal_id or "").strip()
@@ -13027,6 +13060,11 @@ class ProductService:
             state["status"] = updated_status
             state["current_step"] = compact_text(str(step), fallback="run_step")
             state["message"] = compact_text(str(message), fallback="", limit=280)
+            if stages_total_override is not None:
+                state["stages_total"] = max(
+                    int(state.get("steps_completed") or 0) + 1,
+                    int(stages_total_override),
+                )
             stages_total = max(1, int(state.get("stages_total") or _PROPERTY_SEARCH_RUN_STAGES))
             state["steps_completed"] = min(stages_total, max(0, int(state.get("steps_completed") or 0) + int(steps_delta)))
             state["progress"] = int((int(state["steps_completed"]) * 100) / stages_total)
@@ -13151,6 +13189,7 @@ class ProductService:
             status: str = "in_progress",
             steps_delta: int = 1,
             summary_updates: dict[str, object] | None = None,
+            stages_total_override: int | None = None,
         ) -> None:
             self._record_property_search_run_event(
                 run_id=run_id,
@@ -13161,6 +13200,7 @@ class ProductService:
                 steps_delta=steps_delta,
                 summary_updates=summary_updates,
                 force_status=status,
+                stages_total_override=stages_total_override,
             )
 
         def _worker() -> None:
@@ -13243,6 +13283,7 @@ class ProductService:
             status: str = "in_progress",
             steps_delta: int = 1,
             summary_updates: dict[str, object] | None = None,
+            stages_total_override: int | None = None,
         ) -> None:
             if not callable(progress_callback):
                 return
@@ -13253,6 +13294,7 @@ class ProductService:
                     status=status,
                     steps_delta=steps_delta,
                     summary_updates=summary_updates or {},
+                    stages_total_override=stages_total_override,
                 )
             except Exception:
                 pass
@@ -13303,6 +13345,7 @@ class ProductService:
             status="in_progress",
             summary_updates={"sources_total": len(specs)},
             steps_delta=1,
+            stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
         )
 
         if not specs:
@@ -13355,7 +13398,19 @@ class ProductService:
             )
 
             try:
+                _report(
+                    step="source_fetching",
+                    message=f"Fetching source page for {source_label}.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
                 html = _property_scout_fetch_html(source_url)
+                _report(
+                    step="source_extracting",
+                    message=f"Extracting listing candidates from {source_label}.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
                 listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=html)
             except Exception as exc:
                 failed_total += 1
@@ -13373,11 +13428,24 @@ class ProductService:
                 continue
 
             listing_urls = listing_urls[: max_results * 4]
-            ranked_rows: list[dict[str, object]] = []
+            _report(
+                step="source_rank_prep",
+                message=f"Found {len(listing_urls)} raw listing candidates for {source_label}.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={"sources": source_summaries},
+            )
+            preliminary_rows: list[dict[str, object]] = []
             for ordinal, property_url in enumerate(listing_urls, start=1):
+                _report(
+                    step="source_previewing",
+                    message=f"Reviewing candidate {ordinal} of {len(listing_urls)} for {source_label}.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
                 preview: dict[str, object]
                 try:
-                    preview = _property_scout_page_preview(property_url)
+                    preview = _property_scout_page_preview(property_url, prefer_fast=True)
                 except Exception:
                     preview = {
                         "listing_id": property_url,
@@ -13385,16 +13453,69 @@ class ProductService:
                         "summary": "",
                         "property_facts_json": {},
                     }
-                assessment = _property_alert_personal_fit_assessment(
+                preliminary_rows.append(
+                    {
+                        "property_url": property_url,
+                        "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
+                        "title": compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160),
+                        "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
+                        "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                        "assessment": {},
+                        "fit_score": _property_scout_rank_score(
+                            property_url=property_url,
+                            assessment=None,
+                            preview=preview,
+                            ordinal=ordinal,
+                        ),
+                        "ordinal": ordinal,
+                    }
+                )
+                if ordinal == 1 or ordinal == len(listing_urls) or ordinal % 3 == 0:
+                    _report(
+                        step="source_ranking",
+                        message=f"Ranked {min(ordinal, len(listing_urls))} of {len(listing_urls)} candidate listings for {source_label}.",
+                        status="in_progress",
+                        steps_delta=1,
+                    )
+
+            preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            analysis_limit = min(len(preliminary_rows), max(max_results, max_results * 2))
+            ranked_rows: list[dict[str, object]] = []
+            for ordinal, row in enumerate(preliminary_rows[:analysis_limit], start=1):
+                property_url = str(row.get("property_url") or "").strip()
+                _report(
+                    step="source_assessing",
+                    message=f"Scoring shortlist candidate {ordinal} of {analysis_limit} for {source_label}.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
+                preview = {
+                    "listing_id": str(row.get("listing_id") or property_url).strip() or property_url,
+                    "title": str(row.get("title") or property_url).strip() or property_url,
+                    "summary": str(row.get("summary") or "").strip(),
+                    "property_facts_json": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                }
+                if str(preview.get("title") or "").strip() == property_url:
+                    try:
+                        detailed_preview = _property_scout_page_preview(property_url)
+                        if isinstance(detailed_preview, dict) and detailed_preview:
+                            preview = detailed_preview
+                    except Exception:
+                        pass
+                assessment, detailed_facts, detailed_listing_id = _property_alert_personal_fit_snapshot(
                     preference_profiles=self._preference_profiles,
                     principal_id=principal_id,
                     person_id=source_preference_person_id,
                     property_url=property_url,
                 )
+                if detailed_listing_id:
+                    preview["listing_id"] = detailed_listing_id
+                if detailed_facts:
+                    preview["property_facts_json"] = detailed_facts
                 ranked_rows.append(
                     {
                         "property_url": property_url,
-                        "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
+                        "listing_id": str(preview.get("listing_id") or property_url).strip() or property_url,
                         "title": compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160),
                         "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
                         "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
@@ -13403,13 +13524,26 @@ class ProductService:
                             property_url=property_url,
                             assessment=assessment,
                             preview=preview,
-                            ordinal=ordinal,
+                            ordinal=int(row.get("ordinal") or ordinal),
                         ),
                     }
                 )
+                if ordinal == 1 or ordinal == analysis_limit or ordinal % 2 == 0:
+                    _report(
+                        step="source_ranking",
+                        message=f"Scored {min(ordinal, analysis_limit)} of {analysis_limit} shortlist candidate(s) for {source_label}.",
+                        status="in_progress",
+                        steps_delta=1,
+                    )
 
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             ranked_rows = ranked_rows[:max_results]
+            _report(
+                step="source_shortlist",
+                message=f"Built shortlist of {len(ranked_rows)} listing(s) for {source_label}.",
+                status="in_progress",
+                steps_delta=1,
+            )
             listing_total += len(ranked_rows)
             candidate_properties = tuple(
                 {
@@ -13472,6 +13606,12 @@ class ProductService:
                     personal_fit_assessment=assessment,
                     preference_person_id=source_preference_person_id,
                 )
+                _report(
+                    step="source_review_packet",
+                    message=f"Prepared review packet for {title[:72]}.",
+                    status="in_progress",
+                    steps_delta=1,
+                )
                 if str(opened.get("status") or "").strip() == "opened":
                     created_for_source += 1
                     review_created_total += 1
@@ -13499,6 +13639,12 @@ class ProductService:
                         tour_existing_total += 1
 
                 if notify_telegram and is_good_fit:
+                    _report(
+                        step="source_notify",
+                        message=f"Sending client alert for {title[:72]}.",
+                        status="in_progress",
+                        steps_delta=1,
+                    )
                     notify_result = self._send_property_scout_hit_telegram(
                         principal_id=principal_id,
                         actor=actor,

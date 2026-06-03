@@ -1436,6 +1436,7 @@ def app_shell(
             diagnostics,
             outcomes,
             operator_id=str(context.operator_id or "").strip(),
+            brand_key=request_brand(request)["key"],
         )
     else:
         property_context = (

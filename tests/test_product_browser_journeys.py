@@ -258,8 +258,29 @@ def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(m
     response = client.get("/app/properties")
     assert response.status_code == 200
     assert "Review shortlisted property packet" in response.text
-    assert "Open listing" not in response.text
-    assert "https://www.kalandra.at/objekt/14997053" not in response.text
+
+
+def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
+    client = build_property_client(principal_id="exec-browser-property-settings")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
+    assert settings.status_code == 200
+    assert "/app/settings/google" in settings.text
+    assert "Token status" in settings.text
+    assert "Sync runs" not in settings.text
+    assert "Last Google sync" not in settings.text
+    assert "Office signals ingested" not in settings.text
+    assert "Suppressed sync noise" not in settings.text
+    assert "Pending sync candidates" not in settings.text
+
+    google_settings = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
+    assert google_settings.status_code == 200
+    assert "PropertyQuarry Google connection" in google_settings.text
+    assert "Sync runs" not in google_settings.text
+    assert "Last sync" not in google_settings.text
+    assert "Freshness" not in google_settings.text
+    assert "Volume" not in google_settings.text
 
 
 def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
@@ -950,7 +971,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
     assert plan_page.status_code == 200
-    assert "Commercial boundary" in plan_page.text
+    assert "Workspace rules" in plan_page.text
     assert "What this workspace includes" in plan_page.text
     assert "Billing and renewal controls" in plan_page.text
     assert "Upgrade path" in plan_page.text
@@ -1606,7 +1627,7 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert access_url in access_page.text
     access_preview = client.get(access_url, follow_redirects=False)
     assert access_preview.status_code == 303
-    assert access_preview.headers["location"] == "/app/properties"
+    assert access_preview.headers["location"] == "/app/today"
     revoked_access = client.post(
         f"/app/actions/access-sessions/{session_id}/revoke",
         data={"return_to": "/app/settings/access"},

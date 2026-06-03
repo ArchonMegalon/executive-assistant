@@ -738,10 +738,12 @@ def workspace_section_payload(
     outcomes: dict[str, object] | None = None,
     *,
     operator_id: str = "",
+    brand_key: str = "",
 ) -> dict[str, object]:
     diagnostics = diagnostics or {}
     outcomes = outcomes or {}
     operator_key = str(operator_id or "").strip()
+    property_brand = str(brand_key or "").strip().lower() == "propertyquarry"
     queue_health = dict(diagnostics.get("queue_health") or {})
     provider_posture = dict(diagnostics.get("providers") or {})
     commercial = dict(diagnostics.get("commercial") or {})
@@ -1071,12 +1073,21 @@ def workspace_section_payload(
                         _row("Fallback lanes", str(provider_posture.get("lanes_with_fallback") or 0), "Provider"),
                         _row("Failover-ready lanes", str(provider_posture.get("failover_ready_lanes") or 0), "Provider"),
                         _row("Workspace health score", str(readiness.get("health_score") or 0), "Runtime"),
-                        _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/usage"),
-                        _row("Google token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/usage"),
-                        _row("Google sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/usage"),
-                        _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/usage"),
-                        _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/usage"),
-                        _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
+                        *(
+                            [
+                                _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/usage"),
+                                _row("Google token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/usage"),
+                            ]
+                            if property_brand
+                            else [
+                                _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/usage"),
+                                _row("Google token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/usage"),
+                                _row("Google sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/usage"),
+                                _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/usage"),
+                                _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/usage"),
+                                _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
+                            ]
+                        ),
                     ],
                 },
                 {
@@ -1215,7 +1226,7 @@ def workspace_section_payload(
                         "name": "workspace_name",
                         "type": "text",
                         "value": str(dict(diagnostics.get("workspace") or {}).get("name") or ""),
-                        "placeholder": "Executive Workspace",
+                        "placeholder": "PropertyQuarry Workspace",
                     },
                     {
                         "label": "Language",
@@ -1304,9 +1315,13 @@ def workspace_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Google signal loop",
-                    "title": "What is feeding the office loop",
-                    "body": "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review.",
+                    "eyebrow": "Google connection" if property_brand else "Google signal loop",
+                    "title": "Connected Google identity posture" if property_brand else "What is feeding the office loop",
+                    "body": (
+                        "PropertyQuarry only needs identity, token health, and reauth posture here."
+                        if property_brand
+                        else "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review."
+                    ),
                     "items": [
                         _google_settings_action_row(analytics_sync, return_to="/app/settings/google"),
                         _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
@@ -1320,11 +1335,17 @@ def workspace_section_payload(
                             action_method="get" if analytics_sync.get("google_connected") else "",
                         ),
                         _row("Token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/google"),
-                        _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
-                        _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
-                        _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
-                        _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
-                        _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
+                        *(
+                            []
+                            if property_brand
+                            else [
+                                _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
+                                _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
+                                _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
+                                _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
+                                _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
+                            ]
+                        ),
                     ],
                 },
                 {

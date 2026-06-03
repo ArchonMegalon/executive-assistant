@@ -3179,7 +3179,7 @@ def test_property_scout_page_preview_extracts_live_360_and_listing_images(monkey
     monkeypatch.setattr(
         product_service,
         "_property_scout_fetch_html",
-        lambda url: """
+        lambda url, *, timeout_seconds=60.0: """
             <html>
               <head><title>360° TOUR // Test Apartment</title></head>
               <body>
@@ -3198,6 +3198,38 @@ def test_property_scout_page_preview_extracts_live_360_and_listing_images(monkey
     assert preview["property_facts_json"]["has_360"] is True
     assert preview["property_facts_json"]["panorama_source"] == "360.kalandra.at"
     assert preview["media_urls_json"] == ("https://storage.justimmo.at/thumb/photo-1.jpg",)
+
+
+def test_property_scout_page_preview_falls_back_to_fast_html_for_willhaben_when_packet_loader_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/test-1234567890/"
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("willhaben_property_packet_timeout")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head>
+                <title>Fallback Listing</title>
+                <meta property=\"og:title\" content=\"Fallback Listing Title\">
+                <meta property=\"og:description\" content=\"Fallback Listing Summary\">
+              </head>
+              <body><img src=\"https://images.example/listing.jpg\"></body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    assert preview["listing_id"] == listing_url
+    assert preview["title"] == "Fallback Listing Title"
+    assert preview["summary"] == "Fallback Listing Summary"
+    assert preview["media_urls_json"] == ("https://images.example/listing.jpg",)
 
 
 def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
@@ -11842,6 +11874,44 @@ def test_property_search_run_blocks_free_plan_when_limits_exceed_free_tier() -> 
 
     assert response.status_code == 409
     assert response.json()["error"]["details"] == "property_plan_upgrade_required:plus"
+
+
+def test_property_search_run_allows_free_plan_across_multiple_platforms_when_result_cap_is_respected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-free-multi-platform"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Free Multi Platform Office")
+
+    monkeypatch.setattr(
+        ProductService,
+        "sync_direct_property_scout",
+        lambda self, **_: {
+            "generated_at": product_api_delivery_routes.now_iso(),
+            "status": "processed",
+            "sources_total": 2,
+            "listing_total": 2,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        },
+    )
+
+    response = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "selected_platforms": ["willhaben", "kalandra"],
+            "property_preferences": {"preference_person_id": "self"},
+            "max_results_per_source": 2,
+        },
+    )
+
+    assert response.status_code == 200, response.text
 
 
 def test_property_paypal_checkout_and_capture_updates_property_commercial_state(
