@@ -1568,6 +1568,72 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/test_rewrite_dependency_projection_contracts.py",
         "tests/test_runner.py",
     }
+    propertyquarry_international_release_commit = "1d33efa"
+    propertyquarry_international_release_subject = "feat: ship propertyquarry international release lane"
+    propertyquarry_international_release_paths = {
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/product/PUBLIC_LANDING_MANIFEST.yaml",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+        ".env.example",
+        ".env.local.example",
+        ".gitignore",
+        "CHANGELOG.md",
+        "LTDs.md",
+        "Makefile",
+        "README.md",
+        "RUNBOOK.md",
+        "docker-compose.cloudflared.yml",
+        "docker-compose.prod.yml",
+        "docker-compose.yml",
+        "ea/app/api/routes/landing.py",
+        "ea/app/api/routes/landing_objects.py",
+        "ea/app/api/routes/landing_view_models.py",
+        "ea/app/api/routes/onboarding.py",
+        "ea/app/api/routes/product_api_contracts.py",
+        "ea/app/api/routes/product_api_delivery.py",
+        "ea/app/api/routes/public_memorials.py",
+        "ea/app/api/routes/public_tours.py",
+        "ea/app/api/routes/responses.py",
+        "ea/app/product/service.py",
+        "ea/app/runner.py",
+        "ea/app/services/onboarding.py",
+        "ea/app/services/property_billing.py",
+        "ea/app/services/property_market_catalog.py",
+        "ea/app/services/public_branding.py",
+        "ea/app/services/public_clickrank.py",
+        "ea/app/templates/base_console.html",
+        "ea/app/templates/base_public.html",
+        "ea/app/templates/console_shell.html",
+        "ea/app/templates/propertyquarry_home.html",
+        "ea/app/templates/register.html",
+        "ea/app/templates/sign_in.html",
+        "ea/requirements.txt",
+        "scripts/deploy.sh",
+        "scripts/hard_exit_gates.sh",
+        "scripts/operator_summary.sh",
+        "scripts/runtime_hard_exit_gates.sh",
+        "scripts/smoke_api.sh",
+        "scripts/smoke_api_tibor.sh",
+        "scripts/smoke_help.sh",
+        "scripts/support_bundle.sh",
+        "scripts/verify_ltd_critical_entries.py",
+        "scripts/verify_ltd_flagship_subset.py",
+        "tests/e2e/visual_baselines/briefing-page.png",
+        "tests/e2e/visual_baselines/followups-page.png",
+        "tests/e2e/visual_baselines/inbox-page.png",
+        "tests/e2e/visual_baselines/today-page.png",
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "tests/test_ltd_critical_entries_gate.py",
+        "tests/test_ltd_flagship_subset_gate.py",
+        "tests/test_migration_contracts.py",
+        "tests/test_operator_contracts.py",
+        "tests/test_product_api_contracts.py",
+        "tests/test_product_browser_journeys.py",
+        "tests/test_property_market_catalog.py",
+        "tests/test_property_search_runs.py",
+        "tests/test_public_clickrank_contracts.py",
+    }
     for commit, paths in post_freeze_paths.items():
         assert paths, commit
         subject = subprocess.run(
@@ -1655,6 +1721,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == flagship_runtime_gate_hardening_commit:
             assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
             assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == propertyquarry_international_release_commit:
+            assert subject == propertyquarry_international_release_subject, (commit, subject, sorted(paths))
+            assert paths == propertyquarry_international_release_paths, (commit, sorted(paths))
             continue
         if commit == "ff8493d":
             assert subject == "chore: harden parity lab post-receipt tests and refresh generated packets", (
@@ -1749,6 +1819,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
             assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == propertyquarry_international_release_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == propertyquarry_international_release_subject, (commit, subject, sorted(paths))
+            assert paths == propertyquarry_international_release_paths, (commit, sorted(paths))
             continue
         if paths == artifact_expansion_paths:
             subject = subprocess.run(
@@ -1909,6 +1990,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
             assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
             continue
+        if commit == propertyquarry_international_release_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == propertyquarry_international_release_subject, (commit, subject, sorted(paths))
+            assert paths == propertyquarry_international_release_paths, (commit, sorted(paths))
+            continue
         if paths == artifact_expansion_paths:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2135,6 +2227,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
             assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == propertyquarry_international_release_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == propertyquarry_international_release_subject, (commit, subject, sorted(paths))
+            assert paths == propertyquarry_international_release_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             subject = subprocess.run(
@@ -2521,6 +2624,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == flagship_runtime_gate_hardening_subject, (commit, subject, sorted(paths))
             assert paths == flagship_runtime_gate_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == propertyquarry_international_release_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == propertyquarry_international_release_subject, (commit, subject, sorted(paths))
+            assert paths == propertyquarry_international_release_paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(
