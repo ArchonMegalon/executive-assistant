@@ -4,6 +4,7 @@ import time
 
 import app.product.service as product_service
 from app.product.service import ProductService
+from app.services.property_billing import property_commercial_snapshot
 from tests.product_test_helpers import build_product_client, seed_product_state, start_workspace
 
 
@@ -17,6 +18,15 @@ def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
             return latest_status
         time.sleep(0.02)
     return latest_status
+
+
+def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() -> None:
+    snapshot = property_commercial_snapshot({})
+
+    assert snapshot["current_plan_key"] == "free"
+    assert snapshot["research_depth"] == "deep"
+    assert snapshot["max_platforms"] == 1
+    assert snapshot["max_results_per_source"] == 2
 
 
 def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(monkeypatch) -> None:

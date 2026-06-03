@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from app.domain.models import ConnectorBinding, OnboardingState
 from app.repositories.onboarding_state import InMemoryOnboardingStateRepository, OnboardingStateRepository
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository
 from app.services.assistant_onboarding_service import AssistantOnboardingService
-from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_scope_bundle_details
+from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_bundle_supports_workspace_sync, google_scope_bundle_details
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.property_billing import normalize_property_commercial
 from app.services.provider_registry import ProviderRegistryService
@@ -23,6 +24,7 @@ from app.services.whatsapp_onboarding_service import (
 from app.settings import Settings, ensure_storage_fallback_allowed, get_settings
 
 GOOGLE_ONBOARDING_BUNDLE_ALIASES = {
+    "identity": "identity",
     "send": "send",
     "verify": "verify",
     "all": "all",
@@ -56,17 +58,17 @@ ASSISTANT_MODE_CATALOG: tuple[dict[str, str], ...] = (
     {
         "key": "personal",
         "label": "Personal",
-        "summary": "One private operator across your own mail, chats, memory, and morning memo.",
+        "summary": "One private property workspace for search posture, shortlist review, and saved feedback.",
     },
     {
         "key": "team",
         "label": "Shared workspace",
-        "summary": "A shared workspace for handoffs, inbox triage, commitments, and tenant-safe memory.",
+        "summary": "A shared property workspace for shortlist review, research follow-ups, and coordinated decisions.",
     },
     {
         "key": "executive_ops",
         "label": "Executive support",
-        "summary": "Cross-channel executive operations with briefs, drafts, commitments, and durable memory.",
+        "summary": "A heavier property operation with deeper research, more operators, and stronger delivery controls.",
     },
 )
 
@@ -159,6 +161,42 @@ class OnboardingService(AssistantOnboardingService):
             status="started",
         )
         return self.status(principal_id=principal_id, state_override=saved)
+
+    def _registration_principal_alias(self, principal_id: str) -> str:
+        normalized = str(principal_id or "").strip().lower()
+        prefix = "cf-email:"
+        if not normalized.startswith(prefix):
+            return ""
+        email = normalized[len(prefix) :].strip()
+        if not email or "@" not in email:
+            return ""
+        digest = hashlib.sha256(email.encode("utf-8")).hexdigest()[:16]
+        return f"user-{digest}"
+
+    def _bridge_browser_principal_state(self, principal_id: str) -> OnboardingState | None:
+        existing = self._repo.get_for_principal(principal_id)
+        if existing is not None:
+            return existing
+        alias_principal_id = self._registration_principal_alias(principal_id)
+        if not alias_principal_id:
+            return None
+        aliased = self._repo.get_for_principal(alias_principal_id)
+        if aliased is None:
+            return None
+        return self._repo.upsert_state(
+            principal_id=principal_id,
+            workspace_name=aliased.workspace_name,
+            workspace_mode=aliased.workspace_mode,
+            region=aliased.region,
+            language=aliased.language,
+            timezone=aliased.timezone,
+            selected_channels=aliased.selected_channels,
+            property_search_preferences_json=dict(aliased.property_search_preferences_json),
+            privacy_preferences_json=dict(aliased.privacy_preferences_json),
+            channel_preferences_json=dict(aliased.channel_preferences_json),
+            brief_preview_json=dict(aliased.brief_preview_json),
+            status=aliased.status,
+        )
 
     def upsert_property_search_preferences(
         self,
@@ -281,7 +319,7 @@ class OnboardingService(AssistantOnboardingService):
         return_to: str | None = None,
         browser_source: str | None = None,
     ) -> dict[str, object]:
-        requested_bundle = str(scope_bundle or "core").strip().lower() or "core"
+        requested_bundle = str(scope_bundle or "identity").strip().lower() or "identity"
         if requested_bundle not in GOOGLE_ONBOARDING_BUNDLE_ALIASES:
             raise RuntimeError("onboarding_google_scope_bundle_invalid")
         state = self._ensure_state(principal_id)
@@ -303,7 +341,11 @@ class OnboardingService(AssistantOnboardingService):
             google_pref["auth_url"] = packet.auth_url
             google_pref["bundle_label"] = str(bundle_details.get("label") or oauth_bundle)
             google_pref["bundle_summary"] = str(bundle_details.get("summary") or "")
-            google_pref["next_step"] = f"Complete {google_pref['bundle_label']} consent to unlock that assistant bundle."
+            google_pref["next_step"] = (
+                f"Complete {google_pref['bundle_label']} to finish Google account linking."
+                if oauth_bundle == "identity"
+                else f"Complete {google_pref['bundle_label']} consent to unlock that assistant bundle."
+            )
             updated = self._replace_channel_pref(state, "google", google_pref, status="in_progress")
             payload = self.status(principal_id=principal_id, state_override=updated)
             payload["google_start"] = {
@@ -594,7 +636,7 @@ class OnboardingService(AssistantOnboardingService):
                 "ingestion_mode": "plan_confirmed",
                 "status": completion_status,
                 "last_imported_count": int(imported_message_count or 0),
-                "next_step": "Use next setup steps to finalize memory policy and generate the first morning memo.",
+                "next_step": "Use the next setup steps to finalize preferences and prepare the first useful property shortlist.",
             }
         )
         updated = self._replace_channel_pref(state, "whatsapp", whatsapp_pref, status="in_progress")
@@ -685,7 +727,7 @@ class OnboardingService(AssistantOnboardingService):
         return self.status(principal_id=principal_id, state_override=saved)
 
     def status(self, *, principal_id: str, state_override: OnboardingState | None = None) -> dict[str, object]:
-        state = state_override or self._repo.get_for_principal(principal_id)
+        state = state_override or self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
         google_binding = self._preferred_google_binding(principal_id=principal_id)
         google_state = self._provider_registry.binding_state(GOOGLE_PROVIDER_KEY, principal_id=principal_id)
         connectors = self._connectors_for_status(principal_id=principal_id)
@@ -761,7 +803,7 @@ class OnboardingService(AssistantOnboardingService):
         }
 
     def _ensure_state(self, principal_id: str) -> OnboardingState:
-        existing = self._repo.get_for_principal(principal_id)
+        existing = self._bridge_browser_principal_state(principal_id) or self._repo.get_for_principal(principal_id)
         if existing is not None:
             return existing
         return self._repo.upsert_state(principal_id=principal_id, status="draft")
@@ -820,22 +862,25 @@ class OnboardingService(AssistantOnboardingService):
         for binding in connectors:
             by_name.setdefault(binding.connector_name, []).append(binding)
         google_pref = dict(channel_prefs.get("google") or {})
-        google_requested_bundle = str(google_pref.get("requested_bundle") or "").strip().lower() or "core"
+        google_requested_bundle = str(google_pref.get("requested_bundle") or "").strip().lower() or "identity"
         google_bundle = google_scope_bundle_details(google_requested_bundle)
         google_status = "not_selected"
-        google_detail = "Select Google during onboarding to request assistant email and workspace context."
+        google_detail = "Select Google during onboarding if you want Google sign-in and a verified return path."
         granted_scopes = []
         if google_binding is not None:
             google_status = "connected"
             granted_scopes = list(dict(google_binding.auth_metadata_json or {}).get("granted_scopes") or [])
-            google_detail = "Google is linked for this principal and can now feed Gmail, calendar, and context-aware assistant flows according to the granted bundle."
+            if google_bundle_supports_workspace_sync(scopes=tuple(granted_scopes)):
+                google_detail = "Google is linked for this principal and can now feed workspace signals according to the granted bundle."
+            else:
+                google_detail = "Google is linked for this principal as a sign-in and verified return path only."
         elif google_state is not None and bool(google_state.secret_configured):
             if google_pref:
                 google_status = "ready_to_connect"
                 google_detail = f"{google_bundle['label']} can be connected through the existing OAuth flow."
             else:
                 google_status = "available"
-                google_detail = "Google onboarding is available. Choose the smallest bundle that unlocks the assistant behavior you actually want."
+                google_detail = "Google onboarding is available. PropertyQuarry only needs the narrow Google sign-in bundle by default."
         elif google_state is not None:
             google_status = "credentials_missing"
             google_detail = (
@@ -882,17 +927,14 @@ class OnboardingService(AssistantOnboardingService):
                 "requested_bundle": google_requested_bundle,
                 "granted_scopes": granted_scopes,
                 "detail": google_detail,
-                "bundle_label": str(google_bundle.get("label") or "Google Core"),
+                "bundle_label": str(google_bundle.get("label") or "Google sign-in"),
                 "bundle_summary": str(google_bundle.get("summary") or ""),
                 "capabilities": list(google_bundle.get("capabilities") or ()),
                 "limitations": list(google_bundle.get("limitations") or ()),
                 "bundle_options": [
-                    google_scope_bundle_details("core"),
-                    google_scope_bundle_details("full_workspace"),
-                    google_scope_bundle_details("verify"),
-                    google_scope_bundle_details("send"),
+                    google_scope_bundle_details("identity"),
                 ],
-                "history_import_posture": "Mailbox context starts only after explicit consent. Send-only does not imply inbox understanding.",
+                "history_import_posture": "PropertyQuarry treats Google as optional account access. It does not assume mailbox or calendar ingestion from sign-in alone.",
             },
             "telegram": {
                 "status": telegram_status,
@@ -967,7 +1009,7 @@ class OnboardingService(AssistantOnboardingService):
                     connected.append(f"Google linked as {google_email}")
                     top_contacts.append(google_email)
                     history_state.append(
-                        f"Gmail is connected through {channel_state.get('bundle_label') or 'Google Core'}; mailbox context starts from the granted bundle rather than a fake blanket import claim."
+                        f"Google is connected through {channel_state.get('bundle_label') or 'Google sign-in'} with exactly the granted bundle."
                     )
                 elif status == "ready_to_connect":
                     history_state.append("Google consent is staged but not completed yet.")
@@ -1001,7 +1043,7 @@ class OnboardingService(AssistantOnboardingService):
                 else:
                     history_state.append("WhatsApp is selected but not configured yet.")
         if not selected_channels:
-            history_state.append("No channels are selected yet, so the first morning memo can only describe setup posture.")
+            history_state.append("No channels are selected yet, so setup posture is still based on preferences rather than live sources.")
         normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
         top_themes = list(self._top_themes_for_mode(normalized_workspace_mode, selected_channels))
         if not top_contacts:
@@ -1016,7 +1058,7 @@ class OnboardingService(AssistantOnboardingService):
         if "whatsapp" in selected_channels:
             first_brief_lines.append("WhatsApp digest: separate planned export intake from future live sync so the timeline stays honest.")
         suggested_actions = [
-            "Connect Google if it is selected but still waiting on consent.",
+            "Connect Google if you want a faster return path or verified account identity.",
             "Choose whether Telegram starts future-only or with a later explicit import step.",
             "Pick either WhatsApp Business onboarding or export intake plan; do not leave both ambiguous.",
         ]
@@ -1026,7 +1068,7 @@ class OnboardingService(AssistantOnboardingService):
             "The assistant only claims history it can actually import or observe through supported channel paths.",
         ]
         return {
-            "headline": f"{workspace_name} wakes up with one cross-channel morning memo instead of three disconnected inboxes.",
+            "headline": f"{workspace_name} keeps one accountable property search workspace instead of scattered tabs and half-tracked listings.",
             "principal_id": principal_id,
             "workspace_mode": normalized_workspace_mode,
             "who_you_are": [
@@ -1063,19 +1105,19 @@ class OnboardingService(AssistantOnboardingService):
             return "Start onboarding with a workspace name, mode, and channel selection."
         google_status = str(dict(channel_statuses.get("google") or {}).get("status") or "")
         if "google" in state.selected_channels and google_status in {"available", "ready_to_connect"}:
-            google_label = str(dict(channel_statuses.get("google") or {}).get("bundle_label") or "Google Core")
-            return f"Complete {google_label} consent to unlock the first real connected channel."
+            google_label = str(dict(channel_statuses.get("google") or {}).get("bundle_label") or "Google sign-in")
+            return f"Complete {google_label} to finish Google account linking."
         if "telegram" in state.selected_channels and str(dict(channel_statuses.get("telegram") or {}).get("status") or "") == "guided_manual":
             return "Decide whether Telegram starts as identity-only, official bot, or future-only memory."
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
-            return "Finalize privacy and morning memo preferences so EA can build the first trustworthy morning memo."
+            return "Finalize your workspace preferences so PropertyQuarry can open the first useful property workflow cleanly."
         if bool(dict(state.privacy_preferences_json).get("allow_auto_briefs")) and not bool(
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):
-            return "Connect Google or set a delivery email so the morning memo can actually send."
-        return "Review the first morning memo, then keep connecting the next real channel or import path."
+            return "Connect Google or set a delivery email so notifications can actually send when you enable them."
+        return "Review the first shortlist, save feedback, and only then add more providers or delivery lanes."
 
     @staticmethod
     def _normalize_auto_brief_cadence(value: str) -> str:

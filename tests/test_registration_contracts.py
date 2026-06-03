@@ -158,6 +158,75 @@ def test_sign_in_email_link_reports_missing_workspace_match(
     assert "No existing workspace matched that email." in followup.text
 
 
+def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in")
+
+    assert response.status_code == 200
+    assert "Continue with Google" in response.text
+    assert "Google can reopen an existing workspace with identity-only scope." in response.text
+
+
+def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
+    client = _client(monkeypatch)
+
+    existing_principal = "user-4a1702ea0e8d9ec5"
+    client.headers.update({"X-EA-Principal-ID": existing_principal})
+    start_workspace(client, mode="personal", workspace_name="Tibor Property Workspace")
+
+    sign_in_start = client.post(
+        "/sign-in/google",
+        data={"email": "tibor.girschele@gmail.com"},
+        follow_redirects=False,
+    )
+    assert sign_in_start.status_code == 303
+    auth_url = sign_in_start.headers["location"]
+    assert auth_url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
+    parsed = urllib.parse.urlparse(auth_url)
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
+
+    from app.services import google_oauth as google_service
+
+    monkeypatch.setattr(
+        google_service,
+        "_exchange_google_code_for_tokens",
+        lambda **kwargs: {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "scope": "openid email profile",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        google_service,
+        "_fetch_google_userinfo",
+        lambda access_token: {
+            "sub": "google-sub-signin",
+            "email": "tibor.girschele@gmail.com",
+        },
+    )
+
+    callback = client.get(
+        "/google/callback",
+        params={"code": "code-123", "state": query["state"][0]},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 303
+    assert callback.headers["location"].startswith("/workspace-access/")
+
+    opened = client.get(callback.headers["location"], follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/properties"
+    assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+
 def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")

@@ -54,11 +54,11 @@ _FREE_PLAN = PropertyPlanSpec(
     pass_days=0,
     max_platforms=1,
     max_results_per_source=2,
-    research_depth="shallow",
+    research_depth="deep",
     features=(
         "1 platform at a time",
         "up to 2 results per source",
-        "light fit summary",
+        "deep research on the shortlisted results",
     ),
 )
 
