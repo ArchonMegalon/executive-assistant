@@ -2,6 +2,7 @@
 set -euo pipefail
 
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
@@ -53,7 +54,7 @@ else
   DC=(docker-compose)
 fi
 
-DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
+DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-ea}"
 
@@ -95,7 +96,7 @@ SQL_FILES=(
 )
 
 echo "== EA DB bootstrap =="
-"${DC[@]}" up -d ea-db
+"${DC[@]}" up -d "${DB_SERVICE}"
 
 for _ in $(seq 1 30); do
   if docker exec "${DB_CONTAINER}" pg_isready -U "${DB_USER}" >/dev/null 2>&1; then

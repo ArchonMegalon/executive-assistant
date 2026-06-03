@@ -813,6 +813,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload = dict(preferences or {})
     country_code = normalize_country_code(payload.get("country_code"))
     payload["country_code"] = country_code
+    payload["region_code"] = str(payload.get("region_code") or "").strip().lower()
     payload["language_code"] = normalize_language_code(payload.get("language_code"), country_code=country_code)
     payload["listing_mode"] = normalize_listing_mode(payload.get("listing_mode"))
     payload["property_type"] = normalize_property_type(payload.get("property_type"))

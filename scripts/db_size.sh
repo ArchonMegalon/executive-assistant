@@ -34,7 +34,8 @@ else
   DC=(docker-compose)
 fi
 
-DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
+DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
+DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-ea}"
 SIZE_LIMIT="${EA_DB_SIZE_LIMIT:-20}"
@@ -92,7 +93,7 @@ fi
 
 echo "== EA DB size =="
 echo "pgdata_volume_note=ea_pgdata -> /var/lib/postgresql/data (on-disk Postgres runtime state, not RAM)"
-"${DC[@]}" up -d ea-db >/dev/null
+"${DC[@]}" up -d "${DB_SERVICE}" >/dev/null
 
 for _ in $(seq 1 30); do
   if docker exec "${DB_CONTAINER}" pg_isready -U "${DB_USER}" >/dev/null 2>&1; then

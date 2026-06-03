@@ -810,6 +810,13 @@ make release-preflight
 
 `RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, and Fleet journey gate.
 
+Standalone-compatible service aliases for shared operator scripts:
+
+- `PROPERTYQUARRY_API_SERVICE`
+- `PROPERTYQUARRY_WORKER_SERVICE`
+- `PROPERTYQUARRY_SCHEDULER_SERVICE`
+- `PROPERTYQUARRY_DB_SERVICE`
+
 ## Smoke Exit Codes
 
 `scripts/smoke_api.sh` uses these explicit non-zero codes for contract failures:

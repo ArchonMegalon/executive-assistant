@@ -18073,7 +18073,7 @@ class ProductService:
         *,
         principal_id: str,
         recipient_email: str,
-        scope_bundle: str = "full_workspace",
+        scope_bundle: str = "identity",
         base_url: str = "",
         expires_in_hours: int = 72,
     ) -> dict[str, object]:
@@ -18084,7 +18084,7 @@ class ProductService:
             raise RuntimeError("google_connect_email_delivery_not_configured")
         normalized_bundle = google_oauth_service.normalize_scope_bundle(scope_bundle)
         if normalized_bundle == "all":
-            normalized_bundle = "full_workspace"
+            normalized_bundle = "identity"
         workspace = dict(self._container.onboarding.status(principal_id=principal_id).get("workspace") or {})
         workspace_name = str(workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace"
         accounts = sorted(
@@ -20746,6 +20746,11 @@ class ProductService:
         google_token_status = str(getattr(primary_google_account, "token_status", "") or "").strip() or ("active" if google_sync_last_completed_at else ("missing" if not google_connected else "unknown"))
         google_last_refresh_at = str(getattr(primary_google_account, "last_refresh_at", "") or google_sync_last_completed_at or "").strip()
         google_reauth_required_reason = str(getattr(primary_google_account, "reauth_required_reason", "") or "").strip()
+        google_consent_stage = str(getattr(primary_google_account, "consent_stage", "") or "").strip()
+        google_workspace_sync_supported = bool(
+            primary_google_account is not None
+            and google_oauth_service.google_bundle_supports_workspace_sync(scopes=primary_google_account.granted_scopes)
+        )
         google_send_verification_by_identity: dict[str, dict[str, object]] = {}
         for row in reversed(event_rows):
             if row.event_type not in {"google_send_verification_completed", "google_send_verification_failed"}:
@@ -21187,6 +21192,8 @@ class ProductService:
                     "google_token_status": google_token_status,
                     "google_last_refresh_at": google_last_refresh_at,
                     "google_reauth_required_reason": google_reauth_required_reason,
+                    "google_consent_stage": google_consent_stage,
+                    "google_workspace_sync_supported": google_workspace_sync_supported,
                     "google_sync_last_completed_at": google_sync_last_completed_at,
                     "google_sync_last_synced_total": int(google_sync_last_payload.get("synced_total") or 0),
                     "google_sync_last_deduplicated_total": int(google_sync_last_payload.get("deduplicated_total") or 0),
@@ -21560,7 +21567,7 @@ class ProductService:
             next_actions.append(
                 {
                     "label": "Connect Google",
-                    "detail": "Workspace sync cannot run until a Google workspace account is connected.",
+                    "detail": "Google account linking is not set up yet.",
                     "href": "/app/settings/google",
                     "action_href": "/app/actions/google/connect?return_to=/app/settings/google",
                     "action_label": "Connect now",
@@ -21578,6 +21585,14 @@ class ProductService:
                     "action_label": "Reconnect now",
                     "action_method": "get",
                     "return_to": "/app/settings/google",
+                }
+            )
+        elif not bool(sync.get("google_workspace_sync_supported")):
+            next_actions.append(
+                {
+                    "label": "Google linked for sign-in",
+                    "detail": "No Gmail or Calendar sync is expected from the current Google bundle.",
+                    "href": "/app/settings/google",
                 }
             )
         elif str(sync.get("google_sync_freshness_state") or "") != "clear":

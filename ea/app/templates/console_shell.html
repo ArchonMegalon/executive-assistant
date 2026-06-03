@@ -122,6 +122,55 @@
   .console-form[data-console-form-variant="property_search"] {
     gap: 16px;
   }
+  .console-form[data-console-form-variant="property_search"] .property-wizard {
+    display: grid;
+    gap: 12px;
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-steps {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-step {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    text-align: left;
+    padding: 12px;
+    display: grid;
+    gap: 4px;
+    min-height: 78px;
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-step.active {
+    border-color: rgba(214, 166, 63, 0.38);
+    background: linear-gradient(180deg, rgba(214, 166, 63, 0.14), rgba(255,255,255,0.03));
+    color: var(--text);
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-step small {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-step-index {
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-summary {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-nav {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .console-form[data-console-form-variant="property_search"] .property-wizard-progress {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
   .console-form[data-console-form-variant="property_search"] .console-field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
@@ -427,6 +476,13 @@
       grid-template-columns: 1fr;
       max-height: none;
       overflow: visible;
+    }
+    .console-form[data-console-form-variant="property_search"] .property-wizard-steps {
+      grid-template-columns: 1fr;
+    }
+    .console-form[data-console-form-variant="property_search"] .property-wizard-nav {
+      align-items: stretch;
+      flex-direction: column;
     }
     .console-form[data-console-form-variant="property_search"] .console-action-row {
       position: sticky;
@@ -820,6 +876,7 @@
       <div class="console-kicker">{{ console_form.get('eyebrow') or 'Search' }}</div>
       {% if console_form.get('title') %}<h2>{{ console_form.get('title') }}</h2>{% endif %}
       {% if console_form.get('copy') %}<p class="console-copy">{{ console_form.get('copy') }}</p>{% endif %}
+      {% set property_meta = (console_form.get('meta') or {}) if console_form.get('variant') == 'property_search' else {} %}
       <form
         class="console-form"
         method="{{ console_form.get('method') or 'get' }}"
@@ -827,9 +884,39 @@
         {% if console_form.get('variant') %}data-console-form-variant="{{ console_form.get('variant') }}"{% endif %}
         {% if console_form.get('meta') %}data-console-form-meta='{{ console_form.get("meta")|tojson }}'{% endif %}
       >
+        {% if console_form.get('variant') == 'property_search' and (property_meta.get('wizard_steps') or []) %}
+        {% set initial_wizard_step = (property_meta.get('wizard_steps') or [])[0] %}
+        <div class="property-wizard" data-property-wizard>
+          <div class="property-wizard-steps">
+            {% for step in property_meta.get('wizard_steps') or [] %}
+            <button class="property-wizard-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}">
+              <span class="property-wizard-step-index">Step {{ loop.index }}</span>
+              <strong>{{ step.get('label') }}</strong>
+              <small>{{ step.get('detail') }}</small>
+            </button>
+            {% endfor %}
+          </div>
+          <div class="property-wizard-summary" data-property-step-summary>{{ initial_wizard_step.get('detail') if initial_wizard_step else '' }}</div>
+        </div>
+        <noscript>
+          <style>
+            .console-form[data-console-form-variant="property_search"] [data-property-field-step],
+            .console-form[data-console-form-variant="property_search"] [data-property-step-panel],
+            .console-form[data-console-form-variant="property_search"] [data-property-actions] {
+              display: grid !important;
+            }
+            .console-form[data-console-form-variant="property_search"] [data-property-wizard-nav] {
+              display: none !important;
+            }
+          </style>
+          <div class="console-callout">
+            JavaScript is unavailable. The guided wizard is disabled, but the full property search form remains usable below.
+          </div>
+        </noscript>
+        {% endif %}
         <div class="console-field-grid">
           {% for field in console_form.get('fields') or [] %}
-          <label class="console-field">
+          <label class="console-field" {% if field.get('step') %}data-property-field-step="{{ field.get('step') }}"{% endif %}>
             <span>{{ field.label }}</span>
             {% if field.type == 'number' %}
             <input
@@ -884,11 +971,11 @@
           {% endfor %}
         </div>
         {% if console_form.get('variant') == 'property_search' %}
-        {% set property_meta = console_form.get('meta') or {} %}
         {% set commercial = property_meta.get('commercial') or {} %}
         {% set plan_catalog = commercial.get('plan_catalog') or [] %}
+        {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
         {% if request.query_params.get('billing') %}
-        <div class="console-callout">
+        <div class="console-callout" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
           {% if request.query_params.get('billing') == 'success' %}
           Payment captured. The {{ request.query_params.get('plan') or 'paid' }} plan is now active.
           {% elif request.query_params.get('billing') == 'cancelled' %}
@@ -896,7 +983,7 @@
           {% endif %}
         </div>
         {% endif %}
-        <section class="console-plan-card current">
+        <section class="console-plan-card current" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
           <div class="console-plan-kicker">Current property plan</div>
           <strong>{{ commercial.get('current_plan_label') or 'Free' }}</strong>
           <small class="console-run-note">
@@ -911,7 +998,7 @@
           <div class="console-inline-error" data-property-billing-error></div>
         </section>
         {% if plan_catalog %}
-        <div class="console-billing-grid">
+        <div class="console-billing-grid" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
           {% for plan in plan_catalog %}
           <section class="console-plan-card{% if plan.get('is_current') %} current{% endif %}">
             <div class="console-plan-kicker">{{ plan.get('display_name') }}</div>
@@ -928,13 +1015,18 @@
           {% endfor %}
         </div>
         {% endif %}
-        <div class="console-inline-status" data-property-inline-status></div>
-        <div class="console-inline-error" data-property-inline-error></div>
-        <div class="console-action-row">
+        <div class="console-inline-status" data-property-inline-status data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}></div>
+        <div class="console-inline-error" data-property-inline-error data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}></div>
+        <div class="property-wizard-nav" data-property-wizard-nav>
+          <button class="console-action" type="button" data-property-step-back hidden>Back</button>
+          <div class="property-wizard-progress" data-property-step-progress>{% if wizard_steps %}Step 1 of {{ wizard_steps|length }}{% endif %}</div>
+          <button class="console-action" type="button" data-property-step-next>Next</button>
+        </div>
+        <div class="console-action-row" data-property-actions {% if wizard_steps %}hidden{% endif %}>
           <button class="console-action" type="button" data-property-save>Save defaults</button>
           <button class="console-action" type="button" data-property-start>{{ console_form.get('submit_label') or 'Start search' }}</button>
         </div>
-        <section class="console-progress" data-property-run hidden>
+        <section class="console-progress" data-property-run data-property-step-panel="providers" hidden>
           <div class="console-run-meta">
             <div class="console-run-status" data-property-run-status>Queued</div>
             <div class="console-run-note" data-property-run-message></div>
@@ -1071,8 +1163,8 @@
 
   const selectedPlatformsForForm = (form) => selectedValuesForForm(form, 'selected_platforms');
 
-  const renderPlatformOptions = (form, options, selectedValues) => {
-    const inputs = [...form.querySelectorAll('input[name="selected_platforms"]')];
+  const renderCheckboxOptions = (form, name, options, selectedValues) => {
+    const inputs = [...form.querySelectorAll(`input[name="${name}"]`)];
     const grid = inputs[0]?.closest('.console-choice-grid');
     if (!grid) return;
     const nextSelected = new Set((selectedValues || []).filter(Boolean));
@@ -1082,7 +1174,7 @@
       const detail = String(option.detail || option.description || '').trim();
       return `
         <label class="console-choice">
-          <input type="checkbox" name="selected_platforms" value="${value}" ${nextSelected.has(value) ? 'checked' : ''}>
+          <input type="checkbox" name="${name}" value="${value}" ${nextSelected.has(value) ? 'checked' : ''}>
           <span>
             <span class="console-choice-label">${label}</span>
             ${detail ? `<span class="console-choice-detail">${detail}</span>` : ''}
@@ -1104,6 +1196,53 @@
     if (!Number.isFinite(numeric)) return '';
     const score = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
     return `${score}/100`;
+  };
+
+  const initPropertyWizard = (form, meta) => {
+    const steps = Array.isArray(meta.wizard_steps) ? meta.wizard_steps.filter((step) => step && step.key) : [];
+    if (!steps.length) return;
+    const fieldNodes = [...form.querySelectorAll('[data-property-field-step]')];
+    const panelNodes = [...form.querySelectorAll('[data-property-step-panel]')];
+    const triggerNodes = [...form.querySelectorAll('[data-property-step-trigger]')];
+    const summaryNode = form.querySelector('[data-property-step-summary]');
+    const progressNode = form.querySelector('[data-property-step-progress]');
+    const backNode = form.querySelector('[data-property-step-back]');
+    const nextNode = form.querySelector('[data-property-step-next]');
+    const actionsNode = form.querySelector('[data-property-actions]');
+    let currentIndex = 0;
+
+    const applyStep = (nextIndex) => {
+      currentIndex = Math.max(0, Math.min(steps.length - 1, nextIndex));
+      const step = steps[currentIndex] || {};
+      const stepKey = String(step.key || '').trim();
+      for (const node of fieldNodes) {
+        node.hidden = String(node.getAttribute('data-property-field-step') || '').trim() !== stepKey;
+      }
+      for (const node of panelNodes) {
+        node.hidden = String(node.getAttribute('data-property-step-panel') || '').trim() !== stepKey;
+      }
+      for (const node of triggerNodes) {
+        const active = String(node.getAttribute('data-property-step-trigger') || '').trim() === stepKey;
+        node.classList.toggle('active', active);
+      }
+      if (summaryNode) summaryNode.textContent = String(step.detail || '').trim();
+      if (progressNode) progressNode.textContent = `Step ${currentIndex + 1} of ${steps.length}`;
+      if (backNode) backNode.hidden = currentIndex === 0;
+      if (nextNode) {
+        nextNode.hidden = currentIndex >= steps.length - 1;
+        nextNode.textContent = currentIndex === steps.length - 2 ? 'Review launch' : 'Next';
+      }
+      if (actionsNode) {
+        actionsNode.hidden = currentIndex !== steps.length - 1;
+      }
+    };
+
+    triggerNodes.forEach((node, index) => {
+      node.addEventListener('click', () => applyStep(index));
+    });
+    backNode?.addEventListener('click', () => applyStep(currentIndex - 1));
+    nextNode?.addEventListener('click', () => applyStep(currentIndex + 1));
+    applyStep(0);
   };
 
   const learningSummaryRows = (summary) => {
@@ -1198,6 +1337,7 @@
       property_preferences: {
         selected_platforms: selectedPlatforms,
         country_code: fieldValue(form, 'country_code') || 'AT',
+        region_code: fieldValue(form, 'region_code') || '',
         language_code: fieldValue(form, 'language_code') || 'en',
         listing_mode: fieldValue(form, 'listing_mode') || 'rent',
         property_type: fieldValue(form, 'property_type') || 'any',
@@ -1326,7 +1466,28 @@
     } catch (_error) {
       meta = {};
     }
+    initPropertyWizard(form, meta);
     const countryField = form.querySelector('select[name="country_code"]');
+    const regionField = form.querySelector('select[name="region_code"]');
+    const refreshRegionAndLocationChoices = () => {
+      const regionCatalog = meta.region_catalog_by_country || {};
+      const locationCatalog = meta.location_catalog_by_country_region || {};
+      const selectedCountry = String(countryField?.value || '').trim();
+      const selectedRegion = String(regionField?.value || '').trim();
+      const regionOptions = Array.isArray(regionCatalog[selectedCountry]) ? regionCatalog[selectedCountry] : [];
+      if (regionField) {
+        const current = selectedRegion;
+        regionField.innerHTML = regionOptions.map((option) => {
+          const value = String(option.value || '').trim();
+          const label = String(option.label || value || 'Region').trim();
+          const selected = value === current || (!current && value === String(regionOptions[0]?.value || '').trim());
+          return `<option value="${value}" ${selected ? 'selected' : ''}>${label}</option>`;
+        }).join('');
+      }
+      const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
+      const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
+      renderCheckboxOptions(form, 'location_query', locationOptions, []);
+    };
     if (countryField) {
       countryField.addEventListener('change', () => {
         const catalog = meta.platform_catalog_by_country || {};
@@ -1336,11 +1497,15 @@
         const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
         const languageField = form.querySelector('select[name="language_code"]');
         const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
-        renderPlatformOptions(form, options, defaultSelection);
+        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
         if (languageField && nextLanguage) {
           languageField.value = nextLanguage;
         }
+        refreshRegionAndLocationChoices();
       });
+    }
+    if (regionField) {
+      regionField.addEventListener('change', refreshRegionAndLocationChoices);
     }
     renderRun(form, meta.initial_run || {});
 

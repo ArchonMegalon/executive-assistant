@@ -15,10 +15,11 @@ from app.api.routes.landing import (
     _render_console_object_detail,
     _render_public_template,
 )
-from app.api.routes.landing_content import APP_NAV_GROUPS
+from app.api.routes.landing_content import app_nav_groups_for_brand
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service
+from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
 
@@ -34,9 +35,10 @@ def _search_item_key(item: dict[str, object]) -> tuple[str, str, str]:
 def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/settings/google") -> dict[str, str]:
     connected = bool(sync.get("connected"))
     token_status = str(sync.get("token_status") or "missing").strip()
+    workspace_sync_supported = bool(sync.get("workspace_sync_supported"))
     if not connected:
         return {
-            "detail": "Google sync cannot start until the workspace is connected.",
+            "detail": "Google account linking is not set up yet.",
             "label": "Connect Google",
             "href": f"/app/actions/google/connect?return_to={return_to}",
             "method": "get",
@@ -46,6 +48,13 @@ def _google_connect_action(sync: dict[str, object], *, return_to: str = "/app/se
             "detail": str(sync.get("reauth_required_reason") or "Google access needs attention before the next loop."),
             "label": "Reconnect Google",
             "href": f"/app/actions/google/connect?return_to={return_to}",
+            "method": "get",
+        }
+    if not workspace_sync_supported:
+        return {
+            "detail": "Google is linked for sign-in and verified return access only.",
+            "label": "Manage Google",
+            "href": return_to,
             "method": "get",
         }
     return {
@@ -71,7 +80,7 @@ def _google_connect_email_recipient(*, principal_id: str, access_email: str = ""
     return ""
 
 
-def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/settings/google", scope_bundle: str = "full_workspace") -> str:
+def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/settings/google", scope_bundle: str = "identity") -> str:
     return "/app/actions/google/email-connect-link?" + urllib.parse.urlencode(
         {
             "recipient_email": str(recipient_email or "").strip().lower(),
@@ -82,6 +91,14 @@ def _google_connect_email_href(*, recipient_email: str, return_to: str = "/app/s
 
 
 def _public_app_base_url(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
+    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
+    effective_host = forwarded or request_host
+    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
+        if forwarded:
+            return f"{forwarded_proto}://{forwarded}"
+        return str(request.base_url).rstrip("/")
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -90,8 +107,6 @@ def _public_app_base_url(request: Request) -> str:
         parsed = urllib.parse.urlparse(redirect_uri)
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"
-    forwarded = str(request.headers.get("x-forwarded-host") or "").strip()
-    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     if forwarded:
         return f"{forwarded_proto}://{forwarded}"
     return str(request.base_url).rstrip("/")
@@ -193,7 +208,7 @@ def _google_account_row(
     encoded_return_to = urllib.parse.quote(return_to, safe="/?:=&")
     reconnect_href = (
         f"/app/actions/google/connect?return_to={encoded_return_to}"
-        f"&scope_bundle={urllib.parse.quote(str(account.consent_stage or 'core'), safe='')}"
+        f"&scope_bundle={urllib.parse.quote(str(account.consent_stage or 'identity'), safe='')}"
     )
     verify_href = f"/app/actions/google/accounts/{encoded_binding_id}/verify-send"
     verify_label = "Verify again" if str(dict(verification or {}).get("state") or "").strip().lower() == "completed" else "Verify send"
@@ -250,6 +265,7 @@ def settings_plan_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    brand = request_brand(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -268,17 +284,18 @@ def settings_plan_detail(
     selected_channels = [str(value) for value in (diagnostics.get("selected_channels") or []) if str(value).strip()]
     feature_flags = [str(value).replace("_", " ") for value in (entitlements.get("feature_flags") or []) if str(value).strip()]
     warnings = [str(value) for value in (commercial.get("warnings") or []) if str(value).strip()]
+    is_property_brand = brand["key"] == "propertyquarry"
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace plan",
+        workspace_label=str(workspace.get("name") or ("PropertyQuarry Workspace" if is_property_brand else "Executive Assistant Workspace")),
+        page_title="PropertyQuarry plan" if is_property_brand else "Workspace plan",
         current_nav="settings",
-        console_title="Workspace plan",
-        console_summary="Plan unit, billing posture, messaging scope, and seat boundaries for this office.",
-        object_kind="Commercial boundary",
+        console_title="Workspace plan" if is_property_brand else "Rules",
+        console_summary="Plan unit, billing posture, messaging scope, and seat boundaries for this office." if is_property_brand else "Rules, billing posture, and entitlement boundaries for this workspace.",
+        object_kind="Commercial boundary" if is_property_brand else "Workspace rules",
         object_title=str(plan.get("display_name") or "Pilot"),
-        object_summary=str(billing.get("contract_note") or "Commercial posture is not yet set."),
+        object_summary=str(billing.get("contract_note") or ("Commercial posture is not yet set." if is_property_brand else "Workspace contract posture is not yet set.")),
         object_meta=[
             {"label": "Plan unit", "value": str(plan.get("unit_of_sale") or "workspace")},
             {"label": "Billing state", "value": str(billing.get("billing_state") or "unknown")},
@@ -286,8 +303,8 @@ def settings_plan_detail(
             {"label": "Support tier", "value": str(billing.get("support_tier") or "standard")},
             {"label": "Seats remaining", "value": str(operators.get("seats_remaining") or 0)},
         ],
-        object_sidebar_title="Why this boundary matters",
-        object_sidebar_copy="Commercial scope explains what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
+        object_sidebar_title="Why this boundary matters" if is_property_brand else "Why these rules matter",
+        object_sidebar_copy="Commercial scope explains what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong." if is_property_brand else "Workspace rules explain what the office may connect, how many operators may run the queue, and what support posture applies when something goes wrong.",
         object_sidebar_rows=[
             _object_detail_row("Channels", ", ".join(selected_channels) or "Google-first path", "Channels"),
             _object_detail_row("Messaging scope", "Included" if entitlements.get("messaging_channels_enabled") else "Upgrade required for messaging channels", "Entitlement"),
@@ -361,8 +378,8 @@ def settings_usage_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace usage",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry usage",
         current_nav="settings",
         console_title="Usage and activation",
         console_summary="Queue pressure, memo activity, operator load, and time-to-value stay visible while shaping rules and support posture.",
@@ -489,8 +506,8 @@ def settings_support_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace support",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry support",
         current_nav="settings",
         console_title="Support and recovery",
         console_summary="Support posture explains what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
@@ -807,8 +824,8 @@ def settings_outcomes_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace outcomes",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry outcomes",
         current_nav="settings",
         console_title="Workspace outcomes",
         console_summary="First value, review activity, commitment closure, and correction signals explain whether this office is actually getting value.",
@@ -1027,22 +1044,14 @@ def settings_google_detail(
     ).strip()
     connect_another_href = (
         "/app/actions/google/connect?"
-        + urllib.parse.urlencode({"return_to": "/app/settings/google", "scope_bundle": "core"})
+        + urllib.parse.urlencode({"return_to": "/app/settings/google", "scope_bundle": "identity"})
     )
     email_connect_recipient = _google_connect_email_recipient(
         principal_id=context.principal_id,
         access_email=str(context.access_email or ""),
         primary_email=primary_email,
     )
-    email_connect_href = (
-        _google_connect_email_href(
-            recipient_email=email_connect_recipient,
-            return_to="/app/settings/google",
-            scope_bundle="full_workspace",
-        )
-        if email_connect_recipient
-        else ""
-    )
+    email_connect_href = ""
     covered_sync_candidates = int(sync.get("covered_signal_candidates") or 0)
     action = _google_connect_action(sync, return_to="/app/settings/google")
     resolved_verify_state = verify_status or str(sync.get("last_send_verification_state") or "").strip()
@@ -1097,12 +1106,10 @@ def settings_google_detail(
     if email_link_error:
         email_link_detail = email_link_error
     elif email_link_status == "sent" and email_link_email:
-        bundle_label = str(google_oauth_service.google_scope_bundle_details(email_link_bundle or "full_workspace").get("label") or "Google Full Workspace")
+        bundle_label = str(google_oauth_service.google_scope_bundle_details(email_link_bundle or "identity").get("label") or "Google sign-in")
         email_link_detail = f"Sent {bundle_label} link to {email_link_email}"
-    elif email_connect_recipient:
-        email_link_detail = f"Ready to send a full-access Google link to {email_connect_recipient}"
     else:
-        email_link_detail = "No workspace email is available for this action yet."
+        email_link_detail = "Google email links are disabled on this product surface. Use direct connect from this device."
     sync_summary = (
         f"{connected_account_total} connected inbox{'es' if connected_account_total != 1 else ''} · "
         f"{str(sync.get('freshness_state') or 'watch').replace('_', ' ')} freshness · "
@@ -1127,8 +1134,8 @@ def settings_google_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Google sync",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry Google connection",
         current_nav="settings",
         console_title="Google sync",
         console_summary="Google signal sync is visible in product language: primary sender, additional inboxes, freshness, staged work, and whether the office needs reauth before the next loop.",
@@ -1153,10 +1160,6 @@ def settings_google_detail(
                 action_href=connect_another_href,
                 action_label="Add inbox",
                 action_method="get",
-                secondary_action_href=email_connect_href,
-                secondary_action_label="Email full-access link" if email_connect_href else "",
-                secondary_action_method="post" if email_connect_href else "",
-                secondary_return_to="/app/settings/google" if email_connect_href else "",
             ),
             _object_detail_row("Primary inbox", primary_email or "Not connected", "Google"),
             _object_detail_row("Last sync", str(sync.get("last_completed_at") or "Not yet completed"), "Sync"),
@@ -1173,10 +1176,6 @@ def settings_google_detail(
                 action_label=action["label"],
                 action_method=action["method"],
                 return_to="/app/settings/google",
-                secondary_action_href=email_connect_href,
-                secondary_action_label="Email full-access link" if email_connect_href else "",
-                secondary_action_method="post" if email_connect_href else "",
-                secondary_return_to="/app/settings/google" if email_connect_href else "",
             ),
             _object_detail_row("Last manual sync", last_manual_sync_detail, "Action"),
             _object_detail_row("Last account change", account_change_detail, "Accounts"),
@@ -1195,7 +1194,7 @@ def settings_google_detail(
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
                     _object_detail_row("Last send verification", verify_detail, "Verify"),
-                    _object_detail_row("Last emailed connect link", email_link_detail, "Email"),
+                    _object_detail_row("Google link posture", email_link_detail, "Access"),
                     _object_detail_row(
                         action["label"],
                         action["detail"],
@@ -1205,10 +1204,6 @@ def settings_google_detail(
                         action_label=action["label"],
                         action_method=action["method"],
                         return_to="/app/settings/google",
-                        secondary_action_href=email_connect_href,
-                        secondary_action_label="Email full-access link" if email_connect_href else "",
-                        secondary_action_method="post" if email_connect_href else "",
-                        secondary_return_to="/app/settings/google" if email_connect_href else "",
                     ),
                 ],
             },
@@ -1233,10 +1228,6 @@ def settings_google_detail(
                         action_href=connect_another_href,
                         action_label="Connect inbox",
                         action_method="get",
-                        secondary_action_href=email_connect_href,
-                        secondary_action_label="Email full-access link" if email_connect_href else "",
-                        secondary_action_method="post" if email_connect_href else "",
-                        secondary_return_to="/app/settings/google" if email_connect_href else "",
                     )
                 ],
             },
@@ -1292,8 +1283,8 @@ def settings_trust_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace trust",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry trust",
         current_nav="settings",
         console_title="Workspace trust",
         console_summary="Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened.",
@@ -1431,8 +1422,8 @@ def settings_access_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace access",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry access",
         current_nav="settings",
         console_title="Workspace access",
         console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
@@ -1452,7 +1443,7 @@ def settings_access_detail(
             _object_detail_row("Access opens", str(total_opens), "Telemetry"),
             _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
             _object_detail_row("Default operator target", "/admin/office", "Operators"),
-            _object_detail_row("Default principal target", "/app/today", "Principal"),
+            _object_detail_row("Default principal target", "/app/properties", "Principal"),
             _object_detail_row("Latest access action", access_detail, "Access"),
             _object_detail_row(
                 "Latest revocation",
@@ -1467,7 +1458,7 @@ def settings_access_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/today')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/properties')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
                         str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
                         action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
                         action_label="Revoke",
@@ -1555,8 +1546,8 @@ def settings_invitations_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title="Executive Assistant Workspace invitations",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title="PropertyQuarry invitations",
         current_nav="settings",
         console_title="Workspace invitations",
         console_summary="Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop.",
@@ -1848,6 +1839,10 @@ def app_google_signal_sync(
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
     separator = "&" if "?" in return_to else "?"
+    diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    sync = dict(dict(diagnostics.get("analytics") or {}).get("sync") or {})
+    if not bool(sync.get("google_workspace_sync_supported")):
+        return RedirectResponse(f"{return_to}{separator}sync_error=google_identity_only", status_code=303)
     try:
         product.sync_google_workspace_signals(
             principal_id=context.principal_id,
@@ -1868,7 +1863,7 @@ def app_google_connect(
     context: RequestContext = Depends(get_request_context),
 ) -> RedirectResponse:
     return_to = _normalize_browser_return_to(request.query_params.get("return_to"), default="/app/settings/google")
-    scope_bundle = str(request.query_params.get("scope_bundle") or "core").strip() or "core"
+    scope_bundle = str(request.query_params.get("scope_bundle") or "identity").strip() or "identity"
     separator = "&" if "?" in return_to else "?"
     try:
         started = container.onboarding.start_google(
@@ -1910,7 +1905,7 @@ async def app_google_email_connect_link(
             access_email=str(context.access_email or ""),
         )
     )
-    scope_bundle = _form_value(body, "scope_bundle", str(query.get("scope_bundle") or "full_workspace"))
+    scope_bundle = _form_value(body, "scope_bundle", str(query.get("scope_bundle") or "identity"))
     product = build_product_service(container)
     try:
         result = product.send_google_connect_email_link(
@@ -2168,13 +2163,13 @@ def app_search(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title="Executive Assistant Workspace search",
+            page_title="PropertyQuarry property search",
             current_nav="settings",
             context=context,
             console_title="Workspace search",
             console_summary="Search is the fastest way to jump across the office object model and execute the next obvious action.",
-            nav_groups=APP_NAV_GROUPS,
-            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             cards=cards,
             stats=stats,
             console_form={

@@ -24,6 +24,7 @@ from app.api.dependencies import (
 from app.api.routes.landing_content import (
     ADMIN_NAV_GROUPS,
     APP_NAV_GROUPS,
+    app_nav_groups_for_brand,
     DOC_LINKS,
     FEATURE_CARDS,
     HOW_STEPS,
@@ -1024,6 +1025,7 @@ def workspace_access_session(
     container: AppContainer = Depends(get_container),
 ):
     product = build_product_service(container)
+    brand = request_brand(request)
     actor = str(request.headers.get("X-EA-Operator-ID") or request.headers.get("X-EA-Principal-ID") or "").strip()
     session = product.open_workspace_access_session(token=token, actor=actor)
     if session is None:
@@ -1048,7 +1050,7 @@ def workspace_access_session(
         )
     target = _normalize_browser_return_to(
         request.query_params.get("return_to") or str(session.get("default_target") or "").strip(),
-        default="/app/properties",
+        default=str(brand.get("app_home") or "/app/today"),
     )
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(
@@ -1138,7 +1140,7 @@ def workspace_invite_accept(
         ],
         primary_action_href="/sign-in",
         primary_action_label="Continue to sign in",
-        secondary_action_href="/app/properties",
+        secondary_action_href=str(request_brand(request).get("app_home") or "/app/today"),
         secondary_action_label="Open current session",
     )
 
@@ -1149,8 +1151,8 @@ def get_started() -> RedirectResponse:
 
 
 @router.get("/app", response_class=HTMLResponse)
-def app_root() -> RedirectResponse:
-    return RedirectResponse("/app/properties", status_code=307)
+def app_root(request: Request) -> RedirectResponse:
+    return RedirectResponse(str(request_brand(request).get("app_home") or "/app/today"), status_code=307)
 
 
 def _object_detail_row(
@@ -1274,7 +1276,7 @@ def _render_console_object_detail(
                 context=context,
                 console_title=console_title,
                 console_summary=console_summary,
-                nav_groups=APP_NAV_GROUPS,
+                nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
                 workspace_label=workspace_label,
                 cards=[],
                 stats=[{"label": item["label"], "value": item["value"]} for item in object_meta],
@@ -1300,8 +1302,30 @@ def app_shell(
     context: RequestContext = Depends(get_request_context),
     run_id: str = Query(default=""),
 ) -> HTMLResponse:
-    allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in APP_NAV_GROUPS for item in group["items"]}
-    allowed.update({"channel-loop", "briefing", "inbox", "follow-ups", "memory", "contacts", "activity", "channels", "automations"})
+    brand = request_brand(request)
+    nav_groups = app_nav_groups_for_brand(brand["key"])
+    allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}
+    allowed.update(
+        {
+            "today",
+            "queue",
+            "commitments",
+            "people",
+            "evidence",
+            "properties",
+            "settings",
+            "search",
+            "channel-loop",
+            "briefing",
+            "inbox",
+            "follow-ups",
+            "memory",
+            "contacts",
+            "activity",
+            "channels",
+            "automations",
+        }
+    )
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
     legacy_redirects = {
@@ -1353,7 +1377,7 @@ def app_shell(
                 context=context,
                 console_title=str(pack.get("headline") or "Inline loop"),
                 console_summary=str(pack.get("summary") or "Clear the compact office loop."),
-                nav_groups=APP_NAV_GROUPS,
+                nav_groups=nav_groups,
                 workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
                 cards=[
                     {
@@ -1448,7 +1472,7 @@ def app_shell(
             context=context,
             console_title=str(payload["title"]),
             console_summary=str(payload["summary"]),
-            nav_groups=APP_NAV_GROUPS,
+            nav_groups=nav_groups,
             workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
@@ -1537,6 +1561,8 @@ def commitment_candidate_review(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    brand = request_brand(request)
+    nav_groups = app_nav_groups_for_brand(brand["key"])
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1555,13 +1581,13 @@ def commitment_candidate_review(
         **{
             **_console_shell_context(
                 request=request,
-                page_title=f"PropertyQuarry Review {candidate.title}",
+                page_title=f"{brand['name']} Review {candidate.title}",
                 current_nav="queue",
                 context=context,
                 console_title="Review extracted commitment",
                 console_summary="Edit the wording, due date, or ownership before this enters the commitment ledger.",
-                nav_groups=APP_NAV_GROUPS,
-                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+                nav_groups=nav_groups,
+                workspace_label=str(workspace.get("name") or brand["workspace_label"]),
                 cards=[],
                 stats=[
                     {"label": "Confidence", "value": f"{int(candidate.confidence * 100)}%"},

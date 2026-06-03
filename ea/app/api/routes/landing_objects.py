@@ -14,9 +14,10 @@ from app.api.routes.landing import (
     _render_public_template,
     app_shell,
 )
-from app.api.routes.landing_content import APP_NAV_GROUPS
+from app.api.routes.landing_content import app_nav_groups_for_brand
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
 
@@ -81,13 +82,13 @@ def person_detail(
         **{
             **_console_shell_context(
                 request=request,
-                page_title=f"Executive Assistant {detail.profile.display_name}",
+                page_title=f"PropertyQuarry {detail.profile.display_name}",
                 current_nav="people",
                 context=context,
                 console_title=detail.profile.display_name,
                 console_summary="Relationship context, open loops, current drafts, and evidence tied to one person.",
-                nav_groups=APP_NAV_GROUPS,
-                workspace_label=str(workspace.get("name") or "Executive Workspace"),
+                nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
+                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
                 cards=[],
                 stats=[
                     {"label": "Open loops", "value": str(detail.profile.open_loops_count)},
@@ -125,8 +126,8 @@ def commitment_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {commitment.statement}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {commitment.statement}",
         current_nav="queue",
         console_title=commitment.statement,
         console_summary="Commitment source, owner, due date, risk, and recent ledger activity.",
@@ -238,8 +239,8 @@ def decision_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {decision.title}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {decision.title}",
         current_nav="queue",
         console_title=decision.title,
         console_summary="Decision context, ownership, deadline pressure, and supporting evidence.",
@@ -371,8 +372,8 @@ def deadline_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {deadline.title}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {deadline.title}",
         current_nav="queue",
         console_title=deadline.title,
         console_summary="Deadline window timing, status, and recent queue movement.",
@@ -582,8 +583,8 @@ def handoff_detail(
         return _render_console_object_detail(
             request=request,
             context=context,
-            workspace_label=str(workspace.get("name") or "Executive Workspace"),
-            page_title=f"Executive Assistant {handoff.summary}",
+            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            page_title=f"PropertyQuarry {handoff.summary}",
             current_nav="settings",
             console_title=input_json.get("title") or handoff.summary,
             console_summary="Property research, fit reasoning, and review actions for this alert.",
@@ -644,8 +645,8 @@ def handoff_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {handoff.summary}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {handoff.summary}",
         current_nav="settings",
         console_title=handoff.summary,
         console_summary="Assignment state, escalation pressure, evidence, and recent handoff routing history.",
@@ -837,8 +838,8 @@ def thread_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {thread.title}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {thread.title}",
         current_nav="queue",
         console_title=thread.title,
         console_summary="Conversation state, related drafts, linked commitments, and decision context.",
@@ -999,8 +1000,8 @@ def evidence_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {evidence.label}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {evidence.label}",
         current_nav="people",
         console_title=evidence.label,
         console_summary="Evidence provenance, source type, and the objects that currently depend on it.",
@@ -1062,8 +1063,8 @@ def rule_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "Executive Workspace"),
-        page_title=f"Executive Assistant {rule.label}",
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {rule.label}",
         current_nav="settings",
         console_title=rule.label,
         console_summary="Rule scope, current value, impact, and whether changes need approval.",

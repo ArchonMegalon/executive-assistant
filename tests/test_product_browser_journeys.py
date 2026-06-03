@@ -5,7 +5,13 @@ import urllib.parse
 from app.product.models import HandoffNote
 from app.product.service import ProductService
 from app.services.google_oauth import read_google_oauth_state
-from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
+from tests.product_test_helpers import (
+    build_operator_product_client,
+    build_product_client,
+    build_property_client,
+    seed_product_state,
+    start_workspace,
+)
 
 
 def test_workspace_pages_render_seeded_product_objects() -> None:
@@ -71,7 +77,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Open commitments" in person_detail.text
     assert "Send board materials" in person_detail.text
 
-    onboarding = client.get("/register")
+    onboarding = client.get("/register", headers={"host": "propertyquarry.com"})
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google sign-in" in onboarding.text
@@ -90,7 +96,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
 def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeypatch) -> None:
     principal_id = "exec-browser-properties"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
@@ -183,6 +189,10 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     response = client.get("/app/properties", params={"run_id": "run-42"})
     assert response.status_code == 200
     assert "Run a premium market sweep" in response.text
+    assert "Search posture" in response.text
+    assert "Areas and priorities" in response.text
+    assert "Providers and launch" in response.text
+    assert "State or metro area" in response.text
     assert "Target areas" in response.text
     assert "What matters" in response.text
     assert "Country" in response.text
@@ -193,6 +203,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
+    assert "Lower Austria" in response.text
     assert "lift family balcony" in response.text
     assert "Which providers this country unlocks" in response.text
     assert "ImmoScout24 Germany" in response.text
@@ -209,13 +220,20 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
     assert "Plus checkout" in response.text
     assert 'data-console-form-variant="property_search"' in response.text
+    assert 'data-property-step-trigger="search"' in response.text
+    assert 'data-property-step-trigger="areas"' in response.text
+    assert 'data-property-step-trigger="providers"' in response.text
+    assert 'data-property-actions hidden' in response.text
+    assert 'data-property-step-panel="providers" hidden' in response.text
+    assert "JavaScript is unavailable. The guided wizard is disabled" in response.text
+    assert "Step 1 of 3" in response.text
     assert "Saved. Learning loop updated." in response.text
     assert "Reload the page to see the updated learning summary." not in response.text
 
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
     principal_id = "exec-browser-properties-no-origin-fallback"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
@@ -264,7 +282,8 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     assert "ranked shortlist" in register.text.lower()
 
 
-def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:
+def test_propertyquarry_repo_defaults_to_property_brand_without_host_header(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
     client = build_product_client(principal_id="propertyquarry-default-brand")
 
     landing = client.get("/")

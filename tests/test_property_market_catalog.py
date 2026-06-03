@@ -25,6 +25,7 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     payload = normalize_property_search_preferences({"location_query": "Berlin"})
 
     assert payload["country_code"] == "AT"
+    assert payload["region_code"] == ""
     assert payload["language_code"] == "de"
     assert payload["listing_mode"] == "rent"
     assert payload["property_type"] == "any"

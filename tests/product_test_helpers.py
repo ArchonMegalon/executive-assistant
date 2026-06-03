@@ -8,6 +8,28 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 
+def _build_client(
+    *,
+    principal_id: str,
+    api_token: str = "",
+    operator_id: str | None = None,
+    base_url: str = "http://testserver",
+    host: str | None = None,
+) -> TestClient:
+    from app.api.app import create_app
+
+    client = TestClient(create_app(), base_url=base_url)
+    headers = {"X-EA-Principal-ID": principal_id}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+    if operator_id is not None:
+        headers["X-EA-Operator-ID"] = operator_id
+    if host:
+        headers["host"] = host
+    client.headers.update(headers)
+    return client
+
+
 def build_product_client(*, principal_id: str = "exec-product-api") -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
@@ -16,11 +38,22 @@ def build_product_client(*, principal_id: str = "exec-product-api") -> TestClien
     os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
     os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
     os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
-    from app.api.app import create_app
+    return _build_client(principal_id=principal_id)
 
-    client = TestClient(create_app())
-    client.headers.update({"X-EA-Principal-ID": principal_id})
-    return client
+
+def build_property_client(*, principal_id: str = "exec-product-api") -> TestClient:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = ""
+    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
+    os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
+    return _build_client(
+        principal_id=principal_id,
+        base_url="https://propertyquarry.com",
+        host="propertyquarry.com",
+    )
 
 
 def build_operator_product_client(*, principal_id: str = "exec-product-api", operator_id: str = "operator-office") -> TestClient:
@@ -32,17 +65,25 @@ def build_operator_product_client(*, principal_id: str = "exec-product-api", ope
     os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
     os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
     os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
-    from app.api.app import create_app
+    return _build_client(principal_id=principal_id, api_token="test-token", operator_id=operator_id)
 
-    client = TestClient(create_app())
-    client.headers.update(
-        {
-            "Authorization": "Bearer test-token",
-            "X-EA-Principal-ID": principal_id,
-            "X-EA-Operator-ID": operator_id,
-        }
+
+def build_property_operator_client(*, principal_id: str = "exec-product-api", operator_id: str = "operator-office") -> TestClient:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+    os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
+    os.environ.pop("EA_ENABLE_PUBLIC_TOURS", None)
+    return _build_client(
+        principal_id=principal_id,
+        api_token="test-token",
+        operator_id=operator_id,
+        base_url="https://propertyquarry.com",
+        host="propertyquarry.com",
     )
-    return client
 
 
 def seed_product_state(client: TestClient, *, principal_id: str) -> dict[str, str]:

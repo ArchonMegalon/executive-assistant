@@ -33,9 +33,26 @@ def _merge_option_catalog(
     return merged
 
 
-def _property_location_options(country_code: str) -> list[dict[str, str]]:
+def _property_region_options(country_code: str) -> list[dict[str, str]]:
     catalogs: dict[str, list[dict[str, str]]] = {
         "AT": [
+            {"value": "vienna", "label": "Vienna", "detail": "Wien and the close commuter ring"},
+            {"value": "lower_austria", "label": "Lower Austria", "detail": "St. Poelten, Baden, Krems, Wiener Neustadt"},
+            {"value": "upper_austria", "label": "Upper Austria", "detail": "Linz, Wels, Steyr"},
+            {"value": "styria", "label": "Styria", "detail": "Graz and the southern corridor"},
+            {"value": "salzburg", "label": "Salzburg", "detail": "City and surroundings"},
+            {"value": "tyrol", "label": "Tyrol", "detail": "Innsbruck and Tyrolean centres"},
+            {"value": "vorarlberg", "label": "Vorarlberg", "detail": "Bregenz, Dornbirn, Feldkirch"},
+            {"value": "carinthia", "label": "Carinthia", "detail": "Klagenfurt and Villach"},
+            {"value": "burgenland", "label": "Burgenland", "detail": "Eisenstadt and the eastern commuter belt"},
+        ],
+    }
+    return list(catalogs.get(str(country_code or "").strip().upper(), []))
+
+
+def _property_location_options(country_code: str, region_code: str = "") -> list[dict[str, str]]:
+    austria_catalogs: dict[str, list[dict[str, str]]] = {
+        "vienna": [
             {"value": "1010 Vienna", "label": "1010 Vienna", "detail": "Innere Stadt"},
             {"value": "1020 Vienna", "label": "1020 Vienna", "detail": "Leopoldstadt"},
             {"value": "1030 Vienna", "label": "1030 Vienna", "detail": "Landstrasse"},
@@ -56,6 +73,47 @@ def _property_location_options(country_code: str) -> list[dict[str, str]]:
             {"value": "Mödling", "label": "Mödling", "detail": "South of Vienna"},
             {"value": "Purkersdorf", "label": "Purkersdorf", "detail": "West of Vienna"},
         ],
+        "lower_austria": [
+            {"value": "St. Poelten", "label": "St. Poelten", "detail": "Capital of Lower Austria"},
+            {"value": "Krems", "label": "Krems", "detail": "Wachau corridor"},
+            {"value": "Baden", "label": "Baden", "detail": "South of Vienna"},
+            {"value": "Wiener Neustadt", "label": "Wiener Neustadt", "detail": "Southern rail corridor"},
+            {"value": "Tulln", "label": "Tulln", "detail": "North-west of Vienna"},
+        ],
+        "upper_austria": [
+            {"value": "Linz", "label": "Linz", "detail": "Capital of Upper Austria"},
+            {"value": "Wels", "label": "Wels", "detail": "Central Upper Austria"},
+            {"value": "Steyr", "label": "Steyr", "detail": "Industrial corridor"},
+        ],
+        "styria": [
+            {"value": "Graz", "label": "Graz", "detail": "Capital of Styria"},
+            {"value": "Leoben", "label": "Leoben", "detail": "Upper Styrian centre"},
+            {"value": "Kapfenberg", "label": "Kapfenberg", "detail": "North of Graz corridor"},
+        ],
+        "salzburg": [
+            {"value": "Salzburg", "label": "Salzburg", "detail": "City-wide"},
+            {"value": "Hallein", "label": "Hallein", "detail": "South of Salzburg"},
+        ],
+        "tyrol": [
+            {"value": "Innsbruck", "label": "Innsbruck", "detail": "City-wide"},
+            {"value": "Hall in Tirol", "label": "Hall in Tirol", "detail": "East of Innsbruck"},
+        ],
+        "vorarlberg": [
+            {"value": "Dornbirn", "label": "Dornbirn", "detail": "Rheintal centre"},
+            {"value": "Bregenz", "label": "Bregenz", "detail": "Lake Constance"},
+            {"value": "Feldkirch", "label": "Feldkirch", "detail": "Southern Vorarlberg"},
+        ],
+        "carinthia": [
+            {"value": "Klagenfurt", "label": "Klagenfurt", "detail": "Capital of Carinthia"},
+            {"value": "Villach", "label": "Villach", "detail": "West Carinthia"},
+        ],
+        "burgenland": [
+            {"value": "Eisenstadt", "label": "Eisenstadt", "detail": "Capital of Burgenland"},
+            {"value": "Neusiedl am See", "label": "Neusiedl am See", "detail": "North Burgenland"},
+        ],
+    }
+    catalogs: dict[str, list[dict[str, str]]] = {
+        "AT": list(austria_catalogs.get(str(region_code or "").strip().lower() or "vienna", austria_catalogs["vienna"])),
         "DE": [
             {"value": "Berlin Mitte", "label": "Berlin Mitte", "detail": "Central Berlin"},
             {"value": "Berlin Prenzlauer Berg", "label": "Berlin Prenzlauer Berg", "detail": "Family-friendly"},
@@ -358,6 +416,7 @@ def app_section_payload(
     property_provider_total_for_country = int(property_state.get("provider_total_for_country") or 0)
     selected_location_values = _csv_values(property_preferences.get("location_query"))
     selected_keyword_values = _csv_values(property_preferences.get("keywords"))
+    selected_region_code = str(property_preferences.get("region_code") or "").strip().lower()
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
@@ -372,7 +431,16 @@ def app_section_payload(
         for option in list(property_state.get("platform_options") or [])
         if isinstance(option, dict)
     ]
-    location_options = _merge_option_catalog(_property_location_options(str(property_preferences.get("country_code") or "AT")), selected_location_values)
+    region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
+    if not selected_region_code and region_options:
+        selected_region_code = str(region_options[0].get("value") or "").strip().lower()
+    location_options = _merge_option_catalog(
+        _property_location_options(
+            str(property_preferences.get("country_code") or "AT"),
+            selected_region_code,
+        ),
+        selected_location_values,
+    )
     keyword_options = _merge_option_catalog(_property_keyword_options(), selected_keyword_values)
     property_selected_platform_labels = [
         str(option.get("label") or option.get("value") or "").strip()
@@ -580,6 +648,7 @@ def app_section_payload(
                 "label": "Country",
                 "value": str(property_preferences.get("country_code") or "AT"),
                 "options": country_options,
+                "step": "search",
             },
             {
                 "type": "select",
@@ -587,6 +656,7 @@ def app_section_payload(
                 "label": "Research language",
                 "value": str(property_preferences.get("language_code") or "de"),
                 "options": language_options,
+                "step": "search",
             },
             {
                 "type": "select",
@@ -594,6 +664,7 @@ def app_section_payload(
                 "label": "Search mode",
                 "value": str(property_preferences.get("listing_mode") or "rent"),
                 "options": listing_mode_options,
+                "step": "search",
             },
             {
                 "type": "select",
@@ -601,6 +672,15 @@ def app_section_payload(
                 "label": "Property type",
                 "value": str(property_preferences.get("property_type") or "any"),
                 "options": property_type_options,
+                "step": "search",
+            },
+            {
+                "type": "select",
+                "name": "region_code",
+                "label": "State or metro area",
+                "value": selected_region_code,
+                "options": region_options,
+                "step": "areas",
             },
             {
                 "type": "checkbox_group",
@@ -608,6 +688,7 @@ def app_section_payload(
                 "label": "Target areas",
                 "options": location_options,
                 "values": selected_location_values,
+                "step": "areas",
             },
             {
                 "type": "checkbox_group",
@@ -615,6 +696,7 @@ def app_section_payload(
                 "label": "Platforms",
                 "options": platform_options,
                 "values": list(selected_platforms),
+                "step": "providers",
             },
             {
                 "type": "checkbox_group",
@@ -622,6 +704,7 @@ def app_section_payload(
                 "label": "What matters",
                 "options": keyword_options,
                 "values": selected_keyword_values,
+                "step": "areas",
             },
             {
                 "type": "text",
@@ -629,6 +712,7 @@ def app_section_payload(
                 "label": "Preference profile",
                 "value": str(property_preferences.get("preference_person_id") or "self"),
                 "placeholder": "self",
+                "step": "areas",
             },
             {
                 "type": "number",
@@ -636,6 +720,7 @@ def app_section_payload(
                 "label": "Max budget",
                 "value": str(property_preferences.get("max_price_eur") or ""),
                 "min": "1",
+                "step": "search",
             },
             {
                 "type": "number",
@@ -643,6 +728,7 @@ def app_section_payload(
                 "label": "Min rooms",
                 "value": str(property_preferences.get("min_rooms") or ""),
                 "min": "1",
+                "step": "search",
             },
             {
                 "type": "number",
@@ -650,6 +736,7 @@ def app_section_payload(
                 "label": "Min area m2",
                 "value": str(property_preferences.get("min_area_m2") or ""),
                 "min": "1",
+                "step": "search",
             },
             {
                 "type": "number",
@@ -658,6 +745,7 @@ def app_section_payload(
                 "value": str(property_results_value),
                 "min": "1",
                 "max": str(property_plan_max_results),
+                "step": "providers",
             },
             {
                 "type": "checkbox",
@@ -665,6 +753,7 @@ def app_section_payload(
                 "label": "Force fresh crawl",
                 "value": "true",
                 "checked": bool(property_preferences.get("force_refresh")),
+                "step": "providers",
             },
         ],
         "meta": {
@@ -674,6 +763,19 @@ def app_section_payload(
             "initial_run": property_run,
             "platform_catalog_by_country": dict(property_state.get("platform_catalog_by_country") or {}),
             "default_language_by_country": dict(property_state.get("default_language_by_country") or {}),
+            "region_catalog_by_country": {
+                option.get("value"): _property_region_options(str(option.get("value") or ""))
+                for option in country_options
+                if str(option.get("value") or "").strip()
+            },
+            "location_catalog_by_country_region": {
+                str(option.get("value") or ""): {
+                    str(region.get("value") or ""): _property_location_options(str(option.get("value") or ""), str(region.get("value") or ""))
+                    for region in _property_region_options(str(option.get("value") or ""))
+                }
+                for option in country_options
+                if str(option.get("value") or "").strip()
+            },
             "commercial": dict(property_state.get("commercial") or {}),
             "billing_checkout_enabled": bool(property_state.get("billing_checkout_enabled")),
             "billing_checkout_enabled_plans": list(property_state.get("billing_checkout_enabled_plans") or []),
@@ -682,6 +784,23 @@ def app_section_payload(
             "billing_order_endpoint": str(property_state.get("billing_order_endpoint") or ""),
             "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
             "shortlist_candidates": property_shortlist_cards,
+            "wizard_steps": [
+                {
+                    "key": "search",
+                    "label": "Search posture",
+                    "detail": "Choose the market, the buying posture, and the guardrails before the crawl fans out.",
+                },
+                {
+                    "key": "areas",
+                    "label": "Areas and priorities",
+                    "detail": "Select the districts and the property traits that should actually drive the ranking.",
+                },
+                {
+                    "key": "providers",
+                    "label": "Providers and launch",
+                    "detail": "Pick the portals, confirm the run cap, then save or launch the visible crawl.",
+                },
+            ],
         },
     }
 

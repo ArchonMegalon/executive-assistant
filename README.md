@@ -70,6 +70,13 @@ Worker topology is explicit in [docker-compose.yml](/docker/EA/docker-compose.ym
 - `ea-scheduler`: background queue drainer reserved for scheduled or dedicated lease ownership
 - `ea-db`: Postgres runtime state
 
+Standalone-compatible service aliases for shared operator scripts:
+
+- `PROPERTYQUARRY_API_SERVICE`
+- `PROPERTYQUARRY_WORKER_SERVICE`
+- `PROPERTYQUARRY_SCHEDULER_SERVICE`
+- `PROPERTYQUARRY_DB_SERVICE`
+
 Then open `http://localhost:8090/health`.
 
 ## Runtime Docs

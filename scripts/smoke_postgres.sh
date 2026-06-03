@@ -4,6 +4,10 @@ set -euo pipefail
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 legacy_fixture=0
 ORIGINAL_EA_API_TOKEN="${EA_API_TOKEN:-}"
+API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
+WORKER_SERVICE="${PROPERTYQUARRY_WORKER_SERVICE:-${EA_WORKER_SERVICE:-ea-worker}}"
+SCHEDULER_SERVICE="${PROPERTYQUARRY_SCHEDULER_SERVICE:-${EA_SCHEDULER_SERVICE:-ea-scheduler}}"
+DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
 
 for arg in "$@"; do
   case "${arg}" in
@@ -16,10 +20,10 @@ Usage:
   bash scripts/smoke_postgres.sh [--legacy-fixture]
 
 Runs a Postgres-backed smoke path against an isolated smoke database:
-  1) starts ea-db with docker compose
+  1) starts the compose Postgres service with docker compose
   2) resets isolated smoke DB
   3) applies kernel migrations
-  4) starts ea-api pinned to isolated DB
+  4) starts the compose API service pinned to isolated DB
   5) verifies /health/ready reason is postgres_ready
   6) runs scripts/smoke_api.sh
   7) exports OpenAPI and verifies paused session-step dependency examples
@@ -33,7 +37,7 @@ Options:
 
 Environment:
   EA_HOST_PORT              Optional host port override (falls back to .env or 8090)
-  EA_DB_CONTAINER           Postgres container name (default: ea-db)
+  EA_DB_CONTAINER           Postgres container name (default: compose DB service container)
   POSTGRES_USER             Postgres user (default: postgres)
   POSTGRES_PASSWORD         Postgres password (falls back to .env)
   EA_SMOKE_DB               Isolated smoke database name (default: ea_smoke_runtime)
@@ -85,7 +89,7 @@ fi
 HOST_PORT="${HOST_PORT:-8090}"
 BASE="http://localhost:${HOST_PORT}"
 
-DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
+DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
 DB_USER="${POSTGRES_USER:-$(grep -E '^POSTGRES_USER=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${POSTGRES_PASSWORD:-$(grep -E '^POSTGRES_PASSWORD=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)}"
@@ -98,15 +102,15 @@ if [[ ! "${SMOKE_DB}" =~ ^[a-zA-Z0-9_]+$ ]]; then
 fi
 
 cleanup() {
-  local restore_services=(ea-api ea-worker)
+  local restore_services=("${API_SERVICE}" "${WORKER_SERVICE}")
   if [[ "${scheduler_was_running}" == "1" ]]; then
-    restore_services+=(ea-scheduler)
+    restore_services+=("${SCHEDULER_SERVICE}")
   fi
   if [[ "${restore_api_env}" == "1" && "${env_had_file}" == "1" && -n "${env_backup}" && -f "${env_backup}" ]]; then
     cp "${env_backup}" "${EA_ROOT}/.env"
     "${DC[@]}" up -d --force-recreate "${restore_services[@]}" >/dev/null 2>&1 || true
   elif [[ "${scheduler_was_running}" == "1" ]]; then
-    "${DC[@]}" up -d ea-scheduler >/dev/null 2>&1 || true
+    "${DC[@]}" up -d "${SCHEDULER_SERVICE}" >/dev/null 2>&1 || true
   fi
   if [[ -n "${env_backup}" && -f "${env_backup}" ]]; then
     rm -f "${env_backup}"
@@ -230,14 +234,24 @@ validate_legacy_upgrade() {
 
 cd "${EA_ROOT}"
 
-if "${DC[@]}" ps --status running --services 2>/dev/null | grep -Fxq "ea-scheduler"; then
+resolve_service_container() {
+  local service="$1"
+  local container=""
+  container="$(docker ps --filter "label=com.docker.compose.service=${service}" --format '{{.Names}}' | head -n1)"
+  if [[ -z "${container}" ]]; then
+    container="$(docker ps --filter "name=${service}" --format '{{.Names}}' | head -n1)"
+  fi
+  printf '%s' "${container}"
+}
+
+if "${DC[@]}" ps --status running --services 2>/dev/null | grep -Fxq "${SCHEDULER_SERVICE}"; then
   scheduler_was_running=1
   echo "== smoke-postgres: stop scheduler for isolated queue ownership =="
-  "${DC[@]}" stop ea-scheduler >/dev/null
+  "${DC[@]}" stop "${SCHEDULER_SERVICE}" >/dev/null
 fi
 
 echo "== smoke-postgres: compose up (db only) =="
-"${DC[@]}" up -d --build ea-db
+"${DC[@]}" up -d --build "${DB_SERVICE}"
 
 wait_for_postgres_sql() {
   local attempts="${1:-90}"
@@ -279,9 +293,9 @@ if [[ "${legacy_fixture}" == "1" ]]; then
 fi
 
 if grep -q '^DATABASE_URL=' "${EA_ROOT}/.env"; then
-  sed -i "s|^DATABASE_URL=.*$|DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@ea-db:5432/${SMOKE_DB}|" "${EA_ROOT}/.env"
+  sed -i "s|^DATABASE_URL=.*$|DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_SERVICE}:5432/${SMOKE_DB}|" "${EA_ROOT}/.env"
 else
-  echo "DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@ea-db:5432/${SMOKE_DB}" >> "${EA_ROOT}/.env"
+  echo "DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_SERVICE}:5432/${SMOKE_DB}" >> "${EA_ROOT}/.env"
 fi
 if grep -q '^EA_STORAGE_BACKEND=' "${EA_ROOT}/.env"; then
   sed -i 's|^EA_STORAGE_BACKEND=.*$|EA_STORAGE_BACKEND=postgres|' "${EA_ROOT}/.env"
@@ -310,7 +324,13 @@ if [[ "${legacy_fixture}" == "1" ]]; then
 fi
 
 echo "== smoke-postgres: compose up (api + worker) =="
-"${DC[@]}" up -d --build --force-recreate ea-api ea-worker
+"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}" "${WORKER_SERVICE}"
+
+API_CONTAINER="$(resolve_service_container "${API_SERVICE}")"
+if [[ -z "${API_CONTAINER}" ]]; then
+  echo "could not resolve container for compose API service ${API_SERVICE}" >&2
+  exit 40
+fi
 
 echo "== smoke-postgres: readiness check =="
 ready_json=""
@@ -346,18 +366,18 @@ if [[ "${ready_reason}" != "postgres_ready" ]]; then
   echo "expected readiness reason postgres_ready, got: ${ready_reason}" >&2
   echo "readiness http code: ${ready_http_code}" >&2
   echo "readiness payload: ${ready_json}" >&2
-  docker logs --tail 120 ea-api >&2 || true
+  docker logs --tail 120 "${API_CONTAINER}" >&2 || true
   exit 31
 fi
 
 echo "== smoke-postgres: api smoke =="
-container_api_token="$(docker exec ea-api /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
-container_loopback_no_auth="$(docker exec ea-api /bin/sh -lc 'printenv EA_ALLOW_LOOPBACK_NO_AUTH' 2>/dev/null || true)"
-container_operator_principal="$(docker exec ea-api /bin/sh -lc 'printenv EA_OPERATOR_PRINCIPAL_IDS | tr "," "\n" | sed -n "1p"' 2>/dev/null || true)"
+container_api_token="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
+container_loopback_no_auth="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_ALLOW_LOOPBACK_NO_AUTH' 2>/dev/null || true)"
+container_operator_principal="$(docker exec "${API_CONTAINER}" /bin/sh -lc 'printenv EA_OPERATOR_PRINCIPAL_IDS | tr "," "\n" | sed -n "1p"' 2>/dev/null || true)"
 container_operator_principal="${container_operator_principal:-${EA_OPERATOR_PRINCIPAL_ID:-exec-1}}"
 if [[ "${container_loopback_no_auth}" != "1" ]]; then
   echo "expected ea-api smoke container to enable EA_ALLOW_LOOPBACK_NO_AUTH" >&2
-  docker logs --tail 120 ea-api >&2 || true
+  docker logs --tail 120 "${API_CONTAINER}" >&2 || true
   exit 39
 fi
 token_candidates=("${EA_API_TOKEN:-}" "${container_api_token}" "${ORIGINAL_EA_API_TOKEN}" "smoke-postgres-token" "CHANGE_ME_STRONG")
@@ -379,21 +399,21 @@ smoke_api_output=""
 smoke_api_status=0
 for attempt in 1 2 3; do
   for _smoke_container_wait in $(seq 1 30); do
-    if docker exec ea-api /bin/sh -lc 'mkdir -p /docker /app/scripts && ln -sfn /app /docker/EA' >/dev/null 2>&1; then
+    if docker exec "${API_CONTAINER}" /bin/sh -lc 'mkdir -p /docker /app/scripts && ln -sfn /app /docker/property && ln -sfn /app /docker/EA' >/dev/null 2>&1; then
       break
     fi
     sleep 1
   done
-  docker cp "${EA_ROOT}/scripts/smoke_api.sh" ea-api:/app/scripts/smoke_api.sh >/dev/null
-  docker cp "${EA_ROOT}/scripts/refresh_ltds_via_api.sh" ea-api:/app/scripts/refresh_ltds_via_api.sh >/dev/null
-  docker cp "${EA_ROOT}/scripts/refresh_ltds_via_api.py" ea-api:/app/scripts/refresh_ltds_via_api.py >/dev/null
+  docker cp "${EA_ROOT}/scripts/smoke_api.sh" "${API_CONTAINER}:/app/scripts/smoke_api.sh" >/dev/null
+  docker cp "${EA_ROOT}/scripts/refresh_ltds_via_api.sh" "${API_CONTAINER}:/app/scripts/refresh_ltds_via_api.sh" >/dev/null
+  docker cp "${EA_ROOT}/scripts/refresh_ltds_via_api.py" "${API_CONTAINER}:/app/scripts/refresh_ltds_via_api.py" >/dev/null
   set +e
   smoke_api_output="$(docker exec \
     -e EA_API_TOKEN="${EA_API_TOKEN:-}" \
     -e EA_HOST_PORT="8090" \
     -e EA_PRINCIPAL_ID="exec-1" \
     -e EA_OPERATOR_PRINCIPAL_ID="${container_operator_principal}" \
-    ea-api bash /app/scripts/smoke_api.sh 2>&1)"
+    "${API_CONTAINER}" bash /app/scripts/smoke_api.sh 2>&1)"
   smoke_api_status=$?
   set -e
   if [[ "${smoke_api_status}" == "0" ]]; then
@@ -440,10 +460,10 @@ set_env_value "EA_RUNTIME_MODE" "prod"
 set_env_value "EA_STORAGE_BACKEND" "auto"
 set_env_value "EA_API_TOKEN" "smoke-prod-token"
 set_env_value "DATABASE_URL" ""
-"${DC[@]}" up -d --build --force-recreate ea-api >/dev/null
+"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}" >/dev/null
 prod_status=""
 for _ in $(seq 1 10); do
-  prod_status="$(docker inspect -f '{{.State.Status}}' ea-api 2>/dev/null | tr -d '[:space:]' || true)"
+  prod_status="$(docker inspect -f '{{.State.Status}}' "${API_CONTAINER}" 2>/dev/null | tr -d '[:space:]' || true)"
   if [[ "${prod_status}" == "exited" || "${prod_status}" == "dead" || "${prod_status}" == "restarting" ]]; then
     break
   fi
@@ -451,7 +471,7 @@ for _ in $(seq 1 10); do
 done
 prod_log_ok=0
 for _ in $(seq 1 20); do
-  if (docker logs ea-api 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"; then
+  if (docker logs "${API_CONTAINER}" 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"; then
     prod_log_ok=1
     break
   fi
@@ -459,14 +479,14 @@ for _ in $(seq 1 20); do
 done
 if [[ "${prod_log_ok}" != "1" ]]; then
   echo "expected prod fail-fast log message from ea-api" >&2
-  docker logs ea-api >&2 || true
+  docker logs "${API_CONTAINER}" >&2 || true
   exit 36
 fi
 if [[ "${prod_status}" != "exited" && "${prod_status}" != "dead" && "${prod_status}" != "restarting" ]]; then
-  prod_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' ea-api 2>/dev/null | tr -d '[:space:]' || true)"
+  prod_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${API_CONTAINER}" 2>/dev/null | tr -d '[:space:]' || true)"
   if [[ "${prod_health}" == "healthy" ]]; then
     echo "expected prod auto-backend boot to fail fast; ea-api status=${prod_status} health=${prod_health}" >&2
-    docker logs --tail 80 ea-api >&2 || true
+    docker logs --tail 80 "${API_CONTAINER}" >&2 || true
     exit 35
   fi
 fi

@@ -5,7 +5,7 @@ import time
 import app.product.service as product_service
 from app.product.service import ProductService
 from app.services.property_billing import property_commercial_snapshot
-from tests.product_test_helpers import build_product_client, seed_product_state, start_workspace
+from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
 
 def _poll_property_search_run_status(client, run_id: str) -> dict[str, object]:
@@ -31,7 +31,7 @@ def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() ->
 
 def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(monkeypatch) -> None:
     principal_id = "exec-property-search-run-explicit"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Search Run Office")
     seed_product_state(client, principal_id=principal_id)
 
@@ -125,7 +125,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
 
 def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal_scope(monkeypatch) -> None:
     principal_id = "exec-property-search-run-scope"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Search Run Scope Office")
 
     response = client.post(
@@ -197,14 +197,14 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
     assert status["status"] == "processed"
     assert status["summary"]["sources_total"] == 1
 
-    intruder = build_product_client(principal_id="intruder-property-search-run-scope")
+    intruder = build_property_client(principal_id="intruder-property-search-run-scope")
     intruder_status = intruder.get(f"/app/api/signals/property/search/run/{run_id}")
     assert intruder_status.status_code == 404
 
 
 def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> None:
     principal_id = "exec-property-search-run-merge"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Search Merge Office")
     seed_product_state(client, principal_id=principal_id)
 
@@ -270,7 +270,7 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
 
 def test_property_search_run_defaults_platforms_from_country_preferences(monkeypatch) -> None:
     principal_id = "exec-property-search-country-defaults"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Search Country Defaults")
 
     stored = client.post(
