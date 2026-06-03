@@ -2526,6 +2526,7 @@ def _memorial_html(
               if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error("Realtime-Verbindung beendet."));
               realtimeTurnPending = null;
               realtimeTurnData = null;
+              activeRealtimeTurnId = "";
             }};
           }} catch (error) {{
             realtimeSocketPromise = null;
@@ -2537,14 +2538,28 @@ def _memorial_html(
       async function sendRealtimeTurn(audioBlob) {{
         if (!audioBlob || !audioBlob.size) throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
         const socket = await ensureRealtimeSocket();
-        realtimeTurnData = {{}};
+        const turnId = "turn_" + String(Date.now()) + "_" + String(++realtimeTurnCounter);
+        activeRealtimeTurnId = turnId;
+        realtimeTurnData = {{ turn_id: turnId, audio_chunks: [] }};
         const resultPromise = new Promise((resolve, reject) => {{
-          realtimeTurnPending = {{ resolve, reject }};
+          realtimeTurnPending = {{ resolve, reject, turnId }};
         }});
-        socket.send(JSON.stringify({{ type: "user_audio_start", content_type: audioBlob.type || "application/octet-stream" }}));
+        socket.send(JSON.stringify({{ type: "user_audio_start", turn_id: turnId, content_type: audioBlob.type || "application/octet-stream" }}));
         socket.send(await audioBlob.arrayBuffer());
-        socket.send(JSON.stringify({{ type: "user_audio_end" }}));
+        socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }}));
         return resultPromise;
+      }}
+      async function cancelRealtimeTurn(reason = "user_interrupt") {{
+        const turnId = String(activeRealtimeTurnId || "");
+        if (!turnId) return;
+        try {{
+          const socket = await ensureRealtimeSocket();
+          socket.send(JSON.stringify({{ type: "cancel_current_turn", turn_id: turnId, reason: String(reason || "user_interrupt") }}));
+        }} catch (error) {{}}
+        if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error("realtime_turn_cancelled"));
+        realtimeTurnPending = null;
+        realtimeTurnData = null;
+        activeRealtimeTurnId = "";
       }}
       async function loadVoiceConfig() {{
         try {{
@@ -2974,7 +2989,7 @@ def _memorial_html(
       function setConversationUi(active) {{
         conversationButton.textContent = active ? "Gespräch beenden" : "Gespräch starten";
         setInteractiveEnabled(!active);
-        if (pushToTalkButton) pushToTalkButton.textContent = active ? "Gespräch aktiv" : "Drücken und sprechen";
+        if (pushToTalkButton) pushToTalkButton.textContent = active ? "Gespräch aktiv" : "Jetzt sprechen";
       }}
       async function transcribeAudioBlob(blob) {{
         const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-transcribe", {{
@@ -3190,6 +3205,10 @@ def _memorial_html(
       }}
       async function runPushToTalkTurn() {{
         if (pushToTalkActive || conversationActive) return;
+        if (speechState === "speaking" || activeRealtimeTurnId) {{
+          stopSpeechPlayback();
+          await cancelRealtimeTurn("user_interrupt");
+        }}
         pushToTalkActive = true;
         if (pushToTalkButton) pushToTalkButton.textContent = "Sprich jetzt...";
         setInteractiveEnabled(false);
@@ -3231,10 +3250,13 @@ def _memorial_html(
             setSpeechStatus("Antwort erhalten.", "idle", "Bereit für die nächste Runde");
           }}
         }} catch (error) {{
-          setSpeechStatus(String(error && error.message ? error.message : "Push-to-talk fehlgeschlagen."), "error", "Push-to-talk");
+          const message = String(error && error.message ? error.message : "Push-to-talk fehlgeschlagen.");
+          if (message !== "realtime_turn_cancelled") {{
+            setSpeechStatus(message, "error", "Push-to-talk");
+          }}
         }} finally {{
           pushToTalkActive = false;
-          if (pushToTalkButton) pushToTalkButton.textContent = "Drücken und sprechen";
+          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
           setInteractiveEnabled(true);
         }}
       }}
