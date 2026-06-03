@@ -119,6 +119,41 @@
     padding: 6px 10px;
     cursor: pointer;
   }
+  .console-form[data-console-form-variant="property_search"] {
+    gap: 16px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-field:has([name="location_query"]),
+  .console-form[data-console-form-variant="property_search"] .console-field:has([name="keywords"]),
+  .console-form[data-console-form-variant="property_search"] .console-field:has(.console-choice-grid) {
+    grid-column: 1 / -1;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-choice-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: 360px;
+    overflow: auto;
+    padding-right: 4px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-choice {
+    min-height: 84px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-callout {
+    background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(255,255,255,0.03));
+    border-color: rgba(214, 166, 63, 0.22);
+  }
+  .console-form[data-console-form-variant="property_search"] .console-action-row {
+    justify-content: space-between;
+    align-items: center;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-action-row .console-action {
+    padding: 10px 14px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-plan-card {
+    gap: 10px;
+  }
   .console-focus {
     display: grid;
     gap: 14px;
@@ -282,6 +317,55 @@
     }
     .console-choice-grid {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 720px) {
+    .console-panel,
+    .console-focus,
+    .console-section,
+    .console-callout {
+      padding: 14px;
+    }
+    .console-metric-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .console-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .console-row-actions {
+      width: 100%;
+      justify-content: flex-start;
+    }
+    .console-tag {
+      white-space: normal;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-field-grid {
+      grid-template-columns: 1fr;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-choice-grid {
+      grid-template-columns: 1fr;
+      max-height: none;
+      overflow: visible;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-action-row {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      padding-top: 10px;
+      background: linear-gradient(180deg, rgba(15, 19, 26, 0), rgba(15, 19, 26, 0.96) 28%);
+    }
+    .console-form[data-console-form-variant="property_search"] .console-action-row .console-action {
+      flex: 1 1 0;
+      text-align: center;
+    }
+    .console-form[data-console-form-variant="property_search"] .console-progress-track {
+      height: 12px;
+    }
+    .console-form[data-console-form-variant="property_search"] input,
+    .console-form[data-console-form-variant="property_search"] select,
+    .console-form[data-console-form-variant="property_search"] textarea {
+      padding: 12px;
     }
   }
 </style>
@@ -905,8 +989,9 @@
         `${Number(source.listing_total || 0)} listings`,
         `${Number(source.high_fit_total || 0)} high-fit`,
         `${Number(source.tour_created_total || 0)} new tours`,
-        `${Number(source.notified_total || 0)} Telegram sends`,
-      ].join(' | ');
+        `${Number(source.notified_total || 0)} client alerts`,
+        Number(source.email_notified_total || 0) > 0 ? `${Number(source.email_notified_total || 0)} email` : '',
+      ].filter(Boolean).join(' | ');
       return `<div class="console-row"><div><strong>${label}</strong><small>${detail}</small></div><span class="console-tag">Scanned</span></div>`;
     }).join('');
 
@@ -987,10 +1072,16 @@
     if (countryField) {
       countryField.addEventListener('change', () => {
         const catalog = meta.platform_catalog_by_country || {};
+        const defaultLanguageByCountry = meta.default_language_by_country || {};
         const selectedCountry = String(countryField.value || '').trim();
         const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
         const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+        const languageField = form.querySelector('select[name="language_code"]');
+        const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
         renderPlatformOptions(form, options, defaultSelection);
+        if (languageField && nextLanguage) {
+          languageField.value = nextLanguage;
+        }
       });
     }
     renderRun(form, meta.initial_run || {});

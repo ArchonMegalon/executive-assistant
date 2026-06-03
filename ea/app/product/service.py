@@ -101,6 +101,7 @@ from app.services.registration_email import (
     email_delivery_enabled,
     send_channel_digest_email,
     send_google_connect_email,
+    send_property_match_email,
     send_property_tour_email,
     send_workspace_access_email,
     send_workspace_invitation_email,
@@ -298,6 +299,7 @@ def _property_search_run_default_summary() -> dict[str, object]:
         "review_created_total": 0,
         "review_existing_total": 0,
         "notified_total": 0,
+        "email_notified_total": 0,
         "tour_created_total": 0,
         "tour_existing_total": 0,
         "high_fit_total": 0,
@@ -13312,6 +13314,7 @@ class ProductService:
                 "review_created_total": 0,
                 "review_existing_total": 0,
                 "notified_total": 0,
+                "email_notified_total": 0,
                 "tour_created_total": 0,
                 "tour_existing_total": 0,
                 "high_fit_total": 0,
@@ -13324,6 +13327,7 @@ class ProductService:
         review_created_total = 0
         review_existing_total = 0
         notified_total = 0
+        email_notified_total = 0
         tour_created_total = 0
         tour_existing_total = 0
         high_fit_total = 0
@@ -13421,6 +13425,7 @@ class ProductService:
             created_for_source = 0
             existing_for_source = 0
             notified_for_source = 0
+            email_notified_for_source = 0
             tour_created_for_source = 0
             tour_existing_for_source = 0
             high_fit_for_source = 0
@@ -13511,6 +13516,23 @@ class ProductService:
                     if str(notify_result.get("status") or "").strip() == "sent":
                         notified_for_source += 1
                         notified_total += 1
+                email_notify_result = self._send_property_scout_hit_email(
+                    principal_id=principal_id,
+                    actor=actor,
+                    title=title,
+                    summary=summary,
+                    counterparty=source_label,
+                    property_url=property_url,
+                    source_ref=source_ref,
+                    assessment=assessment,
+                    review_url=str(opened.get("editor_url") or "").strip(),
+                    tour_result=tour_result,
+                ) if is_good_fit else {"status": "suppressed", "reason": "not_good_fit"}
+                if str(email_notify_result.get("status") or "").strip() == "sent":
+                    email_notified_for_source += 1
+                    notified_for_source += 1
+                    email_notified_total += 1
+                    notified_total += 1
 
             if (
                 notify_telegram
@@ -13548,6 +13570,7 @@ class ProductService:
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
                     "notified_total": notified_for_source,
+                    "email_notified_total": email_notified_for_source,
                     "tour_created_total": tour_created_for_source,
                     "tour_existing_total": tour_existing_for_source,
                     "high_fit_total": high_fit_for_source,
@@ -13571,6 +13594,7 @@ class ProductService:
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,
+            "email_notified_total": email_notified_total,
             "tour_created_total": tour_created_total,
             "tour_existing_total": tour_existing_total,
             "high_fit_total": high_fit_total,
@@ -15778,6 +15802,82 @@ class ProductService:
             dedupe_key=dedupe_key,
         )
         return {"status": "sent", "tour_url": tour_url, "telegram_message_ids": list(telegram_receipt.message_ids)}
+
+    def _send_property_scout_hit_email(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        title: str,
+        summary: str,
+        counterparty: str,
+        property_url: str,
+        source_ref: str,
+        assessment: dict[str, object] | None,
+        review_url: str = "",
+        tour_result: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        recipient_email = _principal_email_hint(principal_id)
+        if not recipient_email or not email_delivery_enabled():
+            return {"status": "suppressed", "reason": "email_delivery_not_configured"}
+        dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
+        dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-email|{dedupe_suffix}"
+        if self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="property_scout_hit_email_sent",
+            dedupe_key=dedupe_key,
+        ):
+            return {"status": "suppressed", "reason": "already_emailed_today"}
+        tour_payload = dict(tour_result or {})
+        tour_url = str(tour_payload.get("tour_url") or "").strip()
+        review_href = str(review_url or "").strip()
+        try:
+            receipt = send_property_match_email(
+                recipient_email=recipient_email,
+                property_title=title,
+                property_url=property_url,
+                review_url=review_href,
+                tour_url=tour_url,
+                provider_label=counterparty,
+                fit_summary=_property_alert_fit_summary(dict(assessment or {})),
+                decision_summary_json=dict(assessment or {}),
+            )
+        except Exception as exc:
+            payload = {
+                "property_url": property_url,
+                "source_ref": source_ref,
+                "tour_url": tour_url,
+                "review_url": review_href,
+                "actor": str(actor or "").strip() or "property_scout",
+                "recipient_email": recipient_email,
+                "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_scout_hit_email_failed",
+                payload=payload,
+                source_id=source_ref,
+                dedupe_key=dedupe_key,
+            )
+            return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
+        payload = {
+            "property_url": property_url,
+            "source_ref": source_ref,
+            "tour_url": tour_url,
+            "review_url": review_href,
+            "actor": str(actor or "").strip() or "property_scout",
+            "recipient_email": recipient_email,
+            "provider": str(receipt.provider or "").strip(),
+            "message_id": str(receipt.message_id or "").strip(),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_scout_hit_email_sent",
+            payload=payload,
+            source_id=source_ref,
+            dedupe_key=dedupe_key,
+        )
+        return {"status": "sent", "recipient_email": recipient_email, "message_id": str(receipt.message_id or "").strip()}
 
     def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
         event = self._latest_product_event(

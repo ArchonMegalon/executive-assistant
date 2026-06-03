@@ -30,13 +30,20 @@ class PropertyProviderSpec:
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
     PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "kalandra")),
+    PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
+    PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
     PropertyCountrySpec("CH", "Switzerland", "de", "CHF", "CHF", "Zurich, Geneva, Basel", ("homegate", "newhome", "immoscout_ch")),
+    PropertyCountrySpec("IE", "Ireland", "en", "EUR", "EUR", "Dublin, Cork, Galway", ("daft_ie", "myhome_ie")),
     PropertyCountrySpec("UK", "United Kingdom", "en", "GBP", "GBP", "London, Manchester, Bristol", ("rightmove", "zoopla", "onthemarket")),
+    PropertyCountrySpec("AU", "Australia", "en", "AUD", "AUD", "Sydney, Melbourne, Brisbane", ("realestate_au", "domain_au", "flatmates_au")),
     PropertyCountrySpec("ES", "Spain", "es", "EUR", "EUR", "Barcelona, Madrid, Valencia", ("idealista_es", "fotocasa", "habitaclia")),
     PropertyCountrySpec("IT", "Italy", "it", "EUR", "EUR", "Milan, Rome, Bologna", ("immobiliare", "idealista_it", "casa_it")),
     PropertyCountrySpec("FR", "France", "fr", "EUR", "EUR", "Paris, Lyon, Marseille", ("seloger", "bienici", "leboncoin_immo")),
     PropertyCountrySpec("NL", "Netherlands", "nl", "EUR", "EUR", "Amsterdam, Rotterdam, Utrecht", ("funda", "pararius")),
+    PropertyCountrySpec("PT", "Portugal", "pt", "EUR", "EUR", "Lisbon, Porto, Faro", ("idealista_pt", "imovirtual", "casa_sapo")),
+    PropertyCountrySpec("PL", "Poland", "pl", "PLN", "PLN", "Warsaw, Krakow, Wroclaw", ("otodom", "olx_pl_nieruchomosci")),
+    PropertyCountrySpec("SE", "Sweden", "sv", "SEK", "SEK", "Stockholm, Gothenburg, Malmo", ("hemnet", "booli")),
     PropertyCountrySpec("US", "United States", "en", "USD", "USD", "Brooklyn, Austin, Seattle", ("zillow", "realtor", "apartments")),
 )
 
@@ -48,6 +55,9 @@ LANGUAGES: tuple[tuple[str, str], ...] = (
     ("es", "Español"),
     ("it", "Italiano"),
     ("nl", "Nederlands"),
+    ("pt", "Português"),
+    ("pl", "Polski"),
+    ("sv", "Svenska"),
 )
 
 
@@ -112,6 +122,30 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.kalandra.at/objekte",
         },
         description="Austria brokerage inventory with high-value marketing packets.",
+    ),
+    PropertyProviderSpec(
+        key="immoweb",
+        label="Immoweb",
+        country_code="BE",
+        host_markers=("immoweb.be",),
+        listing_path_markers=("/en/classified/", "/nl/zoekertje/", "/fr/annonce/"),
+        search_urls={
+            "rent": "https://www.immoweb.be/en/search/apartment-and-house/for-rent",
+            "buy": "https://www.immoweb.be/en/search/apartment-and-house/for-sale",
+        },
+        description="Belgium flagship property portal with dense urban inventory.",
+    ),
+    PropertyProviderSpec(
+        key="zimmo",
+        label="Zimmo",
+        country_code="BE",
+        host_markers=("zimmo.be",),
+        listing_path_markers=("/en/", "/nl/", "/fr/"),
+        search_urls={
+            "rent": "https://www.zimmo.be/en/search/for-rent/",
+            "buy": "https://www.zimmo.be/en/search/for-sale/",
+        },
+        description="Belgium residential marketplace with strong Flemish supply.",
     ),
     PropertyProviderSpec(
         key="immoscout_de",
@@ -198,6 +232,30 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Switzerland ImmoScout variant for multilingual search.",
     ),
     PropertyProviderSpec(
+        key="daft_ie",
+        label="Daft.ie",
+        country_code="IE",
+        host_markers=("daft.ie",),
+        listing_path_markers=("/for-rent/", "/for-sale/"),
+        search_urls={
+            "rent": "https://www.daft.ie/property-for-rent/ireland",
+            "buy": "https://www.daft.ie/property-for-sale/ireland",
+        },
+        description="Ireland flagship residential portal.",
+    ),
+    PropertyProviderSpec(
+        key="myhome_ie",
+        label="MyHome.ie",
+        country_code="IE",
+        host_markers=("myhome.ie",),
+        listing_path_markers=("/residential/",),
+        search_urls={
+            "rent": "https://www.myhome.ie/rentals",
+            "buy": "https://www.myhome.ie/residential",
+        },
+        description="Ireland portal with agency-led sale and rental inventory.",
+    ),
+    PropertyProviderSpec(
         key="rightmove",
         label="Rightmove",
         country_code="UK",
@@ -232,6 +290,43 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.onthemarket.com/for-sale/",
         },
         description="United Kingdom portal with agency inventory and structured detail pages.",
+    ),
+    PropertyProviderSpec(
+        key="realestate_au",
+        label="realestate.com.au",
+        country_code="AU",
+        host_markers=("realestate.com.au",),
+        listing_path_markers=("/property-", "/project/"),
+        search_urls={
+            "rent": "https://www.realestate.com.au/rent",
+            "buy": "https://www.realestate.com.au/buy",
+        },
+        description="Australia flagship portal for rent and buy search.",
+    ),
+    PropertyProviderSpec(
+        key="domain_au",
+        label="Domain",
+        country_code="AU",
+        host_markers=("domain.com.au",),
+        listing_path_markers=("/address-",),
+        search_urls={
+            "rent": "https://www.domain.com.au/rent/",
+            "buy": "https://www.domain.com.au/sale/",
+        },
+        description="Australia national property portal with structured listing pages.",
+    ),
+    PropertyProviderSpec(
+        key="flatmates_au",
+        label="Flatmates",
+        country_code="AU",
+        host_markers=("flatmates.com.au",),
+        listing_path_markers=("/share-house/", "/people/"),
+        search_urls={
+            "rent": "https://flatmates.com.au/rooms",
+            "buy": "https://flatmates.com.au/rooms",
+        },
+        description="Australia shared-living and room-rental marketplace.",
+        supported_listing_modes=("rent",),
     ),
     PropertyProviderSpec(
         key="idealista_es",
@@ -366,6 +461,90 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Netherlands rental-heavy portal.",
     ),
     PropertyProviderSpec(
+        key="idealista_pt",
+        label="Idealista Portugal",
+        country_code="PT",
+        host_markers=("idealista.pt",),
+        listing_path_markers=("/imovel/",),
+        search_urls={
+            "rent": "https://www.idealista.pt/en/arrendar-casas/",
+            "buy": "https://www.idealista.pt/en/comprar-casas/",
+        },
+        description="Portugal branch of Idealista with strong Lisbon and Porto coverage.",
+    ),
+    PropertyProviderSpec(
+        key="imovirtual",
+        label="Imovirtual",
+        country_code="PT",
+        host_markers=("imovirtual.com",),
+        listing_path_markers=("/imovel/",),
+        search_urls={
+            "rent": "https://www.imovirtual.com/arrendar/apartamento/",
+            "buy": "https://www.imovirtual.com/comprar/apartamento/",
+        },
+        description="Portugal residential search portal with broad rental coverage.",
+    ),
+    PropertyProviderSpec(
+        key="casa_sapo",
+        label="Casa Sapo",
+        country_code="PT",
+        host_markers=("casa.sapo.pt",),
+        listing_path_markers=("/detalhes/",),
+        search_urls={
+            "rent": "https://casa.sapo.pt/en-gb/rent-apartments/",
+            "buy": "https://casa.sapo.pt/en-gb/buy-apartments/",
+        },
+        description="Portugal property portal with agency inventory.",
+    ),
+    PropertyProviderSpec(
+        key="otodom",
+        label="Otodom",
+        country_code="PL",
+        host_markers=("otodom.pl",),
+        listing_path_markers=("/pl/oferta/",),
+        search_urls={
+            "rent": "https://www.otodom.pl/pl/wyniki/wynajem/mieszkanie/cala-polska",
+            "buy": "https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie/cala-polska",
+        },
+        description="Poland flagship property portal.",
+    ),
+    PropertyProviderSpec(
+        key="olx_pl_nieruchomosci",
+        label="OLX Nieruchomości",
+        country_code="PL",
+        host_markers=("olx.pl",),
+        listing_path_markers=("/d/oferta/",),
+        search_urls={
+            "rent": "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/",
+            "buy": "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/",
+        },
+        description="Poland classifieds lane for residential supply.",
+    ),
+    PropertyProviderSpec(
+        key="hemnet",
+        label="Hemnet",
+        country_code="SE",
+        host_markers=("hemnet.se",),
+        listing_path_markers=("/bostad/",),
+        search_urls={
+            "rent": "https://www.hemnet.se/bostader",
+            "buy": "https://www.hemnet.se/bostader",
+        },
+        description="Sweden flagship property portal focused on sale inventory.",
+    ),
+    PropertyProviderSpec(
+        key="booli",
+        label="Booli",
+        country_code="SE",
+        host_markers=("booli.se",),
+        listing_path_markers=("/bostad/",),
+        search_urls={
+            "rent": "https://www.booli.se/sok/bostad",
+            "buy": "https://www.booli.se/sok/till-salu",
+        },
+        description="Sweden marketplace and valuation surface for home search.",
+    ),
+    PropertyProviderSpec(
         key="zillow",
         label="Zillow",
         country_code="US",
@@ -402,6 +581,43 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="United States rental-heavy apartment portal.",
         supported_listing_modes=("rent",),
     ),
+    PropertyProviderSpec(
+        key="realtor_ca",
+        label="Realtor.ca",
+        country_code="CA",
+        host_markers=("realtor.ca",),
+        listing_path_markers=("/real-estate/",),
+        search_urls={
+            "rent": "https://www.realtor.ca/on/rent",
+            "buy": "https://www.realtor.ca/",
+        },
+        description="Canada national residential portal.",
+    ),
+    PropertyProviderSpec(
+        key="rew_ca",
+        label="REW",
+        country_code="CA",
+        host_markers=("rew.ca",),
+        listing_path_markers=("/properties/",),
+        search_urls={
+            "rent": "https://www.rew.ca/rentals",
+            "buy": "https://www.rew.ca/properties",
+        },
+        description="Canada residential search portal with stronger western market coverage.",
+    ),
+    PropertyProviderSpec(
+        key="rentals_ca",
+        label="Rentals.ca",
+        country_code="CA",
+        host_markers=("rentals.ca",),
+        listing_path_markers=("/city/", "/property/"),
+        search_urls={
+            "rent": "https://rentals.ca/",
+            "buy": "https://rentals.ca/",
+        },
+        description="Canada rental-focused apartment portal.",
+        supported_listing_modes=("rent",),
+    ),
 )
 
 
@@ -428,12 +644,23 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "kleinanzeigenimmo": "kleinanzeigen_immo",
     "homegate": "homegate",
     "newhome": "newhome",
+    "immoweb": "immoweb",
+    "zimmo": "zimmo",
+    "daft": "daft_ie",
+    "daftie": "daft_ie",
+    "myhome": "myhome_ie",
+    "myhomeie": "myhome_ie",
     "rightmove": "rightmove",
     "zoopla": "zoopla",
     "onthemarket": "onthemarket",
+    "realestateau": "realestate_au",
+    "realestatecomau": "realestate_au",
+    "domain": "domain_au",
+    "flatmates": "flatmates_au",
     "idealista": "idealista_es",
     "idealistaes": "idealista_es",
     "idealistait": "idealista_it",
+    "idealistapt": "idealista_pt",
     "fotocasa": "fotocasa",
     "habitaclia": "habitaclia",
     "immobiliare": "immobiliare",
@@ -445,9 +672,19 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "leboncoinimmo": "leboncoin_immo",
     "funda": "funda",
     "pararius": "pararius",
+    "imovirtual": "imovirtual",
+    "casasapo": "casa_sapo",
+    "otodom": "otodom",
+    "olxpl": "olx_pl_nieruchomosci",
+    "olxnieruchomosci": "olx_pl_nieruchomosci",
+    "hemnet": "hemnet",
+    "booli": "booli",
     "zillow": "zillow",
     "realtor": "realtor",
     "apartments": "apartments",
+    "realtorca": "realtor_ca",
+    "rew": "rew_ca",
+    "rentalsca": "rentals_ca",
     "all": "all",
 }
 
@@ -456,9 +693,13 @@ def normalize_property_platform(value: object) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
         return ""
+    if raw in _PROVIDER_INDEX or raw == "all":
+        return raw
     normalized = re.sub(r"[^a-z0-9]+", "", raw)
     if not normalized:
         return ""
+    if normalized in _PROVIDER_INDEX or normalized == "all":
+        return normalized
     return PROPERTY_PLATFORM_ALIAS_MAP.get(normalized, normalized)
 
 
@@ -514,7 +755,7 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]
     for provider in PROVIDERS:
         if normalized_country and provider.country_code != normalized_country:
             continue
-        country_label = _COUNTRY_INDEX.get(provider.country_code, PropertyCountrySpec(provider.country_code, provider.country_code, "en", ())).label
+        country_label = _COUNTRY_INDEX.get(provider.country_code).label if provider.country_code in _COUNTRY_INDEX else provider.country_code
         rows.append(
             {
                 "value": provider.key,
@@ -528,6 +769,10 @@ def provider_options(*, country_code: str | None = None) -> list[dict[str, str]]
 def default_platforms_for_country(country_code: object) -> tuple[str, ...]:
     country = _COUNTRY_INDEX.get(normalize_country_code(country_code))
     return tuple(country.featured_platforms if country is not None else _COUNTRY_INDEX["AT"].featured_platforms)
+
+
+def default_language_for_country(country_code: object) -> str:
+    return _COUNTRY_INDEX.get(normalize_country_code(country_code), _COUNTRY_INDEX["AT"]).default_language
 
 
 def country_label(country_code: object) -> str:
@@ -664,6 +909,10 @@ def _build_provider_search_url(
         if listing_mode == "buy":
             return f"https://www.idealista.it/vendita-case/{location_slug}/"
         return f"https://www.idealista.it/affitto-case/{location_slug}/"
+    if provider.key == "idealista_pt" and location_slug:
+        if listing_mode == "buy":
+            return f"https://www.idealista.pt/en/comprar-casas/{location_slug}/"
+        return f"https://www.idealista.pt/en/arrendar-casas/{location_slug}/"
     if provider.key == "seloger":
         query_items = {"projects": "2" if listing_mode == "buy" else "1", "types": "1"}
         if search_terms:
@@ -696,6 +945,74 @@ def _build_provider_search_url(
             query_items["bedrooms"] = str(min_rooms)
         if max_price_eur:
             query_items["price_to"] = str(max_price_eur)
+        return _append_query(base_url, query_items)
+    if provider.key == "immoweb":
+        query_items = {}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["minBedroomCount"] = str(min_rooms)
+        return _append_query(base_url, query_items)
+    if provider.key == "daft_ie" and location_slug:
+        if listing_mode == "buy":
+            return f"https://www.daft.ie/property-for-sale/{location_slug}"
+        return f"https://www.daft.ie/property-for-rent/{location_slug}"
+    if provider.key == "myhome_ie":
+        query_items = {}
+        if search_terms:
+            query_items["query"] = search_terms
+        return _append_query(base_url, query_items)
+    if provider.key == "realestate_au":
+        query_items = {}
+        if search_terms:
+            query_items["keywords"] = search_terms
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["bedrooms"] = str(min_rooms)
+        return _append_query(base_url, query_items)
+    if provider.key == "domain_au":
+        query_items = {}
+        if search_terms:
+            query_items["suburb"] = search_terms
+        if max_price_eur:
+            query_items["price-max"] = str(max_price_eur)
+        if min_rooms:
+            query_items["bedrooms"] = str(min_rooms)
+        return _append_query(base_url, query_items)
+    if provider.key == "imovirtual":
+        query_items = {}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["priceMax"] = str(max_price_eur)
+        return _append_query(base_url, query_items)
+    if provider.key == "otodom":
+        query_items = {}
+        if search_terms:
+            query_items["locations"] = search_terms
+        if max_price_eur:
+            query_items["priceMax"] = str(max_price_eur)
+        if min_rooms:
+            query_items["roomsNumberMin"] = str(min_rooms)
+        return _append_query(base_url, query_items)
+    if provider.key == "realtor_ca":
+        query_items = {}
+        if search_terms:
+            query_items["searchtext"] = search_terms
+        if max_price_eur:
+            query_items["price-max"] = str(max_price_eur)
+        return _append_query(base_url, query_items)
+    if provider.key == "rew_ca":
+        query_items = {}
+        if search_terms:
+            query_items["query"] = search_terms
+        if max_price_eur:
+            query_items["price_max"] = str(max_price_eur)
+        if min_rooms:
+            query_items["bedrooms"] = str(min_rooms)
         return _append_query(base_url, query_items)
     if provider.key == "rightmove":
         query_items = {"searchLocation": location_query or keywords}

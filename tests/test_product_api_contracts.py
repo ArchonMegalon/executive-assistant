@@ -1222,6 +1222,96 @@ def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_re
     assert evidence_rows
 
 
+def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch) -> None:
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    monkeypatch.setenv("EMAILIT_API_KEY", "emailit-test-key")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Email Office")
+    product = ProductService(client.app.state.container)
+    product.update_property_alert_policy(
+        principal_id=principal_id,
+        auto_score=True,
+        auto_compare=True,
+        auto_generate_tour_for_good_fit=False,
+        notify_only_if_good=True,
+        good_fit_min_score=80.0,
+        actor="test",
+    )
+    listing_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/email-fit-123456789/"
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/?areaId=900&sort=3",
+                    "label": "Willhaben Wien rentals",
+                    "principal_id": principal_id,
+                    "preference_person_id": "elisabeth",
+                    "notify_telegram": False,
+                    "max_results": 1,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda url: f'<a href="{listing_url}">One</a>')
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "email-fit-123456789",
+            "title": "Email fit flat",
+            "property_facts_json": {
+                "postal_name": "Waehring",
+                "area_label": "74 m²",
+                "rooms_label": "3 rooms",
+                "total_rent_eur": 1890.0,
+                "heating": "Fernwaerme",
+                "floorplan_count": 1,
+            },
+            "media_urls_json": ["https://cdn.example.com/photo-1.jpg"],
+            "floorplan_urls_json": ["https://cdn.example.com/floorplan.png"],
+            "tour_variants_json": [],
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "assessment_id": "assessment-email-fit-1",
+            "domain": "willhaben",
+            "object_id": str(kwargs.get("object_id") or ""),
+            "fit_score": 94.0,
+            "confidence": 0.94,
+            "predicted_reaction": "shortlist",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Strong transit fit.", "Floor plan is available."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": ["Lift still needs checking."],
+            "blocking_constraints_json": [],
+        },
+    )
+    observed_email: dict[str, object] = {}
+    monkeypatch.setattr(
+        product_service,
+        "send_property_match_email",
+        lambda **kwargs: observed_email.update(kwargs) or RegistrationEmailReceipt(provider="emailit", message_id="property-match-email-1", accepted_at="2026-06-03T00:00:00+00:00"),
+    )
+
+    response = client.post("/app/api/signals/property/scout")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "processed"
+    assert body["notified_total"] == 1
+    assert body["email_notified_total"] == 1
+    assert body["sources"][0]["email_notified_total"] == 1
+    assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
+    assert observed_email["property_title"] == "Email fit flat"
+    assert "Willhaben Wien rentals" in str(observed_email["provider_label"])
+
+
 def test_property_scout_route_notifies_top_watch_hit_when_no_good_fit(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

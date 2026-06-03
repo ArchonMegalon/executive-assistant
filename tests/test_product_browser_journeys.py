@@ -169,7 +169,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
 
     response = client.get("/app/properties", params={"run_id": "run-42"})
     assert response.status_code == 200
-    assert "Search the major platforms" in response.text
+    assert "Run a premium market sweep" in response.text
     assert "Country" in response.text
     assert "Research language" in response.text
     assert "Berlin" in response.text
@@ -181,6 +181,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Which providers this country unlocks" in response.text
     assert "ImmoScout24 Germany" in response.text
     assert "Immowelt" in response.text
+    assert "Portugal" in response.text
+    assert "Australia" in response.text
     assert "Property scouting run completed." in response.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text

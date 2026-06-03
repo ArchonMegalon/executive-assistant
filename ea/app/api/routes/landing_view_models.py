@@ -304,7 +304,8 @@ def app_section_payload(
                     f"{int(source.get('listing_total') or 0)} listings",
                     f"{int(source.get('high_fit_total') or 0)} high-fit",
                     f"{int(source.get('tour_created_total') or 0)} hosted tours",
-                    f"{int(source.get('notified_total') or 0)} Telegram sends",
+                    f"{int(source.get('notified_total') or 0)} client alerts",
+                    f"{int(source.get('email_notified_total') or 0)} email" if int(source.get('email_notified_total') or 0) else "",
                     f"top score {float(source.get('top_fit_score') or 0.0):.2f}" if source.get("top_fit_score") is not None else "",
                 )
                 if part
@@ -325,10 +326,10 @@ def app_section_payload(
     property_results_value = max(1, min(property_results_value, property_plan_max_results))
     property_form = {
         "variant": "property_search",
-        "title": "Search the major platforms",
-        "eyebrow": "Flagship crawl",
-        "copy": "Save the user profile defaults, choose the platforms to crawl, then start one dedicated run with live progress instead of relying on opaque background automation.",
-        "submit_label": "Start search",
+        "title": "Run a premium market sweep",
+        "eyebrow": "Flagship property desk",
+        "copy": "Set the market, shape the shortlist, choose the providers, then launch one visible research run with ranking, hosted review pages, and client-ready alerts.",
+        "submit_label": "Launch search",
         "fields": [
             {
                 "type": "select",
@@ -429,6 +430,7 @@ def app_section_payload(
             "run_id": str(property_run.get("run_id") or ""),
             "initial_run": property_run,
             "platform_catalog_by_country": dict(property_state.get("platform_catalog_by_country") or {}),
+            "default_language_by_country": dict(property_state.get("default_language_by_country") or {}),
             "commercial": dict(property_state.get("commercial") or {}),
             "paypal_checkout_enabled": bool(property_state.get("paypal_checkout_enabled")),
             "paypal_order_endpoint": str(property_state.get("paypal_order_endpoint") or ""),

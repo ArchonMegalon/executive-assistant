@@ -1319,6 +1319,7 @@ class PropertyScoutSourceOut(BaseModel):
     review_created_total: int = 0
     review_existing_total: int = 0
     notified_total: int = 0
+    email_notified_total: int = 0
     tour_created_total: int = 0
     tour_existing_total: int = 0
     high_fit_total: int = 0
@@ -1335,6 +1336,7 @@ class PropertyScoutSyncOut(BaseModel):
     review_created_total: int = 0
     review_existing_total: int = 0
     notified_total: int = 0
+    email_notified_total: int = 0
     tour_created_total: int = 0
     tour_existing_total: int = 0
     high_fit_total: int = 0

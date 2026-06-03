@@ -52,6 +52,7 @@ from app.services.property_billing import paypal_configured, property_commercial
 from app.services.property_market_catalog import (
     country_label as property_country_label,
     country_options as property_country_options,
+    default_language_for_country,
     default_platforms_for_country,
     language_label as property_language_label,
     language_options as property_language_options,
@@ -528,6 +529,10 @@ def _property_console_context(
         "platform_options": country_provider_options,
         "platform_catalog_by_country": {
             str(option.get("value") or "").strip(): property_provider_options(country_code=str(option.get("value") or "").strip())
+            for option in property_country_options()
+        },
+        "default_language_by_country": {
+            str(option.get("value") or "").strip(): default_language_for_country(str(option.get("value") or "").strip())
             for option in property_country_options()
         },
         "country_options": property_country_options(),

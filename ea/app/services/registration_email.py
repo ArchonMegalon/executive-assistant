@@ -427,6 +427,65 @@ def send_property_tour_email(
     )
 
 
+def send_property_match_email(
+    *,
+    recipient_email: str,
+    property_title: str,
+    property_url: str,
+    review_url: str = "",
+    tour_url: str = "",
+    provider_label: str = "",
+    fit_summary: str = "",
+    decision_summary_json: dict[str, object] | None = None,
+    sender_email: str = "",
+    sender_name: str = "",
+) -> RegistrationEmailReceipt:
+    title = str(property_title or "Property match").strip() or "Property match"
+    provider = str(provider_label or "").strip()
+    subject = f"Property match: {title}"
+    primary_link = str(tour_url or review_url or property_url).strip()
+    body = [
+        "Hello,",
+        "",
+        f"EA shortlisted a property match: {title}",
+    ]
+    if provider:
+        body.append(f"Source: {provider}")
+    if fit_summary:
+        body.extend(["", fit_summary])
+    if primary_link:
+        body.extend(["", f"Open the hosted review: {primary_link}"])
+    if review_url and review_url != primary_link:
+        body.append(f"Research page: {review_url}")
+    if tour_url and tour_url not in {primary_link, review_url}:
+        body.append(f"Hosted tour: {tour_url}")
+    if property_url and property_url not in {primary_link, review_url, tour_url}:
+        body.append(f"Original listing: {property_url}")
+    decision_summary = decision_summary_json if isinstance(decision_summary_json, dict) else {}
+    good_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("good_fit_reasons") or []) if str(value or "").strip()]
+    bad_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("bad_fit_reasons") or []) if str(value or "").strip()]
+    unknowns = [str(value or "").strip() for value in list(decision_summary.get("unknowns") or []) if str(value or "").strip()]
+    if good_fit_reasons:
+        body.extend(["", "Why it stands out:", *[f"- {entry}" for entry in good_fit_reasons[:4]]])
+    if bad_fit_reasons:
+        body.extend(["", "What may be weak:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
+    if unknowns:
+        body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=subject[:220],
+        text="\n".join(body).strip() + "\n",
+        kind="ea_property_match_delivery",
+        meta={
+            "review_ref": _meta_ref(review_url or primary_link),
+            "tour_ref": _meta_ref(tour_url),
+            "listing_ref": _meta_ref(property_url),
+        },
+        sender_email=sender_email,
+        sender_name=sender_name,
+    )
+
+
 def send_channel_digest_email(
     *,
     recipient_email: str,

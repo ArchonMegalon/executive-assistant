@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services.property_market_catalog import (
+    default_language_for_country,
     default_platforms_for_country,
     generated_source_specs,
     language_label,
@@ -110,9 +111,57 @@ def test_generated_source_specs_build_provider_specific_market_urls() -> None:
 
 def test_default_platforms_for_country_are_stable() -> None:
     assert default_platforms_for_country("UK") == ("rightmove", "zoopla", "onthemarket")
+    assert default_platforms_for_country("PT") == ("idealista_pt", "imovirtual", "casa_sapo")
+    assert default_language_for_country("SE") == "sv"
 
 
 def test_provider_listing_markers_follow_provider_host() -> None:
     markers = provider_listing_markers_for_host("www.realtor.com")
 
     assert "/realestateandhomes-detail/" in markers
+
+
+def test_generated_source_specs_cover_new_country_bundles() -> None:
+    portugal_specs = generated_source_specs(
+        preferences={
+            "country_code": "PT",
+            "language_code": "pt",
+            "listing_mode": "buy",
+            "location_query": "Lisbon",
+        },
+        selected_platforms=("idealista_pt", "imovirtual"),
+        principal_id="exec-property-pt",
+        default_person_id="self",
+        max_results=3,
+    )
+    ireland_specs = generated_source_specs(
+        preferences={
+            "country_code": "IE",
+            "language_code": "en",
+            "listing_mode": "rent",
+            "location_query": "Dublin",
+        },
+        selected_platforms=("daft_ie",),
+        principal_id="exec-property-ie",
+        default_person_id="self",
+        max_results=3,
+    )
+    australia_specs = generated_source_specs(
+        preferences={
+            "country_code": "AU",
+            "language_code": "en",
+            "listing_mode": "buy",
+            "location_query": "Sydney",
+            "min_rooms": 2,
+        },
+        selected_platforms=("domain_au",),
+        principal_id="exec-property-au",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert "idealista.pt/en/comprar-casas/lisbon/" in str(portugal_specs[0]["url"]).lower()
+    assert "imovirtual.com" in str(portugal_specs[1]["url"]).lower()
+    assert "daft.ie/property-for-rent/dublin" in str(ireland_specs[0]["url"]).lower()
+    assert "domain.com.au" in str(australia_specs[0]["url"]).lower()
+    assert "suburb=Sydney" in str(australia_specs[0]["url"])
