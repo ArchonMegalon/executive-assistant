@@ -492,6 +492,7 @@ def _property_console_context(
             run_payload = {}
 
     recent_matches: list[dict[str, object]] = []
+    learning_summary: dict[str, object] = {}
     try:
         for handoff in product.list_handoffs(principal_id=principal_id, limit=12, status=None):
             task_type = str(getattr(handoff, "task_type", "") or "").strip()
@@ -514,16 +515,32 @@ def _property_console_context(
             if hosted_url:
                 row["action_href"] = hosted_url
                 row["action_method"] = "get"
-                row["action_label"] = "Open hosted page"
-            elif review_url:
-                row["action_href"] = review_url
-                row["action_method"] = "get"
-                row["action_label"] = "Open review"
+                row["action_label"] = "Open 360"
+            if review_url:
+                if hosted_url:
+                    row["secondary_action_href"] = review_url
+                    row["secondary_action_method"] = "get"
+                    row["secondary_action_label"] = "Review brief"
+                else:
+                    row["action_href"] = review_url
+                    row["action_method"] = "get"
+                    row["action_label"] = "Review brief"
             recent_matches.append(row)
             if len(recent_matches) >= 6:
                 break
     except Exception:
         recent_matches = []
+    try:
+        learning_summary = dict(
+            product.property_feedback_learning_summary(
+                principal_id=principal_id,
+                person_id=str(preferences.get("preference_person_id") or "self").strip() or "self",
+                domain="willhaben",
+            )
+            or {}
+        )
+    except Exception:
+        learning_summary = {}
 
     return {
         "platform_options": country_provider_options,
@@ -548,6 +565,7 @@ def _property_console_context(
         "selected_platforms": list(selected_platforms),
         "run": run_payload,
         "recent_matches": recent_matches,
+        "learning_summary": learning_summary,
         "start_endpoint": "/app/api/signals/property/search/run",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,

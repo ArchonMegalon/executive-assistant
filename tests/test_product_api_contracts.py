@@ -1307,6 +1307,9 @@ def test_property_scout_route_sends_client_email_alerts_via_emailit(monkeypatch)
     assert body["notified_total"] == 1
     assert body["email_notified_total"] == 1
     assert body["sources"][0]["email_notified_total"] == 1
+    assert body["sources"][0]["top_candidates"][0]["title"] == "Email fit flat"
+    assert body["sources"][0]["top_candidates"][0]["recommendation"] == "shortlist"
+    assert body["sources"][0]["top_candidates"][0]["review_url"]
     assert observed_email["recipient_email"] == "tibor.girschele@gmail.com"
     assert observed_email["property_title"] == "Email fit flat"
     assert "Willhaben Wien rentals" in str(observed_email["provider_label"])

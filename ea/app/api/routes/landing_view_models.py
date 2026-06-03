@@ -315,6 +315,110 @@ def app_section_payload(
         for source in list(property_summary.get("sources") or [])
         if isinstance(source, dict)
     ]
+    property_shortlist_rows: list[dict[str, str]] = []
+    for source in list(property_summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+        for candidate in list(source.get("top_candidates") or [])[:3]:
+            if not isinstance(candidate, dict):
+                continue
+            title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"
+            detail_parts = [
+                str(candidate.get("fit_summary") or "").strip(),
+                source_label,
+            ]
+            match_reasons = [
+                str(item or "").strip()
+                for item in list(candidate.get("match_reasons") or [])
+                if str(item or "").strip()
+            ]
+            mismatch_reasons = [
+                str(item or "").strip()
+                for item in list(candidate.get("mismatch_reasons") or [])
+                if str(item or "").strip()
+            ]
+            if match_reasons:
+                detail_parts.append(f"Why it fits: {match_reasons[0]}")
+            elif mismatch_reasons:
+                detail_parts.append(f"Watch-out: {mismatch_reasons[0]}")
+            row: dict[str, str] = {
+                "title": title,
+                "detail": " | ".join(part for part in detail_parts if part) or source_label,
+                "tag": str(candidate.get("recommendation") or "candidate").replace("_", " ").title(),
+            }
+            review_url = str(candidate.get("review_url") or "").strip()
+            tour_url = str(candidate.get("tour_url") or "").strip()
+            property_url = str(candidate.get("property_url") or "").strip()
+            if review_url:
+                row["action_href"] = review_url
+                row["action_method"] = "get"
+                row["action_label"] = "Review packet"
+            if tour_url:
+                if row.get("action_href"):
+                    row["secondary_action_href"] = tour_url
+                    row["secondary_action_method"] = "get"
+                    row["secondary_action_label"] = "Open 360"
+                else:
+                    row["action_href"] = tour_url
+                    row["action_method"] = "get"
+                    row["action_label"] = "Open 360"
+            if property_url:
+                if row.get("secondary_action_href"):
+                    row["tertiary_action_href"] = property_url
+                    row["tertiary_action_method"] = "get"
+                    row["tertiary_action_label"] = "Source"
+                elif row.get("action_href"):
+                    row["secondary_action_href"] = property_url
+                    row["secondary_action_method"] = "get"
+                    row["secondary_action_label"] = "Source"
+                else:
+                    row["action_href"] = property_url
+                    row["action_method"] = "get"
+                    row["action_label"] = "Source"
+            property_shortlist_rows.append(row)
+    property_shortlist_rows.sort(
+        key=lambda item: (
+            "shortlist" not in str(item.get("tag") or "").lower(),
+            "view if compelling" not in str(item.get("tag") or "").lower(),
+            str(item.get("title") or ""),
+        )
+    )
+    property_shortlist_rows = property_shortlist_rows[:8]
+    property_learning_summary = dict(property_state.get("learning_summary") or {})
+    property_learning_rows = [
+        row_item(entry, "Learned positive preference from explicit filters or listing feedback.", "Learnt")
+        for entry in list(property_learning_summary.get("likes") or [])[:4]
+        if str(entry or "").strip()
+    ]
+    property_learning_rows.extend(
+        row_item(entry, "Negative preference that should suppress future shortlist candidates.", "Avoid")
+        for entry in list(property_learning_summary.get("dislikes") or [])[:4]
+        if str(entry or "").strip()
+    )
+    property_learning_rows.extend(
+        row_item(entry, "Hard rule that should fail or demote mismatching listings.", "Rule")
+        for entry in list(property_learning_summary.get("hard_rules") or [])[:3]
+        if str(entry or "").strip()
+    )
+    property_recent_feedback_rows = [
+        row_item(
+            str(entry.get("reaction") or "feedback").strip().title(),
+            " | ".join(
+                part
+                for part in (
+                    ", ".join(str(item or "").strip() for item in list(entry.get("reasons") or [])[:3] if str(item or "").strip()),
+                    str(entry.get("note") or "").strip(),
+                    str(entry.get("recorded_at") or "").strip()[:10],
+                )
+                if part
+            )
+            or "Structured feedback recorded.",
+            "Feedback",
+        )
+        for entry in list(property_learning_summary.get("recent_feedback") or [])[:4]
+        if isinstance(entry, dict)
+    ]
     try:
         property_plan_max_results = max(1, int(property_state.get("commercial", {}).get("max_results_per_source") or 2))
     except Exception:
@@ -658,6 +762,20 @@ def app_section_payload(
                     ] + (property_platform_rows[:4] if property_platform_rows else []),
                 },
                 {
+                    "eyebrow": "Shortlist",
+                    "title": "Best candidates to review now",
+                    "body": "A flagship flow should open with ranked review packets, not just crawl counters. The top row should explain the fit and give the user the next useful action immediately.",
+                    "items": property_shortlist_rows
+                    or property_recent_matches
+                    or [
+                        row_item(
+                            "No shortlist candidates yet",
+                            "Run the first crawl to generate a ranked set of review packets and hosted 360 tours.",
+                            "Waiting",
+                        )
+                    ],
+                },
+                {
                     "eyebrow": "Run status",
                     "title": "Current crawl",
                     "body": str(property_run.get("message") or "Start a crawl to see source-by-source progress, shortlisted hosted tours, and what actually got sent."),
@@ -672,28 +790,30 @@ def app_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Recent matches",
-                    "title": "Hosted pages ready to review",
-                    "body": "Strong matches should resolve to branded hosted property pages, not raw portal links.",
-                    "items": property_recent_matches
+                    "eyebrow": "Learning loop",
+                    "title": "What the product has learned from feedback",
+                    "body": "Paid research only gets stronger if the system remembers what helped, what failed, and which hard rules should suppress future noise.",
+                    "items": property_learning_rows
+                    or property_recent_feedback_rows
                     or [
                         row_item(
-                            "No hosted property follow-ups yet",
-                            "Once a high-fit listing yields a hosted page or tour follow-up, it will appear here.",
+                            "No learned preferences yet",
+                            "Use the hosted review packets to record feedback. The learned likes, dislikes, and hard rules will surface here.",
                             "Waiting",
                         )
                     ],
                 },
                 {
-                    "eyebrow": "Run log",
-                    "title": "Latest progress updates",
-                    "body": "The flagship flow should stay legible while the crawl is running, including failures and partial completions.",
-                    "items": property_event_rows
+                    "eyebrow": "Recent matches",
+                    "title": "Hosted pages already delivered",
+                    "body": "Strong matches should resolve to branded hosted property pages or review packets, not raw portal links.",
+                    "items": property_recent_matches
+                    or property_event_rows
                     or [
                         row_item(
-                            "No events recorded yet",
-                            "Start a crawl to populate the progress log.",
-                            "Idle",
+                            "No hosted property follow-ups yet",
+                            "Once a high-fit listing yields a hosted page or review follow-up, it will appear here.",
+                            "Waiting",
                         )
                     ],
                 },

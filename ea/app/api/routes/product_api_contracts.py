@@ -1325,6 +1325,7 @@ class PropertyScoutSourceOut(BaseModel):
     high_fit_total: int = 0
     watch_notified_total: int = 0
     top_fit_score: float = 0.0
+    top_candidates: list[dict[str, object]] = Field(default_factory=list)
     error: str = ""
 
 

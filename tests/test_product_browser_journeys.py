@@ -138,6 +138,18 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
                         "tour_created_total": 1,
                         "notified_total": 1,
                         "top_fit_score": 0.92,
+                        "top_candidates": [
+                            {
+                                "title": "Altbau near U6",
+                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+                                "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
+                                "recommendation": "shortlist",
+                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
+                                "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
+                                "match_reasons": ["Lift and transit fit."],
+                                "mismatch_reasons": [],
+                            }
+                        ],
                     }
                 ],
             },
@@ -174,6 +186,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Research language" in response.text
     assert "Berlin" in response.text
     assert "What this search is optimizing for" in response.text
+    assert "Best candidates to review now" in response.text
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
@@ -184,6 +197,10 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Portugal" in response.text
     assert "Australia" in response.text
     assert "Property scouting run completed." in response.text
+    assert "Altbau near U6" in response.text
+    assert "Review packet" in response.text
+    assert "Open 360" in response.text
+    assert "What the product has learned from feedback" in response.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
     assert "Plus checkout" in response.text

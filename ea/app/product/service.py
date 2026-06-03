@@ -13431,6 +13431,7 @@ class ProductService:
             high_fit_for_source = 0
             watch_notified_for_source = 0
             top_watch_candidate: dict[str, object] | None = None
+            top_candidates_for_source: list[dict[str, object]] = []
 
             for row in ranked_rows:
                 property_url = str(row.get("property_url") or "").strip()
@@ -13534,6 +13535,31 @@ class ProductService:
                     email_notified_total += 1
                     notified_total += 1
 
+                top_candidates_for_source.append(
+                    {
+                        "property_url": property_url,
+                        "title": title,
+                        "summary": summary,
+                        "fit_score": fit_score,
+                        "fit_summary": _property_alert_fit_summary(assessment),
+                        "recommendation": str(assessment.get("recommendation") or "").strip(),
+                        "review_url": str(opened.get("editor_url") or "").strip(),
+                        "tour_url": str(tour_result.get("tour_url") or "").strip(),
+                        "tour_status": str(tour_result.get("status") or "").strip(),
+                        "blocked_reason": str(tour_result.get("blocked_reason") or "").strip(),
+                        "match_reasons": [
+                            str(item or "").strip()
+                            for item in list(assessment.get("match_reasons_json") or [])
+                            if str(item or "").strip()
+                        ][:3],
+                        "mismatch_reasons": [
+                            str(item or "").strip()
+                            for item in list(assessment.get("mismatch_reasons_json") or [])
+                            if str(item or "").strip()
+                        ][:2],
+                    }
+                )
+
             if (
                 notify_telegram
                 and high_fit_for_source == 0
@@ -13576,6 +13602,7 @@ class ProductService:
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
                     "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
+                    "top_candidates": top_candidates_for_source[:3],
                 }
             )
             _report(
