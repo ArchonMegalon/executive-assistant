@@ -536,6 +536,50 @@ def test_db_visibility_and_retention_help_contracts_cover_release_baseline_flags
     assert "SUPPORT_DB_SIZE_LIMIT=<n>" in support_bundle_help
 
 
+def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    db_bootstrap = (ROOT / "scripts/db_bootstrap.sh").read_text(encoding="utf-8")
+    db_status = (ROOT / "scripts/db_status.sh").read_text(encoding="utf-8")
+    db_retention = (ROOT / "scripts/db_retention.sh").read_text(encoding="utf-8")
+    db_size = (ROOT / "scripts/db_size.sh").read_text(encoding="utf-8")
+
+    assert "PROPERTYQUARRY_API_SERVICE=ea-api" in env_example
+    assert "PROPERTYQUARRY_WORKER_SERVICE=ea-worker" in env_example
+    assert "PROPERTYQUARRY_SCHEDULER_SERVICE=ea-scheduler" in env_example
+    assert "PROPERTYQUARRY_DB_SERVICE=ea-db" in env_example
+
+    assert "PROPERTYQUARRY_DB_SERVICE" in readme
+    assert "PROPERTYQUARRY_DB_SERVICE" in runbook
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_bootstrap
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_bootstrap
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_status
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_status
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_retention
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_retention
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in db_size
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in db_size
+
+
+def test_support_bundle_supports_propertyquarry_service_aliases() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    support_bundle = (ROOT / "scripts/support_bundle.sh").read_text(encoding="utf-8")
+
+    assert "scripts/support_bundle.sh" in readme
+    assert "scripts/support_bundle.sh" in runbook
+    assert "PROPERTYQUARRY_API_SERVICE" in readme
+    assert "PROPERTYQUARRY_DB_SERVICE" in readme
+    assert "PROPERTYQUARRY_API_SERVICE" in runbook
+    assert "PROPERTYQUARRY_DB_SERVICE" in runbook
+    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in support_bundle
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in support_bundle
+    assert '"${DC[@]}" logs --tail "${TAIL_LINES}" "${API_SERVICE}"' in support_bundle
+    assert '"${DC[@]}" logs --tail "${TAIL_LINES}" "${DB_SERVICE}"' in support_bundle
+    assert 'DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"' in support_bundle
+
+
 def test_db_visibility_and_retention_docs_and_scripts_are_pinned() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
@@ -634,18 +678,64 @@ def test_payfunnels_bootstrap_script_help_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
-
     assert "Prepare PropertyQuarry PayFunnels runtime configuration." in result.stdout
     assert "scripts/bootstrap_payfunnels_propertyquarry.py" in smoke_help
     assert "scripts/bootstrap_payfunnels_propertyquarry.py" in makefile
     assert "scripts/bootstrap_payfunnels_propertyquarry.py" in runbook
 
 
+def test_emailit_bootstrap_script_help_and_wiring() -> None:
+    result = subprocess.run(
+        ["python3", "scripts/bootstrap_emailit_propertyquarry.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    smoke_help = (ROOT / "scripts/smoke_help.sh").read_text(encoding="utf-8")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    assert "Prepare and inspect the PropertyQuarry Emailit sending domain." in result.stdout
+    assert "scripts/bootstrap_emailit_propertyquarry.py" in smoke_help
+    assert "scripts/bootstrap_emailit_propertyquarry.py" in makefile
+    assert "scripts/bootstrap_emailit_propertyquarry.py" in runbook
+
+
+def test_postgres_contract_and_fastestvpn_helpers_support_standalone_paths() -> None:
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    postgres_script = (ROOT / "scripts/test_postgres_contracts.sh").read_text(encoding="utf-8")
+    fastestvpn_script = (ROOT / "scripts/ensure_fastestvpn_proxy_pool.sh").read_text(encoding="utf-8")
+    release_script = (ROOT / "scripts/release_v115_rag.sh").read_text(encoding="utf-8")
+
+    assert 'DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"' in postgres_script
+    assert 'DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"' in postgres_script
+    assert '"${DC[@]}" up -d "${DB_SERVICE}"' in postgres_script
+    assert "compose DB service container" in postgres_script
+
+    assert "PROPERTYQUARRY_PROXY_POOL_NETWORK" in fastestvpn_script
+    assert "PROPERTYQUARRY_FASTESTVPN_PROXY_IMAGE" in fastestvpn_script
+    assert 'root = Path("/docker/property/vpn/fastestvpn")' in fastestvpn_script
+    assert "/docker/EA/vpn/fastestvpn" not in fastestvpn_script
+
+    assert "/docker/property/scripts/release_v115_rag.sh prune_meta" in release_script
+    assert "/docker/property/scripts/release_v115_rag.sh prune_pycache" in release_script
+    assert "/docker/property/scripts/release_v115_rag.sh clean_rewrite_baseline" in release_script
+
+    assert "/docker/property/docker-compose.fastestvpn.yml" in runbook
+    assert "/docker/property/vpn/fastestvpn/README.md" in runbook
+    assert "/docker/property/scripts/bootstrap_fastestvpn_configs.sh" in runbook
+    assert "/docker/property/scripts/rotate_fastestvpn_proxy.sh" in runbook
+    assert "/docker/property/LTDs.md" in runbook
+    assert "/docker/property/SKILLS.md" in runbook
+
+
 def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
     smoke = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
 
     assert "exports OpenAPI and verifies paused session-step dependency examples" in smoke
-    assert "--force-recreate ea-api" in smoke
+    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
+    assert '"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}"' in smoke
     assert "bash scripts/export_openapi.sh" in smoke
     assert "step-artifact-save-waiting-approval" in smoke
     assert "step-artifact-save-blocked-human" in smoke

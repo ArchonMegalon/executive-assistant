@@ -77,7 +77,9 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert 'X-EA-API-Token: ${EA_API_TOKEN}' in (ROOT / "scripts/smoke_api.sh").read_text()
     assert 'set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"' in smoke
     assert "docker cp" in smoke
-    assert "ea-api bash /app/scripts/smoke_api.sh" in smoke
+    assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
+    assert 'resolve_service_container()' in smoke
+    assert '"${API_CONTAINER}" bash /app/scripts/smoke_api.sh' in smoke
     assert "refresh_ltds_via_api.sh" in smoke
     assert "refresh_ltds_via_api.py" in smoke
     assert "container_operator_principal=" in smoke
@@ -86,7 +88,7 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "wait_for_postgres_sql 90" in smoke
     assert "consecutive=$((consecutive + 1))" in smoke
     assert "compose up (api + worker)" in smoke
-    assert "ea-api ea-worker" in smoke
+    assert '"${API_SERVICE}" "${WORKER_SERVICE}"' in smoke
     assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
     assert "python -m playwright install --with-deps chromium" in workflow
 
@@ -290,6 +292,7 @@ def test_smoke_help_has_help_contract_and_operator_help_wiring() -> None:
         "scripts/verify_ltd_critical_entries.py",
         "scripts/verify_ltd_flagship_subset.py",
         "scripts/bootstrap_payfunnels_propertyquarry.py",
+        "scripts/bootstrap_emailit_propertyquarry.py",
     ):
         assert rel in makefile
         assert rel in smoke_help

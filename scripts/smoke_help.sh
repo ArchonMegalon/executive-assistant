@@ -45,6 +45,7 @@ SCRIPTS=(
   scripts/support_bundle.sh
   scripts/archive_tasks.sh
   scripts/bootstrap_payfunnels_propertyquarry.py
+  scripts/bootstrap_emailit_propertyquarry.py
   scripts/verify_release_assets.sh
 )
 
