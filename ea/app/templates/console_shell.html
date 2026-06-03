@@ -154,6 +154,86 @@
   .console-form[data-console-form-variant="property_search"] .console-plan-card {
     gap: 10px;
   }
+  .property-shortlist-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .property-shortlist-card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    padding: 14px;
+    display: grid;
+    gap: 10px;
+  }
+  .property-shortlist-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .property-shortlist-head strong {
+    display: block;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .property-shortlist-meta,
+  .property-shortlist-copy {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .property-shortlist-reasons {
+    display: grid;
+    gap: 6px;
+  }
+  .property-shortlist-reasons ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .property-shortlist-reasons li + li {
+    margin-top: 3px;
+  }
+  .property-feedback-row,
+  .property-feedback-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .property-feedback-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 12px;
+    padding: 7px 10px;
+    cursor: pointer;
+  }
+  .property-feedback-chip.active {
+    border-color: rgba(214, 166, 63, 0.45);
+    background: rgba(214, 166, 63, 0.12);
+    color: var(--text);
+  }
+  .property-feedback-note {
+    width: 100%;
+    min-height: 70px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+    resize: vertical;
+  }
+  .property-feedback-status {
+    min-height: 18px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
   .console-focus {
     display: grid;
     gap: 14px;
@@ -366,6 +446,9 @@
     .console-form[data-console-form-variant="property_search"] select,
     .console-form[data-console-form-variant="property_search"] textarea {
       padding: 12px;
+    }
+    .property-shortlist-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
@@ -863,6 +946,69 @@
           <div class="console-run-sources" data-property-run-sources></div>
           <div class="console-run-events" data-property-run-events></div>
         </section>
+        {% set shortlist_candidates = property_meta.get('shortlist_candidates') or [] %}
+        {% if shortlist_candidates %}
+        <section class="property-shortlist-grid" data-property-shortlist-grid>
+          {% for candidate in shortlist_candidates %}
+          <article
+            class="property-shortlist-card"
+            data-property-card
+            data-property-payload='{{ candidate|tojson|safe }}'
+            data-feedback-person-id='{{ property_meta.get("feedback_person_id") or "self" }}'
+          >
+            <div class="property-shortlist-head">
+              <div>
+                <strong>{{ candidate.get('title') }}</strong>
+                <div class="property-shortlist-meta">{{ candidate.get('source_label') }} | {{ candidate.get('fit_summary') or candidate.get('detail') }}</div>
+              </div>
+              <span class="console-tag">{{ candidate.get('tag') or 'Candidate' }}</span>
+            </div>
+            {% if candidate.get('detail') %}
+            <div class="property-shortlist-copy">{{ candidate.get('detail') }}</div>
+            {% endif %}
+            <div class="property-shortlist-reasons">
+              {% if candidate.get('match_reasons') %}
+              <ul>
+                {% for reason in candidate.get('match_reasons') or [] %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if candidate.get('mismatch_reasons') %}
+              <ul>
+                {% for reason in candidate.get('mismatch_reasons') or [] %}
+                <li>{{ reason }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+            <div class="console-row-actions">
+              {% if candidate.get('review_url') %}
+              <a class="console-action" href="{{ candidate.get('review_url') }}">Review packet</a>
+              {% endif %}
+              {% if candidate.get('tour_url') %}
+              <a class="console-action" href="{{ candidate.get('tour_url') }}">Open 360</a>
+              {% endif %}
+              {% if candidate.get('property_url') %}
+              <a class="console-action" href="{{ candidate.get('property_url') }}">Source</a>
+              {% endif %}
+            </div>
+            <div class="property-feedback-row">
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="like">Like</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="maybe">Maybe</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="dislike">Dislike</button>
+              <button class="property-feedback-chip" type="button" data-feedback-reaction="hide">Hide</button>
+            </div>
+            <div class="property-feedback-reasons" data-feedback-reasons></div>
+            <textarea class="property-feedback-note" rows="3" placeholder="What exactly worked or failed?" data-feedback-note></textarea>
+            <div class="console-row-actions">
+              <button class="console-action" type="button" data-feedback-save>Save feedback</button>
+            </div>
+            <div class="property-feedback-status" data-feedback-status></div>
+          </article>
+          {% endfor %}
+        </section>
+        {% endif %}
         {% else %}
         <button class="console-action" type="submit">{{ console_form.get('submit_label') or 'Save' }}</button>
         {% endif %}
@@ -932,6 +1078,9 @@
         </label>`;
     }).join('');
   };
+
+  const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
+  const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
 
   const collectPayload = (form) => {
     const selectedPlatforms = selectedPlatformsForForm(form);
@@ -1145,6 +1294,107 @@
           if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start PayPal checkout.';
         }
       });
+    }
+
+    for (const card of [...form.querySelectorAll('[data-property-card]')]) {
+      let payload = {};
+      try {
+        payload = JSON.parse(String(card.getAttribute('data-property-payload') || '{}'));
+      } catch (_error) {
+        payload = {};
+      }
+      const personId = String(card.getAttribute('data-feedback-person-id') || meta.feedback_person_id || 'self').trim() || 'self';
+      const reasonsNode = card.querySelector('[data-feedback-reasons]');
+      const statusNode = card.querySelector('[data-feedback-status]');
+      const noteNode = card.querySelector('[data-feedback-note]');
+      const reactionButtons = [...card.querySelectorAll('[data-feedback-reaction]')];
+      const saveButton = card.querySelector('[data-feedback-save]');
+      let selectedReaction = '';
+      const selectedReasonKeys = new Set();
+
+      const renderReasonChips = (suggestions) => {
+        if (!reasonsNode) return;
+        const rows = []
+          .concat(Array.isArray(suggestions?.positive) ? suggestions.positive : [])
+          .concat(Array.isArray(suggestions?.negative) ? suggestions.negative : []);
+        reasonsNode.innerHTML = rows.map((row) => {
+          const key = String(row.key || '').trim();
+          const label = String(row.label || key || 'Reason').trim();
+          return `<button class="property-feedback-chip" type="button" data-feedback-reason="${key}">${label}</button>`;
+        }).join('');
+        for (const chip of [...reasonsNode.querySelectorAll('[data-feedback-reason]')]) {
+          chip.addEventListener('click', () => {
+            const key = String(chip.getAttribute('data-feedback-reason') || '').trim();
+            if (!key) return;
+            if (selectedReasonKeys.has(key)) {
+              selectedReasonKeys.delete(key);
+              chip.classList.remove('active');
+            } else {
+              selectedReasonKeys.add(key);
+              chip.classList.add('active');
+            }
+          });
+        }
+      };
+
+      const loadSuggestions = async () => {
+        if (!reasonsNode) return;
+        try {
+          const response = await fetch(propertyFeedbackReasonsEndpoint(personId), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              property_facts: payload.property_facts || {},
+              assessment: payload.assessment || {},
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not load feedback suggestions.'));
+          renderReasonChips(body);
+        } catch (_error) {
+          reasonsNode.innerHTML = '';
+        }
+      };
+
+      for (const button of reactionButtons) {
+        button.addEventListener('click', () => {
+          selectedReaction = String(button.getAttribute('data-feedback-reaction') || '').trim();
+          for (const candidateButton of reactionButtons) {
+            candidateButton.classList.toggle('active', candidateButton === button);
+          }
+        });
+      }
+
+      saveButton?.addEventListener('click', async () => {
+        if (!statusNode) return;
+        if (!selectedReaction) {
+          statusNode.textContent = 'Choose a reaction first.';
+          return;
+        }
+        statusNode.textContent = 'Saving feedback…';
+        try {
+          const response = await fetch(propertyFeedbackSaveEndpoint(personId), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              property_slug: '',
+              property_url: String(payload.property_url || '').trim(),
+              property_title: String(payload.title || '').trim(),
+              property_facts: payload.property_facts || {},
+              reaction: selectedReaction,
+              reason_keys: [...selectedReasonKeys],
+              note: noteNode ? String(noteNode.value || '').trim() : '',
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
+          statusNode.textContent = 'Saved. Reload the page to see the updated learning summary.';
+        } catch (error) {
+          statusNode.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
+        }
+      });
+
+      loadSuggestions();
     }
   }
 })();

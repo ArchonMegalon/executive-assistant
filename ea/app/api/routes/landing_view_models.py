@@ -316,6 +316,7 @@ def app_section_payload(
         if isinstance(source, dict)
     ]
     property_shortlist_rows: list[dict[str, str]] = []
+    property_shortlist_cards: list[dict[str, object]] = []
     for source in list(property_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
@@ -377,6 +378,23 @@ def app_section_payload(
                     row["action_method"] = "get"
                     row["action_label"] = "Source"
             property_shortlist_rows.append(row)
+            property_shortlist_cards.append(
+                {
+                    "title": title,
+                    "source_label": source_label,
+                    "detail": row["detail"],
+                    "tag": row["tag"],
+                    "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                    "recommendation": str(candidate.get("recommendation") or "").strip(),
+                    "property_url": property_url,
+                    "review_url": review_url,
+                    "tour_url": tour_url,
+                    "match_reasons": match_reasons,
+                    "mismatch_reasons": mismatch_reasons,
+                    "property_facts": dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {},
+                    "assessment": dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
+                }
+            )
     property_shortlist_rows.sort(
         key=lambda item: (
             "shortlist" not in str(item.get("tag") or "").lower(),
@@ -385,6 +403,7 @@ def app_section_payload(
         )
     )
     property_shortlist_rows = property_shortlist_rows[:8]
+    property_shortlist_cards = property_shortlist_cards[:6]
     property_learning_summary = dict(property_state.get("learning_summary") or {})
     property_learning_rows = [
         row_item(entry, "Learned positive preference from explicit filters or listing feedback.", "Learnt")
@@ -538,6 +557,8 @@ def app_section_payload(
             "commercial": dict(property_state.get("commercial") or {}),
             "paypal_checkout_enabled": bool(property_state.get("paypal_checkout_enabled")),
             "paypal_order_endpoint": str(property_state.get("paypal_order_endpoint") or ""),
+            "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
+            "shortlist_candidates": property_shortlist_cards,
         },
     }
 

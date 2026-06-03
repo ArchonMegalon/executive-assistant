@@ -13397,6 +13397,7 @@ class ProductService:
                         "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
                         "title": compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160),
                         "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
+                        "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "fit_score": _property_scout_rank_score(
                             property_url=property_url,
@@ -13547,6 +13548,8 @@ class ProductService:
                         "tour_url": str(tour_result.get("tour_url") or "").strip(),
                         "tour_status": str(tour_result.get("status") or "").strip(),
                         "blocked_reason": str(tour_result.get("blocked_reason") or "").strip(),
+                        "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                        "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "match_reasons": [
                             str(item or "").strip()
                             for item in list(assessment.get("match_reasons_json") or [])
