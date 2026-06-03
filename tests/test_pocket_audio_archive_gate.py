@@ -102,3 +102,36 @@ def test_pocket_audio_archive_gate_fails_when_backfill_or_teable_sync_is_not_cle
     assert "latest_backfill_archive_failed_total:1" in receipt["failures"]
     assert "latest_backfill_teable_status:blocked" in receipt["failures"]
     assert "latest_backfill_teable_sync_not_attempted" in receipt["failures"]
+
+
+def test_pocket_audio_archive_gate_keeps_latest_full_backfill_when_newer_incremental_syncs_exist(tmp_path: Path) -> None:
+    archive = tmp_path / "recording.mp3"
+    archive.write_bytes(b"audio")
+    archive.with_suffix(".json").write_text("{}\n", encoding="utf-8")
+
+    sync_rows = [
+        {
+            "event_type": "pocket_recording_sync_completed",
+            "created_at": f"2026-06-03 08:{minute:02d}:00+02",
+            "recording_total": "0",
+            "archived_total": "0",
+            "archive_dismissed_total": "0",
+            "archive_failed_total": "0",
+            "failed_total": "0",
+            "scan_truncated": "false",
+            "teable_index_status": "noop",
+            "teable_index_row_total": "0",
+            "teable_index_sync_attempted": "false",
+        }
+        for minute in range(0, 30)
+    ]
+
+    receipt = build_receipt(
+        archive_root=tmp_path,
+        index_rows=[_row("pocket-recording:done-1", status="archived", archive_path=archive.as_posix())],
+        completion_rows=sync_rows + [_backfill(archived_total="1", archive_dismissed_total="0", teable_index_row_total="1")],
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["latest_backfill"]["created_at"] == "2026-06-01 08:37:55+02"
+    assert receipt["latest_backfill"]["archived_total"] == "1"

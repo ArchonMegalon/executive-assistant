@@ -363,6 +363,18 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
 
 
+def test_smoke_api_curl_wrapper_retries_transient_runtime_bounces() -> None:
+    smoke_api = (ROOT / "scripts" / "smoke_api.sh").read_text(encoding="utf-8")
+
+    assert "--retry 20" in smoke_api
+    assert "--retry-delay 1" in smoke_api
+    assert "--retry-max-time 120" in smoke_api
+    assert "--retry-all-errors" in smoke_api
+    assert "--retry-connrefused" in smoke_api
+    assert "--connect-timeout 5" in smoke_api
+    assert "--max-time 600" in smoke_api
+
+
 def test_deploy_script_keeps_fastestvpn_overlay_explicit() -> None:
     deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

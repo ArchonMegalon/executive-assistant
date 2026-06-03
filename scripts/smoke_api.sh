@@ -36,7 +36,15 @@ fail() {
 }
 
 curl() {
-  command curl --retry 5 --retry-delay 1 --retry-all-errors --connect-timeout 5 --max-time 600 "$@"
+  command curl \
+    --retry 20 \
+    --retry-delay 1 \
+    --retry-max-time 120 \
+    --retry-all-errors \
+    --retry-connrefused \
+    --connect-timeout 5 \
+    --max-time 600 \
+    "$@"
 }
 
 wait_for_session_status() {

@@ -262,7 +262,6 @@ FROM (
   FROM observation_events
   WHERE channel='product' AND event_type IN ({event_list})
   ORDER BY created_at DESC
-  LIMIT 25
 ) q;
 """,
     )
