@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import secrets
+import sys
 from pathlib import Path
 
 
@@ -55,6 +56,9 @@ def _public_base(env_values: dict[str, str]) -> str:
 
 
 def main() -> int:
+    if any(arg in {"--help", "-h"} for arg in sys.argv[1:]):
+        print("Usage: python3 scripts/bootstrap_payfunnels_propertyquarry.py [--env-file PATH] [--write-env]")
+        print()
     parser = argparse.ArgumentParser(
         description="Prepare PropertyQuarry PayFunnels runtime configuration.",
     )

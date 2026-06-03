@@ -144,6 +144,9 @@ def _send_probe(
 
 
 def main() -> int:
+    if any(arg in {"--help", "-h"} for arg in sys.argv[1:]):
+        print("Usage: python3 scripts/bootstrap_emailit_propertyquarry.py [--env-file PATH] [--verify] [--send-test-to EMAIL]")
+        print()
     parser = argparse.ArgumentParser(description="Prepare and inspect the PropertyQuarry Emailit sending domain.")
     parser.add_argument("--env-file", default=str(_default_env_file()), help="Env file to inspect.")
     parser.add_argument("--domain", default="propertyquarry.com", help="Sending domain to inspect or create.")
