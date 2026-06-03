@@ -183,6 +183,8 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     response = client.get("/app/properties", params={"run_id": "run-42"})
     assert response.status_code == 200
     assert "Run a premium market sweep" in response.text
+    assert "Target areas" in response.text
+    assert "What matters" in response.text
     assert "Country" in response.text
     assert "Research language" in response.text
     assert "Berlin" in response.text

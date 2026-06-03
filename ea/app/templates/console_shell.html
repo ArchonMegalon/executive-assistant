@@ -921,7 +921,7 @@
               <li>{{ feature }}</li>
               {% endfor %}
             </ul>
-            {% if property_meta.get('paypal_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') %}
+            {% if property_meta.get('billing_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') and plan.get('plan_key') in (property_meta.get('billing_checkout_enabled_plans') or []) %}
             <button class="console-action" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
             {% endif %}
           </section>
@@ -1059,15 +1059,17 @@
     return node ? String(node.value || '').trim() : '';
   };
 
+  const selectedValuesForForm = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)]
+    .map((node) => String(node.value || '').trim())
+    .filter(Boolean);
+
   const integerValue = (form, name) => {
     const raw = fieldValue(form, name);
     const parsed = Number.parseInt(raw, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   };
 
-  const selectedPlatformsForForm = (form) => [...form.querySelectorAll('input[name="selected_platforms"]:checked')]
-    .map((node) => String(node.value || '').trim())
-    .filter(Boolean);
+  const selectedPlatformsForForm = (form) => selectedValuesForForm(form, 'selected_platforms');
 
   const renderPlatformOptions = (form, options, selectedValues) => {
     const inputs = [...form.querySelectorAll('input[name="selected_platforms"]')];
@@ -1188,6 +1190,8 @@
 
   const collectPayload = (form) => {
     const selectedPlatforms = selectedPlatformsForForm(form);
+    const selectedLocations = selectedValuesForForm(form, 'location_query');
+    const selectedKeywords = selectedValuesForForm(form, 'keywords');
     const parsedMaxResults = integerValue(form, 'max_results_per_source');
     return {
       selected_platforms: selectedPlatforms,
@@ -1197,8 +1201,8 @@
         language_code: fieldValue(form, 'language_code') || 'en',
         listing_mode: fieldValue(form, 'listing_mode') || 'rent',
         property_type: fieldValue(form, 'property_type') || 'any',
-        location_query: fieldValue(form, 'location_query'),
-        keywords: fieldValue(form, 'keywords'),
+        location_query: selectedLocations.join(', '),
+        keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
         max_price_eur: integerValue(form, 'max_price_eur'),
         min_rooms: integerValue(form, 'min_rooms'),
@@ -1278,21 +1282,22 @@
   const startCheckout = async (form, meta, planKey) => {
     const statusNode = form.querySelector('[data-property-billing-status]');
     const errorNode = form.querySelector('[data-property-billing-error]');
-    if (statusNode) statusNode.textContent = 'Opening PayPal checkout…';
+    const providerLabel = String(meta.billing_checkout_provider_label || 'checkout').trim() || 'checkout';
+    if (statusNode) statusNode.textContent = `Opening ${providerLabel} checkout…`;
     if (errorNode) errorNode.textContent = '';
-    const response = await fetch(String(meta.paypal_order_endpoint || ''), {
+    const response = await fetch(String(meta.billing_order_endpoint || ''), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ plan_key: planKey }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(String(body.detail || 'Could not start PayPal checkout.'));
+      throw new Error(String(body.detail || `Could not start ${providerLabel} checkout.`));
     }
-    if (statusNode) statusNode.textContent = 'Redirecting to PayPal…';
+    if (statusNode) statusNode.textContent = `Redirecting to ${providerLabel}…`;
     const approveUrl = String(body.approve_url || '').trim();
     if (!approveUrl) {
-      throw new Error('PayPal approval URL missing.');
+      throw new Error(`${providerLabel} approval URL missing.`);
     }
     window.location.href = approveUrl;
   };
@@ -1395,7 +1400,7 @@
           const errorNode = form.querySelector('[data-property-billing-error]');
           const statusNode = form.querySelector('[data-property-billing-status]');
           if (statusNode) statusNode.textContent = '';
-          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start PayPal checkout.';
+          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start checkout.';
         }
       });
     }

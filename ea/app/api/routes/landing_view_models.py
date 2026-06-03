@@ -3,6 +3,122 @@ from __future__ import annotations
 from typing import Any
 
 
+def _csv_values(value: object) -> list[str]:
+    seen: set[str] = set()
+    values: list[str] = []
+    for raw in str(value or "").split(","):
+        normalized = str(raw or "").strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        values.append(normalized)
+    return values
+
+
+def _merge_option_catalog(
+    base: list[dict[str, str]],
+    selected_values: list[str],
+) -> list[dict[str, str]]:
+    values = {str(item.get("value") or "").strip().lower() for item in base if str(item.get("value") or "").strip()}
+    merged = list(base)
+    for value in selected_values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized.lower() in values:
+            continue
+        merged.append({"value": normalized, "label": normalized, "detail": "Saved preference"})
+        values.add(normalized.lower())
+    return merged
+
+
+def _property_location_options(country_code: str) -> list[dict[str, str]]:
+    catalogs: dict[str, list[dict[str, str]]] = {
+        "AT": [
+            {"value": "1010 Vienna", "label": "1010 Vienna", "detail": "Innere Stadt"},
+            {"value": "1020 Vienna", "label": "1020 Vienna", "detail": "Leopoldstadt"},
+            {"value": "1030 Vienna", "label": "1030 Vienna", "detail": "Landstrasse"},
+            {"value": "1040 Vienna", "label": "1040 Vienna", "detail": "Wieden"},
+            {"value": "1050 Vienna", "label": "1050 Vienna", "detail": "Margareten"},
+            {"value": "1060 Vienna", "label": "1060 Vienna", "detail": "Mariahilf"},
+            {"value": "1070 Vienna", "label": "1070 Vienna", "detail": "Neubau"},
+            {"value": "1080 Vienna", "label": "1080 Vienna", "detail": "Josefstadt"},
+            {"value": "1090 Vienna", "label": "1090 Vienna", "detail": "Alsergrund"},
+            {"value": "1120 Vienna", "label": "1120 Vienna", "detail": "Meidling"},
+            {"value": "1180 Vienna", "label": "1180 Vienna", "detail": "Waehring"},
+            {"value": "1190 Vienna", "label": "1190 Vienna", "detail": "Doebling"},
+            {"value": "1200 Vienna", "label": "1200 Vienna", "detail": "Brigittenau"},
+            {"value": "1210 Vienna", "label": "1210 Vienna", "detail": "Floridsdorf"},
+            {"value": "1220 Vienna", "label": "1220 Vienna", "detail": "Donaustadt"},
+            {"value": "1230 Vienna", "label": "1230 Vienna", "detail": "Liesing"},
+            {"value": "Klosterneuburg", "label": "Klosterneuburg", "detail": "Vienna outskirts"},
+            {"value": "Mödling", "label": "Mödling", "detail": "South of Vienna"},
+            {"value": "Purkersdorf", "label": "Purkersdorf", "detail": "West of Vienna"},
+        ],
+        "DE": [
+            {"value": "Berlin Mitte", "label": "Berlin Mitte", "detail": "Central Berlin"},
+            {"value": "Berlin Prenzlauer Berg", "label": "Berlin Prenzlauer Berg", "detail": "Family-friendly"},
+            {"value": "Berlin Charlottenburg", "label": "Berlin Charlottenburg", "detail": "West Berlin"},
+            {"value": "Munich", "label": "Munich", "detail": "City-wide"},
+            {"value": "Hamburg", "label": "Hamburg", "detail": "City-wide"},
+        ],
+        "ES": [
+            {"value": "Barcelona", "label": "Barcelona", "detail": "City-wide"},
+            {"value": "Eixample", "label": "Eixample", "detail": "Central Barcelona"},
+            {"value": "Madrid", "label": "Madrid", "detail": "City-wide"},
+            {"value": "Valencia", "label": "Valencia", "detail": "City-wide"},
+        ],
+        "IT": [
+            {"value": "Milan", "label": "Milan", "detail": "City-wide"},
+            {"value": "Rome", "label": "Rome", "detail": "City-wide"},
+            {"value": "Bologna", "label": "Bologna", "detail": "City-wide"},
+        ],
+        "FR": [
+            {"value": "Paris", "label": "Paris", "detail": "City-wide"},
+            {"value": "Lyon", "label": "Lyon", "detail": "City-wide"},
+            {"value": "Marseille", "label": "Marseille", "detail": "City-wide"},
+        ],
+        "NL": [
+            {"value": "Amsterdam", "label": "Amsterdam", "detail": "City-wide"},
+            {"value": "Rotterdam", "label": "Rotterdam", "detail": "City-wide"},
+            {"value": "Utrecht", "label": "Utrecht", "detail": "City-wide"},
+        ],
+        "GB": [
+            {"value": "London", "label": "London", "detail": "City-wide"},
+            {"value": "Manchester", "label": "Manchester", "detail": "City-wide"},
+            {"value": "Bristol", "label": "Bristol", "detail": "City-wide"},
+        ],
+        "US": [
+            {"value": "Brooklyn", "label": "Brooklyn", "detail": "New York City"},
+            {"value": "Queens", "label": "Queens", "detail": "New York City"},
+            {"value": "Jersey City", "label": "Jersey City", "detail": "New Jersey"},
+            {"value": "San Francisco", "label": "San Francisco", "detail": "Bay Area"},
+            {"value": "Boston", "label": "Boston", "detail": "City-wide"},
+        ],
+    }
+    return list(catalogs.get(str(country_code or "").strip().upper(), []))
+
+
+def _property_keyword_options() -> list[dict[str, str]]:
+    return [
+        {"value": "lift", "label": "Lift", "detail": "Elevator in the building"},
+        {"value": "balcony", "label": "Balcony", "detail": "Outdoor private space"},
+        {"value": "terrace", "label": "Terrace", "detail": "Large outdoor space"},
+        {"value": "family", "label": "Family-friendly", "detail": "Good fit for children"},
+        {"value": "playground nearby", "label": "Playground nearby", "detail": "Walkable play options"},
+        {"value": "supermarket nearby", "label": "Supermarket nearby", "detail": "Daily errands close by"},
+        {"value": "pharmacy nearby", "label": "Pharmacy nearby", "detail": "Healthcare basics nearby"},
+        {"value": "underground nearby", "label": "Underground nearby", "detail": "Fast transit access"},
+        {"value": "no gas", "label": "No gas heating", "detail": "Avoid gas-based systems"},
+        {"value": "district heating", "label": "District heating", "detail": "Prefer Fernwärme"},
+        {"value": "parking", "label": "Parking", "detail": "Car-friendly"},
+        {"value": "pets allowed", "label": "Pets allowed", "detail": "Pet-friendly rules"},
+        {"value": "quiet", "label": "Quiet", "detail": "Lower street noise"},
+        {"value": "bright", "label": "Bright", "detail": "Good natural light"},
+    ]
+
+
 def humanize(value: str) -> str:
     return str(value or "").strip().replace("_", " ") or "unknown"
 
@@ -121,7 +237,7 @@ def delivery_rows(values: object) -> list[dict[str, str]]:
 
 def channel_cards(channels: dict[str, Any]) -> list[dict[str, str]]:
     ordered = (
-        ("google", "Google Core", "/integrations/google"),
+        ("google", "Google sign-in", "/integrations/google"),
         ("telegram", "Telegram", "/integrations/telegram"),
         ("whatsapp", "WhatsApp", "/integrations/whatsapp"),
     )
@@ -174,7 +290,7 @@ def app_section_payload(
     ]
     first_brief = list_rows(
         preview.get("first_brief_preview") or preview.get("first_brief"),
-        ("Connect Google Core to generate the first morning memo.",),
+        ("Connect Google sign-in if you want a faster return path and verified account access.",),
     )
     suggested = list_rows(preview.get("suggested_actions"), ("Finish onboarding and request the first memo.",))
     trust_notes = list_rows(preview.get("trust_notes"), ("Keep approvals and retention rules explicit.",))
@@ -213,7 +329,7 @@ def app_section_payload(
         ),
         row_item(
             "Connect Google for workspace context",
-            "Treat Google as the first data connection for memo, queue, and people context.",
+            "Treat Google as optional account access first; only widen scopes later if the product truly needs them.",
             "Linked",
         ),
         row_item(
@@ -240,6 +356,8 @@ def app_section_payload(
     property_listing_mode_label = str(property_state.get("listing_mode_label") or "Rent")
     property_type_label = str(property_state.get("property_type_label") or "Any type")
     property_provider_total_for_country = int(property_state.get("provider_total_for_country") or 0)
+    selected_location_values = _csv_values(property_preferences.get("location_query"))
+    selected_keyword_values = _csv_values(property_preferences.get("keywords"))
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
@@ -254,6 +372,8 @@ def app_section_payload(
         for option in list(property_state.get("platform_options") or [])
         if isinstance(option, dict)
     ]
+    location_options = _merge_option_catalog(_property_location_options(str(property_preferences.get("country_code") or "AT")), selected_location_values)
+    keyword_options = _merge_option_catalog(_property_keyword_options(), selected_keyword_values)
     property_selected_platform_labels = [
         str(option.get("label") or option.get("value") or "").strip()
         for option in platform_options
@@ -483,11 +603,11 @@ def app_section_payload(
                 "options": property_type_options,
             },
             {
-                "type": "text",
+                "type": "checkbox_group",
                 "name": "location_query",
-                "label": "Location query",
-                "value": str(property_preferences.get("location_query") or ""),
-                "placeholder": "Vienna, Berlin, Barcelona, Brooklyn",
+                "label": "Target areas",
+                "options": location_options,
+                "values": selected_location_values,
             },
             {
                 "type": "checkbox_group",
@@ -497,11 +617,11 @@ def app_section_payload(
                 "values": list(selected_platforms),
             },
             {
-                "type": "text",
+                "type": "checkbox_group",
                 "name": "keywords",
-                "label": "Keywords",
-                "value": str(property_preferences.get("keywords") or ""),
-                "placeholder": "lift, family, balcony, no gas",
+                "label": "What matters",
+                "options": keyword_options,
+                "values": selected_keyword_values,
             },
             {
                 "type": "text",
@@ -555,8 +675,11 @@ def app_section_payload(
             "platform_catalog_by_country": dict(property_state.get("platform_catalog_by_country") or {}),
             "default_language_by_country": dict(property_state.get("default_language_by_country") or {}),
             "commercial": dict(property_state.get("commercial") or {}),
-            "paypal_checkout_enabled": bool(property_state.get("paypal_checkout_enabled")),
-            "paypal_order_endpoint": str(property_state.get("paypal_order_endpoint") or ""),
+            "billing_checkout_enabled": bool(property_state.get("billing_checkout_enabled")),
+            "billing_checkout_enabled_plans": list(property_state.get("billing_checkout_enabled_plans") or []),
+            "billing_checkout_provider": str(property_state.get("billing_checkout_provider") or ""),
+            "billing_checkout_provider_label": str(property_state.get("billing_checkout_provider_label") or ""),
+            "billing_order_endpoint": str(property_state.get("billing_order_endpoint") or ""),
             "feedback_person_id": str(property_preferences.get("preference_person_id") or "self"),
             "shortlist_candidates": property_shortlist_cards,
         },
@@ -578,7 +701,7 @@ def app_section_payload(
                     "items": live_queue
                     or string_rows(
                         first_brief,
-                        ("Connect Google Core to unlock the first useful memo.",),
+                        ("Connect Google sign-in if you want easier return access from the same account.",),
                         tag="Next",
                         detail="This is the shortest path to a real working day.",
                     ),
@@ -703,7 +826,7 @@ def app_section_payload(
             "title": "Channels",
             "summary": "Channels widen coverage. They never redefine the product core or become the main story of the workspace.",
             "cards": [
-                {"eyebrow": "Google", "title": cards[0]["label"], "items": [cards[0]["detail"], cards[0]["summary"] or "Google Core is the recommended first connection."]},
+                {"eyebrow": "Google", "title": cards[0]["label"], "items": [cards[0]["detail"], cards[0]["summary"] or "Google sign-in is the recommended first connection."]},
                 {"eyebrow": "Telegram", "title": cards[1]["label"], "items": [cards[1]["detail"], cards[1]["summary"] or "Personal identity and bot install stay distinct."]},
                 {"eyebrow": "WhatsApp", "title": cards[2]["label"], "items": [cards[2]["detail"], cards[2]["summary"] or "Business onboarding and export intake stay separate."]},
             ],
@@ -730,7 +853,7 @@ def app_section_payload(
             "title": "Rules",
             "summary": "Rules stay boring and explicit once the first working loop already exists.",
             "cards": [
-                {"eyebrow": "Workspace", "title": "Current workspace posture", "items": string_rows([f"Name: {workspace.get('name') or 'Executive Assistant'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No workspace posture yet.",), tag="Workspace", detail="These are the current office defaults.")},
+                {"eyebrow": "Workspace", "title": "Current workspace posture", "items": string_rows([f"Name: {workspace.get('name') or 'PropertyQuarry'}", f"Mode: {humanize(str(workspace.get('mode') or 'personal'))}", f"Timezone: {workspace.get('timezone') or 'unspecified'}", f"Region: {workspace.get('region') or 'unspecified'}"], ("No workspace posture yet.",), tag="Workspace", detail="These are the current office defaults.")},
                 {"eyebrow": "Policy", "title": "Assistant behavior", "items": string_rows(privacy_lines, ("No privacy posture set yet.",), tag="Rule", detail="These controls shape what the assistant may do.")},
                 {"eyebrow": "Channels", "title": "Selected linked channels", "items": channel_items},
             ],
