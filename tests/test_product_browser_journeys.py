@@ -266,8 +266,8 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
     assert settings.status_code == 200
-    assert "/app/settings/google" in settings.text
-    assert "Token status" in settings.text
+    assert "Identity and return access" in settings.text
+    assert "Current search brief state" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
     assert "Office signals ingested" not in settings.text

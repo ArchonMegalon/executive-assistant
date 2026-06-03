@@ -41,6 +41,7 @@ from app.api.routes.landing_view_models import (
     channel_cards as _channel_cards,
     humanize as _humanize,
     list_rows as _list_rows,
+    property_workspace_payload as _property_workspace_payload,
 )
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
@@ -1303,29 +1304,33 @@ def app_shell(
     run_id: str = Query(default=""),
 ) -> HTMLResponse:
     brand = request_brand(request)
+    property_brand = brand["key"] == "propertyquarry"
     nav_groups = app_nav_groups_for_brand(brand["key"])
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}
-    allowed.update(
-        {
-            "today",
-            "queue",
-            "commitments",
-            "people",
-            "evidence",
-            "properties",
-            "settings",
-            "search",
-            "channel-loop",
-            "briefing",
-            "inbox",
-            "follow-ups",
-            "memory",
-            "contacts",
-            "activity",
-            "channels",
-            "automations",
-        }
-    )
+    if property_brand:
+        allowed.update({"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"})
+    else:
+        allowed.update(
+            {
+                "today",
+                "queue",
+                "commitments",
+                "people",
+                "evidence",
+                "properties",
+                "settings",
+                "search",
+                "channel-loop",
+                "briefing",
+                "inbox",
+                "follow-ups",
+                "memory",
+                "contacts",
+                "activity",
+                "channels",
+                "automations",
+            }
+        )
     if section not in allowed:
         raise HTTPException(status_code=404, detail="app_section_not_found")
     legacy_redirects = {
@@ -1406,7 +1411,8 @@ def app_shell(
                 stats=stats,
             ),
         )
-    core_sections = {"today", "queue", "commitments", "people", "evidence", "activity", "settings"}
+    property_sections = {"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"} if property_brand else set()
+    core_sections = {"today", "queue", "commitments", "people", "evidence", "activity", "settings"} - property_sections
     if resolved_section in core_sections:
         product = build_product_service(container)
         surface_event = {
@@ -1446,23 +1452,51 @@ def app_shell(
                 status=status,
                 run_id=run_id,
             )
-            if resolved_section == "properties"
+            if resolved_section in property_sections or resolved_section == "properties"
             else None
         )
-        if resolved_section == "properties":
+        if resolved_section in property_sections or resolved_section == "properties":
             build_product_service(container).record_surface_event(
                 principal_id=context.principal_id,
-                event_type="properties_opened",
-                surface="properties",
+                event_type=f"{resolved_section}_opened",
+                surface=resolved_section,
                 actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
             )
-        payload = _app_section_payload(
-            resolved_section,
-            status,
-            live_feed=_app_live_feed(container, principal_id=context.principal_id),
-            property_context=property_context,
-        )
+        if property_brand and resolved_section in property_sections:
+            payload = _property_workspace_payload(
+                resolved_section,
+                status=status,
+                property_state=property_context or {},
+            )
+        else:
+            payload = _app_section_payload(
+                resolved_section,
+                status,
+                live_feed=_app_live_feed(container, principal_id=context.principal_id),
+                property_context=property_context,
+            )
     workspace = dict(status.get("workspace") or {})
+    if property_brand and resolved_section in property_sections:
+        return _render_public_template(
+            request,
+            "app/property_workspace.html",
+            **{
+                **_console_shell_context(
+                    request=request,
+                    page_title=f"{request_brand(request)['name']} {payload['title']}",
+                    current_nav=current_nav,
+                    context=context,
+                    console_title=str(payload["title"]),
+                    console_summary=str(payload["summary"]),
+                    nav_groups=nav_groups,
+                    workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+                    cards=list(payload.get("cards") or []),
+                    stats=list(payload["stats"]),
+                    console_form=dict(payload.get("console_form") or {}),
+                ),
+                **payload,
+            },
+        )
     return _render_public_template(
         request,
         "console_shell.html",

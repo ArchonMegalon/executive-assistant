@@ -1096,6 +1096,302 @@ def app_section_payload(
     return payload
 
 
+def property_workspace_payload(
+    section: str,
+    *,
+    status: dict[str, object],
+    property_state: dict[str, object],
+) -> dict[str, object]:
+    base = app_section_payload("properties", status, live_feed=(), property_context=property_state)
+    cards = list(base.get("cards") or [])
+    cards_by_eyebrow = {
+        str(card.get("eyebrow") or "").strip().lower(): dict(card)
+        for card in cards
+        if isinstance(card, dict)
+    }
+    cards_by_title = {
+        str(card.get("title") or "").strip().lower(): dict(card)
+        for card in cards
+        if isinstance(card, dict)
+    }
+    property_form = dict(base.get("console_form") or {})
+    property_meta = dict(property_form.get("meta") or {})
+    commercial = dict(property_state.get("commercial") or {})
+    workspace = dict(status.get("workspace") or {})
+    channels = dict(status.get("channels") or {})
+    google = dict(channels.get("google") or {})
+    current_plan_label = str(commercial.get("current_plan_label") or "Free").strip() or "Free"
+    search_posture_card = cards_by_eyebrow.get("search posture", {})
+    market_coverage_card = cards_by_eyebrow.get("market coverage", {})
+    shortlist_card = cards_by_eyebrow.get("shortlist", {})
+    run_card = cards_by_eyebrow.get("run status", {})
+    learning_card = cards_by_eyebrow.get("learning loop", {})
+    recent_matches_card = cards_by_eyebrow.get("recent matches", {})
+    shortlist_candidates = list(property_meta.get("shortlist_candidates") or [])
+    run_payload = dict(property_state.get("run") or {})
+    run_events = list(run_payload.get("events") or [])
+    run_summary = dict(run_payload.get("summary") or {})
+    preference_rows = [
+        row_item(
+            "Workspace",
+            str(workspace.get("name") or "PropertyQuarry"),
+            "Workspace",
+        ),
+        row_item(
+            "Google sign-in",
+            str(google.get("connected_account_email") or google.get("status") or "Not connected"),
+            "Connection",
+        ),
+        row_item(
+            "Timezone",
+            str(workspace.get("timezone") or "Europe/Vienna"),
+            "Preference",
+        ),
+        row_item(
+            "Active plan",
+            current_plan_label,
+            "Plan",
+        ),
+    ]
+    alerts_rows = list(recent_matches_card.get("items") or []) + [
+        row_item(
+            str(event.get("step") or "Run update").replace("_", " ").strip().title(),
+            str(event.get("message") or "No further detail.").strip() or "No further detail.",
+            str(event.get("status") or "Update").replace("_", " ").strip().title(),
+        )
+        for event in run_events[-4:]
+        if isinstance(event, dict)
+    ]
+    if not alerts_rows:
+        alerts_rows = [
+            row_item(
+                "No client alerts yet",
+                "Hosted pages and review packets will surface here once the first high-fit matches are ready.",
+                "Waiting",
+            )
+        ]
+    billing_rows = [
+        row_item(
+            "Current plan",
+            f"{current_plan_label} | {str(commercial.get('research_depth') or 'deep')} research",
+            "Plan",
+        ),
+        row_item(
+            "Coverage",
+            f"{commercial.get('max_platforms') or 'Multi'} provider lane | up to {commercial.get('max_results_per_source') or 2} results per provider",
+            "Limits",
+        ),
+        row_item(
+            "Checkout",
+            str(property_state.get("billing_checkout_provider_label") or "Unavailable"),
+            "Provider",
+        ),
+    ]
+    if commercial.get("active_until"):
+        billing_rows.append(
+            row_item(
+                "Access window",
+                str(commercial.get("active_until") or "").strip(),
+                "Status",
+            )
+        )
+    research_rows = []
+    for candidate in shortlist_candidates[:6]:
+        title = str(candidate.get("title") or "Research packet").strip() or "Research packet"
+        reasons = list(candidate.get("match_reasons") or [])[:2]
+        mismatches = list(candidate.get("mismatch_reasons") or [])[:2]
+        detail_parts = []
+        if candidate.get("fit_summary"):
+            detail_parts.append(str(candidate.get("fit_summary") or "").strip())
+        if reasons:
+            detail_parts.append("; ".join(str(reason).strip() for reason in reasons if str(reason).strip()))
+        if mismatches:
+            detail_parts.append("Risks: " + "; ".join(str(reason).strip() for reason in mismatches if str(reason).strip()))
+        research_rows.append(
+            {
+                "title": title,
+                "detail": " | ".join(part for part in detail_parts if part) or "Open the packet to inspect the fit and missing evidence.",
+                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Packet").strip() or "Packet",
+                "action_href": str(candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
+                "action_method": "get",
+                "action_label": "Open packet" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else "Open source"),
+                "secondary_action_href": str(candidate.get("tour_url") or "").strip(),
+                "secondary_action_method": "get" if candidate.get("tour_url") else "",
+                "secondary_action_label": "Open 360" if candidate.get("tour_url") and candidate.get("review_url") else "",
+            }
+        )
+    if not research_rows:
+        research_rows = list(recent_matches_card.get("items") or []) or [
+            row_item(
+                "No research packets yet",
+                "The first finished run will promote the strongest matches into full review packets here.",
+                "Waiting",
+            )
+        ]
+
+    sections: dict[str, dict[str, object]] = {
+        "properties": {
+            "title": "Search Brief",
+            "summary": str(base.get("summary") or "Define the search brief, launch the run, and keep the crawl visible."),
+            "hero_kicker": "Search brief",
+            "hero_title": "Shape the next market sweep before the crawlers fan out.",
+            "hero_summary": "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs.",
+            "primary_cards": [search_posture_card, market_coverage_card],
+            "secondary_cards": [run_card, recent_matches_card],
+            "console_form": property_form,
+            "show_brief_form": True,
+            "show_shortlist_cards": False,
+        },
+        "shortlist": {
+            "title": "Shortlist",
+            "summary": "Keep the strongest candidates in one ranked lane and record preference feedback directly on the cards.",
+            "hero_kicker": "Shortlist",
+            "hero_title": "Review only the few properties that deserve attention now.",
+            "hero_summary": "A paying customer should open this first: fit, risks, packet link, 360 link, and one-step feedback instead of operational counters.",
+            "primary_cards": [shortlist_card],
+            "secondary_cards": [run_card, market_coverage_card],
+            "console_form": property_form,
+            "show_brief_form": False,
+            "show_shortlist_cards": True,
+        },
+        "research": {
+            "title": "Research",
+            "summary": "Turn high-fit candidates into property dossiers with evidence, packets, and hosted follow-ups.",
+            "hero_kicker": "Research packets",
+            "hero_title": "Inspect the evidence before you open the raw listing.",
+            "hero_summary": "This lane should feel like a property dossier desk: fit reasons, missing facts, packet links, and hosted tours where they exist.",
+            "primary_cards": [
+                {
+                    "eyebrow": "Research packets",
+                    "title": "Open the strongest packets first",
+                    "body": "Hosted packet links and 360 tours stay primary. Raw portal links remain secondary.",
+                    "items": research_rows,
+                }
+            ],
+            "secondary_cards": [recent_matches_card, run_card],
+            "console_form": {},
+            "show_brief_form": False,
+            "show_shortlist_cards": False,
+        },
+        "profile": {
+            "title": "Profile Learning",
+            "summary": "Show what the ranking learned, what should be suppressed next time, and which rules remain explicit.",
+            "hero_kicker": "Profile learning",
+            "hero_title": "Make the learning loop visible and editable.",
+            "hero_summary": "Likes, dislikes, and hard rules must survive beyond one run. This lane is where the ranking becomes personal instead of repeating the same weak matches.",
+            "primary_cards": [learning_card],
+            "secondary_cards": [
+                {
+                    "eyebrow": "Saved posture",
+                    "title": "Current profile state",
+                    "body": "The saved search posture should be easy to inspect without reopening the full brief.",
+                    "items": list(search_posture_card.get("items") or []),
+                },
+                {
+                    "eyebrow": "Account",
+                    "title": "Who this profile belongs to",
+                    "body": "Identity and connection state stay narrow and explicit on PropertyQuarry.",
+                    "items": preference_rows,
+                },
+            ],
+            "console_form": {},
+            "show_brief_form": False,
+            "show_shortlist_cards": False,
+        },
+        "alerts": {
+            "title": "Alerts",
+            "summary": "Track what has already been delivered and which run events are preparing the next outbound packet.",
+            "hero_kicker": "Alerts",
+            "hero_title": "See what has been sent and what is about to leave.",
+            "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, review packets, and run updates visible in one lane.",
+            "primary_cards": [
+                {
+                    "eyebrow": "Client alerts",
+                    "title": "Recent outbound property follow-ups",
+                    "body": "Hosted pages, review briefs, and run updates that mattered enough to notify the client.",
+                    "items": alerts_rows,
+                }
+            ],
+            "secondary_cards": [run_card, recent_matches_card],
+            "console_form": {},
+            "show_brief_form": False,
+            "show_shortlist_cards": False,
+        },
+        "billing": {
+            "title": "Billing",
+            "summary": "Keep plan state, checkout path, and usage posture visible without mixing them into the shortlist surface.",
+            "hero_kicker": "Billing",
+            "hero_title": "Control the research tier without losing the search context.",
+            "hero_summary": "The billing lane should explain what the current plan unlocks, what is capped, and how the next upgrade changes the search depth.",
+            "primary_cards": [
+                {
+                    "eyebrow": "Plan posture",
+                    "title": "Current commercial state",
+                    "body": "Free should prove the product. Paid should expand research, provider breadth, and automation cleanly.",
+                    "items": billing_rows,
+                }
+            ],
+            "secondary_cards": [
+                {
+                    "eyebrow": "Upgrade impact",
+                    "title": "What changes with the next tier",
+                    "body": "Keep the plan delta legible before you open checkout.",
+                    "items": [
+                        row_item(
+                            str(plan.get("display_name") or "Plan"),
+                            ", ".join(str(feature).strip() for feature in list(plan.get("features") or [])[:3] if str(feature).strip()) or "No plan details available.",
+                            "Plan",
+                        )
+                        for plan in list(commercial.get("plan_catalog") or [])
+                        if isinstance(plan, dict)
+                    ] or [row_item("No upgrade catalog yet", "Plan metadata will appear here once the billing catalog is available.", "Waiting")],
+                }
+            ],
+            "console_form": property_form,
+            "show_brief_form": False,
+            "show_shortlist_cards": False,
+            "show_billing_cards": True,
+        },
+        "settings": {
+            "title": "Settings",
+            "summary": "Keep account identity, saved defaults, and connection state narrow and product-specific.",
+            "hero_kicker": "Settings",
+            "hero_title": "Adjust the product without falling back into assistant tooling.",
+            "hero_summary": "PropertyQuarry settings should cover the search profile, Google return access, billing posture, and notifications. Nothing here should look like office sync.",
+            "primary_cards": [
+                {
+                    "eyebrow": "Connections",
+                    "title": "Identity and return access",
+                    "body": "Google is optional identity and easier return access. It is not an office sync contract here.",
+                    "items": preference_rows,
+                },
+                {
+                    "eyebrow": "Saved defaults",
+                    "title": "Current search brief state",
+                    "body": "The saved brief stays visible so you can change the product posture before the next run.",
+                    "items": list(search_posture_card.get("items") or []),
+                },
+            ],
+            "secondary_cards": [billing_rows and {
+                "eyebrow": "Plan",
+                "title": "Commercial posture",
+                "body": "Plan limits and research depth stay visible here too.",
+                "items": billing_rows,
+            } or {}],
+            "console_form": property_form,
+            "show_brief_form": False,
+            "show_shortlist_cards": False,
+        },
+    }
+
+    payload = dict(sections.get(section, sections["properties"]))
+    payload["stats"] = list(base.get("stats") or [])
+    payload["current_plan_label"] = current_plan_label
+    payload["run_payload"] = run_payload
+    payload["run_summary"] = run_summary
+    return payload
+
+
 def admin_section_payload(section: str) -> dict[str, object]:
     mapping: dict[str, dict[str, object]] = {
         "policies": {

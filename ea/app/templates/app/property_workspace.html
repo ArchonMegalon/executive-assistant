@@ -1,0 +1,1210 @@
+{% extends "base_console.html" %}
+{% block content %}
+{% set property_meta = console_form.get('meta') or {} %}
+{% set shortlist_candidates = property_meta.get('shortlist_candidates') or [] %}
+<style>
+  .pq-page,
+  .pq-grid,
+  .pq-card-grid,
+  .pq-form-grid,
+  .pq-choice-grid,
+  .pq-shortlist-grid,
+  .pq-metric-grid,
+  .pq-plan-grid {
+    display: grid;
+    gap: 16px;
+  }
+  .pq-page {
+    margin-top: 8px;
+  }
+  .pq-hero,
+  .pq-panel,
+  .pq-card,
+  .pq-metric,
+  .pq-shortlist-card,
+  .pq-plan-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    box-shadow: var(--shadow);
+  }
+  .pq-hero,
+  .pq-panel,
+  .pq-card,
+  .pq-shortlist-card,
+  .pq-plan-card {
+    padding: 20px;
+  }
+  .pq-hero {
+    display: grid;
+    gap: 18px;
+  }
+  .pq-kicker {
+    color: var(--warn);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pq-hero h2,
+  .pq-panel h3,
+  .pq-card h3,
+  .pq-shortlist-card h3,
+  .pq-plan-card h3 {
+    margin: 0;
+    font-size: clamp(1.5rem, 2vw, 2rem);
+    line-height: 1.2;
+    font-weight: 640;
+    letter-spacing: -0.02em;
+  }
+  .pq-panel h3,
+  .pq-card h3,
+  .pq-shortlist-card h3,
+  .pq-plan-card h3 {
+    font-size: 1.08rem;
+    letter-spacing: -0.015em;
+  }
+  .pq-copy,
+  .pq-row small,
+  .pq-run-note,
+  .pq-note {
+    color: var(--text-soft);
+  }
+  .pq-copy {
+    max-width: 70ch;
+  }
+  .pq-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+    align-items: start;
+  }
+  .pq-card-grid,
+  .pq-plan-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pq-metric-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .pq-metric {
+    padding: 14px;
+  }
+  .pq-metric .label,
+  .pq-card-eyebrow,
+  .pq-step-index {
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .pq-metric strong {
+    display: block;
+    margin-top: 5px;
+    font-size: 1.3rem;
+    font-weight: 620;
+  }
+  .pq-card {
+    display: grid;
+    gap: 10px;
+  }
+  .pq-list {
+    display: grid;
+    gap: 10px;
+  }
+  .pq-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+  }
+  .pq-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .pq-row strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 14px;
+  }
+  .pq-tag,
+  .pq-chip,
+  .pq-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .pq-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .pq-action {
+    background: rgba(138, 164, 255, 0.08);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .pq-action.primary {
+    background: rgba(214, 166, 63, 0.18);
+    border-color: rgba(214, 166, 63, 0.35);
+  }
+  .pq-workspace-meta {
+    display: none;
+  }
+  .pq-form {
+    display: grid;
+    gap: 16px;
+  }
+  .pq-step-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .pq-step {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text-soft);
+    text-align: left;
+    padding: 12px;
+    display: grid;
+    gap: 4px;
+    min-height: 82px;
+    cursor: pointer;
+  }
+  .pq-step.active {
+    border-color: rgba(214, 166, 63, 0.38);
+    background: linear-gradient(180deg, rgba(214, 166, 63, 0.14), rgba(255,255,255,0.03));
+    color: var(--text);
+  }
+  .pq-step small {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .pq-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pq-field {
+    display: grid;
+    gap: 8px;
+  }
+  .pq-field[data-wide="true"] {
+    grid-column: 1 / -1;
+  }
+  .pq-field label {
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pq-form input,
+  .pq-form select,
+  .pq-form textarea {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: #0f1520;
+    color: var(--text);
+    font: inherit;
+    padding: 11px 12px;
+  }
+  .pq-form select,
+  .pq-form option {
+    color: var(--text);
+    background: #0f1520;
+  }
+  .pq-choice-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    max-height: 360px;
+    overflow: auto;
+  }
+  .pq-choice {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    min-height: 88px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.02);
+  }
+  .pq-choice input {
+    width: auto;
+    margin-top: 2px;
+  }
+  .pq-choice-label {
+    display: block;
+    font-weight: 620;
+    color: var(--text);
+  }
+  .pq-choice-detail {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .pq-callout {
+    border: 1px solid rgba(214, 166, 63, 0.24);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(255,255,255,0.03));
+    padding: 16px;
+  }
+  .pq-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .pq-progress {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .pq-action-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .pq-inline-status,
+  .pq-feedback-status {
+    color: var(--good);
+    font-size: 13px;
+  }
+  .pq-inline-error {
+    color: var(--danger);
+    font-size: 13px;
+  }
+  .pq-run {
+    display: grid;
+    gap: 12px;
+  }
+  .pq-progress-track {
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    overflow: hidden;
+  }
+  .pq-progress-fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, rgba(214, 166, 63, 0.92), rgba(138, 164, 255, 0.92));
+  }
+  .pq-shortlist-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .pq-shortlist-card {
+    display: grid;
+    gap: 12px;
+  }
+  .pq-shortlist-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .pq-shortlist-meta {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .pq-shortlist-copy {
+    color: var(--text-soft);
+    font-size: 13px;
+  }
+  .pq-shortlist-reasons {
+    display: grid;
+    gap: 8px;
+  }
+  .pq-shortlist-reasons ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+    font-size: 12px;
+  }
+  .pq-feedback-row,
+  .pq-feedback-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pq-chip {
+    cursor: pointer;
+  }
+  .pq-chip.active {
+    background: rgba(214, 166, 63, 0.18);
+    border-color: rgba(214, 166, 63, 0.35);
+    color: var(--text);
+  }
+  .pq-plan-grid {
+    margin-top: 6px;
+  }
+  .pq-plan-card.current {
+    border-color: rgba(214, 166, 63, 0.35);
+    background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(255,255,255,0.03));
+  }
+  .pq-plan-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+  }
+  @media (max-width: 1100px) {
+    .pq-grid,
+    .pq-card-grid,
+    .pq-plan-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 760px) {
+    .pq-step-grid,
+    .pq-form-grid {
+      grid-template-columns: 1fr;
+    }
+    .pq-choice-grid {
+      grid-template-columns: 1fr;
+    }
+    .pq-nav,
+    .pq-action-row {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .pq-action,
+    .pq-chip {
+      width: 100%;
+    }
+  }
+</style>
+
+{% macro render_rows(items) -%}
+  <div class="pq-list">
+    {% for item in items or [] %}
+    <div class="pq-row">
+      <div>
+        <strong>{{ item.get('title') or item.get('label') or 'Open item' }}</strong>
+        <small>{{ item.get('detail') or 'Presented as part of the same property desk.' }}</small>
+      </div>
+      <div class="pq-actions">
+        {% if item.get('secondary_action_href') %}
+        <a class="pq-action" href="{{ item.get('secondary_action_href') }}">{{ item.get('secondary_action_label') or 'Open' }}</a>
+        {% endif %}
+        {% if item.get('action_href') %}
+        <a class="pq-action primary" href="{{ item.get('action_href') }}">{{ item.get('action_label') or 'Open' }}</a>
+        {% endif %}
+        <span class="pq-tag">{{ item.get('tag') or 'Open' }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{%- endmacro %}
+
+<div class="pq-page" data-property-workspace-root>
+  <div class="pq-workspace-meta" data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
+  <section class="pq-hero">
+    <div class="pq-kicker">{{ hero_kicker or title }}</div>
+    <h2>{{ hero_title or title }}</h2>
+    <p class="pq-copy">{{ hero_summary or summary }}</p>
+    {% if stats %}
+    <div class="pq-metric-grid">
+      {% for stat in stats %}
+      <div class="pq-metric">
+        <span class="label">{{ stat.label }}</span>
+        <strong>{{ stat.value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="pq-grid">
+    <div class="pq-page">
+      {% if show_brief_form and console_form %}
+      <section class="pq-panel">
+        <div class="pq-kicker">{{ console_form.get('eyebrow') or 'Search brief' }}</div>
+        <h3>{{ console_form.get('title') or 'Search brief' }}</h3>
+        {% if console_form.get('copy') %}<p class="pq-copy">{{ console_form.get('copy') }}</p>{% endif %}
+        <form
+          class="pq-form"
+          data-console-form-variant="{{ console_form.get('variant') }}"
+          data-console-form-meta='{{ property_meta|tojson|safe }}'
+        >
+          {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
+          {% if wizard_steps %}
+          {% set initial_wizard_step = wizard_steps[0] if wizard_steps else None %}
+          <div class="pq-step-grid" data-property-wizard>
+            {% for step in wizard_steps %}
+            <button class="pq-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}">
+              <span class="pq-step-index">Step {{ loop.index }}</span>
+              <strong>{{ step.get('label') }}</strong>
+              <small>{{ step.get('detail') }}</small>
+            </button>
+            {% endfor %}
+          </div>
+          <div class="pq-note" data-property-step-summary>{{ initial_wizard_step.get('detail') if initial_wizard_step else '' }}</div>
+          <noscript>
+            <div class="pq-callout">JavaScript is unavailable. The guided wizard is disabled and all search fields stay visible.</div>
+            <style>
+              [data-property-step-panel],
+              [data-property-actions],
+              [data-property-field-step] {
+                display: grid !important;
+              }
+              [data-property-wizard-nav] {
+                display: none !important;
+              }
+            </style>
+          </noscript>
+          {% endif %}
+
+          <div class="pq-form-grid">
+            {% for field in console_form.get('fields') or [] %}
+            {% set is_wide = field.type == 'checkbox_group' or field.name in ('location_query', 'keywords') %}
+            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}">
+              <label>{{ field.label }}
+                {% if field.type == 'number' %}
+                <input
+                  type="number"
+                  name="{{ field.name }}"
+                  value="{{ field.value or '' }}"
+                  {% if field.min %}min="{{ field.min }}"{% endif %}
+                  {% if field.max %}max="{{ field.max }}"{% endif %}
+                >
+                {% elif field.type == 'select' %}
+                <select name="{{ field.name }}">
+                  {% for option in field.options or [] %}
+                  <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
+                  {% endfor %}
+                </select>
+                {% elif field.type == 'checkbox' %}
+                <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
+                {% elif field.type == 'checkbox_group' %}
+                <div class="pq-choice-grid">
+                  {% for option in field.options or [] %}
+                  {% set option_value = option.get('value') or '' %}
+                  <label class="pq-choice">
+                    <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                    <span>
+                      <span class="pq-choice-label">{{ option.get('label') }}</span>
+                      {% if option.get('detail') or option.get('description') %}
+                      <span class="pq-choice-detail">{{ option.get('detail') or option.get('description') }}</span>
+                      {% endif %}
+                    </span>
+                  </label>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <input
+                  type="{{ field.type or 'text' }}"
+                  name="{{ field.name }}"
+                  value="{{ field.value or '' }}"
+                  {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
+                >
+                {% endif %}
+              </label>
+            </div>
+            {% endfor %}
+          </div>
+
+          {% set commercial = property_meta.get('commercial') or {} %}
+          {% set plan_catalog = commercial.get('plan_catalog') or [] %}
+          {% if request.query_params.get('billing') %}
+          <div class="pq-callout" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
+            {% if request.query_params.get('billing') == 'success' %}
+            Payment captured. The {{ request.query_params.get('plan') or 'paid' }} plan is now active.
+            {% elif request.query_params.get('billing') == 'cancelled' %}
+            Payment was cancelled. The property workspace stays on the current plan.
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <div class="pq-card" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
+            <div class="pq-card-eyebrow">Current property plan</div>
+            <h3>{{ commercial.get('current_plan_label') or 'Free' }}</h3>
+            <p class="pq-note">
+              {{ commercial.get('research_depth') or 'deep' }} research
+              {% if commercial.get('active_until') %} | active until {{ commercial.get('active_until') }}{% endif %}
+            </p>
+            <p class="pq-note">
+              {{ commercial.get('max_platforms') or 1 }} platform{{ '' if (commercial.get('max_platforms') or 1) == 1 else 's' }}
+              | up to {{ commercial.get('max_results_per_source') or 2 }} results per provider
+            </p>
+            <div class="pq-inline-status" data-property-billing-status></div>
+            <div class="pq-inline-error" data-property-billing-error></div>
+          </div>
+
+          {% if plan_catalog %}
+          <div class="pq-plan-grid" data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}>
+            {% for plan in plan_catalog %}
+            <section class="pq-plan-card{% if plan.get('is_current') %} current{% endif %}">
+              <div class="pq-card-eyebrow">{{ plan.get('display_name') }}</div>
+              <h3>{{ plan.get('checkout_label') }}</h3>
+              <ul>
+                {% for feature in plan.get('features') or [] %}
+                <li>{{ feature }}</li>
+                {% endfor %}
+              </ul>
+              {% if property_meta.get('billing_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') and plan.get('plan_key') in (property_meta.get('billing_checkout_enabled_plans') or []) %}
+              <button class="pq-action primary" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
+              {% endif %}
+            </section>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="pq-inline-status" data-property-inline-status data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}></div>
+          <div class="pq-inline-error" data-property-inline-error data-property-step-panel="providers" {% if wizard_steps %}hidden{% endif %}></div>
+
+          <div class="pq-nav" data-property-wizard-nav>
+            <button class="pq-action" type="button" data-property-step-back hidden>Back</button>
+            <div class="pq-progress" data-property-step-progress>{% if wizard_steps %}Step 1 of {{ wizard_steps|length }}{% endif %}</div>
+            <button class="pq-action" type="button" data-property-step-next>Next</button>
+          </div>
+
+          <div class="pq-action-row" data-property-actions {% if wizard_steps %}hidden{% endif %}>
+            <button class="pq-action" type="button" data-property-save>Save defaults</button>
+            <button class="pq-action primary" type="button" data-property-start>{{ console_form.get('submit_label') or 'Launch search' }}</button>
+          </div>
+
+          <section class="pq-panel pq-run" data-property-run data-property-step-panel="providers" hidden>
+            <div class="pq-card-eyebrow">Live search</div>
+            <h3 data-property-run-status>Queued</h3>
+            <div class="pq-run-note" data-property-run-message></div>
+            <div class="pq-progress-track"><div class="pq-progress-fill" data-property-run-progress></div></div>
+            <div class="pq-run-note" data-property-run-summary></div>
+            <div class="pq-list" data-property-run-sources></div>
+            <div class="pq-list" data-property-run-events></div>
+          </section>
+        </form>
+      </section>
+      {% endif %}
+
+      {% if show_shortlist_cards and shortlist_candidates %}
+      <section class="pq-panel">
+        <div class="pq-kicker">Shortlist</div>
+        <h3>Best candidates to review now</h3>
+        <p class="pq-copy">Review packets and 360 links stay primary. Save explicit feedback directly on the candidate so the next run learns.</p>
+        <div class="pq-shortlist-grid">
+          {% for candidate in shortlist_candidates %}
+          <article
+            class="pq-shortlist-card"
+            data-property-card
+            data-property-payload='{{ candidate|tojson|safe }}'
+            data-feedback-person-id='{{ property_meta.get("feedback_person_id") or "self" }}'
+          >
+            <div class="pq-shortlist-head">
+              <div>
+                <h3>{{ candidate.get('title') }}</h3>
+                <div class="pq-shortlist-meta" data-property-fit-summary>{{ candidate.get('source_label') }} | {{ candidate.get('fit_summary') or candidate.get('detail') }}</div>
+              </div>
+              <span class="pq-tag" data-property-tag>{{ candidate.get('tag') or 'Candidate' }}</span>
+            </div>
+            {% if candidate.get('detail') %}<div class="pq-shortlist-copy">{{ candidate.get('detail') }}</div>{% endif %}
+            <div class="pq-shortlist-reasons">
+              {% if candidate.get('match_reasons') %}
+              <ul>{% for reason in candidate.get('match_reasons') or [] %}<li>{{ reason }}</li>{% endfor %}</ul>
+              {% endif %}
+              {% if candidate.get('mismatch_reasons') %}
+              <ul>{% for reason in candidate.get('mismatch_reasons') or [] %}<li>{{ reason }}</li>{% endfor %}</ul>
+              {% endif %}
+            </div>
+            <div class="pq-actions">
+              {% if candidate.get('review_url') %}<a class="pq-action primary" href="{{ candidate.get('review_url') }}">Review packet</a>{% endif %}
+              {% if candidate.get('tour_url') %}<a class="pq-action" href="{{ candidate.get('tour_url') }}">Open 360</a>{% endif %}
+              {% if candidate.get('property_url') %}<a class="pq-action" href="{{ candidate.get('property_url') }}">Source</a>{% endif %}
+            </div>
+            <div class="pq-feedback-row">
+              <button class="pq-chip" type="button" data-feedback-reaction="like">Like</button>
+              <button class="pq-chip" type="button" data-feedback-reaction="maybe">Maybe</button>
+              <button class="pq-chip" type="button" data-feedback-reaction="dislike">Dislike</button>
+              <button class="pq-chip" type="button" data-feedback-reaction="hide">Hide</button>
+            </div>
+            <div class="pq-feedback-reasons" data-feedback-reasons></div>
+            <textarea rows="3" placeholder="What exactly worked or failed?" data-feedback-note></textarea>
+            <div class="pq-actions"><button class="pq-action primary" type="button" data-feedback-save>Save feedback</button></div>
+            <div class="pq-feedback-status" data-feedback-status></div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if primary_cards %}
+      <div class="pq-card-grid">
+        {% for card in primary_cards if card %}
+        <section class="pq-card"{% if (card.get('eyebrow') or '') == 'Learning loop' %} data-property-learning-card{% endif %}>
+          <div class="pq-card-eyebrow">{{ card.get('eyebrow') or 'PropertyQuarry' }}</div>
+          <h3>{{ card.get('title') }}</h3>
+          {% if card.get('body') %}<p class="pq-copy">{{ card.get('body') }}</p>{% endif %}
+          {% if card.get('items') %}
+            {% if (card.get('eyebrow') or '') == 'Learning loop' %}<div data-property-learning-list>{% endif %}
+            {{ render_rows(card.get('items')) }}
+            {% if (card.get('eyebrow') or '') == 'Learning loop' %}</div>{% endif %}
+          {% endif %}
+        </section>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if show_billing_cards and (property_meta.get('commercial', {}).get('plan_catalog') or []) %}
+      <section class="pq-panel">
+        <div class="pq-kicker">Plan catalog</div>
+        <h3>Upgrade paths</h3>
+        <p class="pq-copy">Keep the commercial delta explicit before opening checkout.</p>
+        <div class="pq-plan-grid">
+          {% for plan in property_meta.get('commercial', {}).get('plan_catalog') or [] %}
+          <section class="pq-plan-card{% if plan.get('is_current') %} current{% endif %}">
+            <div class="pq-card-eyebrow">{{ plan.get('display_name') }}</div>
+            <h3>{{ plan.get('checkout_label') }}</h3>
+            <ul>
+              {% for feature in plan.get('features') or [] %}
+              <li>{{ feature }}</li>
+              {% endfor %}
+            </ul>
+            {% if property_meta.get('billing_checkout_enabled') and plan.get('plan_key') != 'free' and not plan.get('is_current') and plan.get('plan_key') in (property_meta.get('billing_checkout_enabled_plans') or []) %}
+            <button class="pq-action primary" type="button" data-property-upgrade="{{ plan.get('plan_key') }}">{{ plan.get('display_name') }} checkout</button>
+            {% endif %}
+          </section>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
+    <aside class="pq-page">
+      {% for card in secondary_cards or [] if card %}
+      <section class="pq-card">
+        <div class="pq-card-eyebrow">{{ card.get('eyebrow') or 'PropertyQuarry' }}</div>
+        <h3>{{ card.get('title') }}</h3>
+        {% if card.get('body') %}<p class="pq-copy">{{ card.get('body') }}</p>{% endif %}
+        {% if card.get('items') %}{{ render_rows(card.get('items')) }}{% endif %}
+      </section>
+      {% endfor %}
+    </aside>
+  </section>
+</div>
+
+<script>
+(() => {
+  const roots = [...document.querySelectorAll('[data-property-workspace-root]')];
+  if (!roots.length) return;
+
+  const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled']);
+
+  const escapeHtml = (value) => String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+  const titleCase = (value) => String(value || '')
+    .replaceAll('_', ' ')
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+
+  const propertyFitScoreLabel = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return '';
+    const score = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
+    return `${score}/100`;
+  };
+
+  const parseMeta = (root) => {
+    const form = root.querySelector('[data-console-form-variant="property_search"]');
+    const metaNode = form || root.querySelector('[data-property-workspace-meta]');
+    const raw = String(metaNode?.getAttribute('data-console-form-meta') || metaNode?.getAttribute('data-property-workspace-meta') || '').trim();
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch (_error) {
+      return {};
+    }
+  };
+
+  const fieldValue = (form, name) => {
+    const node = form?.querySelector(`[name="${name}"]`);
+    return node ? String(node.value || '').trim() : '';
+  };
+
+  const selectedValuesForForm = (form, name) => [...(form?.querySelectorAll(`input[name="${name}"]:checked`) || [])]
+    .map((node) => String(node.value || '').trim())
+    .filter(Boolean);
+
+  const integerValue = (form, name) => {
+    const raw = fieldValue(form, name);
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const renderCheckboxOptions = (form, name, options, selectedValues) => {
+    const inputs = [...(form?.querySelectorAll(`input[name="${name}"]`) || [])];
+    const grid = inputs[0]?.closest('.pq-choice-grid');
+    if (!grid) return;
+    const nextSelected = new Set((selectedValues || []).filter(Boolean));
+    grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
+      const value = String(option.value || '').trim();
+      const label = String(option.label || value || 'Option').trim();
+      const detail = String(option.detail || option.description || '').trim();
+      return `
+        <label class="pq-choice">
+          <input type="checkbox" name="${name}" value="${value}" ${nextSelected.has(value) ? 'checked' : ''}>
+          <span>
+            <span class="pq-choice-label">${label}</span>
+            ${detail ? `<span class="pq-choice-detail">${detail}</span>` : ''}
+          </span>
+        </label>`;
+    }).join('');
+  };
+
+  const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
+  const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
+
+  const learningSummaryRows = (summary) => {
+    const likes = Array.isArray(summary?.likes) ? summary.likes.slice(0, 4) : [];
+    const dislikes = Array.isArray(summary?.dislikes) ? summary.dislikes.slice(0, 4) : [];
+    const hardRules = Array.isArray(summary?.hard_rules) ? summary.hard_rules.slice(0, 3) : [];
+    const recentFeedback = Array.isArray(summary?.recent_feedback) ? summary.recent_feedback.slice(0, 4) : [];
+    const rows = [];
+    for (const entry of likes) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Learned positive preference from explicit filters or listing feedback.', tag: 'Learnt' });
+    }
+    for (const entry of dislikes) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Negative preference that should suppress future shortlist candidates.', tag: 'Avoid' });
+    }
+    for (const entry of hardRules) {
+      const text = String(entry || '').trim();
+      if (text) rows.push({ title: text, detail: 'Hard rule that should fail or demote mismatching listings.', tag: 'Rule' });
+    }
+    if (rows.length) return rows;
+    for (const entry of recentFeedback) {
+      const reasons = Array.isArray(entry?.reasons) ? entry.reasons.slice(0, 3).map((item) => String(item || '').trim()).filter(Boolean).join(', ') : '';
+      const note = String(entry?.note || '').trim();
+      const recordedAt = String(entry?.recorded_at || '').trim().slice(0, 10);
+      rows.push({
+        title: titleCase(entry?.reaction || 'feedback'),
+        detail: [reasons, note, recordedAt].filter(Boolean).join(' | ') || 'Structured feedback recorded.',
+        tag: 'Feedback',
+      });
+    }
+    return rows.length ? rows : [{
+      title: 'No learned preferences yet',
+      detail: 'Use the hosted review packets to record feedback. The learned likes, dislikes, and hard rules will surface here.',
+      tag: 'Waiting',
+    }];
+  };
+
+  const renderConsoleRows = (items) => {
+    const rows = Array.isArray(items) ? items : [];
+    return rows.map((item) => `
+      <div class="pq-row">
+        <div>
+          <strong>${escapeHtml(item.title || item.label || 'Open item')}</strong>
+          <small>${escapeHtml(item.detail || 'Presented as part of the same property desk.')}</small>
+        </div>
+        <div class="pq-actions"><span class="pq-tag">${escapeHtml(item.tag || 'Open')}</span></div>
+      </div>`).join('');
+  };
+
+  const refreshLearningSummary = (root, learningSummary) => {
+    const listNode = root.querySelector('[data-property-learning-list]');
+    if (!listNode) return;
+    listNode.innerHTML = renderConsoleRows(learningSummaryRows(learningSummary || {}));
+  };
+
+  const applyUpdatedAssessment = (card, assessment) => {
+    if (!card || !assessment || typeof assessment !== 'object') return;
+    const tagNode = card.querySelector('[data-property-tag]');
+    const metaNode = card.querySelector('[data-property-fit-summary]');
+    const scoreLabel = propertyFitScoreLabel(assessment.fit_score);
+    const recommendation = titleCase(assessment.recommendation || assessment.predicted_reaction || 'candidate');
+    const matchReasons = Array.isArray(assessment.match_reasons_json) ? assessment.match_reasons_json : [];
+    const mismatchReasons = Array.isArray(assessment.mismatch_reasons_json) ? assessment.mismatch_reasons_json : [];
+    const primaryReason = String(matchReasons[0] || mismatchReasons[0] || '').trim();
+    if (tagNode && recommendation) tagNode.textContent = recommendation;
+    if (metaNode) {
+      const sourceLabel = String((metaNode.textContent || '').split('|')[0] || '').trim();
+      const parts = [];
+      if (sourceLabel) parts.push(sourceLabel);
+      if (scoreLabel) parts.push(`Personal fit ${scoreLabel}`);
+      if (recommendation) parts.push(recommendation);
+      if (primaryReason) parts.push(primaryReason);
+      metaNode.textContent = parts.join(' | ');
+    }
+  };
+
+  const initPropertyWizard = (form, meta) => {
+    const steps = Array.isArray(meta.wizard_steps) ? meta.wizard_steps.filter((step) => step && step.key) : [];
+    if (!form || !steps.length) return;
+    const fieldNodes = [...form.querySelectorAll('[data-property-field-step]')];
+    const panelNodes = [...form.querySelectorAll('[data-property-step-panel]')];
+    const triggerNodes = [...form.querySelectorAll('[data-property-step-trigger]')];
+    const summaryNode = form.querySelector('[data-property-step-summary]');
+    const progressNode = form.querySelector('[data-property-step-progress]');
+    const backNode = form.querySelector('[data-property-step-back]');
+    const nextNode = form.querySelector('[data-property-step-next]');
+    const actionsNode = form.querySelector('[data-property-actions]');
+    let currentIndex = 0;
+
+    const applyStep = (nextIndex) => {
+      currentIndex = Math.max(0, Math.min(steps.length - 1, nextIndex));
+      const step = steps[currentIndex] || {};
+      const stepKey = String(step.key || '').trim();
+      for (const node of fieldNodes) {
+        node.hidden = String(node.getAttribute('data-property-field-step') || '').trim() !== stepKey;
+      }
+      for (const node of panelNodes) {
+        node.hidden = String(node.getAttribute('data-property-step-panel') || '').trim() !== stepKey;
+      }
+      for (const node of triggerNodes) {
+        node.classList.toggle('active', String(node.getAttribute('data-property-step-trigger') || '').trim() === stepKey);
+      }
+      if (summaryNode) summaryNode.textContent = String(step.detail || '').trim();
+      if (progressNode) progressNode.textContent = `Step ${currentIndex + 1} of ${steps.length}`;
+      if (backNode) backNode.hidden = currentIndex === 0;
+      if (nextNode) {
+        nextNode.hidden = currentIndex >= steps.length - 1;
+        nextNode.textContent = currentIndex === steps.length - 2 ? 'Review launch' : 'Next';
+      }
+      if (actionsNode) actionsNode.hidden = currentIndex !== steps.length - 1;
+    };
+
+    triggerNodes.forEach((node, index) => node.addEventListener('click', () => applyStep(index)));
+    backNode?.addEventListener('click', () => applyStep(currentIndex - 1));
+    nextNode?.addEventListener('click', () => applyStep(currentIndex + 1));
+    applyStep(0);
+  };
+
+  const collectPayload = (form) => {
+    const selectedPlatforms = selectedValuesForForm(form, 'selected_platforms');
+    const selectedLocations = selectedValuesForForm(form, 'location_query');
+    const selectedKeywords = selectedValuesForForm(form, 'keywords');
+    const parsedMaxResults = integerValue(form, 'max_results_per_source');
+    return {
+      selected_platforms: selectedPlatforms,
+      property_preferences: {
+        selected_platforms: selectedPlatforms,
+        country_code: fieldValue(form, 'country_code') || 'AT',
+        region_code: fieldValue(form, 'region_code') || '',
+        language_code: fieldValue(form, 'language_code') || 'en',
+        listing_mode: fieldValue(form, 'listing_mode') || 'rent',
+        property_type: fieldValue(form, 'property_type') || 'any',
+        location_query: selectedLocations.join(', '),
+        keywords: selectedKeywords.join(', '),
+        preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+        max_price_eur: integerValue(form, 'max_price_eur'),
+        min_rooms: integerValue(form, 'min_rooms'),
+        min_area_m2: integerValue(form, 'min_area_m2'),
+        max_results_per_source: parsedMaxResults,
+      },
+      force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
+      max_results_per_source: parsedMaxResults,
+    };
+  };
+
+  const renderRun = (root, payload) => {
+    const panel = root.querySelector('[data-property-run]');
+    const statusNode = root.querySelector('[data-property-run-status]');
+    const messageNode = root.querySelector('[data-property-run-message]');
+    const progressNode = root.querySelector('[data-property-run-progress]');
+    const summaryNode = root.querySelector('[data-property-run-summary]');
+    const sourceNode = root.querySelector('[data-property-run-sources]');
+    const eventsNode = root.querySelector('[data-property-run-events]');
+    if (!panel || !statusNode || !messageNode || !progressNode || !summaryNode || !sourceNode || !eventsNode) return;
+
+    if (!payload || !Object.keys(payload).length) {
+      panel.hidden = true;
+      sourceNode.innerHTML = '';
+      eventsNode.innerHTML = '';
+      return;
+    }
+
+    panel.hidden = false;
+    const summary = payload.summary || {};
+    const progress = Math.max(0, Math.min(100, Number(payload.progress || 0)));
+    statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
+    messageNode.textContent = String(payload.message || 'Queued for execution.');
+    progressNode.style.width = `${progress}%`;
+    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} sources | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+
+    const sources = Array.isArray(summary.sources) ? summary.sources : [];
+    sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
+      const label = String(source.source_label || source.source_url || 'Source');
+      const detail = [
+        `${Number(source.listing_total || 0)} listings`,
+        `${Number(source.high_fit_total || 0)} high-fit`,
+        `${Number(source.tour_created_total || 0)} new tours`,
+        `${Number(source.notified_total || 0)} client alerts`,
+        Number(source.email_notified_total || 0) > 0 ? `${Number(source.email_notified_total || 0)} email` : '',
+      ].filter(Boolean).join(' | ');
+      return `<div class="pq-row"><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div><div class="pq-actions"><span class="pq-tag">Scanned</span></div></div>`;
+    }).join('');
+
+    const events = Array.isArray(payload.events) ? payload.events : [];
+    eventsNode.innerHTML = events.slice(-5).reverse().map((event) => {
+      const step = String(event.step || 'update').replaceAll('_', ' ');
+      const detail = String(event.message || '').trim() || 'No detail';
+      const tag = String(event.status || 'queued').replaceAll('_', ' ');
+      return `<div class="pq-row"><div><strong>${escapeHtml(step)}</strong><small>${escapeHtml(detail)}</small></div><div class="pq-actions"><span class="pq-tag">${escapeHtml(tag)}</span></div></div>`;
+    }).join('');
+  };
+
+  const savePreferences = async (root, form, meta, payload) => {
+    const statusNode = root.querySelector('[data-property-inline-status]');
+    const errorNode = root.querySelector('[data-property-inline-error]');
+    if (statusNode) statusNode.textContent = 'Saving defaults…';
+    if (errorNode) errorNode.textContent = '';
+    const response = await fetch(String(meta.preferences_endpoint || ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload.property_preferences),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(body.detail || 'Could not save property search defaults.'));
+    if (statusNode) statusNode.textContent = 'Defaults saved.';
+    return body;
+  };
+
+  const startCheckout = async (root, meta, planKey) => {
+    const statusNode = root.querySelector('[data-property-billing-status]');
+    const errorNode = root.querySelector('[data-property-billing-error]');
+    const providerLabel = String(meta.billing_checkout_provider_label || 'checkout').trim() || 'checkout';
+    if (statusNode) statusNode.textContent = `Opening ${providerLabel} checkout…`;
+    if (errorNode) errorNode.textContent = '';
+    const response = await fetch(String(meta.billing_order_endpoint || ''), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plan_key: planKey }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(String(body.detail || `Could not start ${providerLabel} checkout.`));
+    const approveUrl = String(body.approve_url || '').trim();
+    if (!approveUrl) throw new Error(`${providerLabel} approval URL missing.`);
+    window.location.href = approveUrl;
+  };
+
+  const pollRun = async (root, statusUrl) => {
+    if (!statusUrl) return;
+    while (true) {
+      const response = await fetch(statusUrl, { headers: { accept: 'application/json' } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+      renderRun(root, body);
+      if (terminalStates.has(String(body.status || '').trim())) return body;
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    }
+  };
+
+  const initFeedbackCards = (root, meta) => {
+    for (const card of [...root.querySelectorAll('[data-property-card]')]) {
+      let payload = {};
+      try {
+        payload = JSON.parse(String(card.getAttribute('data-property-payload') || '{}'));
+      } catch (_error) {
+        payload = {};
+      }
+      const personId = String(card.getAttribute('data-feedback-person-id') || meta.feedback_person_id || 'self').trim() || 'self';
+      const reasonsNode = card.querySelector('[data-feedback-reasons]');
+      const statusNode = card.querySelector('[data-feedback-status]');
+      const noteNode = card.querySelector('[data-feedback-note]');
+      const reactionButtons = [...card.querySelectorAll('[data-feedback-reaction]')];
+      const saveButton = card.querySelector('[data-feedback-save]');
+      let selectedReaction = '';
+      const selectedReasonKeys = new Set();
+
+      const renderReasonChips = (suggestions) => {
+        if (!reasonsNode) return;
+        const rows = []
+          .concat(Array.isArray(suggestions?.positive) ? suggestions.positive : [])
+          .concat(Array.isArray(suggestions?.negative) ? suggestions.negative : []);
+        reasonsNode.innerHTML = rows.map((row) => {
+          const key = String(row.key || '').trim();
+          const label = String(row.label || key || 'Reason').trim();
+          return `<button class="pq-chip" type="button" data-feedback-reason="${escapeHtml(key)}">${escapeHtml(label)}</button>`;
+        }).join('');
+        for (const chip of [...reasonsNode.querySelectorAll('[data-feedback-reason]')]) {
+          chip.addEventListener('click', () => {
+            const key = String(chip.getAttribute('data-feedback-reason') || '').trim();
+            if (!key) return;
+            if (selectedReasonKeys.has(key)) {
+              selectedReasonKeys.delete(key);
+              chip.classList.remove('active');
+            } else {
+              selectedReasonKeys.add(key);
+              chip.classList.add('active');
+            }
+          });
+        }
+      };
+
+      const loadSuggestions = async () => {
+        if (!reasonsNode) return;
+        try {
+          const response = await fetch(propertyFeedbackReasonsEndpoint(personId), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              property_facts: payload.property_facts || {},
+              assessment: payload.assessment || {},
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not load feedback suggestions.'));
+          renderReasonChips(body);
+        } catch (_error) {
+          reasonsNode.innerHTML = '';
+        }
+      };
+
+      reactionButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          selectedReaction = String(button.getAttribute('data-feedback-reaction') || '').trim();
+          reactionButtons.forEach((candidateButton) => candidateButton.classList.toggle('active', candidateButton === button));
+        });
+      });
+
+      saveButton?.addEventListener('click', async () => {
+        if (!statusNode) return;
+        if (!selectedReaction) {
+          statusNode.textContent = 'Choose a reaction first.';
+          return;
+        }
+        statusNode.textContent = 'Saving feedback…';
+        try {
+          const response = await fetch(propertyFeedbackSaveEndpoint(personId), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              property_slug: '',
+              property_url: String(payload.property_url || '').trim(),
+              property_title: String(payload.title || '').trim(),
+              property_facts: payload.property_facts || {},
+              reaction: selectedReaction,
+              reason_keys: [...selectedReasonKeys],
+              note: noteNode ? String(noteNode.value || '').trim() : '',
+            }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
+          refreshLearningSummary(root, body.learning_summary || {});
+          applyUpdatedAssessment(card, body.updated_assessment || {});
+          statusNode.textContent = 'Saved. Learning loop updated.';
+        } catch (error) {
+          statusNode.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
+        }
+      });
+
+      loadSuggestions();
+    }
+  };
+
+  for (const root of roots) {
+    const meta = parseMeta(root);
+    const form = root.querySelector('[data-console-form-variant="property_search"]');
+    if (form) {
+      initPropertyWizard(form, meta);
+      const countryField = form.querySelector('select[name="country_code"]');
+      const regionField = form.querySelector('select[name="region_code"]');
+      const refreshRegionAndLocationChoices = () => {
+        const regionCatalog = meta.region_catalog_by_country || {};
+        const locationCatalog = meta.location_catalog_by_country_region || {};
+        const selectedCountry = String(countryField?.value || '').trim();
+        const selectedRegion = String(regionField?.value || '').trim();
+        const regionOptions = Array.isArray(regionCatalog[selectedCountry]) ? regionCatalog[selectedCountry] : [];
+        if (regionField) {
+          const current = selectedRegion;
+          regionField.innerHTML = regionOptions.map((option) => {
+            const value = String(option.value || '').trim();
+            const label = String(option.label || value || 'Region').trim();
+            const selected = value === current || (!current && value === String(regionOptions[0]?.value || '').trim());
+            return `<option value="${value}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('');
+        }
+        const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
+        const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
+        renderCheckboxOptions(form, 'location_query', locationOptions, []);
+      };
+      if (countryField) {
+        countryField.addEventListener('change', () => {
+          const catalog = meta.platform_catalog_by_country || {};
+          const defaultLanguageByCountry = meta.default_language_by_country || {};
+          const selectedCountry = String(countryField.value || '').trim();
+          const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+          const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+          const languageField = form.querySelector('select[name="language_code"]');
+          const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
+          renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+          if (languageField && nextLanguage) languageField.value = nextLanguage;
+          refreshRegionAndLocationChoices();
+        });
+      }
+      if (regionField) regionField.addEventListener('change', refreshRegionAndLocationChoices);
+      renderRun(root, meta.initial_run || {});
+
+      form.querySelector('[data-property-save]')?.addEventListener('click', async () => {
+        const payload = collectPayload(form);
+        try {
+          await savePreferences(root, form, meta, payload);
+        } catch (error) {
+          const errorNode = root.querySelector('[data-property-inline-error]');
+          const statusNode = root.querySelector('[data-property-inline-status]');
+          if (statusNode) statusNode.textContent = '';
+          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not save property search defaults.';
+        }
+      });
+
+      form.querySelector('[data-property-start]')?.addEventListener('click', async () => {
+        const statusNode = root.querySelector('[data-property-inline-status]');
+        const errorNode = root.querySelector('[data-property-inline-error]');
+        const payload = collectPayload(form);
+        try {
+          await savePreferences(root, form, meta, payload);
+          if (statusNode) statusNode.textContent = 'Starting crawl…';
+          if (errorNode) errorNode.textContent = '';
+          const response = await fetch(String(meta.start_endpoint || ''), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not start property search.'));
+          renderRun(root, body);
+          if (statusNode) statusNode.textContent = 'Crawl running…';
+          const finalBody = await pollRun(root, String(body.status_url || ''));
+          if (statusNode) statusNode.textContent = terminalStates.has(String(finalBody.status || '').trim()) ? 'Crawl finished.' : 'Crawl updated.';
+          if (finalBody && finalBody.run_id) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('run_id', String(finalBody.run_id));
+            window.history.replaceState({}, '', url.toString());
+          }
+        } catch (error) {
+          if (statusNode) statusNode.textContent = '';
+          if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start property search.';
+        }
+      });
+
+      [...root.querySelectorAll('[data-property-upgrade]')].forEach((button) => {
+        button.addEventListener('click', async () => {
+          const planKey = String(button.getAttribute('data-property-upgrade') || '').trim();
+          if (!planKey) return;
+          try {
+            await startCheckout(root, meta, planKey);
+          } catch (error) {
+            const errorNode = root.querySelector('[data-property-billing-error]');
+            const statusNode = root.querySelector('[data-property-billing-status]');
+            if (statusNode) statusNode.textContent = '';
+            if (errorNode) errorNode.textContent = error instanceof Error ? error.message : 'Could not start checkout.';
+          }
+        });
+      });
+    }
+
+    initFeedbackCards(root, meta);
+  }
+})();
+</script>
+{% endblock %}

@@ -23,10 +23,15 @@ EA_APP_NAV_GROUPS = (
 
 PROPERTY_APP_NAV_GROUPS = (
     {
-        "label": "Workspace",
+        "label": "PropertyQuarry",
         "items": (
-            {"href": "/app/properties", "label": "Properties", "key": "properties"},
-            {"href": "/app/settings", "label": "Preferences", "key": "settings"},
+            {"href": "/app/properties", "label": "Search", "key": "properties"},
+            {"href": "/app/shortlist", "label": "Shortlist", "key": "shortlist"},
+            {"href": "/app/research", "label": "Research", "key": "research"},
+            {"href": "/app/profile", "label": "Profile", "key": "profile"},
+            {"href": "/app/alerts", "label": "Alerts", "key": "alerts"},
+            {"href": "/app/billing", "label": "Billing", "key": "billing"},
+            {"href": "/app/settings", "label": "Settings", "key": "settings"},
         ),
     },
 )
@@ -45,7 +50,6 @@ ADMIN_NAV_GROUPS = (
         "label": "Operator center",
         "items": (
             {"href": "/admin/office", "label": "Office", "key": "office"},
-            {"href": "/admin/policies", "label": "Policies", "key": "policies"},
             {"href": "/admin/providers", "label": "Providers", "key": "providers"},
             {"href": "/admin/audit-trail", "label": "Audit Trail", "key": "audit-trail"},
             {"href": "/admin/operators", "label": "Operators", "key": "operators"},
