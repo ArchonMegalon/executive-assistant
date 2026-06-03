@@ -696,6 +696,7 @@ def test_emailit_bootstrap_script_help_and_wiring() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
     assert "Prepare and inspect the PropertyQuarry Emailit sending domain." in result.stdout
+    assert "--send-test-to" in result.stdout
     assert "scripts/bootstrap_emailit_propertyquarry.py" in smoke_help
     assert "scripts/bootstrap_emailit_propertyquarry.py" in makefile
     assert "scripts/bootstrap_emailit_propertyquarry.py" in runbook

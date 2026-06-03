@@ -14,7 +14,7 @@ def _client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.setenv("EA_RUNTIME_MODE", "dev")
-    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
     from app.api.app import create_app
 
     return TestClient(create_app())
@@ -66,7 +66,7 @@ def test_register_start_uses_absolute_magic_link_when_email_delivery_is_enabled(
     assert body["email_delivery_provider"] == "emailit"
     assert body["email_delivery_id"] == "emailit-message-1"
     assert observed["recipient_email"] == "exec@example.com"
-    assert str(observed["magic_link_url"]).startswith("https://myexternalbrain.com/register?token=")
+    assert str(observed["magic_link_url"]).startswith("https://propertyquarry.com/register?token=")
 
 
 def test_register_start_reports_email_delivery_failure_without_aborting_flow(
@@ -136,7 +136,7 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     assert "founder@example.com" in followup.text
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
-    assert str(observed["access_url"]).startswith("https://myexternalbrain.com/workspace-access/")
+    assert str(observed["access_url"]).startswith("https://propertyquarry.com/workspace-access/")
 
 
 def test_sign_in_email_link_reports_missing_workspace_match(
@@ -162,7 +162,7 @@ def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://myexternalbrain.com/google/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/google/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
     client = _client(monkeypatch)
@@ -209,7 +209,7 @@ def test_register_verify_uses_browser_google_callback_even_when_api_callback_is_
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://myexternalbrain.com/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/v1/providers/google/oauth/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
     client = _client(monkeypatch)
@@ -232,14 +232,14 @@ def test_register_verify_uses_browser_google_callback_even_when_api_callback_is_
     google_start = dict(verified.json()["google_start"])
     parsed = urllib.parse.urlparse(str(google_start["auth_url"]))
     query = urllib.parse.parse_qs(parsed.query)
-    assert query["redirect_uri"][0] == "https://myexternalbrain.com/google/callback"
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
 
 
 def test_register_google_callback_page_signals_original_registration_tab(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "test-google-client-secret")
-    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://myexternalbrain.com/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/v1/providers/google/oauth/callback")
     monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "test-google-state-secret")
     monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "test-provider-secret-key")
     client = _client(monkeypatch)
@@ -307,6 +307,7 @@ def test_register_google_callback_page_signals_original_registration_tab(monkeyp
     assert "ea-register-google-connected" in callback.text
     assert "window.location.replace" in callback.text
     assert "google_connected" in callback.text
+    assert "Open Properties" in callback.text
 
 
 def test_register_verify_reports_google_oauth_configuration_hint_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -339,12 +340,12 @@ def test_register_verify_reports_google_oauth_configuration_hint_when_missing(mo
     assert "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET." in google_start["detail"]
 
 
-def test_registration_email_payload_stays_english_and_uses_kleinhirn_sender(
+def test_registration_email_payload_stays_english_and_uses_propertyquarry_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
-    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "kleinhirn@myexternalbrain.com")
-    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "Kleinhirn")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
 
     from app.services import registration_email as service
 
@@ -370,17 +371,122 @@ def test_registration_email_payload_stays_english_and_uses_kleinhirn_sender(
     receipt = service.send_registration_email(
         recipient_email="tibor.girschele@gmail.com",
         verification_code="654321",
-        magic_link_url="https://myexternalbrain.com/register?token=test&code=654321",
+        magic_link_url="https://propertyquarry.com/register?token=test&code=654321",
         expires_at=2_000_000_000,
     )
 
     payload = dict(captured["payload"])
-    assert payload["from"] == "Kleinhirn <kleinhirn@myexternalbrain.com>"
-    assert payload["subject"] == "Verify your email for Executive Assistant"
-    assert "Use this verification code to create your Executive Assistant workspace" in payload["text"]
-    assert "Google is connected after sign-up as a workspace data source." in payload["text"]
-    assert "https://myexternalbrain.com/register?token=test&code=654321" in payload["text"]
+    assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
+    assert payload["subject"] == "Verify your email for PropertyQuarry"
+    assert "Use this verification code to create your PropertyQuarry workspace" in payload["text"]
+    assert "Google is connected after sign-up as an identity and optional workspace data source for PropertyQuarry." in payload["text"]
+    assert "https://propertyquarry.com/register?token=test&code=654321" in payload["text"]
     assert receipt.message_id == "emailit-live-1"
+
+
+def test_registration_email_falls_back_to_verified_sender_when_domain_is_not_verified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", "concierge@chummer.run")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME_FALLBACK", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    observed_payloads: list[dict[str, object]] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-live-fallback-1"}).encode("utf-8")
+
+    class _DomainNotVerified(service.urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__(
+                url=service.EMAILIT_API_BASE,
+                code=422,
+                msg="Unprocessable Entity",
+                hdrs=None,
+                fp=None,
+            )
+
+        def read(self) -> bytes:
+            return b'{"error":"Domain not verified"}'
+
+    call_count = {"value": 0}
+
+    def _fake_urlopen(request, timeout=0):
+        observed_payloads.append(json.loads(request.data.decode("utf-8")))
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            raise _DomainNotVerified()
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_registration_email(
+        recipient_email="tibor.girschele@gmail.com",
+        verification_code="654321",
+        magic_link_url="https://propertyquarry.com/register?token=test&code=654321",
+        expires_at=2_000_000_000,
+    )
+
+    assert call_count["value"] == 2
+    assert observed_payloads[0]["from"] == "PropertyQuarry <property@propertyquarry.com>"
+    assert observed_payloads[1]["from"] == "PropertyQuarry <concierge@chummer.run>"
+    assert observed_payloads[1]["meta"]["sender_fallback_used"] is True
+    assert observed_payloads[1]["meta"]["preferred_sender_email"] == "property@propertyquarry.com"
+    assert observed_payloads[1]["meta"]["fallback_sender_email"] == "concierge@chummer.run"
+    assert receipt.message_id == "emailit-live-fallback-1"
+
+
+def test_registration_email_can_force_verified_sender_without_primary_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FORCE_FALLBACK", "1")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", "concierge@chummer.run")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME_FALLBACK", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    observed_payloads: list[dict[str, object]] = []
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-live-forced-fallback-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        observed_payloads.append(json.loads(request.data.decode("utf-8")))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_registration_email(
+        recipient_email="tibor.girschele@gmail.com",
+        verification_code="654321",
+        magic_link_url="https://propertyquarry.com/register?token=test&code=654321",
+        expires_at=2_000_000_000,
+    )
+
+    assert len(observed_payloads) == 1
+    assert observed_payloads[0]["from"] == "PropertyQuarry <concierge@chummer.run>"
+    assert receipt.message_id == "emailit-live-forced-fallback-1"
 
 
 def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -471,8 +577,8 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
 
     receipt = service.send_google_connect_email(
         recipient_email="tibor.girschele@gmail.com",
-        workspace_name="Executive Workspace",
-        connect_url="https://myexternalbrain.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect",
+        workspace_name="PropertyQuarry Workspace",
+        connect_url="https://propertyquarry.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect",
         scope_label="Google Full Workspace",
         scope_summary="Broader assistant context: inbox actions plus richer calendar and Drive index context.",
         primary_google_email="",
@@ -482,9 +588,9 @@ def test_google_connect_email_uses_workspace_delivery_sender(monkeypatch: pytest
 
     payload = dict(captured["payload"])
     assert payload["from"] == "Sprachenzentrum <sprachenzentrum@girschele.com>"
-    assert payload["subject"] == "Connect Google to Executive Workspace"
+    assert payload["subject"] == "Connect Google to PropertyQuarry Workspace"
     assert "No Google inbox is connected in this workspace yet" in payload["text"]
-    assert "https://myexternalbrain.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect" in payload["text"]
+    assert "https://propertyquarry.com/workspace-access/token?return_to=%2Fapp%2Factions%2Fgoogle%2Fconnect" in payload["text"]
     assert receipt.message_id == "emailit-google-connect-1"
 
 

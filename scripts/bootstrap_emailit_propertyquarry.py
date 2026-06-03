@@ -75,11 +75,71 @@ def _ensure_domain(*, api_key: str, domain_name: str) -> dict[str, object]:
 
 
 def _verify_domain(*, api_key: str, domain_id: str) -> dict[str, object]:
+    try:
+        return _request(
+            method="POST",
+            url=f"{EMAILIT_API_BASE}/domains/{domain_id}/verify",
+            api_key=api_key,
+            payload={},
+        )
+    except SystemExit as exc:
+        if "emailit_http_error:400:" not in str(exc):
+            raise
+        return _request(
+            method="GET",
+            url=f"{EMAILIT_API_BASE}/domains/{domain_id}",
+            api_key=api_key,
+        )
+
+
+def _dns_ready(domain: dict[str, object]) -> bool:
+    required_fields = (
+        "spf_status",
+        "dkim_status",
+        "mx_status",
+        "return_path_status",
+    )
+    optional_fields = ("dmarc_status", "tracking_status", "inbound_status")
+    for field in required_fields:
+        if str(domain.get(field) or "").strip().lower() != "ok":
+            return False
+    for field in optional_fields:
+        value = str(domain.get(field) or "").strip().lower()
+        if value and value != "ok":
+            return False
+    return True
+
+
+def _force_fallback(env_values: dict[str, str]) -> bool:
+    return str(env_values.get("EA_REGISTRATION_EMAIL_FORCE_FALLBACK") or os.environ.get("EA_REGISTRATION_EMAIL_FORCE_FALLBACK") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _send_probe(
+    *,
+    api_key: str,
+    sender_email: str,
+    sender_name: str,
+    recipient_email: str,
+) -> dict[str, object]:
     return _request(
         method="POST",
-        url=f"{EMAILIT_API_BASE}/domains/{domain_id}/verify",
+        url=f"{EMAILIT_API_BASE}/emails",
         api_key=api_key,
-        payload={},
+        payload={
+            "from": f"{sender_name} <{sender_email}>",
+            "to": recipient_email,
+            "subject": "PropertyQuarry Emailit probe",
+            "text": "This is an automated PropertyQuarry Emailit probe.",
+            "html": "",
+            "reply_to": sender_email,
+            "tracking": False,
+            "meta": {"kind": "propertyquarry_emailit_probe"},
+        },
     )
 
 
@@ -88,6 +148,7 @@ def main() -> int:
     parser.add_argument("--env-file", default=str(_default_env_file()), help="Env file to inspect.")
     parser.add_argument("--domain", default="propertyquarry.com", help="Sending domain to inspect or create.")
     parser.add_argument("--verify", action="store_true", help="Trigger Emailit DNS verification after loading the domain.")
+    parser.add_argument("--send-test-to", default="", help="Optional recipient email for a live send probe.")
     args = parser.parse_args()
 
     env_values = _parse_env(Path(args.env_file).expanduser().resolve())
@@ -96,7 +157,7 @@ def main() -> int:
         raise SystemExit("EMAILIT_API_KEY is missing.")
 
     domain = _ensure_domain(api_key=api_key, domain_name=str(args.domain or "").strip())
-    if args.verify:
+    if args.verify and not _dns_ready(domain):
         domain = _verify_domain(api_key=api_key, domain_id=str(domain.get("id") or "").strip())
 
     print(f"domain_id={str(domain.get('id') or '').strip()}")
@@ -126,6 +187,21 @@ def main() -> int:
                 ensure_ascii=False,
             )
         )
+    if str(args.send_test_to or "").strip():
+        sender_email = str(env_values.get("EA_REGISTRATION_EMAIL_FROM") or os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "property@propertyquarry.com").strip()
+        sender_name = str(env_values.get("EA_REGISTRATION_EMAIL_NAME") or os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "PropertyQuarry").strip()
+        if _force_fallback(env_values):
+            sender_email = str(env_values.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK") or os.environ.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK") or sender_email).strip()
+            sender_name = str(env_values.get("EA_REGISTRATION_EMAIL_NAME_FALLBACK") or os.environ.get("EA_REGISTRATION_EMAIL_NAME_FALLBACK") or sender_name).strip()
+        probe = _send_probe(
+            api_key=api_key,
+            sender_email=sender_email,
+            sender_name=sender_name,
+            recipient_email=str(args.send_test_to).strip(),
+        )
+        print(f"send_probe_sender={sender_email}")
+        print(f"send_probe_status={str(probe.get('status') or '').strip()}")
+        print(f"send_probe_id={str(probe.get('id') or '').strip()}")
     return 0
 
 

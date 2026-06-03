@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
-DEFAULT_SENDER_EMAIL = "kleinhirn@myexternalbrain.com"
-DEFAULT_SENDER_NAME = "Kleinhirn"
+DEFAULT_SENDER_EMAIL = "property@propertyquarry.com"
+DEFAULT_SENDER_NAME = "PropertyQuarry"
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,20 @@ def email_delivery_enabled() -> bool:
     return bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip())
 
 
+def _force_fallback_sender() -> bool:
+    return str(os.environ.get("EA_REGISTRATION_EMAIL_FORCE_FALLBACK") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _registration_sender_email() -> str:
+    if _force_fallback_sender():
+        forced = _fallback_sender_email()
+        if forced:
+            return forced
     configured = str(os.environ.get("EA_REGISTRATION_EMAIL_FROM") or "").strip()
     if configured:
         return configured
@@ -45,11 +58,29 @@ def delivery_sender_emails() -> tuple[str, ...]:
 
 
 def _registration_sender_name() -> str:
+    if _force_fallback_sender():
+        return _fallback_sender_name()
     configured = str(os.environ.get("EA_REGISTRATION_EMAIL_NAME") or "").strip()
     if configured:
         return configured
     fallback = str(os.environ.get("EA_EMAIL_DEFAULT_NAME") or "").strip()
     return fallback or DEFAULT_SENDER_NAME
+
+
+def _fallback_sender_email() -> str:
+    configured = str(os.environ.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK") or "").strip()
+    if configured:
+        return configured
+    fallback = str(os.environ.get("EA_EMAIL_DEFAULT_FROM") or "").strip()
+    return fallback
+
+
+def _fallback_sender_name() -> str:
+    configured = str(os.environ.get("EA_REGISTRATION_EMAIL_NAME_FALLBACK") or "").strip()
+    if configured:
+        return configured
+    fallback = str(os.environ.get("EA_EMAIL_DEFAULT_NAME") or "").strip()
+    return fallback or _registration_sender_name()
 
 
 def _resolved_sender_email(sender_email: str = "") -> str:
@@ -67,7 +98,7 @@ def _resolved_sender_name(sender_name: str = "") -> str:
 
 
 def _registration_subject() -> str:
-    return "Verify your email for Executive Assistant"
+    return "Verify your email for PropertyQuarry"
 
 
 def _minutes_until(*, expires_at: int | None = None, expires_at_iso: str = "") -> int:
@@ -87,12 +118,12 @@ def _registration_text(*, verification_code: str, magic_link_url: str, expires_a
     minutes = _minutes_until(expires_at=expires_at)
     return (
         "Hello,\n\n"
-        "Use this verification code to create your Executive Assistant workspace:\n\n"
+        "Use this verification code to create your PropertyQuarry workspace:\n\n"
         f"{verification_code}\n\n"
         "Or open this secure link:\n\n"
         f"{magic_link_url}\n\n"
         f"This link and code expire in about {minutes} minutes.\n\n"
-        "Google is connected after sign-up as a workspace data source. It is not your app login.\n\n"
+        "Google is connected after sign-up as an identity and optional workspace data source for PropertyQuarry.\n\n"
         "If you did not request this email, you can ignore it.\n"
     )
 
@@ -165,17 +196,21 @@ def _send_emailit_email(
         separators=(",", ":"),
     )
     idempotency_key = f"ea-mail-{hashlib.sha256(idempotency_seed.encode('utf-8')).hexdigest()[:24]}"
-    request = urllib.request.Request(
-        EMAILIT_API_BASE,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotency_key,
-        },
-        method="POST",
-    )
+    def _request_for_payload(active_payload: dict[str, object], active_idempotency_key: str):
+        return urllib.request.Request(
+            EMAILIT_API_BASE,
+            data=json.dumps(active_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Idempotency-Key": active_idempotency_key,
+            },
+            method="POST",
+        )
+
+    request = _request_for_payload(payload, idempotency_key)
     last_error = ""
+    used_fallback_sender = False
     for _ in range(7):
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
@@ -189,6 +224,36 @@ def _send_emailit_email(
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             last_error = f"registration_email_send_failed:{exc.code}:{detail[:600]}"
+            if exc.code == 422 and "Domain not verified" in detail and not used_fallback_sender:
+                fallback_email = _fallback_sender_email()
+                if fallback_email and fallback_email.lower() != resolved_sender_email.lower():
+                    fallback_name = _fallback_sender_name()
+                    payload["from"] = f"{fallback_name} <{fallback_email}>"
+                    payload["reply_to"] = fallback_email
+                    payload["meta"] = {
+                        **dict(payload.get("meta") or {}),
+                        "sender_fallback_used": True,
+                        "preferred_sender_email": resolved_sender_email,
+                        "fallback_sender_email": fallback_email,
+                    }
+                    fallback_seed = json.dumps(
+                        {
+                            "kind": kind,
+                            "recipient_email": str(recipient_email or "").strip().lower(),
+                            "subject": str(subject or "").strip(),
+                            "meta": dict(payload.get("meta") or {}),
+                            "sender_email": fallback_email.lower(),
+                            "sender_name": fallback_name,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    request = _request_for_payload(
+                        payload,
+                        f"ea-mail-{hashlib.sha256(fallback_seed.encode('utf-8')).hexdigest()[:24]}",
+                    )
+                    used_fallback_sender = True
+                    continue
             if exc.code == 429:
                 retry_after = 1
                 try:
@@ -226,12 +291,12 @@ def send_workspace_invitation_email(
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
     role_label = str(role or "operator").strip().replace("_", " ").title() or "Operator"
-    inviter = str(invited_by or "Executive Assistant").strip() or "Executive Assistant"
+    inviter = str(invited_by or "PropertyQuarry").strip() or "PropertyQuarry"
     note_text = str(note or "").strip()
     body = [
         "Hello,",
         "",
-        f"{inviter} invited you to join an Executive Assistant workspace as {role_label}.",
+        f"{inviter} invited you to join a PropertyQuarry workspace as {role_label}.",
         "",
         "Open this secure link to accept the invite:",
         "",
@@ -250,7 +315,7 @@ def send_workspace_invitation_email(
     )
     return _send_emailit_email(
         recipient_email=recipient_email,
-        subject=f"{inviter} invited you to Executive Assistant",
+        subject=f"{inviter} invited you to PropertyQuarry",
         text="\n".join(body).strip() + "\n",
         kind="ea_workspace_invitation",
         meta={"invite_ref": _meta_ref(invite_url), "role": str(role or "").strip().lower()},
@@ -268,7 +333,7 @@ def send_workspace_access_email(
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
     role_label = str(role or "principal").strip().replace("_", " ").title() or "Principal"
-    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    workspace_label = str(workspace_name or "PropertyQuarry workspace").strip() or "PropertyQuarry workspace"
     display = str(display_name or "").strip()
     body = [
         "Hello,",
@@ -314,7 +379,7 @@ def send_google_connect_email(
     expires_at: str = "",
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
-    workspace_label = str(workspace_name or "Executive Assistant workspace").strip() or "Executive Assistant workspace"
+    workspace_label = str(workspace_name or "PropertyQuarry workspace").strip() or "PropertyQuarry workspace"
     label = str(scope_label or "Google Full Workspace").strip() or "Google Full Workspace"
     summary = str(scope_summary or "").strip()
     primary_email = str(primary_google_email or "").strip().lower()
@@ -497,7 +562,7 @@ def send_channel_digest_email(
     expires_at: str = "",
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
-    label = str(headline or "Executive Assistant update").strip() or "Executive Assistant update"
+    label = str(headline or "PropertyQuarry update").strip() or "PropertyQuarry update"
     preview = str(preview_text or "").strip()
     digest_excerpt = _digest_preview_excerpt(plain_text)
     body = [
@@ -536,7 +601,7 @@ def send_plaintext_digest_email(
     sender_email: str = "",
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
-    label = str(headline or "Executive Assistant update").strip() or "Executive Assistant update"
+    label = str(headline or "PropertyQuarry update").strip() or "PropertyQuarry update"
     preview = str(preview_text or "").strip()
     body = [label, ""]
     if preview:
