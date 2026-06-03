@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
+import urllib.parse
 import zipfile
 from datetime import timedelta
 from pathlib import Path
@@ -11634,7 +11637,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert access_session.status_code == 200
     access_body = access_session.json()
     assert access_body["access_url"].startswith("/workspace-access/")
-    assert access_body["default_target"] == "/app/today"
+    assert access_body["default_target"] == "/app/properties"
     assert access_body["status"] == "active"
     assert access_body["issued_at"]
 
@@ -11651,17 +11654,17 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
         follow_redirects=False,
     )
     assert opened_access_external.status_code == 303
-    assert opened_access_external.headers["location"] == "/app/today"
+    assert opened_access_external.headers["location"] == "/app/properties"
     opened_access_today = client.get(
         access_body["access_url"],
-        params={"return_to": "/app/today"},
+        params={"return_to": "/app/properties"},
         follow_redirects=False,
     )
     assert opened_access_today.status_code == 303
-    assert opened_access_today.headers["location"] == "/app/today"
+    assert opened_access_today.headers["location"] == "/app/properties"
     opened_access = client.get(access_body["access_url"], follow_redirects=False)
     assert opened_access.status_code == 303
-    assert opened_access.headers["location"] == "/app/today"
+    assert opened_access.headers["location"] == "/app/properties"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
     opened_access_secure = client.get(
         access_body["access_url"],
@@ -11675,7 +11678,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert "Max-Age=" in secure_access_cookie
     head_opened_access = client.head(access_body["access_url"], follow_redirects=False)
     assert head_opened_access.status_code == 303
-    assert head_opened_access.headers["location"] == "/app/today"
+    assert head_opened_access.headers["location"] == "/app/properties"
     assert "ea_workspace_session=" in str(head_opened_access.headers.get("set-cookie") or "")
     session_drafts = client.get("/app/api/drafts")
     assert session_drafts.status_code == 200
@@ -11904,3 +11907,191 @@ def test_property_paypal_checkout_and_capture_updates_property_commercial_state(
     assert commercial["pending_order_id"] == ""
     assert commercial["last_capture_id"] == "CAPTURE-123"
     assert commercial["last_payer_email"] == "buyer@example.com"
+
+
+def test_property_payfunnels_checkout_and_webhook_activate_plus_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.setenv("PAYFUNNELS_PLUS_CHECKOUT_URL", "https://checkout.payfunnels.example/plus")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    created_body = created.json()
+    assert created_body["plan_key"] == "plus"
+    assert created_body["approve_url"].startswith("https://checkout.payfunnels.example/plus?")
+    assert created_body["amount_eur"] == "3.00"
+
+    status_after_order = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_order.status_code == 200
+    pending = status_after_order.json()["property_search_preferences"]["property_commercial"]
+    assert pending["pending_order_id"] == created_body["order_id"]
+    assert pending["pending_plan_key"] == "plus"
+    assert pending["plan_source"] == "payfunnels"
+
+    webhook_payload = {
+        "event_type": "payment.completed",
+        "client_reference_id": principal_id,
+        "external_id": created_body["order_id"],
+        "plan_key": "plus",
+        "payment_status": "completed",
+        "payer_email": "buyer@example.com",
+        "amount_eur": "3.00",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert webhook.status_code == 200, webhook.text
+    assert webhook.json()["current_plan_key"] == "plus"
+
+    status_after_webhook = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_webhook.status_code == 200
+    commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "plus"
+    assert commercial["pending_order_id"] == ""
+    assert commercial["last_order_id"] == created_body["order_id"]
+    assert commercial["last_payer_email"] == "buyer@example.com"
+
+
+def test_property_payfunnels_checkout_uses_api_created_link_when_api_key_is_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-api"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.delenv("PAYFUNNELS_PLUS_CHECKOUT_URL", raising=False)
+    monkeypatch.setenv("PAYFUNNELS_API_KEY", "pf-api-key")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    from app.services import property_billing as billing_service
+
+    class _Response:
+        status_code = 201
+
+        def json(self) -> dict[str, object]:
+            return {
+                "id": "pflink_123",
+                "url": "https://pfnl.co/test-plus-link",
+            }
+
+    observed: dict[str, object] = {}
+
+    def _fake_post(url, headers=None, json=None, timeout=0):
+        observed["url"] = url
+        observed["headers"] = dict(headers or {})
+        observed["json"] = dict(json or {})
+        observed["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(billing_service.requests, "post", _fake_post)
+
+    created = client.post(
+        "/app/api/signals/property/billing/payfunnels/order",
+        json={"plan_key": "plus"},
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["approve_url"] == "https://pfnl.co/test-plus-link"
+    assert body["status"] == "redirect"
+    assert observed["url"] == "https://api.payfunnels.com/v1/paymentlinks/recurring"
+    assert observed["headers"]["x-pf-api-key"] == "pf-api-key"
+    payload = dict(observed["json"])
+    assert payload["interval"] == "month"
+    assert "PropertyQuarry Plus" in payload["title"]
+    assert any(field["label"] == "pq_principal" for field in payload["additionalFields"])
+
+
+def test_property_payfunnels_webhook_accepts_documented_callback_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-callback"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    title = (
+        "PropertyQuarry Plus | "
+        f"pq_principal:{urllib.parse.quote(principal_id, safe='')} | "
+        "pq_order:pf-plus-123"
+    )
+    webhook_payload = {
+        "invoiceTitle": title,
+        "customerEmail": "buyer@example.com",
+        "chargeAmount": "3.00",
+        "chargeId": "ch_123",
+        "invoiceId": "inv_123",
+        "event_type": "payment.completed",
+        "payment_status": "completed",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert webhook.status_code == 200, webhook.text
+    assert webhook.json()["current_plan_key"] == "plus"
+
+    status_after_webhook = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_webhook.status_code == 200
+    commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "plus"
+    assert commercial["last_payer_email"] == "buyer@example.com"
+
+
+def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-payfunnels-hidden-fields"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+    monkeypatch.setenv("PAYFUNNELS_WEBHOOK_SECRET", "pf-secret")
+
+    webhook_payload = {
+        "additionalFields": [
+            {"label": "pq_principal", "hiddenFieldValue": principal_id},
+            {"label": "pq_order", "hiddenFieldValue": "pf-plus-456"},
+            {"label": "pq_plan", "hiddenFieldValue": "plus"},
+        ],
+        "customer": {"email": "buyer@example.com"},
+        "chargeAmount": "3.00",
+        "status": "paid",
+        "event": "checkout.completed",
+    }
+    raw = json.dumps(webhook_payload, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(b"pf-secret", raw, hashlib.sha256).hexdigest()
+    webhook = client.post(
+        "/app/api/signals/property/billing/payfunnels/webhook",
+        content=raw,
+        headers={
+            "content-type": "application/json",
+            "x-payfunnels-signature": signature,
+        },
+    )
+    assert webhook.status_code == 200, webhook.text
+    assert webhook.json()["current_plan_key"] == "plus"
+
+    status_after_webhook = client.get("/v1/onboarding/property-search/preferences")
+    assert status_after_webhook.status_code == 200
+    commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "plus"
+    assert commercial["last_order_id"] == "pf-plus-456"

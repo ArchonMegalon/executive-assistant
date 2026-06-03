@@ -44,6 +44,7 @@ SCRIPTS=(
   scripts/operator_summary.sh
   scripts/support_bundle.sh
   scripts/archive_tasks.sh
+  scripts/bootstrap_payfunnels_propertyquarry.py
   scripts/verify_release_assets.sh
 )
 

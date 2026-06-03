@@ -264,6 +264,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/operator_summary.sh` | `bash scripts/operator_summary.sh --help` | Print compact operator command inventory |
 | `scripts/support_bundle.sh` | `bash scripts/support_bundle.sh --help` | Build operator support bundle |
 | `scripts/archive_tasks.sh` | `bash scripts/archive_tasks.sh --help` | Archive/prune local task log Done rows |
+| `scripts/bootstrap_payfunnels_propertyquarry.py` | `python3 scripts/bootstrap_payfunnels_propertyquarry.py --help` | Prepare PayFunnels webhook/runtime config for PropertyQuarry |
 | `scripts/verify_release_assets.sh` | `bash scripts/verify_release_assets.sh --help` | Verify release artifact completeness |
 
 Combined index:

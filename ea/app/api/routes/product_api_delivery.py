@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
 from urllib.parse import urlparse
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
@@ -63,15 +65,49 @@ from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.property_billing import (
     capture_paypal_property_order,
+    create_payfunnels_property_checkout,
     create_paypal_property_order,
     enforce_property_plan_limits,
     merge_property_commercial,
     paid_plan_expiry,
+    payfunnels_configured,
     paypal_configured,
     property_plan_spec,
+    verify_payfunnels_webhook_signature,
 )
 
 router = APIRouter(prefix="/app/api", tags=["product"])
+
+
+_PAYFUNNELS_TITLE_PRINCIPAL_RE = re.compile(r"pq_principal:([^|]+)")
+_PAYFUNNELS_TITLE_ORDER_RE = re.compile(r"pq_order:([^|]+)")
+
+
+def _payfunnels_title_value(pattern: re.Pattern[str], title: str) -> str:
+    match = pattern.search(str(title or ""))
+    if match is None:
+        return ""
+    return str(match.group(1) or "").strip()
+
+
+def _payfunnels_field_value(payload: dict[str, object], label: str) -> str:
+    target = str(label or "").strip().lower()
+    if not target:
+        return ""
+    fields = payload.get("additionalFields")
+    if not isinstance(fields, list):
+        return ""
+    for item in fields:
+        if not isinstance(item, dict):
+            continue
+        item_label = str(item.get("label") or item.get("name") or "").strip().lower()
+        if item_label != target:
+            continue
+        for key in ("hiddenFieldValue", "value", "fieldValue"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                return value
+    return ""
 
 
 def _public_base_url(request: Request) -> str:
@@ -721,6 +757,52 @@ def create_property_billing_order(
     )
 
 
+@router.post("/signals/property/billing/payfunnels/order", response_model=PropertyBillingCheckoutOut)
+def create_property_billing_order_payfunnels(
+    body: PropertyBillingCheckoutCreateIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyBillingCheckoutOut:
+    try:
+        spec = property_plan_spec(body.plan_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if spec.plan_key == "free":
+        raise HTTPException(status_code=400, detail="property_plan_free_does_not_require_checkout")
+    if not payfunnels_configured(plan_key=spec.plan_key):
+        raise HTTPException(status_code=409, detail="payfunnels_not_configured")
+    base_url = _public_base_url(request)
+    try:
+        checkout = create_payfunnels_property_checkout(
+            principal_id=context.principal_id,
+            plan_key=spec.plan_key,
+            return_url=f"{base_url}/app/api/signals/property/billing/payfunnels/return?plan_key={spec.plan_key}",
+            cancel_url=f"{base_url}/app/api/signals/property/billing/payfunnels/cancel?plan_key={spec.plan_key}",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = merge_property_commercial(
+        _property_preferences(container, principal_id=context.principal_id),
+        updates={
+            "pending_order_id": str(checkout.get("order_id") or ""),
+            "pending_plan_key": spec.plan_key,
+            "pending_approval_url": str(checkout.get("approve_url") or ""),
+            "last_payment_status": str(checkout.get("status") or ""),
+            "plan_source": "payfunnels",
+        },
+    )
+    _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
+    return PropertyBillingCheckoutOut(
+        generated_at=now_iso(),
+        plan_key=spec.plan_key,
+        order_id=str(checkout.get("order_id") or ""),
+        approve_url=str(checkout.get("approve_url") or ""),
+        status=str(checkout.get("status") or ""),
+        amount_eur=str(checkout.get("amount_eur") or spec.amount_eur),
+    )
+
+
 @router.post("/signals/property/billing/paypal/capture", response_model=PropertyBillingCaptureOut)
 def capture_property_billing_order(
     body: PropertyBillingCaptureIn,
@@ -786,6 +868,134 @@ def capture_property_billing_order_return(
         context=context,
     )
     return RedirectResponse(f"/app/properties?billing=success&plan={plan_key}", status_code=303)
+
+
+@router.get("/signals/property/billing/payfunnels/return", include_in_schema=False)
+def payfunnels_property_billing_return(
+    plan_key: str = Query(default=""),
+) -> RedirectResponse:
+    return RedirectResponse(f"/app/properties?billing=pending_confirmation&plan={plan_key}&provider=payfunnels", status_code=303)
+
+
+@router.get("/signals/property/billing/payfunnels/cancel", include_in_schema=False)
+def payfunnels_property_billing_cancel(
+    plan_key: str = Query(default=""),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    updated = merge_property_commercial(
+        _property_preferences(container, principal_id=context.principal_id),
+        updates={
+            "status": "free",
+            "pending_order_id": "",
+            "pending_plan_key": "",
+            "pending_approval_url": "",
+            "last_payment_status": "cancelled",
+            "plan_source": "payfunnels",
+        },
+    )
+    _save_property_preferences(container, principal_id=context.principal_id, property_preferences=updated)
+    return RedirectResponse(f"/app/properties?billing=cancelled&plan={plan_key}&provider=payfunnels", status_code=303)
+
+
+@router.post("/signals/property/billing/payfunnels/webhook")
+async def payfunnels_property_billing_webhook(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> dict[str, object]:
+    body_bytes = await request.body()
+    signature = str(request.headers.get("x-payfunnels-signature") or "").strip()
+    if not verify_payfunnels_webhook_signature(body_bytes=body_bytes, signature=signature):
+        raise HTTPException(status_code=401, detail="payfunnels_signature_invalid")
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="payfunnels_webhook_invalid_json") from exc
+    metadata = dict(payload.get("metadata") or {})
+    invoice_title = str(payload.get("invoiceTitle") or payload.get("title") or "").strip()
+    title_principal = _payfunnels_title_value(_PAYFUNNELS_TITLE_PRINCIPAL_RE, invoice_title)
+    title_order = _payfunnels_title_value(_PAYFUNNELS_TITLE_ORDER_RE, invoice_title)
+    field_principal = _payfunnels_field_value(payload, "pq_principal")
+    field_order = _payfunnels_field_value(payload, "pq_order")
+    field_plan = _payfunnels_field_value(payload, "pq_plan")
+    principal_id = str(
+        metadata.get("principal_id")
+        or payload.get("principal_id")
+        or payload.get("client_reference_id")
+        or field_principal
+        or urllib.parse.unquote(title_principal)
+        or ""
+    ).strip()
+    plan_key = str(metadata.get("plan_key") or payload.get("plan_key") or field_plan or "").strip().lower()
+    if not plan_key and "plus" in invoice_title.lower():
+        plan_key = "plus"
+    if not plan_key and "agent" in invoice_title.lower():
+        plan_key = "agent"
+    order_id = str(
+        payload.get("order_id")
+        or payload.get("checkout_id")
+        or payload.get("external_id")
+        or payload.get("chargeId")
+        or payload.get("invoiceId")
+        or field_order
+        or urllib.parse.unquote(title_order)
+        or metadata.get("order_id")
+        or ""
+    ).strip()
+    payment_status = str(payload.get("payment_status") or payload.get("status") or "").strip().lower()
+    payer_email = str(
+        payload.get("payer_email")
+        or payload.get("customerEmail")
+        or dict(payload.get("customer") or {}).get("email")
+        or ""
+    ).strip()
+    amount_eur = str(payload.get("amount_eur") or payload.get("amount") or payload.get("chargeAmount") or "").strip()
+    event_type = str(payload.get("event_type") or payload.get("event") or "").strip().lower()
+    if not principal_id or not plan_key or not order_id:
+        raise HTTPException(status_code=400, detail="payfunnels_webhook_missing_fields")
+    try:
+        spec = property_plan_spec(plan_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    completed = payment_status in {"paid", "completed", "succeeded", "active"} or event_type in {
+        "payment.completed",
+        "checkout.completed",
+        "subscription.activated",
+    }
+    if completed:
+        active_until = paid_plan_expiry(plan_key=spec.plan_key)
+        updated = merge_property_commercial(
+            _property_preferences(container, principal_id=principal_id),
+            updates={
+                "active_plan_key": spec.plan_key,
+                "status": "active",
+                "active_until": active_until,
+                "last_order_id": order_id,
+                "last_capture_id": order_id,
+                "last_payment_status": payment_status or event_type or "completed",
+                "last_payment_amount_eur": amount_eur or spec.amount_eur,
+                "last_payer_email": payer_email,
+                "captured_at": now_iso(),
+                "pending_order_id": "",
+                "pending_plan_key": "",
+                "pending_approval_url": "",
+                "plan_source": "payfunnels",
+            },
+        )
+        _save_property_preferences(container, principal_id=principal_id, property_preferences=updated)
+        return {
+            "status": "ok",
+            "principal_id": principal_id,
+            "plan_key": spec.plan_key,
+            "current_plan_key": spec.plan_key,
+            "payment_status": payment_status or event_type or "completed",
+        }
+    return {
+        "status": "ignored",
+        "principal_id": principal_id,
+        "plan_key": spec.plan_key,
+        "payment_status": payment_status or event_type or "pending",
+    }
 
 
 @router.get("/signals/property/billing/paypal/cancel", include_in_schema=False)
