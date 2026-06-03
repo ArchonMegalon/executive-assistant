@@ -95,7 +95,20 @@ build_and_recreate_services() {
 
   compose build "${build_services[@]}"
   compose up -d --no-build ea-db ea-openvoice
-  compose up -d --no-build --no-deps --force-recreate "${build_services[@]}"
+  local service
+  for service in "${build_services[@]}"; do
+    compose up -d --no-build --no-deps --force-recreate "${service}"
+    for _ in $(seq 1 30); do
+      if service_container_ready "${service}"; then
+        break
+      fi
+      sleep 1
+    done
+    if ! service_container_ready "${service}"; then
+      echo "Service failed to become ready during deploy: ${service}" >&2
+      return 1
+    fi
+  done
 }
 
 service_container_ready() {

@@ -352,6 +352,9 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
 
     assert 'TOPOLOGY_SERVICES=(ea-api)' in deploy
     assert 'TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)' in deploy
+    assert 'for service in "${build_services[@]}"; do' in deploy
+    assert 'compose up -d --no-build --no-deps --force-recreate "${service}"' in deploy
+    assert 'echo "Service failed to become ready during deploy: ${service}" >&2' in deploy
     assert 'service_container_ready "${service}"' in deploy
     assert "docker inspect -f '{{.State.Running}}'" in deploy
     assert "docker inspect -f '{{.State.Restarting}}'" in deploy
