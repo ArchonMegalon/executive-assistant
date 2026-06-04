@@ -74,6 +74,17 @@ PROPERTY_TYPE_LABELS = {
 }
 
 
+ALERT_FREQUENCY_LABELS = {
+    "manual": "Manual only",
+    "daily": "Daily",
+    "weekday": "Weekdays",
+    "instant": "Instant",
+}
+
+
+ALERT_CHANNEL_KEYS = ("telegram", "email")
+
+
 PROVIDERS: tuple[PropertyProviderSpec, ...] = (
     PropertyProviderSpec(
         key="willhaben",
@@ -124,6 +135,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Austria brokerage inventory with high-value marketing packets.",
     ),
     PropertyProviderSpec(
+        key="justiz_edikte_at",
+        label="Justiz Edikte Auctions",
+        country_code="AT",
+        host_markers=("edikte.justiz.gv.at", "edikte2.justiz.gv.at"),
+        listing_path_markers=("/edikte/ex/exedi3.nsf/", "/ex/exedi3.nsf/0/"),
+        search_urls={
+            "buy": "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm",
+        },
+        description="Austria judicial foreclosure and forced-sale publications from the Ediktsdatei.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="immoweb",
         label="Immoweb",
         country_code="BE",
@@ -146,6 +169,30 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.zimmo.be/en/search/for-sale/",
         },
         description="Belgium residential marketplace with strong Flemish supply.",
+    ),
+    PropertyProviderSpec(
+        key="biddit_be",
+        label="Biddit",
+        country_code="BE",
+        host_markers=("biddit.be",),
+        listing_path_markers=("/fr/catalogue/", "/nl/catalogus/", "/en/catalog/", "/detail/"),
+        search_urls={
+            "buy": "https://www.biddit.be",
+        },
+        description="Belgium public property auction platform of the Royal Federation of Belgian Notaries.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
+        key="taxsales_ca",
+        label="TaxSalesPortal",
+        country_code="CA",
+        host_markers=("taxsalesportal.ca",),
+        listing_path_markers=("/property/", "/foreclosed-properties/", "/tax-sale-property/"),
+        search_urls={
+            "buy": "https://taxsalesportal.ca/foreclosed-properties/",
+        },
+        description="Canada distressed property and tax-sale aggregation across provincial auction processes.",
+        supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
         key="immoscout_de",
@@ -196,6 +243,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Germany classifieds lane that still surfaces off-market-style inventory.",
     ),
     PropertyProviderSpec(
+        key="zvg_de",
+        label="ZVG Portal",
+        country_code="DE",
+        host_markers=("zvg-portal.de",),
+        listing_path_markers=("button=showzvg", "button=show", "/index.php?button=show"),
+        search_urls={
+            "buy": "https://www.zvg-portal.de/",
+        },
+        description="Germany official court publication portal for real-estate foreclosure auction dates.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="homegate",
         label="Homegate",
         country_code="CH",
@@ -232,6 +291,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Switzerland ImmoScout variant for multilingual search.",
     ),
     PropertyProviderSpec(
+        key="auctionhome_ch",
+        label="AuctionHome",
+        country_code="CH",
+        host_markers=("auctionhome.ch",),
+        listing_path_markers=("/objekt/", "/property/", "/auction/"),
+        search_urls={
+            "buy": "https://www.en.auctionhome.ch/",
+        },
+        description="Switzerland property foreclosure auction listings sourced from debt collection and bankruptcy offices.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="daft_ie",
         label="Daft.ie",
         country_code="IE",
@@ -254,6 +325,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.myhome.ie/residential",
         },
         description="Ireland portal with agency-led sale and rental inventory.",
+    ),
+    PropertyProviderSpec(
+        key="youbid_ie",
+        label="Youbid",
+        country_code="IE",
+        host_markers=("youbid.ie",),
+        listing_path_markers=("/property/", "/details/", "/auction/"),
+        search_urls={
+            "buy": "https://www.youbid.ie/",
+        },
+        description="Ireland national online property auction platform used for distressed and receiver-led sales.",
+        supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
         key="rightmove",
@@ -290,6 +373,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.onthemarket.com/for-sale/",
         },
         description="United Kingdom portal with agency inventory and structured detail pages.",
+    ),
+    PropertyProviderSpec(
+        key="repolist_uk",
+        label="Repolist",
+        country_code="UK",
+        host_markers=("repolist.co.uk",),
+        listing_path_markers=("/property/", "/auction/", "/listing/"),
+        search_urls={
+            "buy": "https://repolist.co.uk/",
+        },
+        description="United Kingdom repossessed-property and auction discovery portal.",
+        supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
         key="realestate_au",
@@ -329,6 +424,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         supported_listing_modes=("rent",),
     ),
     PropertyProviderSpec(
+        key="mortgagee_au",
+        label="Mortgagee Sales Australia",
+        country_code="AU",
+        host_markers=("ozhousehunters.com.au", "lloydsonline.com.au"),
+        listing_path_markers=("/mortgagee", "/property/", "/AuctionDetails.aspx"),
+        search_urls={
+            "buy": "https://www.ozhousehunters.com.au/",
+        },
+        description="Australia mortgagee-in-possession and distressed property sales feed.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="idealista_es",
         label="Idealista Spain",
         country_code="ES",
@@ -363,6 +470,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.habitaclia.com/comprar.htm",
         },
         description="Spain portal with stronger Catalonia inventory but useful broader feeds.",
+    ),
+    PropertyProviderSpec(
+        key="boe_subastas_es",
+        label="BOE Subastas",
+        country_code="ES",
+        host_markers=("subastas.boe.es", "sedejudicial.justicia.es"),
+        listing_path_markers=("/subastas/", "idSub=", "/buscar.php"),
+        search_urls={
+            "buy": "https://subastas.boe.es/subastas_ava.php?campo%5B0%5D=SUBASTA.INMUEBLES",
+        },
+        description="Spain official electronic judicial and administrative auction portal for real estate.",
+        supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
         key="immobiliare",
@@ -401,6 +520,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Italy residential search portal.",
     ),
     PropertyProviderSpec(
+        key="aste_giudiziarie_it",
+        label="Aste Giudiziarie",
+        country_code="IT",
+        host_markers=("astegiudiziarie.it",),
+        listing_path_markers=("/vendita/", "/asta-giudiziaria/", "/immobili/"),
+        search_urls={
+            "buy": "https://www.astegiudiziarie.it/",
+        },
+        description="Italy judicial real-estate auction portal centered on court-published asset sales.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="seloger",
         label="SeLoger",
         country_code="FR",
@@ -437,6 +568,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="France classifieds lane with residential supply.",
     ),
     PropertyProviderSpec(
+        key="avoventes_fr",
+        label="Avoventes",
+        country_code="FR",
+        host_markers=("avoventes.fr",),
+        listing_path_markers=("/annonce/", "/vente-judiciaire/", "/encheres/"),
+        search_urls={
+            "buy": "https://avoventes.fr/",
+        },
+        description="France national public auction announcement platform for judicial real-estate sales.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="funda",
         label="Funda",
         country_code="NL",
@@ -459,6 +602,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.pararius.com/houses-for-sale",
         },
         description="Netherlands rental-heavy portal.",
+    ),
+    PropertyProviderSpec(
+        key="veilingdeurwaarder_nl",
+        label="Veilingdeurwaarder",
+        country_code="NL",
+        host_markers=("veilingdeurwaarder.nl",),
+        listing_path_markers=("/veiling/", "/executieveiling/", "/kavel/"),
+        search_urls={
+            "buy": "https://www.veilingdeurwaarder.nl/zoeken/",
+        },
+        description="Netherlands public sale and executieveiling portal tied to judicial officers.",
+        supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
         key="idealista_pt",
@@ -497,6 +652,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Portugal property portal with agency inventory.",
     ),
     PropertyProviderSpec(
+        key="citius_exec_pt",
+        label="Citius Judicial Sales",
+        country_code="PT",
+        host_markers=("citius.mj.pt", "portaldasfinancas.gov.pt"),
+        listing_path_markers=("/consultasvenda.aspx", "/bens/", "/venda/"),
+        search_urls={
+            "buy": "https://www.citius.mj.pt/portal/consultas/consultasvenda.aspx/1000",
+        },
+        description="Portugal public portal for judicial and tax-enforcement sales of seized property.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="otodom",
         label="Otodom",
         country_code="PL",
@@ -521,6 +688,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Poland classifieds lane for residential supply.",
     ),
     PropertyProviderSpec(
+        key="komornik_elicytacje_pl",
+        label="Komornik e-Licytacje",
+        country_code="PL",
+        host_markers=("elicytacje.komornik.pl", "ool.komornik.pl"),
+        listing_path_markers=("/licytacje/", "/items/", "/obwieszczenia/"),
+        search_urls={
+            "buy": "https://elicytacje.komornik.pl/",
+        },
+        description="Poland official bailiff auction portal for court-enforced real-estate sales.",
+        supported_listing_modes=("buy",),
+    ),
+    PropertyProviderSpec(
         key="hemnet",
         label="Hemnet",
         country_code="SE",
@@ -543,6 +722,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
             "buy": "https://www.booli.se/sok/till-salu",
         },
         description="Sweden marketplace and valuation surface for home search.",
+    ),
+    PropertyProviderSpec(
+        key="kronofogden_auktionstorget_se",
+        label="Kronofogden Auktionstorget",
+        country_code="SE",
+        host_markers=("auktionstorget.kronofogden.se",),
+        listing_path_markers=(".html",),
+        search_urls={
+            "buy": "https://auktionstorget.kronofogden.se/auktionstorget",
+        },
+        description="Sweden Enforcement Authority auction market for seized real estate and housing rights.",
+        supported_listing_modes=("buy",),
     ),
     PropertyProviderSpec(
         key="zillow",
@@ -618,6 +809,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Canada rental-focused apartment portal.",
         supported_listing_modes=("rent",),
     ),
+    PropertyProviderSpec(
+        key="treasury_real_property_us",
+        label="Treasury Real Property Auctions",
+        country_code="US",
+        host_markers=("treasury.gov",),
+        listing_path_markers=("/auctions/treasury/rp/",),
+        search_urls={
+            "buy": "https://www.treasury.gov/auctions/treasury/rp/index.shtml",
+        },
+        description="United States federal seized-real-property auction listings open to the public.",
+        supported_listing_modes=("buy",),
+    ),
 )
 
 
@@ -633,6 +836,8 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "immoscout": "immoscout_at",
     "immoscout24": "immoscout_at",
     "immoscoutat": "immoscout_at",
+    "justizedikte": "justiz_edikte_at",
+    "edikte": "justiz_edikte_at",
     "immobilienscout": "immoscout_de",
     "immobilienscout24": "immoscout_de",
     "immobilienscout24de": "immoscout_de",
@@ -646,45 +851,60 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "newhome": "newhome",
     "immoweb": "immoweb",
     "zimmo": "zimmo",
+    "biddit": "biddit_be",
+    "taxsalesportal": "taxsales_ca",
     "daft": "daft_ie",
     "daftie": "daft_ie",
     "myhome": "myhome_ie",
     "myhomeie": "myhome_ie",
+    "youbid": "youbid_ie",
     "rightmove": "rightmove",
     "zoopla": "zoopla",
     "onthemarket": "onthemarket",
+    "repolist": "repolist_uk",
     "realestateau": "realestate_au",
     "realestatecomau": "realestate_au",
     "domain": "domain_au",
     "flatmates": "flatmates_au",
+    "mortgageeau": "mortgagee_au",
     "idealista": "idealista_es",
     "idealistaes": "idealista_es",
     "idealistait": "idealista_it",
     "idealistapt": "idealista_pt",
     "fotocasa": "fotocasa",
     "habitaclia": "habitaclia",
+    "boesubastas": "boe_subastas_es",
     "immobiliare": "immobiliare",
+    "astegiudiziarie": "aste_giudiziarie_it",
     "casait": "casa_it",
     "casa": "casa_it",
     "seloger": "seloger",
     "bienici": "bienici",
     "leboncoin": "leboncoin_immo",
     "leboncoinimmo": "leboncoin_immo",
+    "avoventes": "avoventes_fr",
     "funda": "funda",
     "pararius": "pararius",
+    "veilingdeurwaarder": "veilingdeurwaarder_nl",
     "imovirtual": "imovirtual",
     "casasapo": "casa_sapo",
+    "citiusexec": "citius_exec_pt",
     "otodom": "otodom",
     "olxpl": "olx_pl_nieruchomosci",
     "olxnieruchomosci": "olx_pl_nieruchomosci",
+    "komornik": "komornik_elicytacje_pl",
     "hemnet": "hemnet",
     "booli": "booli",
+    "kronofogden": "kronofogden_auktionstorget_se",
     "zillow": "zillow",
     "realtor": "realtor",
     "apartments": "apartments",
     "realtorca": "realtor_ca",
     "rew": "rew_ca",
     "rentalsca": "rentals_ca",
+    "treasuryrealproperty": "treasury_real_property_us",
+    "zvg": "zvg_de",
+    "auctionhome": "auctionhome_ch",
     "all": "all",
 }
 
@@ -819,6 +1039,21 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["property_type"] = normalize_property_type(payload.get("property_type"))
     payload["location_query"] = str(payload.get("location_query") or "").strip()
     payload["keywords"] = str(payload.get("keywords") or "").strip()
+    normalized_alert_frequency = str(payload.get("alert_frequency") or "").strip().lower() or "daily"
+    if normalized_alert_frequency not in ALERT_FREQUENCY_LABELS:
+        normalized_alert_frequency = "daily"
+    payload["alert_frequency"] = normalized_alert_frequency
+    raw_alert_channels = payload.get("alert_channels")
+    if isinstance(raw_alert_channels, (list, tuple, set)):
+        alert_channels = [
+            current
+            for current in dict.fromkeys(str(item or "").strip().lower() for item in raw_alert_channels)
+            if current in ALERT_CHANNEL_KEYS
+        ]
+    else:
+        single_channel = str(raw_alert_channels or "").strip().lower()
+        alert_channels = [single_channel] if single_channel in ALERT_CHANNEL_KEYS else []
+    payload["alert_channels"] = alert_channels or ["telegram"]
     payload["selected_platforms"] = [
         current
         for current in dict.fromkeys(
