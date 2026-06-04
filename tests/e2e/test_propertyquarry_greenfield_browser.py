@@ -96,7 +96,35 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
                                 "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
                                 "match_reasons": ["Lift and transit fit."],
                                 "mismatch_reasons": [],
-                            }
+                                "property_facts": {
+                                    "price_display": "EUR 420,000",
+                                    "price_eur": 420000.0,
+                                    "rooms": 3,
+                                    "area_m2": 78,
+                                    "postal_name": "Berlin Mitte",
+                                    "nearest_supermarket_m": 280,
+                                    "nearest_pharmacy_m": 410,
+                                    "nearest_playground_m": 520,
+                                    "nearest_subway_m": 1200,
+                                },
+                            },
+                            {
+                                "title": "Family flat near Tiergarten",
+                                "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                                "fit_summary": "Personal fit 87/100 · shortlist · Larger layout and quieter block.",
+                                "recommendation": "shortlist",
+                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-2",
+                                "tour_url": "",
+                                "match_reasons": ["Larger layout and quieter block."],
+                                "mismatch_reasons": ["No 360 tour yet."],
+                                "property_facts": {
+                                    "price_display": "EUR 465,000",
+                                    "price_eur": 465000.0,
+                                    "rooms": 4,
+                                    "area_m2": 92,
+                                    "postal_name": "Berlin Tiergarten",
+                                },
+                            },
                         ],
                     }
                 ],
@@ -185,7 +213,13 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         content = page.content()
         assert 'data-property-spa-shell' in content
         assert 'data-property-mobile-dock' in content
-        assert "Shape the next market sweep before the crawlers fan out." in content
+        assert 'data-property-decision-workbench' in content
+        assert 'data-workbench-results-table' in content
+        assert 'data-workbench-dossier' in content
+        assert "Ranked results" in content
+        assert "Altbau near U6" in content
+        assert "Family flat near Tiergarten" in content
+        assert "360 ready" in content
         assert "Single workspace app" in content
         assert "Search" in content
         assert "Shortlist" in content
@@ -193,7 +227,11 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "Profile" in content
         assert "Alerts" in content
         assert "Billing" in content
-        assert "Step 1 of 3" in content
+        assert "OODA" in content
+
+        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
+        assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
+        assert page.locator("[data-workbench-dossier]", has_text="360 not ready").is_visible()
 
         page.get_by_role("link", name="Shortlist").click()
         page.wait_for_load_state("networkidle")
@@ -229,14 +267,18 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         content = page.content()
-        assert "Shape the next market sweep before the crawlers fan out." in content
+        assert 'data-property-decision-workbench' in content
         assert 'data-property-mobile-dock' in content
-        assert page.get_by_role("button", name="Next").is_visible()
-        assert page.get_by_role("button", name="Next").is_enabled()
-        step_box = page.get_by_role("button", name="Step 1 Search posture").bounding_box()
-        assert step_box is not None and step_box["width"] <= 430
+        assert page.get_by_role("button", name="Results").is_visible()
+        assert page.get_by_role("button", name="Property").is_visible()
+        mode_box = page.get_by_role("button", name="Results").bounding_box()
+        assert mode_box is not None and mode_box["width"] <= 430
         mobile_dock = page.locator("[data-property-mobile-dock]")
         assert mobile_dock.is_visible()
+        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
+        page.get_by_role("button", name="Property").click()
+        assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
+        assert page.locator("[data-workbench-dossier]", has_text="360 not ready").is_visible()
 
         page.get_by_role("link", name="Research").click()
         page.wait_for_load_state("networkidle")

@@ -1294,6 +1294,84 @@ def property_workspace_payload(
         return " · ".join(parts[:3])
 
     results_table_rows = []
+    workbench_results: list[dict[str, object]] = []
+
+    def _money_per_sqm_line(facts: dict[str, object]) -> str:
+        raw_price = facts.get("price_eur") or facts.get("purchase_price_eur")
+        raw_area = facts.get("area_m2") or facts.get("living_area_m2")
+        try:
+            price = float(raw_price)
+            area = float(raw_area)
+        except Exception:
+            return ""
+        if price <= 0 or area <= 0:
+            return ""
+        return f"EUR {price / area:,.0f}/m2"
+
+    def _risk_summary(candidate: dict[str, object], facts: dict[str, object]) -> dict[str, str]:
+        mismatch = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        missing: list[str] = []
+        if not str(candidate.get("tour_url") or "").strip():
+            missing.append("360 pending")
+        if not (facts.get("street_address") or facts.get("address")):
+            missing.append("address")
+        if not (facts.get("heating") or facts.get("heating_type")):
+            missing.append("heating")
+        if mismatch:
+            return {"level": "medium", "summary": mismatch[0]}
+        if len(missing) >= 2:
+            return {"level": "medium", "summary": "Missing " + ", ".join(missing[:3])}
+        if missing:
+            return {"level": "low", "summary": "Missing " + missing[0]}
+        return {"level": "low", "summary": "No major packet risk flagged yet."}
+
+    def _candidate_ooda_rows(candidate: dict[str, object], facts: dict[str, object]) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for label, raw_value in (
+            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
+            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
+            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
+            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
+        ):
+            if raw_value in (None, "", []):
+                continue
+            try:
+                meters = int(float(raw_value))
+            except Exception:
+                continue
+            rows.append(
+                {
+                    "label": label,
+                    "value": f"{meters} m",
+                    "detail": f"about {max(1, int(round(float(meters) / 330.0)))} min by bike",
+                }
+            )
+        match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
+        mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        rows.insert(
+            0,
+            {
+                "label": "Decide",
+                "value": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
+                "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the packet for the full decision read."),
+            },
+        )
+        return rows[:6]
+
+    def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
+        tour_url = str(candidate.get("tour_url") or "").strip()
+        status = str(candidate.get("tour_status") or "").strip().lower()
+        eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
+        if tour_url:
+            return {"status": "ready", "label": "360 ready", "url": tour_url, "eta_label": ""}
+        if status in {"queued", "pending"}:
+            return {"status": "queued", "label": "360 queued", "url": "", "eta_label": f"about {eta_minutes or '10'} min"}
+        if status in {"processing", "running", "in_progress", "started"}:
+            return {"status": "processing", "label": "360 rendering", "url": "", "eta_label": f"about {eta_minutes or '5'} min"}
+        if status in {"blocked", "failed"}:
+            return {"status": "blocked", "label": "360 blocked", "url": "", "eta_label": ""}
+        return {"status": "missing", "label": "360 not ready", "url": "", "eta_label": "not scheduled yet"}
+
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         price_line = str(
@@ -1311,6 +1389,43 @@ def property_workspace_payload(
         packet_label = "Review packet" if packet_url else "Pending"
         tour_status_line = _tour_status_line(candidate)
         ooda_detail = _distance_line(candidate)
+        candidate_ref = str(packet_url or "").split("/app/research/", 1)[-1].split("?", 1)[0] if "/app/research/" in packet_url else _property_candidate_ref(candidate)
+        tour_payload = _tour_payload(candidate)
+        ooda_rows = _candidate_ooda_rows(candidate, facts)
+        risk_payload = _risk_summary(candidate, facts)
+        match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
+        mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+        investment_payload = {
+            "enabled": str(property_preferences.get("listing_mode") or "").strip().lower() == "buy",
+            "price_per_sqm": _money_per_sqm_line(facts),
+            "headline": "Open packet for full underwriting" if str(property_preferences.get("listing_mode") or "").strip().lower() == "buy" else "",
+        }
+        workbench_results.append(
+            {
+                "candidate_ref": candidate_ref,
+                "rank": len(workbench_results) + 1,
+                "title": str(candidate.get("title") or "Candidate").strip() or "Candidate",
+                "source_label": str(candidate.get("source_label") or "").strip(),
+                "location_label": str(facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
+                "price_display": price_line,
+                "price_per_sqm_display": investment_payload["price_per_sqm"],
+                "layout_display": " | ".join(part for part in layout_parts if part) or "n/a",
+                "fit_label": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(),
+                "fit_summary": str(candidate.get("fit_summary") or "").strip(),
+                "tour": tour_payload,
+                "ooda": {
+                    "summary": ooda_detail or (match_reasons[0] if match_reasons else "Open the packet to inspect OODA."),
+                    "rows": ooda_rows,
+                },
+                "risk": risk_payload,
+                "investment": investment_payload,
+                "match_reasons": match_reasons,
+                "mismatch_reasons": mismatch_reasons,
+                "packet_url": packet_url,
+                "review_url": str(candidate.get("review_url") or "").strip(),
+                "source_url": str(candidate.get("property_url") or "").strip(),
+            }
+        )
         results_table_rows.append(
             {
                 "cells": [
@@ -1821,6 +1936,46 @@ def property_workspace_payload(
     payload["current_plan_label"] = current_plan_label
     payload["run_payload"] = run_payload
     payload["run_summary"] = run_summary
+    payload["decision_workbench"] = {
+        "run": {
+            "run_id": run_id,
+            "status": run_status_value or "not_started",
+            "status_label": run_status_label,
+            "progress": int(run_payload.get("progress") or 0),
+            "message": run_message,
+            "status_url": str(run_payload.get("status_url") or "").strip(),
+            "summary": run_summary,
+            "events": run_events[-8:],
+        },
+        "brief": {
+            "country": str(property_state.get("country_label") or "Austria"),
+            "mode": str(property_preferences.get("listing_mode") or "rent").strip().title(),
+            "region": str(property_state.get("region_label") or property_preferences.get("region_code") or "").strip(),
+            "areas": selected_locations,
+            "priorities": selected_keywords,
+            "providers": selected_platforms,
+            "plan": current_plan_label,
+            "research_depth": str(commercial.get("research_depth") or "deep").strip(),
+        },
+        "endpoints": {
+            "preferences": str(property_meta.get("preferences_endpoint") or "").strip(),
+            "start": str(property_meta.get("start_endpoint") or "").strip(),
+            "billing_order": str(property_meta.get("billing_order_endpoint") or "").strip(),
+        },
+        "recent_packets": [
+            {
+                "title": str(item.get("title") or item.get("label") or "Review packet").strip(),
+                "detail": str(item.get("detail") or "").strip(),
+                "tag": str(item.get("tag") or "Packet").strip(),
+                "url": str(item.get("action_href") or "").strip(),
+            }
+            for item in list(recent_matches_card.get("items") or [])[:5]
+            if isinstance(item, dict)
+        ],
+        "results": workbench_results,
+        "selected_candidate_ref": workbench_results[0]["candidate_ref"] if workbench_results else "",
+        "show_brief_default": not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(workbench_results))),
+    }
     return payload
 
 

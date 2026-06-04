@@ -158,17 +158,30 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-property-spa-shell' in search.text
     assert 'data-property-pulse-strip' in search.text
     assert 'data-property-mobile-dock' in search.text
+    assert 'data-property-decision-workbench' in search.text
+    assert 'data-workbench-results-table' in search.text
+    assert 'data-workbench-dossier' in search.text
+    assert 'data-workbench-brief-drawer' in search.text
+    assert 'data-workbench-row' in search.text
     assert "Single workspace app" in search.text
     assert "Run-first results" in search.text
-    assert "Review the finished shortlist in one table." in search.text
-    assert "Finished run" in search.text
-    assert "Nothing but the final result table." in search.text
+    assert "Ranked results" in search.text
+    assert "table-first decision surface" in search.text
+    assert "Altbau near U6" in search.text
+    assert "Family flat near Tiergarten" in search.text
+    assert "360 ready" in search.text
+    assert "360 not ready" in search.text
     assert "360" in search.text
     assert "Candidate" in search.text
     assert "Price" in search.text
     assert "Layout" in search.text
     assert "OODA" in search.text
-    assert "Open research" in search.text
+    assert "Playground" in search.text
+    assert "Supermarket" in search.text
+    assert "Underground" in search.text
+    assert "Why selected" in search.text
+    assert "Investment read" in search.text
+    assert "EUR 5,385/m2" in search.text
     assert 'href="/app/shortlist"' in search.text
     assert 'href="/app/research"' in search.text
     assert 'href="/app/profile"' in search.text
@@ -280,7 +293,9 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     live = client.get("/app/properties", params={"run_id": "run-live"}, headers=headers)
     assert live.status_code == 200
     assert 'data-property-spa-shell' in live.text
-    assert "Keep the run visible until the shortlist is ready." in live.text
+    assert 'data-property-decision-workbench' in live.text
+    assert 'data-workbench-dossier' in live.text
+    assert "No ranked results yet" in live.text
     assert "Live search" in live.text
     assert "Scoring shortlist candidate 2 of 4" in live.text
     assert "Launch search" not in live.text
@@ -308,9 +323,11 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
+    assert 'data-workbench-brief-drawer' in search.text
     assert 'name="all_of_vienna" value="true" checked' in search.text
     assert "All of Vienna" in search.text
     assert 'name="location_query"' in search.text
+    assert re.search(r'data-property-field-step="areas" hidden>\s*<div class="pw-field-title">Target areas</div>', search.text)
 
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:

@@ -2354,9 +2354,10 @@ def app_shell(
             )
     workspace = dict(status.get("workspace") or {})
     if property_brand and resolved_section in property_sections:
+        property_template = "app/property_decision_workbench.html" if resolved_section == "properties" else "app/property_workspace.html"
         return _render_public_template(
             request,
-            "app/property_workspace.html",
+            property_template,
             **{
                 **_console_shell_context(
                     request=request,

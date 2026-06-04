@@ -237,8 +237,11 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     property_headers = {"host": "propertyquarry.com"}
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
     assert response.status_code == 200
-    assert "Review the finished shortlist in one table." in response.text
-    assert "Finished run" in response.text
+    assert 'data-property-decision-workbench' in response.text
+    assert 'data-workbench-results-table' in response.text
+    assert 'data-workbench-dossier' in response.text
+    assert "Ranked results" in response.text
+    assert "table-first decision surface" in response.text
     assert 'href="/app/properties"' in response.text
     assert 'href="/app/shortlist"' in response.text
     assert 'href="/app/research"' in response.text
@@ -248,12 +251,13 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Candidate" in response.text
     assert "Price" in response.text
     assert "Layout" in response.text
-    assert "Open research" in response.text
+    assert "OODA" in response.text
+    assert "Investment read" in response.text
+    assert "360 ready" in response.text
     assert "Berlin" in response.text
     assert "Germany" in response.text
     assert "ImmoScout24 Germany" in response.text
     assert "Property scouting run completed." in response.text
-    assert "Ready | Live now" in response.text
     assert "Office signals ingested" not in response.text
     assert "Morning Memo" not in response.text
 
