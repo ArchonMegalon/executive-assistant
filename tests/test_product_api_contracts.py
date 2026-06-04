@@ -3514,6 +3514,159 @@ def test_property_scout_page_preview_extracts_citius_exec_facts(monkeypatch: pyt
     assert facts["area_sqm"] == 74.2
 
 
+def test_property_scout_page_preview_extracts_biddit_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.biddit.be/nl/catalog/detail/987654"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Biddit appartement Brussel</title></head>
+              <body>
+                <table>
+                  <tr><th>Notaris</th><td>Notaris Peeters &amp; Co</td></tr>
+                  <tr><th>Dossier</th><td>BID-2026-7788</td></tr>
+                  <tr><th>Instelprijs</th><td>245 000 EUR</td></tr>
+                  <tr><th>Waarborg</th><td>24 500 EUR</td></tr>
+                  <tr><th>Sluiting biedingen</th><td>2026-10-15 14:00</td></tr>
+                  <tr><th>Adres</th><td>Wetstraat 120, 1000 Brussel</td></tr>
+                  <tr><th>Bewoning</th><td>verhuurd</td></tr>
+                  <tr><th>Bewoonbare oppervlakte</th><td>76,0 m²</td></tr>
+                </table>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "biddit_be"
+    assert facts["court"] == "Notaris Peeters & Co"
+    assert facts["court_file_reference"] == "BID-2026-7788"
+    assert facts["valuation_eur"] == 245000.0
+    assert facts["deposit_amount_eur"] == 24500.0
+    assert facts["auction_date"] == "2026-10-15 14:00"
+    assert facts["street_address"] == "Wetstraat 120"
+    assert facts["postal_name"] == "1000 Brussel"
+    assert facts["occupancy_status"] == "verhuurd"
+    assert facts["area_sqm"] == 76.0
+
+
+def test_property_scout_page_preview_extracts_veilingdeurwaarder_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.veilingdeurwaarder.nl/object/amsterdam-334455"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Executieveiling Amsterdam</title></head>
+              <body>
+                <dl>
+                  <dt>Notaris</dt><dd>Van Dijk Notarissen</dd>
+                  <dt>Dossiernummer</dt><dd>VD-2026-14</dd>
+                  <dt>Inzetprijs</dt><dd>€ 395.000,00</dd>
+                  <dt>Waarborgsom</dt><dd>€ 39.500,00</dd>
+                  <dt>Veilingdatum</dt><dd>2026-11-21 10:00</dd>
+                  <dt>Adres</dt><dd>Keizersgracht 18, 1012 LG Amsterdam</dd>
+                  <dt>Bewoning</dt><dd>bewoond</dd>
+                  <dt>Woonoppervlakte</dt><dd>94,0 m²</dd>
+                </dl>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "veilingdeurwaarder_nl"
+    assert facts["court"] == "Van Dijk Notarissen"
+    assert facts["court_file_reference"] == "VD-2026-14"
+    assert facts["valuation_eur"] == 395000.0
+    assert facts["deposit_amount_eur"] == 39500.0
+    assert facts["auction_date"] == "2026-11-21 10:00"
+    assert facts["street_address"] == "Keizersgracht 18"
+    assert facts["postal_name"] == "1012 LG Amsterdam"
+    assert facts["occupancy_status"] == "bewoond"
+    assert facts["area_sqm"] == 94.0
+
+
+def test_property_scout_page_preview_extracts_komornik_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://elicytacje.komornik.pl/items/auction?id=24680"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>E-licytacja mieszkania Warszawa</title></head>
+              <body>
+                <table>
+                  <tr><th>Komornik</th><td>Komornik Sądowy Anna Kowalska</td></tr>
+                  <tr><th>Sygnatura</th><td>KM 1234/25</td></tr>
+                  <tr><th>Cena wywoławcza</th><td>520 000,00 EUR</td></tr>
+                  <tr><th>Rękojmia</th><td>52 000,00 EUR</td></tr>
+                  <tr><th>Termin licytacji</th><td>2026-12-09 09:30</td></tr>
+                  <tr><th>Adres</th><td>Ulica Puławska 88, 00-950 Warszawa</td></tr>
+                  <tr><th>Stan zamieszkania</th><td>zamieszkany</td></tr>
+                  <tr><th>Powierzchnia</th><td>67,8 m²</td></tr>
+                </table>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "komornik_elicytacje_pl"
+    assert facts["auction_reference"] == "24680"
+    assert facts["court"] == "Komornik Sądowy Anna Kowalska"
+    assert facts["court_file_reference"] == "KM 1234/25"
+    assert facts["valuation_eur"] == 520000.0
+    assert facts["deposit_amount_eur"] == 52000.0
+    assert facts["auction_date"] == "2026-12-09 09:30"
+    assert facts["street_address"] == "Ulica Puławska 88"
+    assert facts["postal_name"] == "00-950 Warszawa"
+    assert facts["occupancy_status"] == "zamieszkany"
+    assert facts["area_sqm"] == 67.8
+
+
+def test_property_scout_page_preview_extracts_kronofogden_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://auktionstorget.kronofogden.se/auktionstorget/object/stockholm-7788"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Auktion bostadsrätt Stockholm</title></head>
+              <body>
+                <dl>
+                  <dt>Kronofogden</dt><dd>Kronofogden Stockholm</dd>
+                  <dt>Målnummer</dt><dd>KFM 2026-7788</dd>
+                  <dt>Utropspris</dt><dd>3 250 000 EUR</dd>
+                  <dt>Handpenning</dt><dd>325 000 EUR</dd>
+                  <dt>Auktionstid</dt><dd>2026-10-28 13:00</dd>
+                  <dt>Adress</dt><dd>Storgatan 11, 114 34 Stockholm</dd>
+                  <dt>Uthyrd</dt><dd>uthyrd</dd>
+                  <dt>Boarea</dt><dd>81,0 m²</dd>
+                </dl>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "kronofogden_auktionstorget_se"
+    assert facts["court"] == "Kronofogden Stockholm"
+    assert facts["court_file_reference"] == "KFM 2026-7788"
+    assert facts["valuation_eur"] == 3250000.0
+    assert facts["deposit_amount_eur"] == 325000.0
+    assert facts["auction_date"] == "2026-10-28 13:00"
+    assert facts["street_address"] == "Storgatan 11"
+    assert facts["postal_name"] == "114 34 Stockholm"
+    assert facts["occupancy_status"] == "uthyrd"
+    assert facts["area_sqm"] == 81.0
+
+
 def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
