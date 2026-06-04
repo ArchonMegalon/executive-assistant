@@ -60,6 +60,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                                 "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
                                 "match_reasons": ["Lift and transit fit."],
                                 "mismatch_reasons": [],
+                                "property_facts": {
+                                    "price_display": "EUR 420,000",
+                                    "rooms": 3,
+                                    "area_m2": 78,
+                                    "postal_name": "Berlin Mitte",
+                                },
                             }
                         ],
                     }
@@ -124,6 +130,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers=headers)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Decision scorecard" in packet.text
+    assert "Open questions" in packet.text
+    assert "Compare next" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
 

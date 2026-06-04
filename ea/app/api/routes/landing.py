@@ -1344,6 +1344,122 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     return rows
 
 
+def _property_packet_score_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    match_reasons: list[str],
+    mismatch_reasons: list[str],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    selected_locations = {str(value).strip().lower() for value in str(preferences.get("location_query") or "").split(",") if str(value).strip()}
+    fact_address = str(facts.get("address") or facts.get("postal_name") or "").strip()
+    if fact_address:
+        fits_location = any(token in fact_address.lower() for token in selected_locations) if selected_locations else True
+        rows.append(
+            _object_detail_row(
+                "Location fit",
+                fact_address,
+                "Strong" if fits_location else "Check",
+            )
+        )
+    price_value = str(
+        facts.get("price_display")
+        or facts.get("rent_display")
+        or facts.get("price")
+        or facts.get("price_eur")
+        or ""
+    ).strip()
+    if price_value:
+        rows.append(_object_detail_row("Budget signal", price_value, "Budget"))
+    area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
+    rooms_value = str(facts.get("rooms") or facts.get("room_count") or "").strip()
+    if area_value or rooms_value:
+        detail = " | ".join(
+            part for part in (
+                f"{rooms_value} rooms" if rooms_value else "",
+                f"{area_value} m2" if area_value else "",
+            ) if part
+        )
+        rows.append(_object_detail_row("Layout signal", detail, "Layout"))
+    if match_reasons:
+        rows.append(_object_detail_row("Best fit signal", match_reasons[0], "Positive"))
+    if mismatch_reasons:
+        rows.append(_object_detail_row("Main caution", mismatch_reasons[0], "Risk"))
+    return rows
+
+
+def _property_packet_missing_rows(
+    *,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    missing_fact_specs = [
+        ("address", "Exact address", "Needed for precise neighbourhood checks and revisit logistics."),
+        ("heating_type", "Heating type", "Needed to confirm if the building avoids the wrong heating setup."),
+        ("has_lift", "Lift status", "Needed because access and daily usability often decide the shortlist."),
+        ("distance_supermarket_m", "Supermarket distance", "Needed to validate daily-errand convenience."),
+        ("distance_playground_m", "Playground distance", "Needed if the search is family-oriented."),
+        ("distance_pharmacy_m", "Pharmacy distance", "Needed to confirm basic services nearby."),
+        ("distance_underground_m", "Underground distance", "Needed to validate fast transit access."),
+    ]
+    wanted_keywords = {str(value).strip().lower() for value in str(preferences.get("keywords") or "").split(",") if str(value).strip()}
+    for key, title, detail in missing_fact_specs:
+        if facts.get(key) not in (None, "", []):
+            continue
+        if key == "distance_playground_m" and "playground nearby" not in wanted_keywords and "family" not in wanted_keywords:
+            continue
+        if key == "distance_underground_m" and "underground nearby" not in wanted_keywords:
+            continue
+        if key == "heating_type" and not ({"no gas", "district heating"} & wanted_keywords):
+            continue
+        rows.append(_object_detail_row(title, detail, "Missing"))
+    return rows
+
+
+def _property_packet_compare_rows(
+    *,
+    property_context: dict[str, object],
+    current_candidate_ref: str,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    shortlist_candidates = list(dict(property_context.get("preferences_payload") or {}).get("meta", {}).get("shortlist_candidates") or [])
+    for candidate in shortlist_candidates[:5]:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_ref = _property_candidate_ref(candidate)
+        if candidate_ref == current_candidate_ref:
+            continue
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        fact_line = " | ".join(
+            part for part in (
+                str(facts.get("price_display") or facts.get("rent_display") or facts.get("price") or "").strip(),
+                f"{facts.get('rooms')} rooms" if facts.get("rooms") else "",
+                f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
+            ) if part
+        )
+        rows.append(
+            _object_detail_row(
+                str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
+                " | ".join(
+                    part for part in (
+                        str(candidate.get("fit_summary") or candidate.get("detail") or "").strip(),
+                        fact_line,
+                    ) if part
+                ) or "Open the packet to compare this candidate.",
+                str(candidate.get("tag") or candidate.get("recommendation") or "Compare").strip() or "Compare",
+                href=str(candidate.get("packet_url") or "").strip(),
+                secondary_action_href=str(candidate.get("packet_url") or "").strip(),
+                secondary_action_label="Open packet" if str(candidate.get("packet_url") or "").strip() else "",
+                secondary_action_method="get" if str(candidate.get("packet_url") or "").strip() else "",
+            )
+        )
+        if len(rows) >= 3:
+            break
+    return rows
+
+
 @router.get("/app/research/{candidate_ref}", response_class=HTMLResponse)
 def property_research_packet(
     candidate_ref: str,
@@ -1367,6 +1483,7 @@ def property_research_packet(
     facts = dict(candidate.get("property_facts") or {})
     match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
     mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+    preferences = dict(property_context.get("preferences") or {})
     fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
@@ -1374,6 +1491,20 @@ def property_research_packet(
     source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
     title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
     run_target = f"/app/research/{candidate_ref}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else "")
+    packet_score_rows = _property_packet_score_rows(
+        facts=facts,
+        preferences=preferences,
+        match_reasons=match_reasons,
+        mismatch_reasons=mismatch_reasons,
+    )
+    missing_rows = _property_packet_missing_rows(
+        facts=facts,
+        preferences=preferences,
+    )
+    compare_rows = _property_packet_compare_rows(
+        property_context=property_context,
+        current_candidate_ref=str(candidate_ref or "").strip(),
+    )
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1431,6 +1562,12 @@ def property_research_packet(
         ],
         object_sections=[
             {
+                "eyebrow": "Decision scorecard",
+                "title": "The first reasons to keep or reject this property",
+                "items": packet_score_rows
+                or [_object_detail_row("No scorecard yet", "The packet still needs enough facts to summarize the decision cleanly.", "Pending")],
+            },
+            {
                 "eyebrow": "Fit reasoning",
                 "title": "Why this candidate matched",
                 "items": (
@@ -1444,14 +1581,9 @@ def property_research_packet(
                 "items": _property_fact_rows(facts) or [_object_detail_row("No structured facts yet", "Run deeper enrichment or inspect the raw listing.", "Pending")],
             },
             {
-                "eyebrow": "Research next",
-                "title": "What still needs verification",
-                "items": [
-                    _object_detail_row(
-                        "Confirm missing building facts",
-                        "Lift, heating, exact address, and neighbourhood distances should be explicit before a human spends more time here.",
-                        "Follow-up",
-                    ),
+                "eyebrow": "Open questions",
+                "title": "What still needs verification before this is trustworthy",
+                "items": missing_rows + [
                     _object_detail_row(
                         "Review the hosted surfaces",
                         "Use the hosted review and 360 pages only after the internal packet already looks compelling.",
@@ -1463,6 +1595,12 @@ def property_research_packet(
                         "Learning",
                     ),
                 ],
+            },
+            {
+                "eyebrow": "Compare next",
+                "title": "Keep the next-best shortlist candidates visible",
+                "items": compare_rows
+                or [_object_detail_row("No compare candidates yet", "Finish or widen the shortlist run to compare alternatives here.", "Waiting")],
             },
         ],
     )
