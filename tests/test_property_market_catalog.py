@@ -256,13 +256,13 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
     assert all("Vienna" in str(row["label"]) for row in specs)
 
 
-def test_generated_source_specs_keep_justiz_edikte_base_search_url() -> None:
+def test_generated_source_specs_build_justiz_edikte_result_search_url() -> None:
     specs = generated_source_specs(
         preferences={
             "country_code": "AT",
             "language_code": "de",
             "listing_mode": "buy",
-            "location_query": "Wien",
+            "location_query": "1090",
             "keywords": "lift family",
             "property_type": "apartment",
         },
@@ -274,4 +274,28 @@ def test_generated_source_specs_keep_justiz_edikte_base_search_url() -> None:
 
     assert len(specs) == 1
     assert specs[0]["platform"] == "justiz_edikte_at"
-    assert specs[0]["url"] == "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm"
+    assert "suchedi?SearchView&subf=eex" in str(specs[0]["url"])
+    assert "%5BVPLZ%5D=1090" in str(specs[0]["url"])
+    assert "%5BBL%5D=0" in str(specs[0]["url"])
+
+
+def test_generated_source_specs_use_public_fallback_for_immoscout_at_and_kalandra() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+        },
+        selected_platforms=("immoscout_at", "kalandra"),
+        principal_id="exec-property-at-upstreams",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert len(specs) == 2
+    immoscout_spec = next(row for row in specs if row["platform"] == "immoscout_at")
+    kalandra_spec = next(row for row in specs if row["platform"] == "kalandra")
+    assert str(immoscout_spec["url"]).startswith("https://www.immmo.at/suche/kauf")
+    assert "pq_upstream=immoscout_at" in str(immoscout_spec["url"])
+    assert kalandra_spec["url"] == "https://www.kalandra.at/immobiliensuche"

@@ -134,8 +134,8 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         host_markers=("kalandra.at",),
         listing_path_markers=("/objekt/",),
         search_urls={
-            "rent": "https://www.kalandra.at/objekte",
-            "buy": "https://www.kalandra.at/objekte",
+            "rent": "https://www.kalandra.at/immobiliensuche",
+            "buy": "https://www.kalandra.at/immobiliensuche",
         },
         description="Austria brokerage inventory with high-value marketing packets.",
     ),
@@ -162,7 +162,13 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="Justiz Edikte Auctions",
         country_code="AT",
         host_markers=("edikte.justiz.gv.at", "edikte2.justiz.gv.at"),
-        listing_path_markers=("/edikte/ex/exedi3.nsf/", "/ex/exedi3.nsf/0/"),
+        listing_path_markers=(
+            "/edikte/ex/exedi3.nsf/",
+            "/ex/exedi3.nsf/0/",
+            "/edikte/ex/exedi3.nsf/alldoc/",
+            "/ex/exedi3.nsf/alldoc/",
+            "/alldoc/",
+        ),
         search_urls={
             "buy": "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm",
         },
@@ -948,9 +954,14 @@ GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
             "buy_url": "https://www.siedlungsunion.at/wohnen/sofort",
         },
         {
-            "label": "Sozialbau Angebote",
-            "rent_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml",
-            "buy_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml",
+            "label": "Sozialbau Projekte in Bau",
+            "rent_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml?pq_scope=in_bau",
+            "buy_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml?pq_scope=in_bau",
+        },
+        {
+            "label": "Sozialbau Projekte in Planung",
+            "rent_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml?pq_scope=in_planung",
+            "buy_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml?pq_scope=in_planung",
         },
         {
             "label": "WBV-GPA Wohnungen",
@@ -1167,6 +1178,62 @@ def _location_slug(value: str) -> str:
     return "-".join(_slug_tokens(value))
 
 
+_AT_JUSTIZ_BUNDESLAND_CODES: tuple[tuple[str, str], ...] = (
+    ("burgenland", "2"),
+    ("kaernten", "6"),
+    ("kärnten", "6"),
+    ("niederoesterreich", "1"),
+    ("niederösterreich", "1"),
+    ("oberoesterreich", "3"),
+    ("oberösterreich", "3"),
+    ("salzburg", "4"),
+    ("steiermark", "5"),
+    ("tirol", "7"),
+    ("vorarlberg", "8"),
+    ("wien", "0"),
+    ("vienna", "0"),
+)
+
+
+def _justiz_edikte_bundesland_code(location_query: str) -> str:
+    normalized = str(location_query or "").strip().lower()
+    if re.search(r"\b1\d{3}\b", normalized):
+        return "0"
+    for marker, code in _AT_JUSTIZ_BUNDESLAND_CODES:
+        if marker in normalized:
+            return code
+    return ""
+
+
+def _build_justiz_edikte_search_url(*, base_url: str, location_query: str) -> str:
+    normalized = str(location_query or "").strip()
+    if not normalized:
+        return base_url
+    postal_match = re.search(r"\b(\d{4})\b", normalized)
+    postal_code = str(postal_match.group(1) or "").strip() if postal_match else ""
+    bundesland_code = _justiz_edikte_bundesland_code(normalized)
+    city = "Wien" if bundesland_code == "0" else ""
+    query_parts: list[str] = []
+    retfields: list[str] = []
+    if postal_code:
+        query_parts.append(f"([VPLZ]=({postal_code}))")
+        retfields.append(f"%5BVPLZ%5D={urllib.parse.quote(postal_code)}")
+    if city:
+        query_parts.append(f"([VOrt]=({city}))")
+        retfields.append(f"%5BVOrt%5D={urllib.parse.quote(city)}")
+    if bundesland_code:
+        query_parts.append(f"([BL]=({bundesland_code}))")
+        retfields.append(f"%5BBL%5D={urllib.parse.quote(bundesland_code)}")
+    if not query_parts:
+        return base_url
+    search_query = "(" + " AND ".join(f"({part})" for part in query_parts) + ")"
+    return (
+        "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/suchedi"
+        f"?SearchView&subf=eex&SearchOrder=4&SearchMax=0&retfields={';'.join(retfields)}"
+        f"&ftquery=&query={urllib.parse.quote(search_query, safe='')}"
+    )
+
+
 def _location_query_variants(value: str) -> tuple[str, ...]:
     raw_parts = [str(part or "").strip() for part in str(value or "").split(",")]
     variants = tuple(part for part in raw_parts if part)
@@ -1196,7 +1263,19 @@ def _build_provider_search_url(
     search_terms = " ".join(part for part in (location_query, keywords) if part).strip()
     location_slug = _location_slug(location_query)
     if provider.key == "justiz_edikte_at":
-        return base_url
+        return _build_justiz_edikte_search_url(base_url=base_url, location_query=location_query)
+    if provider.key == "immoscout_at":
+        scout_fallback = "https://www.immmo.at/suche/kauf" if listing_mode == "buy" else "https://www.immmo.at/suche/miete"
+        query_items = {"pq_upstream": "immoscout_at"}
+        if search_terms:
+            query_items["q"] = search_terms
+        if max_price_eur:
+            query_items["maxPrice"] = str(max_price_eur)
+        if min_rooms:
+            query_items["minRooms"] = str(min_rooms)
+        return _append_query(scout_fallback, query_items)
+    if provider.key == "kalandra":
+        return "https://www.kalandra.at/immobiliensuche"
     if provider.key == "immoscout_de" and location_slug:
         suffix = "wohnung-kaufen" if listing_mode == "buy" else "wohnung-mieten"
         return f"https://www.immobilienscout24.de/Suche/de/{location_slug}/{location_slug}/{suffix}"

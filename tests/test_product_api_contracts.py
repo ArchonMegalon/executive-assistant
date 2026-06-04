@@ -977,6 +977,85 @@ def test_property_scout_extract_listing_urls_reads_script_paths_for_js_heavy_sea
     )
 
 
+def test_property_scout_extract_listing_urls_filters_immmo_upstream_to_immoscout() -> None:
+    html = """
+    <a href="https://www.immobilienscout24.at/expose/6a211cd1e3becfd2d596846f?utm_source=immmo.at">supported scout expose</a>
+    <a href="https://immo.sn.at/immobilien/beispiel-GVXMH2?utm_source=immmo.at">other upstream listing</a>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.immmo.at/suche/kauf?q=Wien&pq_upstream=immoscout_at",
+        html=html,
+    )
+
+    assert urls == (
+        "https://www.immobilienscout24.at/expose/6a211cd1e3becfd2d596846f?utm_source=immmo.at",
+    )
+
+
+def test_property_scout_extract_listing_urls_supports_justiz_alldoc_results() -> None:
+    html = """
+    <a href="alldoc/62af2c93a0d4c4e1c1258d1c00225860!OpenDocument">Eintrag 1</a>
+    <a href="alldoc/a468679bdbbc73d1c1258d1c00225a5c!OpenDocument">Eintrag 2</a>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/suchedi?SearchView&subf=eex&query=test",
+        html=html,
+    )
+
+    assert urls == (
+        "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/62af2c93a0d4c4e1c1258d1c00225860!OpenDocument",
+        "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/a468679bdbbc73d1c1258d1c00225a5c!OpenDocument",
+    )
+
+
+def test_property_scout_extract_listing_urls_builds_sozialbau_virtual_listings() -> None:
+    html = """
+    <table><tbody>
+      <tr data-ri="0" class="ui-widget-content ui-datatable-even">
+        <td role="gridcell"><span class="badge">Miete</span></td>
+        <td role="gridcell"><a href="#">1210 Wien<br />1210 Wien, Antonie-Lehr-Straße 18 / Leopoldauer Haide Gasse 12</a></td>
+        <td role="gridcell">144</td>
+        <td role="gridcell">August 2026</td>
+        <td role="gridcell">37486</td>
+        <td role="gridcell"><a href="https://www.google.com/maps/place/48.248654,16.425635/@48.248654,16.425635,19z">map</a></td>
+        <td role="gridcell"><button>Vormerken</button></td>
+      </tr>
+    </tbody></table>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml?pq_scope=in_bau",
+        html=html,
+    )
+
+    assert len(urls) == 1
+    assert "pq_listing=1" in urls[0]
+    assert "offer_type=Miete" in urls[0]
+    assert "registration_count=37486" in urls[0]
+
+
+def test_property_scout_page_preview_reads_sozialbau_virtual_listing_url() -> None:
+    listing_url = (
+        "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml"
+        "?pq_listing=1&offer_type=Miete&postal_name=1210+Wien&street_address=Antonie-Lehr-Stra%C3%9Fe+18"
+        "&unit_count=144&move_in=August+2026&registration_count=37486&map_lat=48.248654&map_lng=16.425635"
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url, prefer_fast=True)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "sozialbau"
+    assert facts["provider_group"] == "genossenschaften_at"
+    assert facts["street_address"] == "Antonie-Lehr-Straße 18"
+    assert facts["postal_name"] == "1210 Wien"
+    assert facts["unit_count"] == 144
+    assert facts["registration_count"] == 37486
+    assert facts["availability_label"] == "August 2026"
+    assert preview["title"] == "1210 Wien | Antonie-Lehr-Straße 18"
+
+
 def test_property_scout_extract_listing_urls_supports_query_based_auction_links() -> None:
     html = """
     <div data-href="/index.php?button=showzvg&zvg_id=123&land_abk=be"></div>

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import requests
 import yaml
 
 try:
@@ -615,8 +616,51 @@ def _property_alert_preference_person_id(payload: dict[str, object] | None = Non
 
 
 def _property_scout_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
+    normalized_url = str(url or "").strip()
+    parsed = urllib.parse.urlparse(normalized_url)
+    if "angebote.sozialbau.at" in parsed.netloc.lower():
+        scope = str((urllib.parse.parse_qs(parsed.query).get("pq_scope") or [""])[0]).strip().lower()
+        if scope in {"in_bau", "in_planung"}:
+            menu_source = "menuform:j_idt24" if scope == "in_bau" else "menuform:j_idt25"
+            with requests.Session() as session:
+                page = session.get(
+                    normalized_url.split("?", 1)[0],
+                    headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+                    timeout=float(timeout_seconds),
+                )
+                page.raise_for_status()
+                view_state_match = re.search(
+                    r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"',
+                    page.text,
+                    flags=re.IGNORECASE,
+                )
+                if view_state_match:
+                    ajax_response = session.post(
+                        normalized_url.split("?", 1)[0],
+                        data={
+                            "javax.faces.partial.ajax": "true",
+                            "javax.faces.source": menu_source,
+                            "javax.faces.partial.execute": f"{menu_source} menuform",
+                            "javax.faces.partial.render": "f1:ajax-main",
+                            menu_source: menu_source,
+                            "menuform": "menuform",
+                            "javax.faces.ViewState": str(view_state_match.group(1) or "").strip(),
+                        },
+                        headers={
+                            "User-Agent": _PROPERTY_SCOUT_USER_AGENT,
+                            "Faces-Request": "partial/ajax",
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                            "Accept": "application/xml, text/xml, */*; q=0.01",
+                        },
+                        timeout=float(timeout_seconds),
+                    )
+                    ajax_response.raise_for_status()
+                    body_match = re.search(r"<!\[CDATA\[(.*)\]\]>", ajax_response.text, flags=re.IGNORECASE | re.DOTALL)
+                    if body_match:
+                        return str(body_match.group(1) or "")
     request = urllib.request.Request(
-        str(url or "").strip(),
+        normalized_url,
         headers={
             "User-Agent": _PROPERTY_SCOUT_USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -640,12 +684,63 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     if _is_willhaben_property_url(normalized):
         query = urllib.parse.parse_qs(parsed.query)
         return "/iad/immobilien/d/" in path or (path == "/iad/object" and bool(query.get("adId") or query.get("adid")))
+    if "edikte.justiz.gv.at" in host or "edikte2.justiz.gv.at" in host:
+        return "/alldoc/" in path or "/0/" in path or path.endswith("!opendocument")
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
     return any(str(marker or "").lower() in combined for marker in provider_listing_markers_for_host(host))
 
 
 def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
+    source_query = urllib.parse.parse_qs(parsed_source.query)
+    sozialbau_scope = str((source_query.get("pq_scope") or [""])[0]).strip().lower()
+    if "angebote.sozialbau.at" in parsed_source.netloc.lower() and sozialbau_scope in {"in_bau", "in_planung"}:
+        rows: list[str] = []
+        seen_rows: set[str] = set()
+        for match in re.finditer(r"<tr[^>]*data-ri=\"\d+\"[^>]*>(.*?)</tr>", str(html or ""), re.IGNORECASE | re.DOTALL):
+            row_html = str(match.group(1) or "")
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.IGNORECASE | re.DOTALL)
+            if len(cells) < 6:
+                continue
+            offer_type = compact_text(_property_html_fragment_text(cells[0]), fallback="", limit=24)
+            anchor_match = re.search(r"<a[^>]*>(.*?)</a>", cells[1], re.IGNORECASE | re.DOTALL)
+            address_fragment = str(anchor_match.group(1) or "") if anchor_match else str(cells[1] or "")
+            address_lines = [
+                compact_text(_property_html_fragment_text(part), fallback="", limit=160)
+                for part in re.split(r"<br\s*/?>", address_fragment, flags=re.IGNORECASE)
+                if compact_text(_property_html_fragment_text(part), fallback="", limit=160)
+            ]
+            if not address_lines:
+                continue
+            postal_name = compact_text(address_lines[0], fallback="", limit=80)
+            street_address = compact_text(address_lines[-1], fallback="", limit=160)
+            unit_count = re.sub(r"[^\d]", "", _property_html_fragment_text(cells[2]))
+            move_in = compact_text(_property_html_fragment_text(cells[3]), fallback="", limit=80)
+            registration_count = re.sub(r"[^\d]", "", _property_html_fragment_text(cells[4]))
+            map_href_match = re.search(r'href="https://www\.google\.com/maps/place/([0-9\.\-]+),([0-9\.\-]+)', row_html, re.IGNORECASE)
+            params = {
+                "pq_listing": "1",
+                "offer_type": offer_type,
+                "postal_name": postal_name,
+                "street_address": street_address,
+                "unit_count": unit_count,
+                "move_in": move_in,
+                "registration_count": registration_count,
+                "pq_scope": sozialbau_scope,
+            }
+            if map_href_match:
+                params["map_lat"] = str(map_href_match.group(1) or "")
+                params["map_lng"] = str(map_href_match.group(2) or "")
+            listing_url = urllib.parse.urlunparse(
+                parsed_source._replace(
+                    query=urllib.parse.urlencode({key: value for key, value in params.items() if str(value or "").strip()})
+                )
+            )
+            if listing_url and listing_url not in seen_rows:
+                seen_rows.add(listing_url)
+                rows.append(listing_url)
+        return tuple(rows)
     candidates: list[str] = []
     seen: set[str] = set()
     normalized_html = (
@@ -667,8 +762,8 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
             raw_urls.append(urllib.parse.urljoin(source_url, match.group(1).strip()))
         except ValueError:
             continue
-    parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     path_markers = provider_listing_markers_for_host(parsed_source.netloc.lower())
+    required_upstream_platform = normalize_property_platform(str((source_query.get("pq_upstream") or [""])[0]).strip())
     if path_markers:
         escaped_markers = sorted((re.escape(marker) for marker in path_markers if str(marker or "").strip()), key=len, reverse=True)
         if escaped_markers:
@@ -689,6 +784,10 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
             continue
         if not _property_scout_is_supported_listing_url(normalized):
             continue
+        if required_upstream_platform:
+            upstream_platform = _property_scout_platform_from_url(normalized)
+            if upstream_platform != required_upstream_platform:
+                continue
         seen.add(normalized)
         candidates.append(normalized)
     return tuple(candidates)
@@ -1522,6 +1621,73 @@ def _property_cooperative_housing_facts(source_url: str, source_html: str, plain
     return {}
 
 
+def _property_sozialbau_virtual_listing_facts(source_url: str) -> dict[str, object]:
+    parsed = urllib.parse.urlparse(str(source_url or "").strip())
+    query = urllib.parse.parse_qs(parsed.query)
+    facts: dict[str, object] = {
+        "provider_channel": "sozialbau",
+        "provider_group": "genossenschaften_at",
+    }
+    offer_type = compact_text(str((query.get("offer_type") or [""])[0]).strip(), fallback="", limit=24)
+    if offer_type:
+        facts["marketing_type"] = offer_type
+    street_address = compact_text(str((query.get("street_address") or [""])[0]).strip(), fallback="", limit=160)
+    postal_name = compact_text(str((query.get("postal_name") or [""])[0]).strip(), fallback="", limit=80)
+    if street_address and postal_name:
+        prefix = f"{postal_name}, "
+        if street_address.startswith(prefix):
+            street_address = compact_text(street_address[len(prefix) :], fallback=street_address, limit=160)
+    if street_address:
+        facts["street_address"] = street_address
+    if postal_name:
+        facts["postal_name"] = postal_name
+    move_in = compact_text(str((query.get("move_in") or [""])[0]).strip(), fallback="", limit=80)
+    if move_in:
+        facts["availability_label"] = move_in
+    try:
+        unit_count = int(str((query.get("unit_count") or [""])[0]).strip())
+    except Exception:
+        unit_count = 0
+    if unit_count > 0:
+        facts["unit_count"] = unit_count
+    try:
+        registration_count = int(str((query.get("registration_count") or [""])[0]).strip())
+    except Exception:
+        registration_count = 0
+    if registration_count > 0:
+        facts["registration_count"] = registration_count
+    for key, fact_key in (("map_lat", "map_lat"), ("map_lng", "map_lng")):
+        try:
+            value = float(str((query.get(key) or [""])[0]).strip())
+        except Exception:
+            value = 0.0
+        if value:
+            facts[fact_key] = value
+    return facts
+
+
+def _property_sozialbau_preview_from_url(source_url: str) -> dict[str, object]:
+    facts = _property_sozialbau_virtual_listing_facts(source_url)
+    street = compact_text(str(facts.get("street_address") or "").strip(), fallback="", limit=160)
+    postal_name = compact_text(str(facts.get("postal_name") or "").strip(), fallback="", limit=80)
+    title = compact_text(" | ".join(part for part in (postal_name, street) if part), fallback="Sozialbau Projekt", limit=160)
+    summary_parts: list[str] = []
+    if facts.get("marketing_type"):
+        summary_parts.append(str(facts["marketing_type"]))
+    if facts.get("unit_count"):
+        summary_parts.append(f'{int(facts["unit_count"])} units')
+    if facts.get("availability_label"):
+        summary_parts.append(str(facts["availability_label"]))
+    if facts.get("registration_count"):
+        summary_parts.append(f'{int(facts["registration_count"])} registrations')
+    return {
+        "listing_id": source_url,
+        "title": title,
+        "summary": compact_text(" | ".join(summary_parts), fallback="", limit=240),
+        "property_facts_json": facts,
+    }
+
+
 def _property_distressed_sale_preview_facts(source_url: str, source_html: str) -> dict[str, object]:
     normalized = urllib.parse.urldefrag(str(source_url or "").strip())[0]
     host = urllib.parse.urlparse(normalized).netloc.lower()
@@ -1553,6 +1719,11 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     if not normalized:
         return {}
+    parsed = urllib.parse.urlparse(normalized)
+    if "angebote.sozialbau.at" in parsed.netloc.lower():
+        query = urllib.parse.parse_qs(parsed.query)
+        if str((query.get("pq_listing") or [""])[0]).strip() == "1":
+            return _property_sozialbau_preview_from_url(normalized)
     if _is_willhaben_property_url(normalized) and not prefer_fast:
         try:
             packet = _load_willhaben_property_packet_compat(normalized, timeout_seconds=4)
