@@ -21,6 +21,7 @@ def test_provider_options_are_filtered_by_country() -> None:
     assert any(row["value"] == "immoscout_de" for row in germany)
     assert any(row["value"] == "immowelt" for row in germany)
     assert any(row["value"] == "zvg_de" for row in germany)
+    assert any(row["value"] == "genossenschaften_at" for row in austria)
     assert any(row["value"] == "justiz_edikte_at" for row in austria)
     assert any(row["value"] == "kronofogden_auktionstorget_se" for row in sweden)
     assert all("Germany" in str(row.get("description") or "") for row in germany)
@@ -228,3 +229,27 @@ def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources(
     assert [row["location_query"] for row in specs] == ["1200 Vienna", "1020 Vienna", "1090"]
     assert "q=1200+Vienna+lift+family" in str(specs[0]["url"])
     assert "q=1020+Vienna+lift+family" in str(specs[1]["url"])
+
+
+def test_generated_source_specs_expand_austria_cooperative_provider_group() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "Vienna",
+        },
+        selected_platforms=("genossenschaften_at",),
+        principal_id="exec-property-coops-at",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert len(specs) == 5
+    assert all(row["platform"] == "genossenschaften_at" for row in specs)
+    assert any("gesiba.at" in str(row["url"]).lower() for row in specs)
+    assert any("siedlungsunion.at" in str(row["url"]).lower() for row in specs)
+    assert any("angebote.sozialbau.at" in str(row["url"]).lower() for row in specs)
+    assert any("wbv-gpa.at" in str(row["url"]).lower() for row in specs)
+    assert any("frieden.at" in str(row["url"]).lower() for row in specs)
+    assert all("Vienna" in str(row["label"]) for row in specs)

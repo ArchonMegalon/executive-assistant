@@ -140,6 +140,18 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         description="Austria brokerage inventory with high-value marketing packets.",
     ),
     PropertyProviderSpec(
+        key="genossenschaften_at",
+        label="Genossenschaften",
+        country_code="AT",
+        host_markers=("gesiba.at", "siedlungsunion.at", "sozialbau.at", "angebote.sozialbau.at", "wbv-gpa.at", "frieden.at"),
+        listing_path_markers=("/immobilien/wohnungen", "/wohnen/sofort", "/htmlprospect/", "/wohnungen/", "/immobiliensuche"),
+        search_urls={
+            "rent": "https://www.gesiba.at/immobilien/wohnungen",
+            "buy": "https://www.gesiba.at/immobilien/wohnungen",
+        },
+        description="Austria cooperative housing boards grouped into one crawl lane, including Gesiba, Siedlungsunion, Sozialbau, WBV-GPA, and Frieden.",
+    ),
+    PropertyProviderSpec(
         key="justiz_edikte_at",
         label="Justiz Edikte Auctions",
         country_code="AT",
@@ -838,6 +850,9 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "willhaben": "willhaben",
     "immmo": "immmo",
     "kalandra": "kalandra",
+    "genossenschaften": "genossenschaften_at",
+    "genossenschaft": "genossenschaften_at",
+    "cooperatives": "genossenschaften_at",
     "immoscout": "immoscout_at",
     "immoscout24": "immoscout_at",
     "immoscoutat": "immoscout_at",
@@ -911,6 +926,37 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "zvg": "zvg_de",
     "auctionhome": "auctionhome_ch",
     "all": "all",
+}
+
+
+GROUPED_PROVIDER_SOURCE_MAP: dict[str, tuple[dict[str, str], ...]] = {
+    "genossenschaften_at": (
+        {
+            "label": "GESIBA Wohnungen",
+            "rent_url": "https://www.gesiba.at/immobilien/wohnungen",
+            "buy_url": "https://www.gesiba.at/immobilien/wohnungen",
+        },
+        {
+            "label": "Siedlungsunion Sofort",
+            "rent_url": "https://www.siedlungsunion.at/wohnen/sofort",
+            "buy_url": "https://www.siedlungsunion.at/wohnen/sofort",
+        },
+        {
+            "label": "Sozialbau Angebote",
+            "rent_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml",
+            "buy_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml",
+        },
+        {
+            "label": "WBV-GPA Wohnungen",
+            "rent_url": "https://www.wbv-gpa.at/wohnungen/",
+            "buy_url": "https://www.wbv-gpa.at/wohnungen/",
+        },
+        {
+            "label": "Frieden Immobiliensuche",
+            "rent_url": "https://www.frieden.at/immobiliensuche",
+            "buy_url": "https://www.frieden.at/immobiliensuche",
+        },
+    ),
 }
 
 
@@ -1342,6 +1388,35 @@ def generated_source_specs(
         if provider is None or provider.country_code != country_code:
             continue
         provider_mode = listing_mode if listing_mode in provider.supported_listing_modes else provider.supported_listing_modes[0]
+        grouped_sources = GROUPED_PROVIDER_SOURCE_MAP.get(provider.key)
+        if grouped_sources:
+            for location_variant in location_queries:
+                detail_parts = [provider.label, country_label(country_code), LISTING_MODE_LABELS.get(provider_mode, provider_mode.capitalize())]
+                if location_variant:
+                    detail_parts.append(location_variant)
+                for source_index, grouped_source in enumerate(grouped_sources, start=1):
+                    base_group_url = str(grouped_source.get(f"{provider_mode}_url") or grouped_source.get("rent_url") or grouped_source.get("buy_url") or "").strip()
+                    if not base_group_url:
+                        continue
+                    rows.append(
+                        {
+                            "url": base_group_url,
+                            "label": " | ".join(detail_parts + [str(grouped_source.get("label") or f"Source {source_index}").strip()]),
+                            "principal_id": str(principal_id or "").strip(),
+                            "preference_person_id": str(normalized_preferences.get("preference_person_id") or default_person_id or "self").strip() or "self",
+                            "account_email": "",
+                            "notify_telegram": bool(notify_telegram),
+                            "platform": provider.key,
+                            "provider_source_key": f"{provider.key}:{source_index}",
+                            "max_results": max(1, min(int(max_results or 5), 10)),
+                            "country_code": country_code,
+                            "language_code": str(normalized_preferences.get("language_code") or "en"),
+                            "listing_mode": provider_mode,
+                            "location_query": location_variant,
+                            "keywords": keywords,
+                        }
+                    )
+            continue
         base_url = str(provider.search_urls.get(provider_mode) or next(iter(provider.search_urls.values()), "")).strip()
         if not base_url:
             continue
