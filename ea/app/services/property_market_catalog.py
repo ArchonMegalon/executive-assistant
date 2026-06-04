@@ -1195,6 +1195,8 @@ def _build_provider_search_url(
 ) -> str:
     search_terms = " ".join(part for part in (location_query, keywords) if part).strip()
     location_slug = _location_slug(location_query)
+    if provider.key == "justiz_edikte_at":
+        return base_url
     if provider.key == "immoscout_de" and location_slug:
         suffix = "wohnung-kaufen" if listing_mode == "buy" else "wohnung-mieten"
         return f"https://www.immobilienscout24.de/Suche/de/{location_slug}/{location_slug}/{suffix}"

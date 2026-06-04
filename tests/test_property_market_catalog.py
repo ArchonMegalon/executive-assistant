@@ -254,3 +254,24 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
     assert any("wbv-gpa.at" in str(row["url"]).lower() for row in specs)
     assert any("frieden.at" in str(row["url"]).lower() for row in specs)
     assert all("Vienna" in str(row["label"]) for row in specs)
+
+
+def test_generated_source_specs_keep_justiz_edikte_base_search_url() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "keywords": "lift family",
+            "property_type": "apartment",
+        },
+        selected_platforms=("justiz_edikte_at",),
+        principal_id="exec-property-justiz-at",
+        default_person_id="self",
+        max_results=3,
+    )
+
+    assert len(specs) == 1
+    assert specs[0]["platform"] == "justiz_edikte_at"
+    assert specs[0]["url"] == "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/Suche!OpenForm"
