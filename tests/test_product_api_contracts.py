@@ -3396,6 +3396,124 @@ def test_property_scout_page_preview_extracts_boe_subastas_facts(monkeypatch: py
     assert "Juzgado de Primera Instancia" in preview["summary"]
 
 
+def test_property_scout_page_preview_extracts_avoventes_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.avoventes.fr/vente-immobiliere/appartement-paris-75015"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Vente judiciaire appartement Paris</title></head>
+              <body>
+                <table>
+                  <tr><th>Tribunal judiciaire</th><td>Tribunal judiciaire de Paris</td></tr>
+                  <tr><th>Référence</th><td>RG 24/12345</td></tr>
+                  <tr><th>Mise à prix</th><td>310 000 €</td></tr>
+                  <tr><th>Consignation</th><td>31 000 €</td></tr>
+                  <tr><th>Date d'audience</th><td>2026-09-18 14:00</td></tr>
+                  <tr><th>Adresse</th><td>12 Rue Lecourbe, 75015 Paris</td></tr>
+                  <tr><th>Occupation</th><td>occupé</td></tr>
+                  <tr><th>Surface</th><td>58,5 m²</td></tr>
+                </table>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "avoventes_fr"
+    assert facts["court"] == "Tribunal judiciaire de Paris"
+    assert facts["court_file_reference"] == "RG 24/12345"
+    assert facts["valuation_eur"] == 310000.0
+    assert facts["deposit_amount_eur"] == 31000.0
+    assert facts["auction_date"] == "2026-09-18 14:00"
+    assert facts["street_address"] == "12 Rue Lecourbe"
+    assert facts["postal_name"] == "75015 Paris"
+    assert facts["occupancy_status"] == "occupé"
+    assert facts["area_sqm"] == 58.5
+
+
+def test_property_scout_page_preview_extracts_aste_giudiziarie_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.astegiudiziarie.it/beni/immobili/asta-roma-123456"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Asta giudiziaria Roma</title></head>
+              <body>
+                <dl>
+                  <dt>Tribunale</dt><dd>Tribunale di Roma</dd>
+                  <dt>Numero procedura</dt><dd>RGE 456/2025</dd>
+                  <dt>Prezzo base</dt><dd>€ 275.000,00</dd>
+                  <dt>Offerta minima</dt><dd>€ 206.250,00</dd>
+                  <dt>Data asta</dt><dd>21.10.2026 11:00</dd>
+                  <dt>Indirizzo</dt><dd>Via Nomentana 145, 00161 Roma</dd>
+                  <dt>Occupazione</dt><dd>occupato</dd>
+                  <dt>Superficie</dt><dd>89,0 m²</dd>
+                </dl>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "aste_giudiziarie_it"
+    assert facts["court"] == "Tribunale di Roma"
+    assert facts["court_file_reference"] == "RGE 456/2025"
+    assert facts["valuation_eur"] == 275000.0
+    assert facts["reserve_price_eur"] == 206250.0
+    assert facts["auction_date"] == "21.10.2026 11:00"
+    assert facts["street_address"] == "Via Nomentana 145"
+    assert facts["postal_name"] == "00161 Roma"
+    assert facts["occupancy_status"] == "occupato"
+    assert facts["area_sqm"] == 89.0
+
+
+def test_property_scout_page_preview_extracts_citius_exec_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.citius.mj.pt/portal/consultas/consultasvenda.aspx?processo=111222333"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Venda executiva Lisboa</title></head>
+              <body>
+                <table>
+                  <tr><th>Tribunal</th><td>Tribunal Judicial da Comarca de Lisboa</td></tr>
+                  <tr><th>Processo</th><td>111222333</td></tr>
+                  <tr><th>Valor base</th><td>198 000,00 EUR</td></tr>
+                  <tr><th>Valor mínimo</th><td>168 300,00 EUR</td></tr>
+                  <tr><th>Data de venda</th><td>2026-11-03 15:30</td></tr>
+                  <tr><th>Morada</th><td>Rua do Ouro 22, 1100-061 Lisboa</td></tr>
+                  <tr><th>Ocupação</th><td>ocupado</td></tr>
+                  <tr><th>Área</th><td>74,2 m²</td></tr>
+                </table>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "citius_exec_pt"
+    assert facts["auction_reference"] == "111222333"
+    assert facts["court"] == "Tribunal Judicial da Comarca de Lisboa"
+    assert facts["court_file_reference"] == "111222333"
+    assert facts["valuation_eur"] == 198000.0
+    assert facts["reserve_price_eur"] == 168300.0
+    assert facts["auction_date"] == "2026-11-03 15:30"
+    assert facts["street_address"] == "Rua do Ouro 22"
+    assert facts["postal_name"] == "1100-061 Lisboa"
+    assert facts["occupancy_status"] == "ocupado"
+    assert facts["area_sqm"] == 74.2
+
+
 def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))

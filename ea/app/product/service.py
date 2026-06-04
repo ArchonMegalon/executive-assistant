@@ -838,7 +838,7 @@ def _property_extract_address_lines(text: object) -> tuple[str, ...]:
     if not normalized:
         return ()
     parts = [compact_text(part.strip(), fallback="", limit=120) for part in normalized.split(",") if str(part or "").strip()]
-    postal_pattern = re.compile(r"^\d{4,5}\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24}(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24})?$")
+    postal_pattern = re.compile(r"^\d{4,5}(?:-\d{3})?\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24}(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24})?$")
     if parts:
         street_candidate = parts[0]
         postal_candidate = next((part for part in parts[1:] if postal_pattern.match(part)), "")
@@ -851,7 +851,7 @@ def _property_extract_address_lines(text: object) -> tuple[str, ...]:
         r"\b((?:Calle|Avenida|Paseo|Ronda)\s+[A-ZÄÖÜA-Za-zÄÖÜäöüß .'\-/]{2,}\d+[A-Za-z/\-0-9]*|[A-ZÄÖÜ][A-Za-zÄÖÜäöüß .'\-/]{2,}(?:straße|strasse|gasse|weg|platz|allee|ring|kai|ufer|steig|zeile|asse)\s+\d+[A-Za-z/\-0-9]*)\b",
         normalized,
     )
-    postal_match = re.search(r"\b(\d{4,5}\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24}(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24})?)\b", normalized)
+    postal_match = re.search(r"\b(\d{4,5}(?:-\d{3})?\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24}(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß'\-]{1,24})?)\b", normalized)
     city_match = re.search(r"\b([A-ZÄÖÜ][A-Za-zÄÖÜäöüß .'\-/]{2,40},\s*[A-ZÄÖÜ][A-Za-zÄÖÜäöüß .'\-/]{2,40})\b", normalized)
     lines: list[str] = []
     if street_match:
@@ -882,6 +882,12 @@ def _property_extract_occupancy_status(text: object) -> str:
         "bewohnt",
         "eigengenutzt",
         "posesoria",
+        "ocupado",
+        "desocupado",
+        "occupé",
+        "occupe",
+        "occupato",
+        "libero",
         "ocupado",
         "desocupado",
     )
@@ -1043,6 +1049,144 @@ def _property_boe_subastas_facts(source_url: str, source_html: str, plain_text: 
     return facts
 
 
+def _property_avoventes_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    labels = _property_extract_label_value_map(source_html)
+    facts: dict[str, object] = {"distressed_sale": True, "sale_channel": "judicial_auction", "provider_channel": "avoventes_fr"}
+    parsed = urllib.parse.urlparse(source_url)
+    slug = Path(parsed.path).name.strip()
+    if slug:
+        facts["auction_reference"] = slug
+    court = _property_extract_fact_from_labels(labels, "tribunal judiciaire", "tribunal", "juridiction")
+    if court:
+        facts["court"] = court
+    file_ref = _property_extract_fact_from_labels(labels, "référence", "reference", "numéro du dossier", "numero du dossier")
+    if file_ref:
+        facts["court_file_reference"] = file_ref
+    auction_date = _property_extract_date_text(_property_extract_fact_from_labels(labels, "date d’audience", "date d'audience", "date de vente"))
+    if auction_date:
+        facts["auction_date"] = auction_date
+    valuation_raw = _property_extract_fact_from_labels(labels, "mise à prix", "mise a prix", "prix de départ", "prix de depart")
+    valuation = _property_extract_currency_value(valuation_raw)
+    if valuation is not None:
+        facts["valuation_eur"] = valuation
+        facts["valuation_display"] = compact_text(valuation_raw, fallback=f"{valuation:.0f} EUR", limit=120)
+    reserve_raw = _property_extract_fact_from_labels(labels, "consignation", "dépôt de garantie", "depot de garantie")
+    reserve = _property_extract_currency_value(reserve_raw)
+    if reserve is not None:
+        facts["deposit_amount_eur"] = reserve
+        facts["reserve_price_display"] = compact_text(reserve_raw, fallback=f"{reserve:.0f} EUR", limit=120)
+    area = _property_extract_area_value(" ".join((_property_extract_fact_from_labels(labels, "surface", "superficie"), plain_text)))
+    if area is not None:
+        facts["area_sqm"] = area
+    occupancy = _property_extract_occupancy_status(
+        _property_extract_fact_from_labels(labels, "occupation", "situation d’occupation", "situation d'occupation")
+    ) or _property_extract_occupancy_status(plain_text)
+    if occupancy:
+        facts["occupancy_status"] = occupancy
+    address_text = _property_extract_fact_from_labels(labels, "adresse", "bien", "localisation")
+    address_lines = _property_extract_address_lines(address_text) or _property_extract_address_lines(plain_text)
+    if address_lines:
+        facts["address_lines"] = list(address_lines)
+        facts["street_address"] = address_lines[0]
+        if len(address_lines) > 1:
+            facts["postal_name"] = address_lines[1]
+    return facts
+
+
+def _property_aste_giudiziarie_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    labels = _property_extract_label_value_map(source_html)
+    facts: dict[str, object] = {"distressed_sale": True, "sale_channel": "judicial_auction", "provider_channel": "aste_giudiziarie_it"}
+    parsed = urllib.parse.urlparse(source_url)
+    slug = Path(parsed.path).name.strip()
+    if slug:
+        facts["auction_reference"] = slug
+    court = _property_extract_fact_from_labels(labels, "tribunale", "giudice", "procedura")
+    if court:
+        facts["court"] = court
+    file_ref = _property_extract_fact_from_labels(labels, "numero procedura", "procedura", "r.g.e.")
+    if file_ref:
+        facts["court_file_reference"] = file_ref
+    auction_date = _property_extract_date_text(_property_extract_fact_from_labels(labels, "data asta", "termine presentazione offerte", "vendita"))
+    if auction_date:
+        facts["auction_date"] = auction_date
+    valuation_raw = _property_extract_fact_from_labels(labels, "prezzo base", "valore di stima")
+    valuation = _property_extract_currency_value(valuation_raw)
+    if valuation is not None:
+        facts["valuation_eur"] = valuation
+        facts["valuation_display"] = compact_text(valuation_raw, fallback=f"{valuation:.0f} EUR", limit=120)
+    reserve_raw = _property_extract_fact_from_labels(labels, "offerta minima", "cauzione")
+    reserve = _property_extract_currency_value(reserve_raw)
+    if reserve is not None:
+        if "cauzion" in reserve_raw.lower():
+            facts["deposit_amount_eur"] = reserve
+        else:
+            facts["reserve_price_eur"] = reserve
+        facts["reserve_price_display"] = compact_text(reserve_raw, fallback=f"{reserve:.0f} EUR", limit=120)
+    area = _property_extract_area_value(" ".join((_property_extract_fact_from_labels(labels, "superficie", "consistenza"), plain_text)))
+    if area is not None:
+        facts["area_sqm"] = area
+    occupancy = _property_extract_occupancy_status(
+        _property_extract_fact_from_labels(labels, "occupazione", "stato di occupazione")
+    ) or _property_extract_occupancy_status(plain_text)
+    if occupancy:
+        facts["occupancy_status"] = occupancy
+    address_text = _property_extract_fact_from_labels(labels, "indirizzo", "ubicazione", "comune")
+    address_lines = _property_extract_address_lines(address_text) or _property_extract_address_lines(plain_text)
+    if address_lines:
+        facts["address_lines"] = list(address_lines)
+        facts["street_address"] = address_lines[0]
+        if len(address_lines) > 1:
+            facts["postal_name"] = address_lines[1]
+    return facts
+
+
+def _property_citius_exec_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    labels = _property_extract_label_value_map(source_html)
+    facts: dict[str, object] = {"distressed_sale": True, "sale_channel": "judicial_auction", "provider_channel": "citius_exec_pt"}
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(source_url).query)
+    ref = str((query.get("processo") or query.get("id") or [""])[0]).strip()
+    if ref:
+        facts["auction_reference"] = ref
+    court = _property_extract_fact_from_labels(labels, "tribunal", "entidade")
+    if court:
+        facts["court"] = court
+    file_ref = _property_extract_fact_from_labels(labels, "processo", "referência", "referencia")
+    if file_ref:
+        facts["court_file_reference"] = file_ref
+    auction_date = _property_extract_date_text(_property_extract_fact_from_labels(labels, "data de venda", "data limite", "data"))
+    if auction_date:
+        facts["auction_date"] = auction_date
+    valuation_raw = _property_extract_fact_from_labels(labels, "valor base", "valor mínimo", "valor minimo", "valor de abertura")
+    valuation = _property_extract_currency_value(valuation_raw)
+    if valuation is not None:
+        facts["valuation_eur"] = valuation
+        facts["valuation_display"] = compact_text(valuation_raw, fallback=f"{valuation:.0f} EUR", limit=120)
+    reserve_raw = _property_extract_fact_from_labels(labels, "valor mínimo", "valor minimo", "depósito", "deposito")
+    reserve = _property_extract_currency_value(reserve_raw)
+    if reserve is not None:
+        if "dep" in reserve_raw.lower():
+            facts["deposit_amount_eur"] = reserve
+        else:
+            facts["reserve_price_eur"] = reserve
+        facts["reserve_price_display"] = compact_text(reserve_raw, fallback=f"{reserve:.0f} EUR", limit=120)
+    area = _property_extract_area_value(" ".join((_property_extract_fact_from_labels(labels, "área", "area"), plain_text)))
+    if area is not None:
+        facts["area_sqm"] = area
+    occupancy = _property_extract_occupancy_status(
+        _property_extract_fact_from_labels(labels, "ocupação", "ocupacao", "estado")
+    ) or _property_extract_occupancy_status(plain_text)
+    if occupancy:
+        facts["occupancy_status"] = occupancy
+    address_text = _property_extract_fact_from_labels(labels, "morada", "localidade", "endereço", "endereco")
+    address_lines = _property_extract_address_lines(address_text) or _property_extract_address_lines(plain_text)
+    if address_lines:
+        facts["address_lines"] = list(address_lines)
+        facts["street_address"] = address_lines[0]
+        if len(address_lines) > 1:
+            facts["postal_name"] = address_lines[1]
+    return facts
+
+
 def _property_distressed_sale_preview_facts(source_url: str, source_html: str) -> dict[str, object]:
     normalized = urllib.parse.urldefrag(str(source_url or "").strip())[0]
     host = urllib.parse.urlparse(normalized).netloc.lower()
@@ -1053,6 +1197,12 @@ def _property_distressed_sale_preview_facts(source_url: str, source_html: str) -
         return _property_justiz_edikte_facts(normalized, source_html, plain_text)
     if "subastas.boe.es" in host:
         return _property_boe_subastas_facts(normalized, source_html, plain_text)
+    if "avoventes.fr" in host:
+        return _property_avoventes_facts(normalized, source_html, plain_text)
+    if "astegiudiziarie.it" in host:
+        return _property_aste_giudiziarie_facts(normalized, source_html, plain_text)
+    if "citius.mj.pt" in host:
+        return _property_citius_exec_facts(normalized, source_html, plain_text)
     return {}
 
 
