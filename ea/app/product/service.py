@@ -1374,6 +1374,148 @@ def _property_kronofogden_facts(source_url: str, source_html: str, plain_text: s
     return facts
 
 
+def _property_parse_address_from_slug(slug: str) -> tuple[str, str]:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(slug or "").strip().lower()).strip("-")
+    if not normalized:
+        return "", ""
+    tokens = [token for token in normalized.split("-") if token]
+    if not tokens:
+        return "", ""
+    postal = tokens[0] if re.fullmatch(r"\d{4,5}", tokens[0]) else ""
+    city_tokens: list[str] = []
+    street_tokens: list[str] = []
+    if postal:
+        tokens = tokens[1:]
+    city_boundary = {"wien", "wr", "neustadt", "steyr", "graz", "linz", "poels", "judenburg"}
+    while tokens:
+        token = tokens.pop(0)
+        city_tokens.append(token)
+        if token in city_boundary or len(city_tokens) >= 2:
+            break
+    street_tokens = tokens
+    city = " ".join(token.capitalize() for token in city_tokens if token and token != "wr")
+    city = city.replace("Wien Neustadt", "Wr. Neustadt")
+    street = " ".join(token.capitalize() for token in street_tokens if token not in {"top", "eg", "og", "dg"})
+    if postal and city:
+        return street.strip(), f"{postal} {city}".strip()
+    return street.strip(), city.strip()
+
+
+def _property_gesiba_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    facts: dict[str, object] = {"provider_channel": "gesiba", "provider_group": "genossenschaften_at"}
+    image_slug = re.search(r"/objekte/([0-9]{4}_[A-ZÄÖÜ]+_[A-Z0-9_]+)_-", source_html)
+    if image_slug:
+        slug = image_slug.group(1).replace("_", "-").lower()
+        street, postal_name = _property_parse_address_from_slug(slug)
+        if street:
+            facts["street_address"] = street
+        if postal_name:
+            facts["postal_name"] = postal_name
+    if "aufzug" in plain_text.lower() or "lift" in plain_text.lower():
+        facts["has_lift"] = True
+    if "tiefgarage" in plain_text.lower():
+        facts["garage"] = True
+    return facts
+
+
+def _property_siedlungsunion_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    facts: dict[str, object] = {"provider_channel": "siedlungsunion", "provider_group": "genossenschaften_at"}
+    slug = urllib.parse.urlparse(source_url).path.rstrip("/").split("/")[-1]
+    street, postal_name = _property_parse_address_from_slug(slug)
+    if street:
+        facts["street_address"] = street
+    if postal_name:
+        facts["postal_name"] = postal_name
+    rooms_match = re.search(r"(\d+(?:[.,]\d+)?)\s+Zimmer", plain_text, flags=re.IGNORECASE)
+    if rooms_match:
+        facts["rooms"] = float(rooms_match.group(1).replace(",", "."))
+    terrace_match = re.search(r"Terrasse\s*\((\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE)
+    if terrace_match:
+        facts["terrace_area_sqm"] = float(terrace_match.group(1).replace(",", "."))
+    loggia_match = re.search(r"Loggia\s*\((\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE)
+    if loggia_match:
+        facts["loggia_area_sqm"] = float(loggia_match.group(1).replace(",", "."))
+    if "garten" in plain_text.lower():
+        facts["has_garden"] = True
+    return facts
+
+
+def _property_wbv_gpa_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    facts: dict[str, object] = {"provider_channel": "wbv_gpa", "provider_group": "genossenschaften_at"}
+    slug = urllib.parse.urlparse(source_url).path.rstrip("/").split("/")[-1]
+    street, postal_name = _property_parse_address_from_slug(slug)
+    if street:
+        facts["street_address"] = street
+    if postal_name:
+        facts["postal_name"] = postal_name
+    rooms_match = re.search(r"(\d+(?:[.,]\d+)?)\s+Zimmer", plain_text, flags=re.IGNORECASE)
+    if rooms_match:
+        facts["rooms"] = float(rooms_match.group(1).replace(",", "."))
+    area_match = re.search(r"Wohnfläche.*?(\d+(?:[.,]\d+)?)\s*m", plain_text, flags=re.IGNORECASE | re.DOTALL)
+    if area_match:
+        facts["area_sqm"] = float(area_match.group(1).replace(",", "."))
+    rent_match = re.search(r"Miete brutto[^€]*€\s*([\d\.\,]+)", plain_text, flags=re.IGNORECASE)
+    if rent_match:
+        rent_value = float(rent_match.group(1).replace(".", "").replace(",", "."))
+        facts["total_rent_eur"] = rent_value
+        facts["rent_display"] = f"EUR {rent_value:,.0f}"
+    if "lift ist vorhanden" in plain_text.lower() or "aufzug" in plain_text.lower():
+        facts["has_lift"] = True
+    return facts
+
+
+def _property_frieden_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    facts: dict[str, object] = {"provider_channel": "frieden", "provider_group": "genossenschaften_at"}
+    address_match = re.search(r'"address":"([^"]+)"', source_html)
+    if address_match:
+        address_text = address_match.group(1).encode("utf-8").decode("unicode_escape")
+        address_lines = _property_extract_address_lines(address_text)
+        if address_lines:
+            facts["street_address"] = address_lines[0]
+            if len(address_lines) > 1:
+                facts["postal_name"] = address_lines[1]
+    rooms_match = re.search(r'>ZIMMER</div><div[^>]*><div>(\d+(?:[.,]\d+)?)</div>', source_html, flags=re.IGNORECASE)
+    if rooms_match:
+        facts["rooms"] = float(rooms_match.group(1).replace(",", "."))
+    area = _property_extract_area_value(plain_text)
+    if area is not None:
+        facts["area_sqm"] = area
+    lat_match = re.search(r'"latitude":([0-9]+\.[0-9]+)', source_html)
+    lon_match = re.search(r'"longitude":([0-9]+\.[0-9]+)', source_html)
+    if lat_match and lon_match:
+        facts["map_lat"] = float(lat_match.group(1))
+        facts["map_lng"] = float(lon_match.group(1))
+    heating_match = re.search(r'"Heizung","annotation":"([^"]+)"', source_html)
+    if heating_match:
+        facts["heating_type"] = heating_match.group(1).encode("utf-8").decode("unicode_escape")
+    if "aufzug" in plain_text.lower():
+        facts["has_lift"] = True
+    rent_match = re.search(r'"price":"[^"]*?([\d\.\,]+)"', source_html)
+    if rent_match:
+        try:
+            rent_value = float(rent_match.group(1).replace(".", "").replace(",", "."))
+            facts["total_rent_eur"] = rent_value
+        except ValueError:
+            pass
+    return facts
+
+
+def _property_cooperative_housing_facts(source_url: str, source_html: str, plain_text: str) -> dict[str, object]:
+    normalized = urllib.parse.urldefrag(str(source_url or "").strip())[0]
+    host = urllib.parse.urlparse(normalized).netloc.lower()
+    if "gesiba.at" in host:
+        return _property_gesiba_facts(normalized, source_html, plain_text)
+    if "siedlungsunion.at" in host:
+        return _property_siedlungsunion_facts(normalized, source_html, plain_text)
+    if "wbv-gpa.at" in host:
+        return _property_wbv_gpa_facts(normalized, source_html, plain_text)
+    if "frieden.at" in host:
+        return _property_frieden_facts(normalized, source_html, plain_text)
+    if "sozialbau.at" in host:
+        return {"provider_channel": "sozialbau", "provider_group": "genossenschaften_at"}
+    return {}
+
+
 def _property_distressed_sale_preview_facts(source_url: str, source_html: str) -> dict[str, object]:
     normalized = urllib.parse.urldefrag(str(source_url or "").strip())[0]
     host = urllib.parse.urlparse(normalized).netloc.lower()
@@ -1696,11 +1838,15 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         source_html = _property_scout_fetch_html(normalized)
     except Exception:
         return {}
+    cooperative_findings = _property_cooperative_housing_facts(normalized, source_html, _property_html_fragment_text(source_html))
+    if cooperative_findings:
+        findings = dict(cooperative_findings)
+    else:
+        findings = {}
     plain = re.sub(r"<[^>]+>", " ", source_html)
     plain = html.unescape(plain)
     plain_text = " ".join(plain.split())
     lowered = plain_text.lower()
-    findings: dict[str, object] = {}
 
     lat_match = re.search(r'data-map-lat="([0-9.]+)"', source_html)
     lon_match = re.search(r'data-map-lng="([0-9.]+)"', source_html)

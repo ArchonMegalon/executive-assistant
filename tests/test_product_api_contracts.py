@@ -1054,6 +1054,74 @@ def test_property_scout_extract_listing_urls_supports_grouped_austria_cooperativ
     assert frieden_urls == ("https://www.frieden.at/immobiliensuche/59442?returnUrl=%2Fimmobiliensuche",)
 
 
+def test_property_cooperative_preview_fact_parsers_extract_structured_fields() -> None:
+    gesiba_html = """
+    <img src="/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/21921/rendering-2.jpg">
+    <p>Geplant ist eine Fassadenbegrünung. Tiefgarage vorhanden.</p>
+    """
+    siedlungsunion_html = """
+    <div class="uk-text-bold">2 Zimmer</div>
+    <p>2 Zimmerwohnung mit Terrasse (6,99 m²) und Loggia (8,01 m²)</p>
+    """
+    wbv_html = """
+    <strong>3 Zimmer</strong>
+    <div>Wohnfläche</div><div>78,40 m²</div>
+    <p>Miete brutto incl. BK, Heizung und einem Garagenplatz: dzt. € 1.026,–</p>
+    <p>Lift ist vorhanden.</p>
+    """
+    frieden_html = """
+    <div>ZIMMER</div><div><div>2</div></div>
+    <div>61,89 m² | 2 Zimmer</div>
+    <script type="application/json">
+    {"address":"2624 Neusiedl am Steinfeld, Am Waldstrand 1-3","latitude":48.56481,"longitude":16.07877,
+     "equipments":[{"label":"Heizung","annotation":"Fußbodenheizung mittels Fernwärme (EVN)"},{"label":"Aufzug"}],
+     "price":"€ 812,34"}
+    </script>
+    """
+
+    gesiba = product_service._property_cooperative_housing_facts(
+        "https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=01000103511",
+        gesiba_html,
+        product_service._property_html_fragment_text(gesiba_html),
+    )
+    siedlungsunion = product_service._property_cooperative_housing_facts(
+        "https://www.siedlungsunion.at/wohnen/sofort/1100-wien-leibnizgasse-68-2-eg-3",
+        siedlungsunion_html,
+        product_service._property_html_fragment_text(siedlungsunion_html),
+    )
+    wbv = product_service._property_cooperative_housing_facts(
+        "https://www.wbv-gpa.at/wohnung/2700-wr-neustadt-groehrmuehlgasse-4-6-top-19/",
+        wbv_html,
+        product_service._property_html_fragment_text(wbv_html),
+    )
+    frieden = product_service._property_cooperative_housing_facts(
+        "https://www.frieden.at/immobiliensuche/59442?returnUrl=%2Fimmobiliensuche",
+        frieden_html,
+        product_service._property_html_fragment_text(frieden_html),
+    )
+
+    assert gesiba["provider_channel"] == "gesiba"
+    assert gesiba["postal_name"] == "1100 Wien"
+    assert gesiba["garage"] is True
+
+    assert siedlungsunion["provider_channel"] == "siedlungsunion"
+    assert siedlungsunion["rooms"] == 2.0
+    assert siedlungsunion["terrace_area_sqm"] == 6.99
+    assert siedlungsunion["loggia_area_sqm"] == 8.01
+
+    assert wbv["provider_channel"] == "wbv_gpa"
+    assert wbv["rooms"] == 3.0
+    assert wbv["area_sqm"] == 78.4
+    assert wbv["has_lift"] is True
+    assert wbv["total_rent_eur"] == 1026.0
+
+    assert frieden["provider_channel"] == "frieden"
+    assert frieden["rooms"] == 2.0
+    assert frieden["area_sqm"] == 61.89
+    assert frieden["heating_type"].startswith("Fu")
+    assert frieden["has_lift"] is True
+
+
 def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
     monkeypatch_json = json.dumps(
         [
