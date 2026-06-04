@@ -1344,6 +1344,49 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     return rows
 
 
+def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    labels = {
+        "street_address": "Address",
+        "exact_address": "Exact address",
+        "address": "Address",
+        "has_lift": "Lift",
+        "heating_type": "Heating",
+        "energy_class": "Energy class",
+        "distance_supermarket_m": "Supermarket",
+        "nearest_supermarket_m": "Supermarket",
+        "distance_playground_m": "Playground",
+        "nearest_playground_m": "Playground",
+        "distance_pharmacy_m": "Pharmacy",
+        "nearest_pharmacy_m": "Pharmacy",
+        "distance_underground_m": "Underground",
+        "nearest_subway_m": "Underground",
+    }
+    research_snapshot = dict(facts.get("listing_research_snapshot") or {}) if isinstance(facts.get("listing_research_snapshot"), dict) else {}
+    research_meta = dict(facts.get("listing_research_meta") or {}) if isinstance(facts.get("listing_research_meta"), dict) else {}
+    rows: list[dict[str, str]] = []
+    for key, label in labels.items():
+        raw_value = facts.get(key)
+        if raw_value in (None, "", []):
+            continue
+        if isinstance(raw_value, bool):
+            value = "Confirmed" if raw_value else "Not confirmed"
+        elif isinstance(raw_value, (int, float)) and key.endswith("_m"):
+            value = f"{int(raw_value)} m"
+        else:
+            value = str(raw_value).strip()
+        if not value:
+            continue
+        provenance = "Researched" if key in research_snapshot else "Listing"
+        if key in {"street_address", "exact_address", "address"} and ("map_lat" in research_snapshot or "map_lng" in research_snapshot):
+            provenance = "Inferred"
+        detail = value
+        strategy = str(research_meta.get("strategy") or "").strip()
+        if provenance == "Researched" and strategy:
+            detail = f"{detail} | via {strategy.replace('_', ' ')}"
+        rows.append(_object_detail_row(label, detail, provenance))
+    return rows
+
+
 def _property_packet_score_rows(
     *,
     facts: dict[str, object],
@@ -1501,6 +1544,7 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
+    provenance_rows = _property_packet_provenance_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
         current_candidate_ref=str(candidate_ref or "").strip(),
@@ -1579,6 +1623,12 @@ def property_research_packet(
                 "eyebrow": "Property facts",
                 "title": "What the product currently knows",
                 "items": _property_fact_rows(facts) or [_object_detail_row("No structured facts yet", "Run deeper enrichment or inspect the raw listing.", "Pending")],
+            },
+            {
+                "eyebrow": "Evidence and provenance",
+                "title": "Which facts came from the listing and which were researched",
+                "items": provenance_rows
+                or [_object_detail_row("No provenance rows yet", "Deeper enrichment will surface which facts were researched versus copied from the listing.", "Pending")],
             },
             {
                 "eyebrow": "Open questions",

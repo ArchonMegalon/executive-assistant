@@ -65,6 +65,17 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                                     "rooms": 3,
                                     "area_m2": 78,
                                     "postal_name": "Berlin Mitte",
+                                    "street_address": "Invalidenstrasse 14",
+                                    "nearest_supermarket_m": 280,
+                                    "nearest_pharmacy_m": 410,
+                                    "listing_research_snapshot": {
+                                        "street_address": "Invalidenstrasse 14",
+                                        "nearest_supermarket_m": 280,
+                                        "map_lat": 52.531,
+                                    },
+                                    "listing_research_meta": {
+                                        "strategy": "provider_html_plus_geo",
+                                    },
                                 },
                             }
                         ],
@@ -131,8 +142,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
     assert "Decision scorecard" in packet.text
+    assert "Evidence and provenance" in packet.text
     assert "Open questions" in packet.text
     assert "Compare next" in packet.text
+    assert "Researched" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
 
