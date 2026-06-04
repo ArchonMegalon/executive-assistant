@@ -209,6 +209,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         page.wait_for_load_state("networkidle")
         packet = page.content()
         assert "Internal property dossier with fit reasoning" in packet
+        assert "Open the space before you read the rest" in packet
         assert "Original listing" in packet
     finally:
         context.close()
@@ -236,6 +237,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         page.wait_for_load_state("networkidle")
         packet = page.content()
         assert "Internal property dossier with fit reasoning" in packet
+        assert "Open the space before you read the rest" in packet
         primary_action = page.get_by_role("link", name="Open source").first.bounding_box()
         assert primary_action is not None and primary_action["width"] <= 430
     finally:

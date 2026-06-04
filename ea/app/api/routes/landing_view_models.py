@@ -1216,6 +1216,7 @@ def property_workspace_payload(
     run_status_label = str(run_payload.get("status") or "not started").replace("_", " ").strip().title() or "Not started"
     run_message = str(run_payload.get("message") or "").strip()
     run_status_value = str(run_payload.get("status") or "").strip().lower()
+    run_in_progress = bool(run_id and run_status_value and run_status_value not in {"processed", "completed", "failed", "noop", "cancelled", "not started"})
 
     def _candidate_fact_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -1272,6 +1273,26 @@ def property_workspace_payload(
             return f"Blocked | {blocked_reason.replace('_', ' ')}"
         return "Not ready"
 
+    def _distance_line(candidate: dict[str, object]) -> str:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        specs = (
+            ("Playground", facts.get("nearest_playground_m") or facts.get("distance_playground_m")),
+            ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("distance_pharmacy_m")),
+            ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("distance_supermarket_m")),
+            ("Underground", facts.get("nearest_subway_m") or facts.get("distance_underground_m")),
+        )
+        parts: list[str] = []
+        for label, raw_value in specs:
+            if raw_value in (None, "", []):
+                continue
+            try:
+                meters = int(float(raw_value))
+            except Exception:
+                continue
+            bike_minutes = max(1, int(round(float(meters) / 330.0)))
+            parts.append(f"{label} {meters} m | {bike_minutes} min bike")
+        return " · ".join(parts[:3])
+
     results_table_rows = []
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -1288,14 +1309,17 @@ def property_workspace_payload(
         ]
         packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
         packet_label = "Review packet" if packet_url else "Pending"
+        tour_status_line = _tour_status_line(candidate)
+        ooda_detail = _distance_line(candidate)
         results_table_rows.append(
             {
                 "cells": [
+                    {"title": "Open 360" if str(candidate.get("tour_url") or "").strip() else tour_status_line, "detail": tour_status_line if str(candidate.get("tour_url") or "").strip() else "", "href": str(candidate.get("tour_url") or "").strip()},
                     {"title": str(candidate.get("title") or "Candidate").strip() or "Candidate", "detail": str(candidate.get("source_label") or "").strip()},
                     {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
                     {"title": price_line, "detail": ""},
                     {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
-                    {"title": _tour_status_line(candidate), "detail": "", "href": str(candidate.get("tour_url") or "").strip()},
+                    {"title": ooda_detail or "Packet explains the neighbourhood fit.", "detail": "", "href": packet_url},
                     {"title": packet_label, "detail": packet_url or str(candidate.get("property_url") or "").strip(), "href": packet_url},
                 ],
                 "packet_url": packet_url,
@@ -1538,41 +1562,55 @@ def property_workspace_payload(
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
-            "title": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else "Search Brief",
+            "title": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else ("Live search" if run_in_progress else "Search Brief"),
             "summary": (
                 "Review the final ranked result table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
-                else str(base.get("summary") or "Define the search brief, launch the run, and keep the crawl visible.")
+                else (
+                    "The search brief is locked while the run is active. Keep the visible progress and source-by-source status in front of the user."
+                    if run_in_progress
+                    else str(base.get("summary") or "Define the search brief, launch the run, and keep the crawl visible.")
+                )
             ),
-            "hero_kicker": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else "Search brief",
+            "hero_kicker": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else ("Live search" if run_in_progress else "Search brief"),
             "hero_title": (
                 "Review the finished shortlist in one table."
                 if run_status_value in {"processed", "completed"} and results_table_rows
-                else "Shape the next market sweep before the crawlers fan out."
+                else ("Keep the run visible until the shortlist is ready." if run_in_progress else "Shape the next market sweep before the crawlers fan out.")
             ),
             "hero_summary": (
                 "Once the run is done, keep the result surface simple: one ranked table, packet links, and clear 360 status."
                 if run_status_value in {"processed", "completed"} and results_table_rows
-                else "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs."
+                else (
+                    "Hide the search form while the run is active. Show only progress, source events, and the first usable signals until the final ranked table is ready."
+                    if run_in_progress
+                    else "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs."
+                )
             ),
-            "hero_actions": hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
+            "hero_actions": [{"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"}, {"href": f"/app/research{run_suffix}", "label": "Open research"}] if run_in_progress else (hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"href": f"/app/research{run_suffix}", "label": "Open research", "tone": "primary"},
                 {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
                 {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
-            ],
-            "hero_highlights": hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
+            ]),
+            "hero_highlights": [
+                {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
+                {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Provider lanes in the current sweep."},
+                {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
+                {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours already available."},
+            ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
                 {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal review packets ready now."},
                 {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "Latest run complete."},
-            ],
-            "primary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else [search_posture_card, market_coverage_card],
-            "secondary_cards": [run_card] if run_status_value in {"processed", "completed"} and results_table_rows else [run_card, recent_matches_card],
+            ]),
+            "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
+            "secondary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else ([run_card] if run_in_progress else [run_card, recent_matches_card]),
             "console_form": property_form,
-            "show_brief_form": not (run_status_value in {"processed", "completed"} and results_table_rows),
+            "show_brief_form": not ((run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress),
+            "show_run_panel": run_in_progress,
             "show_shortlist_cards": False,
             "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
-            "results_table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Review"],
+            "results_table_headers": ["360", "Candidate", "Fit", "Price", "Layout", "OODA", "Review"],
             "results_table_rows": results_table_rows,
         },
         "shortlist": {

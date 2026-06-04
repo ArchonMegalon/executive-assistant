@@ -5,12 +5,12 @@ import re
 from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
-from tests.product_test_helpers import build_product_client, start_workspace
+from tests.product_test_helpers import build_property_client, start_workspace
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
     principal_id = "pq-redesign-browser"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
@@ -50,6 +50,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "street_address": "Invalidenstrasse 14",
             "nearest_supermarket_m": 280,
             "nearest_pharmacy_m": 410,
+            "nearest_playground_m": 520,
+            "nearest_subway_m": 1200,
             "listing_research_snapshot": {
                 "street_address": "Invalidenstrasse 14",
                 "nearest_supermarket_m": 280,
@@ -154,9 +156,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert search.status_code == 200
     assert "Review the finished shortlist in one table." in search.text
     assert "Finished run" in search.text
+    assert "Nothing but the final result table." in search.text
+    assert "360" in search.text
     assert "Candidate" in search.text
     assert "Price" in search.text
     assert "Layout" in search.text
+    assert "OODA" in search.text
     assert "Open research" in search.text
     assert 'href="/app/shortlist"' in search.text
     assert 'href="/app/research"' in search.text
@@ -186,8 +191,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     packet = client.get(packet_match.group(1), params={"run_id": "run-42", "investment": 1}, headers=headers)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Open the space before you read the rest" in packet.text
+    assert "Live 360 ready" in packet.text
     assert "OODA summary" in packet.text
     assert "Why this was selected" in packet.text
+    assert "Nearest supermarket" in packet.text
+    assert "Nearest underground" in packet.text
     assert "Decision call" in packet.text
     assert "Why now" in packet.text
     assert "Missing-data severity" in packet.text
@@ -218,12 +227,62 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200
     assert "Current commercial state" in billing.text
-    assert "Plus checkout" in billing.text
+    assert "Open pricing" in billing.text
+
+
+def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(monkeypatch) -> None:
+    principal_id = "pq-live-run-focus"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Run Focus")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "region_code": "vienna",
+            "all_of_vienna": True,
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben", "genossenschaften_at"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 42,
+            "message": "Scoring shortlist candidate 2 of 4 for Willhaben | Austria | Buy | Wien.",
+            "summary": {
+                "sources_total": 4,
+                "listing_total": 6,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "sources": [],
+            },
+            "events": [
+                {"step": "source_assessing", "message": "Scoring shortlist candidate 2 of 4 for Willhaben | Austria | Buy | Wien.", "status": "in_progress"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    live = client.get("/app/properties", params={"run_id": "run-live"}, headers=headers)
+    assert live.status_code == 200
+    assert "Keep the run visible until the shortlist is ready." in live.text
+    assert "Live search" in live.text
+    assert "Scoring shortlist candidate 2 of 4" in live.text
+    assert "Launch search" not in live.text
+    assert "Save defaults" not in live.text
 
 
 def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     principal_id = "pq-vienna-scope"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Vienna Scope Office")
 
     stored = client.post(
@@ -249,7 +308,7 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
     principal_id = "pq-packet-fact-enrichment"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Packet Enrichment")
 
     stored = client.post(
@@ -343,7 +402,7 @@ def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(mo
 
 def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monkeypatch) -> None:
     principal_id = "pq-redesign-no-fallback"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
@@ -372,7 +431,7 @@ def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monk
 
 def test_propertyquarry_research_packet_shows_auction_investment_context_when_benchmark_is_pending(monkeypatch) -> None:
     principal_id = "pq-redesign-auction-investment"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
@@ -456,7 +515,7 @@ def test_propertyquarry_research_packet_shows_auction_investment_context_when_be
 
 def test_propertyquarry_research_packet_shows_cooperative_investment_context_when_benchmark_is_pending(monkeypatch) -> None:
     principal_id = "pq-redesign-coop-investment"
-    client = build_product_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
@@ -540,7 +599,7 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
 
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
-    client = build_product_client(principal_id="pq-redesign-settings")
+    client = build_property_client(principal_id="pq-redesign-settings")
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})

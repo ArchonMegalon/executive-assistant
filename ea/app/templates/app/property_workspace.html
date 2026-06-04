@@ -90,7 +90,7 @@
   }
   .pq-results-table {
     width: 100%;
-    min-width: 760px;
+    min-width: 980px;
     border-collapse: collapse;
   }
   .pq-results-table th,
@@ -113,6 +113,13 @@
   }
   .pq-results-table td small {
     color: var(--text-dim);
+  }
+  .pq-results-table td a {
+    color: var(--text);
+    text-decoration: none;
+  }
+  .pq-results-table td a:hover {
+    text-decoration: underline;
   }
   .pq-hero-highlights {
     display: grid;
@@ -711,17 +718,20 @@
             <button class="pq-action primary" type="button" data-property-start>{{ console_form.get('submit_label') or 'Launch search' }}</button>
           </div>
 
-          <section class="pq-panel pq-run" data-property-run data-property-step-panel="providers" hidden>
-            <div class="pq-card-eyebrow">Live search</div>
-            <h3 data-property-run-status>Queued</h3>
-            <div class="pq-run-note" data-property-run-message></div>
-            <div class="pq-progress-track"><div class="pq-progress-fill" data-property-run-progress></div></div>
-            <div class="pq-run-note" data-property-run-summary></div>
-            <div class="pq-actions"><button class="pq-action" type="button" data-property-edit-brief>Edit brief</button></div>
-            <div class="pq-list" data-property-run-sources></div>
-            <div class="pq-list" data-property-run-events></div>
-          </section>
         </form>
+      </section>
+      {% endif %}
+
+      {% if show_run_panel or property_meta.get('initial_run') %}
+      <section class="pq-panel pq-run" data-property-run {% if not show_run_panel %}hidden{% endif %}>
+        <div class="pq-card-eyebrow">Live search</div>
+        <h3 data-property-run-status>Queued</h3>
+        <div class="pq-run-note" data-property-run-message></div>
+        <div class="pq-progress-track"><div class="pq-progress-fill" data-property-run-progress></div></div>
+        <div class="pq-run-note" data-property-run-summary></div>
+        <div class="pq-actions"><button class="pq-action" type="button" data-property-edit-brief{% if not show_brief_form %} hidden{% endif %}>Edit brief</button></div>
+        <div class="pq-list" data-property-run-sources></div>
+        <div class="pq-list" data-property-run-events></div>
       </section>
       {% endif %}
 
@@ -729,7 +739,7 @@
       <section class="pq-panel">
         <div class="pq-kicker">Results</div>
         <h3>Finished run</h3>
-        <p class="pq-copy">This is the ranked result table. Open the packet first. Tour status stays visible even when a hosted 360 is still pending.</p>
+        <p class="pq-copy">Nothing but the final result table. Open the 360 first, then the packet. If a tour is still queued, its status and ETA stay explicit here.</p>
         <div class="pq-table-wrap">
           <div style="overflow-x:auto;">
             <table class="pq-results-table">
@@ -1298,6 +1308,7 @@
   for (const root of roots) {
     const meta = parseMeta(root);
     const form = root.querySelector('[data-console-form-variant="property_search"]');
+    renderRun(root, meta.initial_run || {});
     if (form) {
       initPropertyWizard(form, meta);
       const countryField = form.querySelector('select[name="country_code"]');
@@ -1348,7 +1359,6 @@
       if (regionField) regionField.addEventListener('change', refreshRegionAndLocationChoices);
       if (allViennaField) allViennaField.addEventListener('change', syncViennaScopeControls);
       syncViennaScopeControls();
-      renderRun(root, meta.initial_run || {});
       root.querySelector('[data-property-edit-brief]')?.addEventListener('click', () => {
         root.querySelector('[data-property-brief-panel]')?.removeAttribute('hidden');
       });

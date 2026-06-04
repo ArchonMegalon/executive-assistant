@@ -1255,6 +1255,7 @@ def _render_console_object_detail(
     object_title: str,
     object_summary: str,
     object_meta: list[dict[str, str]],
+    object_media: dict[str, object] | None = None,
     object_ooda_title: str = "",
     object_ooda_copy: str = "",
     object_ooda_rows: list[dict[str, str]] | None = None,
@@ -1284,6 +1285,7 @@ def _render_console_object_detail(
             "object_title": object_title,
             "object_summary": object_summary,
             "object_meta": object_meta,
+            "object_media": object_media or {},
             "object_ooda_title": object_ooda_title,
             "object_ooda_copy": object_ooda_copy,
             "object_ooda_rows": object_ooda_rows or [],
@@ -1411,8 +1413,12 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
         "energy_class": "Energy class",
         "distance_supermarket_m": "Supermarket",
         "distance_playground_m": "Playground",
+        "nearest_playground_m": "Playground",
         "distance_pharmacy_m": "Pharmacy",
+        "nearest_pharmacy_m": "Pharmacy",
         "distance_underground_m": "Underground",
+        "nearest_subway_m": "Underground",
+        "nearest_supermarket_m": "Supermarket",
         "address": "Address",
     }
     rows: list[dict[str, str]] = []
@@ -1431,6 +1437,95 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
             text = "Yes" if value else "No"
         rows.append(_object_detail_row(label, text, "Fact"))
     return rows
+
+
+def _property_distance_metric(facts: dict[str, object], *keys: str) -> int | None:
+    for key in keys:
+        raw_value = facts.get(key)
+        if raw_value in (None, "", []):
+            continue
+        try:
+            meters = int(float(raw_value))
+        except Exception:
+            continue
+        if meters > 0:
+            return meters
+    return None
+
+
+def _property_bike_minutes_label(meters: int) -> str:
+    minutes = max(1, int(round(float(meters) / 330.0)))
+    return f"about {minutes} min by bike"
+
+
+def _property_distance_ooda_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    distance_specs = (
+        ("Playground", ("distance_playground_m", "nearest_playground_m"), "Neighbourhood"),
+        ("Pharmacy", ("distance_pharmacy_m", "nearest_pharmacy_m"), "Errands"),
+        ("Supermarket", ("distance_supermarket_m", "nearest_supermarket_m"), "Errands"),
+        ("Underground", ("distance_underground_m", "nearest_subway_m"), "Transit"),
+    )
+    for label, keys, tag in distance_specs:
+        meters = _property_distance_metric(facts, *keys)
+        if meters is None:
+            continue
+        rows.append(
+            _object_detail_row(
+                f"Nearest {label.lower()}",
+                f"{meters:,} m away | {_property_bike_minutes_label(meters)}".replace(",", " "),
+                tag,
+            )
+        )
+    return rows
+
+
+def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
+    tour_url = str(candidate.get("tour_url") or "").strip()
+    vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
+    review_url = str(candidate.get("review_url") or "").strip()
+    status = str(candidate.get("tour_status") or "").strip().lower()
+    blocked_reason = str(candidate.get("blocked_reason") or "").strip()
+    eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
+    eta_minutes = 0
+    if eta_raw:
+        try:
+            eta_minutes = int(float(eta_raw))
+        except Exception:
+            eta_minutes = 0
+    embed_href = tour_url or vendor_tour_url
+    if tour_url:
+        status_label = "Live 360 ready"
+        status_detail = "Hosted 360 is ready on PropertyQuarry and should be reviewed before the raw listing."
+    elif status in {"queued", "pending"}:
+        status_label = "360 queued"
+        status_detail = f"Tour generation is queued. ETA about {eta_minutes or 10} min."
+    elif status in {"processing", "running", "in_progress", "started"}:
+        status_label = "360 rendering"
+        status_detail = f"Tour generation is running. ETA about {eta_minutes or 5} min."
+    elif status in {"blocked", "failed", "skipped"}:
+        status_label = "360 blocked"
+        status_detail = blocked_reason or "This candidate does not currently have enough tour-capable source material."
+    elif vendor_tour_url:
+        status_label = "External 360 available"
+        status_detail = "A vendor-hosted 360 exists even if the internal hosted page is not ready yet."
+    else:
+        status_label = "360 pending"
+        status_detail = "No 360 is ready yet. Keep the packet visible while the tour lane catches up."
+    return {
+        "eyebrow": "360 review first",
+        "title": "Open the space before you read the rest",
+        "copy": "The review surface should lead with the tour and only then the dossier. If the 360 is still rendering, the status must stay explicit here.",
+        "status_label": status_label,
+        "status_detail": status_detail,
+        "embed_href": embed_href,
+        "primary_href": tour_url or vendor_tour_url or review_url,
+        "primary_label": "Open 360" if (tour_url or vendor_tour_url) else ("Open packet" if review_url else ""),
+        "secondary_href": review_url,
+        "secondary_label": "Open hosted review" if review_url else "",
+        "tertiary_href": vendor_tour_url if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+        "tertiary_label": "Vendor 360" if tour_url and vendor_tour_url and vendor_tour_url != tour_url else "",
+    }
 
 
 def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str, str]]:
@@ -1934,6 +2029,7 @@ def property_research_packet(
         else _object_detail_row("Main concern", "Some evidence is still missing, so this packet should be treated as a research view, not final diligence.", "Risk"),
         _object_detail_row("Current recommendation", str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate", "Decision"),
     ]
+    ooda_summary_rows.extend(_property_distance_ooda_rows(facts))
     investment_run_target = run_target + ("&investment=1" if "?" in run_target else "?investment=1")
     return _render_console_object_detail(
         request=request,
@@ -1946,6 +2042,7 @@ def property_research_packet(
         object_kind="Research packet",
         object_title=title,
         object_summary=f"{fit_summary} · {source_label}",
+        object_media=_property_tour_media_payload(candidate),
         object_meta=[
             {"label": "Source", "value": source_label},
             {"label": "Recommendation", "value": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate"},
@@ -1953,7 +2050,7 @@ def property_research_packet(
             {"label": "Packet", "value": str(candidate_ref)},
         ],
         object_ooda_title="OODA summary",
-        object_ooda_copy="Start here. Why this candidate was selected, what makes it compelling now, and what still argues against it.",
+        object_ooda_copy="Start here. Why this candidate was selected, what makes it compelling now, what still argues against it, and what the immediate neighbourhood looks like.",
         object_ooda_rows=ooda_summary_rows,
         object_sidebar_title="Packet actions",
         object_sidebar_copy="Open the internal packet first. Raw portals and hosted tours stay secondary to the actual research decision surface.",
