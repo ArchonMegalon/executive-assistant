@@ -1155,6 +1155,7 @@ def property_workspace_payload(
     property_form = dict(base.get("console_form") or {})
     property_meta = dict(property_form.get("meta") or {})
     commercial = dict(property_state.get("commercial") or {})
+    property_preferences = dict(property_state.get("preferences") or {})
     workspace = dict(status.get("workspace") or {})
     channels = dict(status.get("channels") or {})
     google = dict(channels.get("google") or {})
@@ -1169,6 +1170,145 @@ def property_workspace_payload(
     run_payload = dict(property_state.get("run") or {})
     run_events = list(run_payload.get("events") or [])
     run_summary = dict(run_payload.get("summary") or {})
+    selected_locations = _csv_values(property_preferences.get("location_query"))
+    selected_keywords = _csv_values(property_preferences.get("keywords"))
+    selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
+    run_id = str(run_payload.get("run_id") or "").strip()
+    run_suffix = f"?run_id={run_id}" if run_id else ""
+    search_posture_items = list(search_posture_card.get("items") or [])
+    packet_ready_total = sum(
+        1
+        for candidate in shortlist_candidates
+        if str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
+    )
+    tour_ready_total = sum(1 for candidate in shortlist_candidates if str(candidate.get("tour_url") or "").strip())
+    run_status_label = str(run_payload.get("status") or "not started").replace("_", " ").strip().title() or "Not started"
+    run_message = str(run_payload.get("message") or "").strip()
+
+    def _candidate_fact_line(candidate: dict[str, object]) -> str:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        parts: list[str] = []
+        price_value = str(
+            facts.get("price_display")
+            or facts.get("rent_display")
+            or facts.get("price")
+            or facts.get("price_eur")
+            or ""
+        ).strip()
+        rooms_value = str(facts.get("rooms") or facts.get("room_count") or "").strip()
+        area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
+        if price_value:
+            parts.append(price_value)
+        if rooms_value:
+            parts.append(f"{rooms_value} rooms")
+        if area_value:
+            parts.append(f"{area_value} m2")
+        return " | ".join(parts)
+
+    compare_rows = []
+    for candidate in shortlist_candidates[:3]:
+        fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip()
+        fact_line = _candidate_fact_line(candidate)
+        detail = " | ".join(part for part in (fit_summary, fact_line) if part) or "Open the packet to inspect the ranking and the evidence."
+        compare_rows.append(
+            {
+                "title": str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate",
+                "detail": detail,
+                "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate",
+                "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
+                "action_method": "get",
+                "action_label": "Open packet",
+                "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
+                "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
+                "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Hosted review" if candidate.get("review_url") else ""),
+            }
+        )
+
+    hero_actions = {
+        "properties": [
+            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
+            {"href": f"/app/research{run_suffix}", "label": "Open research"},
+            {"href": f"/app/billing{run_suffix}", "label": "Plans"},
+        ],
+        "shortlist": [
+            {"href": f"/app/research{run_suffix}", "label": "Open research", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
+            {"href": f"/app/alerts{run_suffix}", "label": "Alerts"},
+        ],
+        "research": [
+            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
+            {"href": f"/app/alerts{run_suffix}", "label": "Alerts"},
+        ],
+        "profile": [
+            {"href": f"/app/properties{run_suffix}", "label": "Refine search", "tone": "primary"},
+            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
+            {"href": f"/app/settings{run_suffix}", "label": "Settings"},
+        ],
+        "alerts": [
+            {"href": f"/app/properties{run_suffix}", "label": "Open search desk", "tone": "primary"},
+            {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
+            {"href": f"/app/settings{run_suffix}", "label": "Notifications"},
+        ],
+        "billing": [
+            {"href": "/pricing", "label": "Open pricing", "tone": "primary"},
+            {"href": f"/app/properties{run_suffix}", "label": "Back to search"},
+            {"href": "/security", "label": "Security"},
+        ],
+        "settings": [
+            {"href": f"/app/properties{run_suffix}", "label": "Back to search", "tone": "primary"},
+            {"href": "/security", "label": "Open security"},
+            {"href": "/pricing", "label": "Open pricing"},
+        ],
+    }
+    hero_highlights = {
+        "properties": [
+            {
+                "label": "Market",
+                "value": str(property_state.get("country_label") or "Austria"),
+                "detail": str(search_posture_items[0].get("detail") or "").strip() if search_posture_items else "",
+            },
+            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "Choose the target districts."},
+            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "Record what should drive the ranking."},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "The selected portals for the next sweep."},
+        ],
+        "shortlist": [
+            {"label": "Candidates", "value": str(len(shortlist_candidates)), "detail": "Ranked properties worth direct review now."},
+            {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal packets ready before the raw portal listing."},
+            {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted or embedded tours already available."},
+            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest run status."},
+        ],
+        "research": [
+            {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal dossiers ready for inspection."},
+            {"label": "Tours", "value": str(tour_ready_total), "detail": "Candidates already backed by a 360 or hosted tour."},
+            {"label": "Signals", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Raw listings considered in the latest run."},
+            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest research pass."},
+        ],
+        "profile": [
+            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:3]) or "No areas saved yet."},
+            {"label": "Priorities", "value": str(len(selected_keywords) or 0), "detail": ", ".join(selected_keywords[:3]) or "No ranking preferences saved yet."},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Current active provider set."},
+            {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research"},
+        ],
+        "alerts": [
+            {"label": "Delivered", "value": str(len(recent_matches_card.get("items") or [])), "detail": "Hosted pages or packets already sent."},
+            {"label": "Run events", "value": str(len(run_events[-4:])), "detail": "Recent run updates visible to the user."},
+            {"label": "Providers", "value": str(len(selected_platforms) or 0), "detail": "Portals currently feeding the alert lane."},
+            {"label": "Run state", "value": run_status_label, "detail": run_message or "The latest saved-search sweep."},
+        ],
+        "billing": [
+            {"label": "Plan", "value": current_plan_label, "detail": "Current commercial posture."},
+            {"label": "Depth", "value": str(commercial.get("research_depth") or "deep").title(), "detail": "How deep the research lane runs."},
+            {"label": "Providers", "value": str(commercial.get("max_platforms") or "Multi"), "detail": "Maximum provider breadth for this plan."},
+            {"label": "Per source", "value": str(commercial.get("max_results_per_source") or 2), "detail": "Maximum ranked results per provider."},
+        ],
+        "settings": [
+            {"label": "Identity", "value": "Google" if str(google.get("connected_account_email") or "").strip() else "Local", "detail": str(google.get("connected_account_email") or "Sign-in without widening scope.")},
+            {"label": "Workspace", "value": str(workspace.get("name") or "PropertyQuarry"), "detail": str(workspace.get("timezone") or "Europe/Vienna")},
+            {"label": "Plan", "value": current_plan_label, "detail": str(commercial.get("research_depth") or "deep") + " research"},
+            {"label": "Areas", "value": str(len(selected_locations) or 0), "detail": ", ".join(selected_locations[:2]) or "Saved search areas."},
+        ],
+    }
     preference_rows = [
         row_item(
             "Workspace",
@@ -1283,6 +1423,38 @@ def property_workspace_payload(
                 "Waiting",
             )
         ]
+    saved_search_rows = [
+        {
+            "title": "Current saved search",
+            "detail": " | ".join(
+                part for part in (
+                    str(property_state.get("country_label") or "").strip(),
+                    f"{len(selected_locations)} target area(s)" if selected_locations else "",
+                    f"{len(selected_platforms)} provider(s)" if selected_platforms else "",
+                ) if part
+            ) or "No saved search brief yet.",
+            "tag": "Saved",
+            "action_href": f"/app/properties{run_suffix}",
+            "action_method": "get",
+            "action_label": "Refine brief",
+        },
+        {
+            "title": "Latest run posture",
+            "detail": run_message or "Open the search desk to launch or monitor the next sweep.",
+            "tag": run_status_label,
+            "action_href": f"/app/properties{run_suffix}",
+            "action_method": "get",
+            "action_label": "Open search desk",
+        },
+        {
+            "title": "Delivery path",
+            "detail": "Telegram and email stay secondary until the shortlist is credible enough to notify.",
+            "tag": "Alerts",
+            "action_href": f"/app/settings{run_suffix}",
+            "action_method": "get",
+            "action_label": "Review settings",
+        },
+    ]
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
@@ -1291,6 +1463,8 @@ def property_workspace_payload(
             "hero_kicker": "Search brief",
             "hero_title": "Shape the next market sweep before the crawlers fan out.",
             "hero_summary": "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs.",
+            "hero_actions": hero_actions["properties"],
+            "hero_highlights": hero_highlights["properties"],
             "primary_cards": [search_posture_card, market_coverage_card],
             "secondary_cards": [run_card, recent_matches_card],
             "console_form": property_form,
@@ -1303,7 +1477,17 @@ def property_workspace_payload(
             "hero_kicker": "Shortlist",
             "hero_title": "Review only the few properties that deserve attention now.",
             "hero_summary": "A paying customer should open this first: fit, risks, packet link, 360 link, and one-step feedback instead of operational counters.",
-            "primary_cards": [shortlist_card],
+            "hero_actions": hero_actions["shortlist"],
+            "hero_highlights": hero_highlights["shortlist"],
+            "primary_cards": [
+                {
+                    "eyebrow": "At a glance",
+                    "title": "Compare the top shortlist before opening deeper packets",
+                    "body": "The first scan should show which candidate looks strongest right now without forcing the user to open five pages.",
+                    "items": compare_rows or [row_item("No shortlisted candidates yet", "Finish a run to compare the first candidates here.", "Waiting")],
+                },
+                shortlist_card,
+            ],
             "secondary_cards": [run_card, market_coverage_card],
             "console_form": property_form,
             "show_brief_form": False,
@@ -1315,6 +1499,8 @@ def property_workspace_payload(
             "hero_kicker": "Research packets",
             "hero_title": "Inspect the evidence before you open the raw listing.",
             "hero_summary": "This lane should feel like a property dossier desk: fit reasons, missing facts, packet links, and hosted tours where they exist.",
+            "hero_actions": hero_actions["research"],
+            "hero_highlights": hero_highlights["research"],
             "primary_cards": [
                 {
                     "eyebrow": "Research packets",
@@ -1334,6 +1520,8 @@ def property_workspace_payload(
             "hero_kicker": "Profile learning",
             "hero_title": "Make the learning loop visible and editable.",
             "hero_summary": "Likes, dislikes, and hard rules must survive beyond one run. This lane is where the ranking becomes personal instead of repeating the same weak matches.",
+            "hero_actions": hero_actions["profile"],
+            "hero_highlights": hero_highlights["profile"],
             "primary_cards": [learning_card],
             "secondary_cards": [
                 {
@@ -1359,6 +1547,8 @@ def property_workspace_payload(
             "hero_kicker": "Alerts",
             "hero_title": "See what has been sent and what is about to leave.",
             "hero_summary": "Alerts are product output, not hidden queue state. Keep hosted matches, review packets, and run updates visible in one lane.",
+            "hero_actions": hero_actions["alerts"],
+            "hero_highlights": hero_highlights["alerts"],
             "primary_cards": [
                 {
                     "eyebrow": "Client alerts",
@@ -1367,7 +1557,15 @@ def property_workspace_payload(
                     "items": alerts_rows,
                 }
             ],
-            "secondary_cards": [run_card, recent_matches_card],
+            "secondary_cards": [
+                {
+                    "eyebrow": "Saved search",
+                    "title": "The alert lane should still expose the search brief driving it",
+                    "body": "Recurring alerts are only useful when the user can still see and revise the search posture behind them.",
+                    "items": saved_search_rows,
+                },
+                run_card,
+            ],
             "console_form": {},
             "show_brief_form": False,
             "show_shortlist_cards": False,
@@ -1378,6 +1576,8 @@ def property_workspace_payload(
             "hero_kicker": "Billing",
             "hero_title": "Control the research tier without losing the search context.",
             "hero_summary": "The billing lane should explain what the current plan unlocks, what is capped, and how the next upgrade changes the search depth.",
+            "hero_actions": hero_actions["billing"],
+            "hero_highlights": hero_highlights["billing"],
             "primary_cards": [
                 {
                     "eyebrow": "Plan posture",
@@ -1413,6 +1613,8 @@ def property_workspace_payload(
             "hero_kicker": "Settings",
             "hero_title": "Adjust the product without falling back into assistant tooling.",
             "hero_summary": "PropertyQuarry settings should cover the search profile, Google return access, billing posture, and notifications. Nothing here should look like office sync.",
+            "hero_actions": hero_actions["settings"],
+            "hero_highlights": hero_highlights["settings"],
             "primary_cards": [
                 {
                     "eyebrow": "Connections",

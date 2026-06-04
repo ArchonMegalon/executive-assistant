@@ -87,6 +87,40 @@
   .pq-metric-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
+  .pq-hero-highlights {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .pq-hero-highlight {
+    border: 1px solid rgba(49, 60, 77, 0.72);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.03);
+    padding: 14px;
+    display: grid;
+    gap: 6px;
+  }
+  .pq-hero-highlight span {
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .pq-hero-highlight strong {
+    display: block;
+    font-size: 1.12rem;
+    line-height: 1.2;
+  }
+  .pq-hero-highlight small {
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .pq-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
   .pq-metric {
     padding: 14px;
   }
@@ -369,7 +403,8 @@
   @media (max-width: 1100px) {
     .pq-grid,
     .pq-card-grid,
-    .pq-plan-grid {
+    .pq-plan-grid,
+    .pq-hero-highlights {
       grid-template-columns: 1fr;
     }
   }
@@ -405,6 +440,10 @@
     }
     .pq-choice {
       min-height: 0;
+    }
+    .pq-hero-actions {
+      display: grid;
+      grid-template-columns: 1fr;
     }
     .pq-nav,
     .pq-action-row {
@@ -466,6 +505,24 @@
     <div class="pq-kicker">{{ hero_kicker or title }}</div>
     <h2>{{ hero_title or title }}</h2>
     <p class="pq-copy">{{ hero_summary or summary }}</p>
+    {% if hero_highlights %}
+    <div class="pq-hero-highlights">
+      {% for item in hero_highlights %}
+      <div class="pq-hero-highlight">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+        {% if item.detail %}<small>{{ item.detail }}</small>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if hero_actions %}
+    <div class="pq-hero-actions">
+      {% for action in hero_actions %}
+      <a class="pq-action{% if action.get('tone') == 'primary' %} primary{% endif %}" href="{{ action.get('href') }}">{{ action.get('label') }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if stats %}
     <div class="pq-metric-grid">
       {% for stat in stats %}

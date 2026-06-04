@@ -95,6 +95,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert search.status_code == 200
     assert "Shape the next market sweep before the crawlers fan out." in search.text
+    assert "Open shortlist" in search.text
+    assert "Providers" in search.text
     assert 'href="/app/shortlist"' in search.text
     assert 'href="/app/research"' in search.text
     assert 'href="/app/profile"' in search.text
@@ -108,6 +110,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=headers)
     assert shortlist.status_code == 200
     assert "Review only the few properties that deserve attention now." in shortlist.text
+    assert "Compare the top shortlist before opening deeper packets" in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Review packet" in shortlist.text
     assert "Hosted review" in shortlist.text
@@ -132,6 +135,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
     assert alerts.status_code == 200
     assert "Recent outbound property follow-ups" in alerts.text
+    assert "The alert lane should still expose the search brief driving it" in alerts.text
 
     billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=headers)
     assert billing.status_code == 200
