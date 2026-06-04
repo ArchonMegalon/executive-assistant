@@ -84,6 +84,11 @@ ALERT_FREQUENCY_LABELS = {
 
 ALERT_CHANNEL_KEYS = ("telegram", "email")
 
+INVESTMENT_RESEARCH_MODE_LABELS = {
+    "off": "Off",
+    "auto": "Investment research on buy listings",
+}
+
 
 PROVIDERS: tuple[PropertyProviderSpec, ...] = (
     PropertyProviderSpec(
@@ -1037,6 +1042,10 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["language_code"] = normalize_language_code(payload.get("language_code"), country_code=country_code)
     payload["listing_mode"] = normalize_listing_mode(payload.get("listing_mode"))
     payload["property_type"] = normalize_property_type(payload.get("property_type"))
+    investment_mode = str(payload.get("investment_research_mode") or "").strip().lower() or "off"
+    if investment_mode not in INVESTMENT_RESEARCH_MODE_LABELS:
+        investment_mode = "off"
+    payload["investment_research_mode"] = investment_mode
     payload["location_query"] = str(payload.get("location_query") or "").strip()
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     normalized_alert_frequency = str(payload.get("alert_frequency") or "").strip().lower() or "daily"
@@ -1073,6 +1082,15 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         else:
             payload.pop(numeric_key, None)
     return payload
+
+
+def investment_research_mode_options() -> list[dict[str, str]]:
+    return [{"value": key, "label": label} for key, label in INVESTMENT_RESEARCH_MODE_LABELS.items()]
+
+
+def investment_research_mode_label(value: object) -> str:
+    normalized = str(value or "").strip().lower() or "off"
+    return INVESTMENT_RESEARCH_MODE_LABELS.get(normalized, INVESTMENT_RESEARCH_MODE_LABELS["off"])
 
 
 def _append_query(url: str, query_items: dict[str, str]) -> str:

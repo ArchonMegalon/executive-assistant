@@ -43,6 +43,7 @@ class PropertyPlanSpec:
     max_platforms: int
     max_results_per_source: int
     research_depth: str
+    investment_research_level: str
     features: tuple[str, ...]
 
 
@@ -52,11 +53,12 @@ _FREE_PLAN = PropertyPlanSpec(
     checkout_label="Free",
     amount_eur="0.00",
     pass_days=0,
-    max_platforms=1,
+    max_platforms=8,
     max_results_per_source=2,
     research_depth="deep",
+    investment_research_level="none",
     features=(
-        "1 platform at a time",
+        "all major platforms in one run",
         "up to 2 results per source",
         "deep research on the shortlisted results",
     ),
@@ -72,6 +74,7 @@ _PAID_PLANS = {
         max_platforms=3,
         max_results_per_source=5,
         research_depth="standard",
+        investment_research_level="preview",
         features=(
             "up to 3 platforms per run",
             "up to 5 results per source",
@@ -87,6 +90,7 @@ _PAID_PLANS = {
         max_platforms=8,
         max_results_per_source=10,
         research_depth="deep",
+        investment_research_level="full",
         features=(
             "all major platforms in one run",
             "up to 10 results per source",
@@ -152,6 +156,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
         "active_until": str(commercial.get("active_until") or ""),
         "is_paid": current_plan.plan_key != "free",
         "research_depth": current_plan.research_depth,
+        "investment_research_level": current_plan.investment_research_level,
         "max_platforms": current_plan.max_platforms,
         "max_results_per_source": current_plan.max_results_per_source,
         "pending_plan_key": pending_plan.plan_key if pending_plan is not None else "",
@@ -167,6 +172,7 @@ def property_commercial_snapshot(property_preferences: dict[str, object] | None)
                 "max_platforms": spec.max_platforms,
                 "max_results_per_source": spec.max_results_per_source,
                 "research_depth": spec.research_depth,
+                "investment_research_level": spec.investment_research_level,
                 "features": list(spec.features),
                 "is_current": spec.plan_key == current_plan.plan_key,
             }

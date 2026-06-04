@@ -49,6 +49,12 @@ from app.api.routes.workspace_view_models import workspace_section_payload as _w
 from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
+from app.product.service import (
+    _property_investment_area_sqm,
+    _property_investment_location_seed,
+    _property_investment_price_eur,
+    _property_investment_research_snapshot,
+)
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services.google_oauth import complete_google_oauth_callback
 from app.services.property_billing import payfunnels_configured, paypal_configured, property_commercial_snapshot
@@ -61,6 +67,8 @@ from app.services.property_market_catalog import (
     language_options as property_language_options,
     listing_mode_label as property_listing_mode_label,
     listing_mode_options as property_listing_mode_options,
+    investment_research_mode_label as property_investment_research_mode_label,
+    investment_research_mode_options as property_investment_research_mode_options,
     normalize_country_code,
     normalize_property_search_preferences,
     property_type_label as property_type_label_for_value,
@@ -567,10 +575,12 @@ def _property_console_context(
         "country_options": property_country_options(),
         "language_options": property_language_options(),
         "listing_mode_options": property_listing_mode_options(),
+        "investment_research_mode_options": property_investment_research_mode_options(),
         "property_type_options": property_type_options_catalog(),
         "country_label": property_country_label(selected_country),
         "language_label": property_language_label(preferences.get("language_code"), country_code=selected_country),
         "listing_mode_label": property_listing_mode_label(preferences.get("listing_mode")),
+        "investment_research_mode_label": property_investment_research_mode_label(preferences.get("investment_research_mode")),
         "property_type_label": property_type_label_for_value(preferences.get("property_type")),
         "provider_total_for_country": len(country_provider_options),
         "preferences": preferences,
@@ -1568,6 +1578,113 @@ def _property_packet_compare_rows(
     return rows
 
 
+def _property_investment_research_access_level(preferences: dict[str, object], commercial: dict[str, object], *, requested: bool) -> str:
+    if str(preferences.get("listing_mode") or "").strip().lower() != "buy":
+        return "off"
+    if not requested and str(preferences.get("investment_research_mode") or "").strip().lower() != "auto":
+        return "off"
+    level = str(commercial.get("investment_research_level") or "none").strip().lower() or "none"
+    return level
+
+
+def _property_investment_risk_rows(facts: dict[str, object], snapshot: dict[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if not str(facts.get("street_address") or "").strip():
+        rows.append(_object_detail_row("Address confidence is low", "Exact address is still missing, so neighbourhood and comp confidence are reduced.", "High"))
+    if not str(facts.get("heating_type") or "").strip():
+        rows.append(_object_detail_row("Heating type still unknown", "Yield assumptions can be wrong if the heating setup drives renovation or tenant demand risk.", "Medium"))
+    occupancy = str(facts.get("occupancy_status") or "").strip().lower()
+    if occupancy:
+        rows.append(_object_detail_row("Occupancy posture", str(facts.get("occupancy_status") or "").strip(), "Risk" if any(token in occupancy for token in ("occup", "vermiet", "bewohn", "uthyrd", "zamieszk")) else "Watch"))
+    payback_years = snapshot.get("payback_years")
+    if isinstance(payback_years, (int, float)) and float(payback_years) > 35.0:
+        rows.append(_object_detail_row("Long payback horizon", f"Estimated payback is about {float(payback_years):.1f} years at current rent assumptions.", "Medium"))
+    return rows
+
+
+def _property_investment_research_rows(
+    *,
+    property_url: str,
+    facts: dict[str, object],
+    preferences: dict[str, object],
+    commercial: dict[str, object],
+    requested: bool,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    access_level = _property_investment_research_access_level(preferences, commercial, requested=requested)
+    if access_level == "off":
+        return [], []
+    if access_level == "none":
+        return [
+            _object_detail_row(
+                "Upgrade required",
+                "Investment research is reserved for paid investment tiers. The current free tier does not run buy-side underwriting research.",
+                "Locked",
+            )
+        ], []
+    current_price_eur = _property_investment_price_eur(facts)
+    current_area_sqm = _property_investment_area_sqm(facts)
+    location_seed = _property_investment_location_seed(facts, preferences)
+    if not isinstance(current_price_eur, float) or not isinstance(current_area_sqm, float) or not location_seed:
+        return [
+            _object_detail_row(
+                "Investment research is waiting on core facts",
+                "The packet still needs a credible buy price, area, and location before comp and yield work can run.",
+                "Pending",
+            )
+        ], []
+    selected_platforms = ",".join(str(value or "").strip() for value in (preferences.get("selected_platforms") or []) if str(value or "").strip())
+    snapshot = _property_investment_research_snapshot(
+        property_url=property_url,
+        country_code=str(preferences.get("country_code") or "").strip() or "AT",
+        location_query=location_seed,
+        selected_platforms_csv=selected_platforms,
+        current_price_eur=current_price_eur,
+        current_area_sqm=current_area_sqm,
+        research_level=access_level,
+    )
+    if not snapshot:
+        return [
+            _object_detail_row(
+                "Investment research could not build a benchmark yet",
+                "No usable market samples were recovered from the current provider set for this location.",
+                "Pending",
+            )
+        ], []
+    rows: list[dict[str, str]] = [
+        _object_detail_row("Current underwriting base", f"EUR {current_price_eur:,.0f} over {current_area_sqm:.1f} m2 ({float(snapshot.get('current_price_per_sqm_eur') or 0.0):.2f} EUR/m2)", "Base"),
+        _object_detail_row("Comparable buy samples", f"{int(snapshot.get('buy_sample_count') or 0)} listings", "Comps"),
+        _object_detail_row("Comparable rent samples", f"{int(snapshot.get('rent_sample_count') or 0)} listings", "Comps"),
+    ]
+    market_buy = snapshot.get("market_buy_per_sqm_eur")
+    delta_pct = snapshot.get("market_buy_delta_pct")
+    if isinstance(market_buy, (int, float)):
+        detail = f"Market buy benchmark is about {float(market_buy):.2f} EUR/m2."
+        if isinstance(delta_pct, (int, float)):
+            direction = "below" if float(delta_pct) < 0 else "above"
+            detail = f"{detail} This listing sits {abs(float(delta_pct)):.1f}% {direction} that benchmark."
+        rows.append(_object_detail_row("Buy-side benchmark", detail, "Value"))
+    expected_rent = snapshot.get("expected_monthly_rent_eur")
+    gross_yield = snapshot.get("gross_yield_pct")
+    payback_years = snapshot.get("payback_years")
+    if isinstance(expected_rent, (int, float)):
+        rows.append(_object_detail_row("Expected monthly rent", f"About EUR {float(expected_rent):,.0f} ({float(snapshot.get('market_rent_per_sqm_eur') or 0.0):.2f} EUR/m2)", "Yield"))
+    if isinstance(gross_yield, (int, float)):
+        rows.append(_object_detail_row("Gross yield", f"About {float(gross_yield):.2f}% before vacancy, tax, and capex.", "Yield"))
+    if isinstance(payback_years, (int, float)):
+        rows.append(_object_detail_row("Payback horizon", f"About {float(payback_years):.1f} years on gross rent assumptions.", "Yield"))
+    if access_level == "preview":
+        rows.append(_object_detail_row("Preview tier limit", "Plus only returns the benchmark headline. Agent unlocks the fuller risk and diligence pass.", "Upgrade"))
+        return rows, []
+    risk_rows = _property_investment_risk_rows(facts, snapshot)
+    if isinstance(snapshot.get("buy_samples"), list) and snapshot["buy_samples"]:
+        top_buy = snapshot["buy_samples"][0]
+        rows.append(_object_detail_row("Closest buy comp", f"{top_buy.get('title')} | {top_buy.get('per_sqm_eur')} EUR/m2 via {top_buy.get('source_label')}", "Comp"))
+    if isinstance(snapshot.get("rent_samples"), list) and snapshot["rent_samples"]:
+        top_rent = snapshot["rent_samples"][0]
+        rows.append(_object_detail_row("Closest rent comp", f"{top_rent.get('title')} | {top_rent.get('per_sqm_eur')} EUR/m2 via {top_rent.get('source_label')}", "Comp"))
+    return rows, risk_rows
+
+
 def _property_packet_compare_table(
     *,
     property_context: dict[str, object],
@@ -1629,6 +1746,7 @@ def property_research_packet(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
     run_id: str = Query(default=""),
+    investment: int = Query(default=0),
 ) -> HTMLResponse:
     status = container.onboarding.status(principal_id=context.principal_id)
     property_context = _property_console_context(
@@ -1646,6 +1764,7 @@ def property_research_packet(
     match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
     mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
     preferences = dict(property_context.get("preferences") or {})
+    commercial = dict(property_context.get("commercial") or {})
     fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
@@ -1679,6 +1798,14 @@ def property_research_packet(
         current_candidate=candidate,
         current_candidate_ref=str(candidate_ref or "").strip(),
     )
+    investment_rows, investment_risk_rows = _property_investment_research_rows(
+        property_url=property_url,
+        facts=facts,
+        preferences=preferences,
+        commercial=commercial,
+        requested=bool(int(investment or 0)),
+    )
+    investment_run_target = run_target + ("&investment=1" if "?" in run_target else "?investment=1")
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -1733,6 +1860,23 @@ def property_research_packet(
                 secondary_action_label="Open source" if property_url else "",
                 secondary_action_method="get" if property_url else "",
             ),
+            _object_detail_row(
+                "Investment research",
+                (
+                    "Agent can run the full buy-side investment pass."
+                    if str(commercial.get("investment_research_level") or "") == "full"
+                    else (
+                        "Plus can run a shortened benchmark view."
+                        if str(commercial.get("investment_research_level") or "") == "preview"
+                        else "Upgrade to a paid investment tier to run buy-side underwriting research."
+                    )
+                ),
+                "Research",
+                href=investment_run_target if str(preferences.get("listing_mode") or "") == "buy" else "",
+                secondary_action_href=investment_run_target if str(preferences.get("listing_mode") or "") == "buy" else "",
+                secondary_action_label="Run investment research" if str(preferences.get("listing_mode") or "") == "buy" else "",
+                secondary_action_method="get" if str(preferences.get("listing_mode") or "") == "buy" else "",
+            ),
         ],
         object_sections=[
             {
@@ -1766,9 +1910,15 @@ def property_research_packet(
                 or [_object_detail_row("No provenance rows yet", "Deeper enrichment will surface which facts were researched versus copied from the listing.", "Pending")],
             },
             {
+                "eyebrow": "Investment research",
+                "title": "Buy-side benchmark, rent thesis, and underwriting posture",
+                "items": investment_rows
+                or [_object_detail_row("Investment research is off", "Enable investment research in the search brief or request it explicitly from this packet on buy listings.", "Idle")],
+            },
+            {
                 "eyebrow": "Open questions",
                 "title": "What still needs verification before this is trustworthy",
-                "items": missing_rows + [
+                "items": missing_rows + investment_risk_rows + [
                     _object_detail_row(
                         "Review the hosted surfaces",
                         "Use the hosted review and 360 pages only after the internal packet already looks compelling.",

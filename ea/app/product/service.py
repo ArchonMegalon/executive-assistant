@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 import time
 import threading
+import statistics
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1770,6 +1771,18 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
             findings["total_rent_eur"] = float(normalized_price)
         except ValueError:
             pass
+    buy_price_match = re.search(
+        r"(?:kaufpreis|asking price|purchase price|price|prix|prezzo|vraagprijs|koopprijs)\D{0,20}(\d[\d\.\s]*\d(?:,\d{1,2})?)\s*(?:€|eur|euro)\b",
+        plain_text,
+        flags=re.IGNORECASE,
+    )
+    if buy_price_match:
+        normalized_price = buy_price_match.group(1).replace(" ", "").replace(".", "").replace(",", ".")
+        try:
+            findings["price_eur"] = float(normalized_price)
+            findings["price_display"] = compact_text(buy_price_match.group(0), fallback=f"{findings['price_eur']:.0f} EUR", limit=120)
+        except ValueError:
+            pass
     if re.search(r"Euro\s*120,00", plain_text, flags=re.IGNORECASE):
         findings["parking_monthly_eur"] = 120.0
     district_match = re.search(r"\b(1\d{3}\s+Wien)\b", plain_text, flags=re.IGNORECASE)
@@ -1777,6 +1790,14 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         findings["postal_name"] = district_match.group(1)
     if "salmannsdorf" in lowered:
         findings["district"] = "Salmannsdorf"
+    area_value = _float_or_none(findings.get("area_sqm"))
+    if isinstance(area_value, float) and area_value > 0.0:
+        rent_value = _float_or_none(findings.get("total_rent_eur"))
+        if isinstance(rent_value, float) and rent_value > 0.0:
+            findings["rent_per_sqm_eur"] = round(rent_value / area_value, 2)
+        price_value = _float_or_none(findings.get("price_eur"))
+        if isinstance(price_value, float) and price_value > 0.0:
+            findings["price_per_sqm_eur"] = round(price_value / area_value, 2)
 
     poi_patterns = {
         "nearest_transit_m": r"Bus</span>\s*<span[^>]*>\s*(\d+)\s*m",
@@ -1848,6 +1869,169 @@ def _property_scout_candidate_payload_from_preview(*, property_url: str, preview
         elif "fernwärme" in text or "fernwaerme" in text:
             property_facts["heating_type"] = "Fernwaerme"
     return property_facts
+
+
+def _property_investment_price_eur(facts: dict[str, object]) -> float | None:
+    for key in ("price_eur", "valuation_eur", "reserve_price_eur"):
+        value = _float_or_none(facts.get(key))
+        if isinstance(value, float) and value > 0.0:
+            return value
+    return None
+
+
+def _property_investment_area_sqm(facts: dict[str, object]) -> float | None:
+    for key in ("area_sqm", "area_m2", "living_area_m2"):
+        value = _float_or_none(facts.get(key))
+        if isinstance(value, float) and value > 0.0:
+            return value
+    return None
+
+
+def _property_investment_location_seed(facts: dict[str, object], preferences: dict[str, object]) -> str:
+    for key in ("postal_name", "street_address", "district", "address"):
+        value = str(facts.get(key) or "").strip()
+        if value:
+            return value
+    return str(preferences.get("location_query") or "").strip()
+
+
+def _property_investment_comp_samples(
+    *,
+    property_url: str,
+    country_code: str,
+    listing_mode: str,
+    location_query: str,
+    selected_platforms: tuple[str, ...],
+    max_samples: int,
+) -> list[dict[str, object]]:
+    preferences = normalize_property_search_preferences(
+        {
+            "country_code": country_code,
+            "listing_mode": listing_mode,
+            "property_type": "apartment",
+            "location_query": location_query,
+            "keywords": "",
+            "selected_platforms": list(selected_platforms),
+        }
+    )
+    source_specs = generated_property_source_specs(preferences)[: max(2, len(selected_platforms) or 2)]
+    normalized_current = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    seen_urls: set[str] = {normalized_current}
+    samples: list[dict[str, object]] = []
+    for source in source_specs:
+        source_url = str(source.get("url") or "").strip()
+        if not source_url:
+            continue
+        try:
+            source_html = _property_scout_fetch_html(source_url, timeout_seconds=4.0)
+        except Exception:
+            continue
+        listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=source_html)
+        for candidate_url in listing_urls:
+            normalized_candidate = urllib.parse.urldefrag(str(candidate_url or "").strip())[0]
+            if not normalized_candidate or normalized_candidate in seen_urls:
+                continue
+            seen_urls.add(normalized_candidate)
+            preview = _property_scout_page_preview(normalized_candidate, prefer_fast=True)
+            if not preview:
+                continue
+            preview_facts = dict(preview.get("property_facts_json") or {})
+            enriched = _merge_property_facts_with_source_research(
+                property_url=normalized_candidate,
+                property_facts=preview_facts,
+                image_urls=tuple(str(value or "").strip() for value in (preview.get("media_urls_json") or ()) if str(value or "").strip()),
+            )
+            area_sqm = _property_investment_area_sqm(enriched)
+            if not isinstance(area_sqm, float) or area_sqm <= 0.0:
+                continue
+            amount = _float_or_none(enriched.get("total_rent_eur") if listing_mode == "rent" else _property_investment_price_eur(enriched))
+            if not isinstance(amount, float) or amount <= 0.0:
+                continue
+            per_sqm = round(amount / area_sqm, 2)
+            sample = {
+                "property_url": normalized_candidate,
+                "title": str(preview.get("title") or normalized_candidate).strip() or normalized_candidate,
+                "source_label": str(source.get("label") or source.get("platform") or "Source").strip() or "Source",
+                "amount_eur": round(amount, 2),
+                "area_sqm": round(area_sqm, 2),
+                "per_sqm_eur": per_sqm,
+            }
+            samples.append(sample)
+            if len(samples) >= max_samples:
+                return samples
+    return samples
+
+
+@lru_cache(maxsize=128)
+def _property_investment_research_snapshot(
+    *,
+    property_url: str,
+    country_code: str,
+    location_query: str,
+    selected_platforms_csv: str,
+    current_price_eur: float,
+    current_area_sqm: float,
+    research_level: str,
+) -> dict[str, object]:
+    if not property_url or not country_code or current_price_eur <= 0.0 or current_area_sqm <= 0.0:
+        return {}
+    selected_platforms = tuple(
+        normalize_property_platform(value)
+        for value in str(selected_platforms_csv or "").split(",")
+        if normalize_property_platform(value)
+    )
+    if not selected_platforms:
+        selected_platforms = tuple(default_platforms_for_country(country_code)[:2])
+    sample_limit = 2 if research_level == "preview" else 5
+    rent_samples = _property_investment_comp_samples(
+        property_url=property_url,
+        country_code=country_code,
+        listing_mode="rent",
+        location_query=location_query,
+        selected_platforms=selected_platforms,
+        max_samples=sample_limit,
+    )
+    buy_samples = _property_investment_comp_samples(
+        property_url=property_url,
+        country_code=country_code,
+        listing_mode="buy",
+        location_query=location_query,
+        selected_platforms=selected_platforms,
+        max_samples=sample_limit,
+    )
+    current_price_per_sqm = round(current_price_eur / current_area_sqm, 2)
+    rent_per_sqm_samples = [float(sample["per_sqm_eur"]) for sample in rent_samples if sample.get("per_sqm_eur") not in (None, "")]
+    buy_per_sqm_samples = [float(sample["per_sqm_eur"]) for sample in buy_samples if sample.get("per_sqm_eur") not in (None, "")]
+    snapshot: dict[str, object] = {
+        "current_price_eur": round(current_price_eur, 2),
+        "current_area_sqm": round(current_area_sqm, 2),
+        "current_price_per_sqm_eur": current_price_per_sqm,
+        "rent_sample_count": len(rent_samples),
+        "buy_sample_count": len(buy_samples),
+        "rent_samples": rent_samples,
+        "buy_samples": buy_samples,
+        "research_level": research_level,
+    }
+    if buy_per_sqm_samples:
+        median_buy = round(float(statistics.median(buy_per_sqm_samples)), 2)
+        snapshot["market_buy_per_sqm_eur"] = median_buy
+        snapshot["market_buy_delta_pct"] = round(((current_price_per_sqm / median_buy) - 1.0) * 100.0, 1)
+    if rent_per_sqm_samples:
+        median_rent = round(float(statistics.median(rent_per_sqm_samples)), 2)
+        expected_rent = round(median_rent * current_area_sqm, 2)
+        annual_rent = round(expected_rent * 12.0, 2)
+        gross_yield = round((annual_rent / current_price_eur) * 100.0, 2) if current_price_eur > 0 else 0.0
+        payback_years = round(current_price_eur / annual_rent, 1) if annual_rent > 0 else 0.0
+        snapshot.update(
+            {
+                "market_rent_per_sqm_eur": median_rent,
+                "expected_monthly_rent_eur": expected_rent,
+                "expected_annual_rent_eur": annual_rent,
+                "gross_yield_pct": gross_yield,
+                "payback_years": payback_years,
+            }
+        )
+    return snapshot
 
 
 def _property_scout_rank_score(

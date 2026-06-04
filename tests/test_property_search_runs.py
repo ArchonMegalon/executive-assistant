@@ -26,8 +26,21 @@ def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() ->
 
     assert snapshot["current_plan_key"] == "free"
     assert snapshot["research_depth"] == "deep"
+    assert snapshot["investment_research_level"] == "none"
     assert snapshot["max_platforms"] == 8
     assert snapshot["max_results_per_source"] == 2
+
+
+def test_property_plan_investment_research_levels_follow_tier() -> None:
+    plus = property_commercial_snapshot(
+        {"property_commercial": {"active_plan_key": "plus", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"}}
+    )
+    agent = property_commercial_snapshot(
+        {"property_commercial": {"active_plan_key": "agent", "status": "active", "active_until": "2999-01-01T00:00:00+00:00"}}
+    )
+
+    assert plus["investment_research_level"] == "preview"
+    assert agent["investment_research_level"] == "full"
 
 
 def test_property_search_location_matching_prefers_requested_districts() -> None:

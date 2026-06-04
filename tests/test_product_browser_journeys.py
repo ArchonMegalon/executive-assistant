@@ -1,17 +1,13 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
 
+from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
 from app.services.google_oauth import read_google_oauth_state
-from tests.product_test_helpers import (
-    build_operator_product_client,
-    build_product_client,
-    build_property_client,
-    seed_product_state,
-    start_workspace,
-)
+from tests.product_test_helpers import build_operator_product_client, build_product_client, seed_product_state, start_workspace
 
 
 def test_workspace_pages_render_seeded_product_objects() -> None:
@@ -77,7 +73,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Open commitments" in person_detail.text
     assert "Send board materials" in person_detail.text
 
-    onboarding = client.get("/register", headers={"host": "propertyquarry.com"})
+    onboarding = client.get("/register")
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google sign-in" in onboarding.text
@@ -96,7 +92,7 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
 
 def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeypatch) -> None:
     principal_id = "exec-browser-properties"
-    client = build_property_client(principal_id=principal_id)
+    client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
@@ -110,6 +106,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
             "property_type": "apartment",
             "location_query": "Berlin",
             "keywords": "lift family balcony",
+            "investment_research_mode": "auto",
             "selected_platforms": ["immoscout_de", "immowelt"],
             "preference_person_id": "elisabeth",
             "max_results_per_source": 4,
@@ -117,6 +114,23 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     )
     assert stored.status_code == 200, stored.text
 
+    top_candidate = {
+        "title": "Altbau near U6",
+        "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
+        "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
+        "recommendation": "shortlist",
+        "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
+        "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
+        "match_reasons": ["Lift and transit fit."],
+        "mismatch_reasons": [],
+        "property_facts": {
+            "price_eur": 420000.0,
+            "price_display": "EUR 420,000",
+            "area_m2": 78,
+            "address": "Berlin Altbau quarter",
+            "postal_name": "Berlin",
+        },
+    }
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "exec-browser-properties"
         assert run_id == "run-42"
@@ -145,21 +159,10 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
                         "tour_created_total": 1,
                         "notified_total": 1,
                         "top_fit_score": 0.92,
-                        "top_candidates": [
-                            {
-                                "title": "Altbau near U6",
-                                "property_url": "https://www.immobilienscout24.de/expose/altbau-u6",
-                                "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
-                                "recommendation": "shortlist",
-                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-1",
-                                "tour_url": "https://myexternalbrain.com/tours/altbau-u6",
-                                "match_reasons": ["Lift and transit fit."],
-                                "mismatch_reasons": [],
-                            }
-                        ],
-                    }
-                ],
-            },
+                            "top_candidates": [top_candidate],
+                        }
+                    ],
+                },
             "events": [
                 {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
                 {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
@@ -183,12 +186,65 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
             ),
         )
 
+    def _fake_investment_snapshot(
+        *,
+        property_url: str,
+        country_code: str,
+        location_query: str,
+        selected_platforms_csv: str,
+        current_price_eur: float,
+        current_area_sqm: float,
+        research_level: str,
+    ):
+        assert property_url == "https://www.immobilienscout24.de/expose/altbau-u6"
+        assert country_code == "DE"
+        assert research_level in {"preview", "full"}
+        return {
+            "current_price_eur": current_price_eur,
+            "current_area_sqm": current_area_sqm,
+            "current_price_per_sqm_eur": 5384.62,
+            "buy_sample_count": 5,
+            "rent_sample_count": 4,
+            "market_buy_per_sqm_eur": 5600.0,
+            "market_buy_delta_pct": -3.8,
+            "market_rent_per_sqm_eur": 18.75,
+            "expected_monthly_rent_eur": 1462.5,
+            "expected_annual_rent_eur": 17550.0,
+            "gross_yield_pct": 4.18,
+            "payback_years": 23.9,
+            "buy_samples": [
+                {
+                    "source_label": "ImmoScout24 Germany",
+                    "amount_eur": 445000.0,
+                    "area_sqm": 79.0,
+                    "per_sqm_eur": 5632.91,
+                }
+            ],
+            "rent_samples": [
+                {
+                    "source_label": "Immowelt",
+                    "amount_eur": 1490.0,
+                    "area_sqm": 80.0,
+                    "per_sqm_eur": 18.63,
+                }
+            ],
+        }
+
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
+    monkeypatch.setattr(landing_routes, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
+    monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", _fake_investment_snapshot)
 
-    response = client.get("/app/properties", params={"run_id": "run-42"})
+    property_headers = {"host": "propertyquarry.com"}
+    response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
     assert response.status_code == 200
-    assert "Run a premium market sweep" in response.text
+    assert "Shape the next market sweep before the crawlers fan out." in response.text
+    assert 'href="/app/properties"' in response.text
+    assert 'href="/app/shortlist"' in response.text
+    assert 'href="/app/research"' in response.text
+    assert 'href="/app/profile"' in response.text
+    assert 'href="/app/alerts"' in response.text
+    assert 'href="/app/billing"' in response.text
     assert "Search posture" in response.text
     assert "Areas and priorities" in response.text
     assert "Providers and launch" in response.text
@@ -199,12 +255,13 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Research language" in response.text
     assert "Berlin" in response.text
     assert "What this search is optimizing for" in response.text
+    assert "Which providers this country unlocks" in response.text
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
+    assert "Investment research" in response.text
     assert "Lower Austria" in response.text
     assert "lift family balcony" in response.text
-    assert "Which providers this country unlocks" in response.text
     assert "ImmoScout24 Germany" in response.text
     assert "Immowelt" in response.text
     assert "Portugal" in response.text
@@ -223,7 +280,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Office signals ingested" not in response.text
     assert "Morning Memo" not in response.text
 
-    shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=property_headers)
     assert shortlist.status_code == 200
     assert "Review only the few properties that deserve attention now." in shortlist.text
     assert "Altbau near U6" in shortlist.text
@@ -232,28 +289,41 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Open 360" in shortlist.text
     assert "data-feedback-save" in shortlist.text
 
-    research = client.get("/app/research", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    research = client.get("/app/research", params={"run_id": "run-42"}, headers=property_headers)
     assert research.status_code == 200
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
     assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in research.text
-    assert "/app/research/f0f77942b07c4f19?run_id=run-42" in research.text
+    packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-42"', research.text)
+    assert packet_match is not None
 
-    packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    packet = client.get(packet_match.group(1), params={"run_id": "run-42", "investment": 1}, headers=property_headers)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
+    assert "Investment research" in packet.text
+    assert "Gross yield" in packet.text
+    assert "Expected monthly rent" in packet.text
 
-    profile = client.get("/app/profile", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=property_headers)
     assert profile.status_code == 200
     assert "Make the learning loop visible and editable." in profile.text
     assert 'data-property-learning-list' in profile.text
 
+    alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=property_headers)
+    assert alerts.status_code == 200
+    assert "Recent outbound property follow-ups" in alerts.text
+
+    billing = client.get("/app/billing", params={"run_id": "run-42"}, headers=property_headers)
+    assert billing.status_code == 200
+    assert "Current commercial state" in billing.text
+    assert "Plus checkout" in billing.text
+
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
     principal_id = "exec-browser-properties-no-origin-fallback"
-    client = build_property_client(principal_id=principal_id)
+    client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     def _fake_handoffs(self, *, principal_id: str, limit: int = 20, operator_id: str = "", status: str | None = "pending"):
@@ -275,18 +345,19 @@ def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(m
 
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
 
-    response = client.get("/app/properties")
+    response = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert response.status_code == 200
     assert "Review shortlisted property packet" in response.text
 
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
-    client = build_property_client(principal_id="exec-browser-property-settings")
+    client = build_product_client(principal_id="exec-browser-property-settings")
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
     assert settings.status_code == 200
     assert "Identity and return access" in settings.text
+    assert "Google sign-in" in settings.text
     assert "Current search brief state" in settings.text
     assert "Operating posture" in settings.text
     assert "Open pricing" in settings.text
@@ -326,8 +397,7 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     assert "ranked shortlist" in register.text.lower()
 
 
-def test_propertyquarry_repo_defaults_to_property_brand_without_host_header(monkeypatch) -> None:
-    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
+def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:
     client = build_product_client(principal_id="propertyquarry-default-brand")
 
     landing = client.get("/")
@@ -631,7 +701,7 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
-    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
     assert read_google_oauth_state(query["state"][0])["return_to"] == "/app/settings/google"
     blocked = client.get("/app/actions/google/connect", params={"return_to": "https://evil.example/phish"}, follow_redirects=False)
     assert blocked.status_code == 303
@@ -994,7 +1064,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
     assert plan_page.status_code == 200
-    assert "Workspace rules" in plan_page.text
+    assert "Commercial boundary" in plan_page.text
     assert "What this workspace includes" in plan_page.text
     assert "Billing and renewal controls" in plan_page.text
     assert "Upgrade path" in plan_page.text
@@ -1650,7 +1720,7 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert access_url in access_page.text
     access_preview = client.get(access_url, follow_redirects=False)
     assert access_preview.status_code == 303
-    assert access_preview.headers["location"] == "/app/today"
+    assert access_preview.headers["location"] == "/app/properties"
     revoked_access = client.post(
         f"/app/actions/access-sessions/{session_id}/revoke",
         data={"return_to": "/app/settings/access"},
@@ -1725,8 +1795,9 @@ def test_browser_google_settings_page_and_run_now_action_work() -> None:
 
     sync_page = client.get("/app/settings/google")
     assert sync_page.status_code == 200
-    assert "Google sync" in sync_page.text
-    assert "Latest sync run and queued commitment work" in sync_page.text
+    assert "PropertyQuarry Google connection" in sync_page.text
+    assert "No connected inboxes" in sync_page.text
+    assert "Connect inbox" in sync_page.text
 
     triggered = client.get("/app/actions/signals/google/sync?return_to=https://evil.example/phish", follow_redirects=False)
     assert triggered.status_code == 303

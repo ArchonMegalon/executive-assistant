@@ -421,6 +421,7 @@ def app_section_payload(
     property_country_label = str(property_state.get("country_label") or "Austria")
     property_language_label = str(property_state.get("language_label") or "Deutsch")
     property_listing_mode_label = str(property_state.get("listing_mode_label") or "Rent")
+    property_investment_research_mode_label = str(property_state.get("investment_research_mode_label") or "Off")
     property_type_label = str(property_state.get("property_type_label") or "Any type")
     property_provider_total_for_country = int(property_state.get("provider_total_for_country") or 0)
     selected_location_values = _csv_values(property_preferences.get("location_query"))
@@ -429,6 +430,7 @@ def app_section_payload(
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
+    investment_research_mode_options = [dict(option) for option in list(property_state.get("investment_research_mode_options") or []) if isinstance(option, dict)]
     property_type_options = [dict(option) for option in list(property_state.get("property_type_options") or []) if isinstance(option, dict)]
     selected_platforms = {
         str(value or "").strip()
@@ -460,6 +462,7 @@ def app_section_payload(
         row_item("Country", property_country_label, "Market"),
         row_item("Research language", property_language_label, "Research"),
         row_item("Search mode", property_listing_mode_label, "Mode"),
+        row_item("Investment research", property_investment_research_mode_label, "Underwriting"),
         row_item("Property type", property_type_label, "Type"),
     ]
     if str(property_preferences.get("location_query") or "").strip():
@@ -710,6 +713,14 @@ def app_section_payload(
                 "label": "Property type",
                 "value": str(property_preferences.get("property_type") or "any"),
                 "options": property_type_options,
+                "step": "search",
+            },
+            {
+                "type": "select",
+                "name": "investment_research_mode",
+                "label": "Investment research",
+                "value": str(property_preferences.get("investment_research_mode") or "off"),
+                "options": investment_research_mode_options,
                 "step": "search",
             },
             {
