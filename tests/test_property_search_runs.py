@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 
 import app.product.service as product_service
 from app.product.service import ProductService
@@ -748,3 +749,63 @@ def test_property_search_run_defaults_platforms_from_country_preferences(monkeyp
     assert set(observed.get("selected_platforms") or ()) == {"rightmove", "zoopla", "onthemarket"}
     assert observed["property_search_preferences"]["country_code"] == "UK"
     assert observed["property_search_preferences"]["location_query"] == "London"
+
+
+def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(monkeypatch) -> None:
+    client = build_property_client(principal_id="exec-property-search-reconcile")
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"run-reconcile-ready-{uuid.uuid4().hex}"
+    state = {
+        "run_id": run_id,
+        "principal_id": "exec-property-search-reconcile",
+        "created_at": product_service._now_iso(),
+        "updated_at": product_service._now_iso(),
+        "status": "processed",
+        "summary": {
+            "sources_total": 1,
+            "listing_total": 1,
+            "eligible_tour_total": 1,
+            "pending_tour_total": 0,
+            "ready_tour_total": 1,
+            "blocked_tour_total": 0,
+            "top_candidates": [
+                {
+                    "title": "Ready candidate",
+                    "source_ref": "source-1",
+                    "listing_id": "listing-1",
+                    "tour_status": "ready",
+                    "tour_url": "https://propertyquarry.com/tours/ready-candidate",
+                }
+            ],
+        },
+        "events": [],
+        "selected_platforms": ["willhaben"],
+    }
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+    product_service._store_property_search_run_record(state)
+    observed: dict[str, object] = {}
+
+    def _fake_notify(self, *, principal_id: str, run_id: str, result: dict[str, object]) -> None:
+        observed["principal_id"] = principal_id
+        observed["run_id"] = run_id
+        observed["result"] = dict(result)
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_search_results_ready_email_sent",
+            payload={"run_id": run_id},
+            source_id=run_id,
+            dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email",
+        )
+
+    monkeypatch.setattr(ProductService, "_notify_property_search_results_ready", _fake_notify)
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id="exec-property-search-reconcile",
+        limit=10,
+    )
+
+    assert summary["attempted"] >= 1
+    assert summary["finalized"] >= 1
+    assert summary["emailed"] >= 1
+    assert observed["principal_id"] == "exec-property-search-reconcile"
+    assert observed["run_id"] == run_id

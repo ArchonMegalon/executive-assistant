@@ -449,6 +449,42 @@ def _load_property_search_run_record(*, run_id: str) -> dict[str, object] | None
     return dict(row[0] or {}) if isinstance(row[0], dict) else None
 
 
+def _list_property_search_run_records(
+    *,
+    limit: int = 20,
+    statuses: tuple[str, ...] = (),
+) -> tuple[dict[str, object], ...]:
+    normalized_limit = max(int(limit or 0), 1)
+    normalized_statuses = tuple(
+        sorted({str(value or "").strip().lower() for value in statuses if str(value or "").strip()})
+    )
+    if not _property_search_run_database_url():
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            rows = [dict(value) for value in _PROPERTY_SEARCH_RUN_REGISTRY.values() if isinstance(value, dict)]
+        if normalized_statuses:
+            rows = [row for row in rows if str(row.get("status") or "").strip().lower() in normalized_statuses]
+        rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+        return tuple(rows[:normalized_limit])
+    _ensure_property_search_run_schema()
+    query = "SELECT payload_json FROM property_search_runs"
+    params: list[object] = []
+    if normalized_statuses:
+        query += " WHERE (payload_json->>'status') = ANY(%s)"
+        params.append(list(normalized_statuses))
+    query += " ORDER BY updated_at DESC LIMIT %s"
+    params.append(normalized_limit)
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+    results: list[dict[str, object]] = []
+    for row in rows:
+        payload = row[0] if row else None
+        if isinstance(payload, dict):
+            results.append(dict(payload))
+    return tuple(results)
+
+
 def _prune_property_search_run_records() -> None:
     if not _property_search_run_database_url():
         return
@@ -15520,6 +15556,59 @@ class ProductService:
         run_id: str,
     ) -> dict[str, object] | None:
         return self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+
+    def reconcile_property_search_results_delivery(
+        self,
+        *,
+        principal_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        attempted = 0
+        finalized = 0
+        emailed = 0
+        pending = 0
+        records = _list_property_search_run_records(limit=max(int(limit or 0), 1), statuses=("processed", "completed"))
+        for state in records:
+            state_principal = str(state.get("principal_id") or "").strip()
+            run_id = str(state.get("run_id") or "").strip()
+            if not state_principal or not run_id:
+                continue
+            if normalized_principal and state_principal != normalized_principal:
+                continue
+            already_sent = self._recent_product_event_exists(
+                principal_id=state_principal,
+                event_type="property_search_results_ready_email_sent",
+                source_id=run_id,
+                dedupe_key=f"{state_principal}|{run_id}|property-search-results-ready-email",
+            )
+            pending_before = self._property_search_results_delivery_pending(result=dict(state.get("summary") or {}))
+            if already_sent and not pending_before:
+                continue
+            attempted += 1
+            updated = self._maybe_advance_property_search_run_finalization(
+                principal_id=state_principal,
+                run_id=run_id,
+                state=dict(state),
+            )
+            pending_after = self._property_search_results_delivery_pending(result=dict(updated.get("summary") or {}))
+            if pending_after:
+                pending += 1
+            else:
+                finalized += 1
+            if not already_sent and self._recent_product_event_exists(
+                principal_id=state_principal,
+                event_type="property_search_results_ready_email_sent",
+                source_id=run_id,
+                dedupe_key=f"{state_principal}|{run_id}|property-search-results-ready-email",
+            ):
+                emailed += 1
+        return {
+            "attempted": attempted,
+            "finalized": finalized,
+            "emailed": emailed,
+            "pending": pending,
+        }
 
 
     def sync_direct_property_scout(

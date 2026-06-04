@@ -929,3 +929,32 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
     assert ingested_events == [
         ("scheduled_morning_memo_delivery_sent", "principal-nudge-1|scheduled-morning-memo|pref-nudge-1|2026-03-30|sent")
     ]
+
+
+def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    observed: list[int] = []
+
+    class _FakeService:
+        def reconcile_property_search_results_delivery(self, *, principal_id: str = "", limit: int = 20):
+            observed.append(limit)
+            return {"attempted": 2, "finalized": 1, "emailed": 1, "pending": 1}
+
+    container = SimpleNamespace()
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_property_results_finalize(container, logging.getLogger("test.runner"))
+
+    assert summary == {
+        "ran": True,
+        "attempted": 2,
+        "finalized": 1,
+        "emailed": 1,
+        "pending": 1,
+        "errors": 0,
+    }
+    assert observed == [40]

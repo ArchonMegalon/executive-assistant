@@ -816,6 +816,13 @@ def _scheduler_property_scout_interval_seconds() -> float:
         return 1800.0
 
 
+def _scheduler_property_results_finalize_interval_seconds() -> float:
+    try:
+        return max(15.0, float(os.environ.get("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_INTERVAL_SECONDS") or 60.0))
+    except Exception:
+        return 60.0
+
+
 def _scheduler_property_scout_principal_ids(container) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
     raw = str(os.environ.get("EA_PROPERTY_SCOUT_PRINCIPAL_IDS") or "").strip()
     if raw:
@@ -860,6 +867,25 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
         "synced": synced,
         "errors": errors,
         "principals": list(principals),
+    }
+
+
+def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    from app.product.service import build_product_service
+
+    service = build_product_service(container)
+    try:
+        summary = service.reconcile_property_search_results_delivery(limit=40)
+    except Exception:
+        log.exception("scheduler property results finalize failed")
+        return {"ran": True, "attempted": 0, "finalized": 0, "emailed": 0, "pending": 0, "errors": 1}
+    return {
+        "ran": True,
+        "attempted": int(summary.get("attempted") or 0),
+        "finalized": int(summary.get("finalized") or 0),
+        "emailed": int(summary.get("emailed") or 0),
+        "pending": int(summary.get("pending") or 0),
+        "errors": 0,
     }
 
 
@@ -1346,6 +1372,7 @@ def _run_execution_worker(role: str) -> None:
     last_onemin_refresh_at = 0.0
     last_google_signal_sync_at = 0.0
     last_property_scout_at = 0.0
+    last_property_results_finalize_at = 0.0
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
     last_telegram_async_recovery_at = 0.0
@@ -1439,6 +1466,27 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler property scout failed", role)
                     last_property_scout_at = now
+            if now - last_property_results_finalize_at >= _scheduler_property_results_finalize_interval_seconds():
+                try:
+                    finalize_summary = _run_scheduler_property_results_finalize(container, log)
+                    last_property_results_finalize_at = now
+                    if (
+                        int(finalize_summary.get("attempted") or 0) > 0
+                        or int(finalize_summary.get("emailed") or 0) > 0
+                        or int(finalize_summary.get("pending") or 0) > 0
+                    ):
+                        log.info(
+                            "role=%s scheduler property results finalize attempted=%s finalized=%s emailed=%s pending=%s errors=%s",
+                            role,
+                            finalize_summary.get("attempted"),
+                            finalize_summary.get("finalized"),
+                            finalize_summary.get("emailed"),
+                            finalize_summary.get("pending"),
+                            finalize_summary.get("errors"),
+                        )
+                except Exception:
+                    log.exception("role=%s scheduler property results finalize failed", role)
+                    last_property_results_finalize_at = now
             if _scheduler_pocket_signal_sync_enabled() and (
                 now - last_pocket_signal_sync_at >= _scheduler_pocket_signal_sync_interval_seconds()
             ):

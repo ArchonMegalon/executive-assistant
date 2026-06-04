@@ -96,9 +96,8 @@ def _public_app_base_url(request: Request) -> str:
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     effective_host = forwarded or request_host
     if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        if forwarded:
-            return f"{forwarded_proto}://{forwarded}"
-        return str(request.base_url).rstrip("/")
+        host = forwarded or request_host
+        return f"https://{host}"
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -357,6 +356,7 @@ def settings_usage_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand = request_brand(request)["key"] == "propertyquarry"
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -367,6 +367,7 @@ def settings_usage_detail(
         actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
     )
     diagnostics = product.workspace_diagnostics(principal_id=context.principal_id)
+    sync = product.google_signal_sync_status(principal_id=context.principal_id)
     usage = {str(key): int(value or 0) for key, value in dict(diagnostics.get("usage") or {}).items()}
     analytics = dict(diagnostics.get("analytics") or {})
     reliability = dict(analytics.get("reliability") or {})
@@ -375,6 +376,25 @@ def settings_usage_detail(
     queue_health = dict(diagnostics.get("queue_health") or {})
     providers = dict(diagnostics.get("providers") or {})
     counts = {str(key): int(value or 0) for key, value in dict(analytics.get("counts") or {}).items()}
+    google_accounts = list(google_oauth_service.list_google_accounts(container=container, principal_id=context.principal_id))
+    fallback_account_emails: list[str] = []
+    for raw in list(sync.get("account_emails") or []):
+        normalized = str(raw or "").strip().lower()
+        if normalized and normalized not in fallback_account_emails:
+            fallback_account_emails.append(normalized)
+    fallback_primary_email = str(sync.get("account_email") or "").strip().lower()
+    if fallback_primary_email and fallback_primary_email not in fallback_account_emails:
+        fallback_account_emails.insert(0, fallback_primary_email)
+    active_account_total = sum(
+        1
+        for account in google_accounts
+        if str(account.binding.status or "").strip().lower() == "enabled"
+        and str(account.token_status or "").strip().lower() != "revoked"
+    )
+    if not active_account_total and not google_accounts and fallback_account_emails and str(sync.get("token_status") or "").strip().lower() in {"active", "unknown"}:
+        active_account_total = len(fallback_account_emails)
+    connected_account_total = len(google_accounts) or len(fallback_account_emails)
+    primary_email = str(sync.get("account_email") or (fallback_account_emails[0] if fallback_account_emails else "")).strip()
     object_meta = [
         {"label": "Connected", "value": "Yes" if connected_account_total else "No"},
         {"label": "Connected inboxes", "value": str(connected_account_total)},
@@ -1033,6 +1053,14 @@ def settings_google_detail(
             str(account.binding.binding_id or "").strip(),
         ),
     )
+    fallback_account_emails: list[str] = []
+    for raw in list(sync.get("account_emails") or []):
+        normalized = str(raw or "").strip().lower()
+        if normalized and normalized not in fallback_account_emails:
+            fallback_account_emails.append(normalized)
+    fallback_primary_email = str(sync.get("account_email") or "").strip().lower()
+    if fallback_primary_email and fallback_primary_email not in fallback_account_emails:
+        fallback_account_emails.insert(0, fallback_primary_email)
     primary_account = next(
         (
             account
@@ -1048,9 +1076,11 @@ def settings_google_detail(
         if str(account.binding.status or "").strip().lower() == "enabled"
         and str(account.token_status or "").strip().lower() != "revoked"
     )
-    connected_account_total = len(google_accounts)
+    if not active_account_total and not google_accounts and fallback_account_emails and str(sync.get("token_status") or "").strip().lower() in {"active", "unknown"}:
+        active_account_total = len(fallback_account_emails)
+    connected_account_total = len(google_accounts) or len(fallback_account_emails)
     primary_email = str(
-        getattr(primary_account, "google_email", "") or sync.get("account_email") or ""
+        getattr(primary_account, "google_email", "") or sync.get("account_email") or (fallback_account_emails[0] if fallback_account_emails else "")
     ).strip()
     connect_another_href = (
         "/app/actions/google/connect?"
@@ -1232,16 +1262,26 @@ def settings_google_detail(
             {
                 "eyebrow": "Accounts",
                 "title": "Connected inboxes and send defaults",
-                "items": [
-                    _google_account_row(
-                        account,
-                        return_to="/app/settings/google",
-                        verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
-                        sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
-                        change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
-                    )
-                    for account in google_accounts
-                ]
+                "items": (
+                    [
+                        _google_account_row(
+                            account,
+                            return_to="/app/settings/google",
+                            verification=verification_by_binding.get(str(account.binding.binding_id or "").strip()),
+                            sync_row=account_sync_by_email.get(str(account.google_email or "").strip().lower()),
+                            change_row=account_change_by_binding.get(str(account.binding.binding_id or "").strip()),
+                        )
+                        for account in google_accounts
+                    ]
+                    or [
+                        _object_detail_row(
+                            "Connected inbox",
+                            account_email,
+                            "Google",
+                        )
+                        for account_email in fallback_account_emails
+                    ]
+                )
                 or [
                     _object_detail_row(
                         "No connected inboxes",

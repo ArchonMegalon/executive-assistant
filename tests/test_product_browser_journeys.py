@@ -77,9 +77,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google sign-in" in onboarding.text
-    assert "Search shape" in onboarding.text
-    assert "Digest cadence" in onboarding.text
-    assert 'href="/app/properties"' in onboarding.text
+    assert "Workspace shape" in onboarding.text
+    assert 'href="/app/today"' in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text
 
@@ -375,8 +374,9 @@ def test_propertyquarry_host_renders_branded_public_surfaces() -> None:
     assert "ranked shortlist" in register.text.lower()
 
 
-def test_propertyquarry_repo_defaults_to_property_brand_without_host_header() -> None:
+def test_propertyquarry_repo_defaults_to_property_brand_without_host_header(monkeypatch) -> None:
     client = build_product_client(principal_id="propertyquarry-default-brand")
+    monkeypatch.setenv("PROPERTYQUARRY_DEFAULT_BRAND", "1")
 
     landing = client.get("/")
     assert landing.status_code == 200
@@ -679,7 +679,7 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     parsed = urllib.parse.urlparse(started.headers["location"])
     query = urllib.parse.parse_qs(parsed.query)
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started.headers["location"]
-    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
+    assert query["redirect_uri"][0] == "https://ea.example/google/callback"
     assert read_google_oauth_state(query["state"][0])["return_to"] == "/app/settings/google"
     blocked = client.get("/app/actions/google/connect", params={"return_to": "https://evil.example/phish"}, follow_redirects=False)
     assert blocked.status_code == 303
@@ -1042,7 +1042,7 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
     assert plan_page.status_code == 200
-    assert "Commercial boundary" in plan_page.text
+    assert "Workspace plan" in plan_page.text
     assert "What this workspace includes" in plan_page.text
     assert "Billing and renewal controls" in plan_page.text
     assert "Upgrade path" in plan_page.text
@@ -1698,7 +1698,7 @@ def test_browser_settings_access_and_invitation_pages_render_live_workspace_stat
     assert access_url in access_page.text
     access_preview = client.get(access_url, follow_redirects=False)
     assert access_preview.status_code == 303
-    assert access_preview.headers["location"] == "/app/properties"
+    assert access_preview.headers["location"] == "/app/today"
     revoked_access = client.post(
         f"/app/actions/access-sessions/{session_id}/revoke",
         data={"return_to": "/app/settings/access"},
