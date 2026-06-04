@@ -862,6 +862,12 @@ def _location_slug(value: str) -> str:
     return "-".join(_slug_tokens(value))
 
 
+def _location_query_variants(value: str) -> tuple[str, ...]:
+    raw_parts = [str(part or "").strip() for part in str(value or "").split(",")]
+    variants = tuple(part for part in raw_parts if part)
+    return variants or (str(value or "").strip(),)
+
+
 def _provider_property_type_segment(property_type: str) -> str:
     normalized = normalize_property_type(property_type)
     if normalized == "apartment":
@@ -1076,6 +1082,7 @@ def generated_source_specs(
     effective_platforms = [item for item in requested_platforms if item and item != "all"]
     if not effective_platforms:
         effective_platforms = list(default_platforms_for_country(country_code))
+    location_queries = _location_query_variants(location_query)
     rows: list[dict[str, object]] = []
     for provider_key in effective_platforms:
         provider = _PROVIDER_INDEX.get(provider_key)
@@ -1085,34 +1092,35 @@ def generated_source_specs(
         base_url = str(provider.search_urls.get(provider_mode) or next(iter(provider.search_urls.values()), "")).strip()
         if not base_url:
             continue
-        url = _build_provider_search_url(
-            provider=provider,
-            base_url=base_url,
-            listing_mode=provider_mode,
-            location_query=location_query,
-            keywords=keywords,
-            property_type=property_type,
-            max_price_eur=int(max_price_eur) if isinstance(max_price_eur, int) else None,
-            min_rooms=int(min_rooms) if isinstance(min_rooms, int) else None,
-        )
-        detail_parts = [provider.label, country_label(country_code), LISTING_MODE_LABELS.get(provider_mode, provider_mode.capitalize())]
-        if location_query:
-            detail_parts.append(location_query)
-        rows.append(
-            {
-                "url": url,
-                "label": " | ".join(detail_parts),
-                "principal_id": str(principal_id or "").strip(),
-                "preference_person_id": str(normalized_preferences.get("preference_person_id") or default_person_id or "self").strip() or "self",
-                "account_email": "",
-                "notify_telegram": bool(notify_telegram),
-                "platform": provider.key,
-                "max_results": max(1, min(int(max_results or 5), 10)),
-                "country_code": country_code,
-                "language_code": str(normalized_preferences.get("language_code") or "en"),
-                "listing_mode": provider_mode,
-                "location_query": location_query,
-                "keywords": keywords,
-            }
-        )
+        for location_variant in location_queries:
+            url = _build_provider_search_url(
+                provider=provider,
+                base_url=base_url,
+                listing_mode=provider_mode,
+                location_query=location_variant,
+                keywords=keywords,
+                property_type=property_type,
+                max_price_eur=int(max_price_eur) if isinstance(max_price_eur, int) else None,
+                min_rooms=int(min_rooms) if isinstance(min_rooms, int) else None,
+            )
+            detail_parts = [provider.label, country_label(country_code), LISTING_MODE_LABELS.get(provider_mode, provider_mode.capitalize())]
+            if location_variant:
+                detail_parts.append(location_variant)
+            rows.append(
+                {
+                    "url": url,
+                    "label": " | ".join(detail_parts),
+                    "principal_id": str(principal_id or "").strip(),
+                    "preference_person_id": str(normalized_preferences.get("preference_person_id") or default_person_id or "self").strip() or "self",
+                    "account_email": "",
+                    "notify_telegram": bool(notify_telegram),
+                    "platform": provider.key,
+                    "max_results": max(1, min(int(max_results or 5), 10)),
+                    "country_code": country_code,
+                    "language_code": str(normalized_preferences.get("language_code") or "en"),
+                    "listing_mode": provider_mode,
+                    "location_query": location_variant,
+                    "keywords": keywords,
+                }
+            )
     return tuple(rows)

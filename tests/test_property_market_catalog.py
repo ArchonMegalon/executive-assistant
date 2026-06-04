@@ -166,3 +166,25 @@ def test_generated_source_specs_cover_new_country_bundles() -> None:
     assert "daft.ie/property-for-rent/dublin" in str(ireland_specs[0]["url"]).lower()
     assert "domain.com.au" in str(australia_specs[0]["url"]).lower()
     assert "suburb=Sydney" in str(australia_specs[0]["url"])
+
+
+def test_generated_source_specs_split_multi_area_queries_into_dedicated_sources() -> None:
+    specs = generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "location_query": "1200 Vienna, 1020 Vienna, 1090",
+            "keywords": "lift family",
+        },
+        selected_platforms=("willhaben",),
+        principal_id="exec-property-at",
+        default_person_id="self",
+        max_results=2,
+    )
+
+    assert len(specs) == 3
+    assert all(row["platform"] == "willhaben" for row in specs)
+    assert [row["location_query"] for row in specs] == ["1200 Vienna", "1020 Vienna", "1090"]
+    assert "q=1200+Vienna+lift+family" in str(specs[0]["url"])
+    assert "q=1020+Vienna+lift+family" in str(specs[1]["url"])

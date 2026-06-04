@@ -4,7 +4,7 @@ import time
 
 import app.product.service as product_service
 from app.product.service import ProductService
-from app.product.service import _property_candidate_matches_requested_location, _property_search_location_hints
+from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_matches_requested_location, _property_search_location_hints
 from app.services.property_billing import property_commercial_snapshot
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
@@ -47,6 +47,60 @@ def test_property_search_location_matching_prefers_requested_districts() -> None
         summary="Altbau",
         property_facts={"postal_name": "1130 Wien"},
     ) is False
+
+
+def test_property_alert_personal_fit_snapshot_times_out_fast(monkeypatch) -> None:
+    class _Profiles:
+        def assess_candidate(self, **kwargs):  # type: ignore[no-untyped-def]
+            time.sleep(0.2)
+            return {"fit_score": 50}
+
+    monkeypatch.setenv("EA_PROPERTY_ALERT_ASSESSMENT_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_facts_for_url",
+        lambda url: ({"postal_name": "1200 Wien"}, "listing-1"),
+    )
+
+    assessment, facts, listing_id = _property_alert_personal_fit_snapshot(
+        preference_profiles=_Profiles(),
+        principal_id="exec-timeout",
+        person_id="self",
+        property_url="https://www.willhaben.at/iad/object?adId=1",
+    )
+
+    assert assessment is None
+    assert facts == {}
+    assert listing_id == ""
+
+
+def test_property_candidate_supports_live_tour_detects_360() -> None:
+    assert product_service._property_candidate_supports_live_tour(
+        {"property_facts": {"has_360": True}}
+    ) is True
+    assert product_service._property_candidate_supports_live_tour(
+        {"property_facts": {"source_virtual_tour_url": "https://example.com/tour"}}
+    ) is True
+    assert product_service._property_candidate_supports_live_tour(
+        {"property_facts": {"has_360": False}}
+    ) is False
+
+
+def test_willhaben_packet_source_virtual_tour_url_falls_back_to_attribute_map_links() -> None:
+    packet = {
+        "property_facts_json": {
+            "attribute_map": {
+                "INFOLINK/NAME": ["3D Rundgang"],
+                "INFOLINK/URL": ["https://my.matterport.com/show/?m=BmVWxvZQZLq"],
+                "VIRTUAL_VIEW_LINK/URL": ["https://my.matterport.com/show/?m=BmVWxvZQZLq"],
+            }
+        }
+    }
+
+    assert (
+        product_service._willhaben_packet_source_virtual_tour_url(packet)
+        == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    )
 
 
 def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(monkeypatch) -> None:
@@ -220,6 +274,72 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
     intruder = build_property_client(principal_id="intruder-property-search-run-scope")
     intruder_status = intruder.get(f"/app/api/signals/property/search/run/{run_id}")
     assert intruder_status.status_code == 404
+
+
+def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:
+    principal_id = "exec-property-search-run-persisted"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Search Persisted Office")
+
+    persisted: dict[str, dict[str, object]] = {}
+
+    def _fake_store(record: dict[str, object]) -> None:
+        persisted[str(record.get("run_id") or "")] = dict(record)
+
+    def _fake_load(*, run_id: str) -> dict[str, object] | None:
+        row = persisted.get(run_id)
+        return dict(row) if isinstance(row, dict) else None
+
+    monkeypatch.setattr(product_service, "_store_property_search_run_record", _fake_store)
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", _fake_load)
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        if callable(progress_callback):
+            progress_callback(
+                step="mock-progress",
+                message="persisted status event",
+                status="in_progress",
+                steps_delta=2,
+                summary_updates={"sources_total": 1},
+            )
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post("/app/api/signals/property/search/run", json={"selected_platforms": ["willhaben"]})
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+    status = _poll_property_search_run_status(client, run_id)
+    assert status["status"] == "processed"
+
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
+
+    reloaded = client.get(f"/app/api/signals/property/search/run/{run_id}")
+    assert reloaded.status_code == 200, reloaded.text
+    assert reloaded.json()["status"] == "processed"
 
 
 def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> None:

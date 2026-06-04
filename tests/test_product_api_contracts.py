@@ -4210,6 +4210,74 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
     assert body["tour_media_mode"] == "panorama_360"
 
 
+def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "listing-pure-360-1",
+            "listing_uuid": "listing-uuid-pure-360-1",
+            "title": "Pure 360 apartment",
+            "property_facts_json": {
+                "attribute_map": {
+                    "VIRTUAL_VIEW_LINK/URL": ["https://my.matterport.com/show/?m=BmVWxvZQZLq"],
+                }
+            },
+            "media_urls_json": ["https://cdn.example.com/apartment-live/photo-1.jpg"],
+            "floorplan_urls_json": [],
+            "tour_variants_json": [
+                {
+                    "variant_key": "layout_first",
+                    "scene_strategy": "layout_first",
+                    "theme_name": "clean_light",
+                    "tour_style": "guided_layout_walkthrough",
+                    "audience": "tenant_screening",
+                    "creative_brief": "Lead with the floor plan.",
+                    "call_to_action": "Open the tour.",
+                    "scene_selection_json": {},
+                    "tour_settings_json": {},
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.orchestrator,
+        "execute_task_artifact",
+        lambda request: (_ for _ in ()).throw(RuntimeError("crezlo_property_tour_not_configured")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_feelestate_pure_360_property_tour_bundle",
+        lambda **kwargs: {
+            "slug": "pure-360-apartment",
+            "tour_id": "tour-pure-360-apartment",
+            "public_url": "https://propertyquarry.com/tours/pure-360-apartment",
+            "crezlo_public_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+        },
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": "https://www.willhaben.at/iad/object?adId=1585607380",
+            "binding_id": "browseract-binding-pure-360-1",
+            "auto_deliver": False,
+        },
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_media_mode"] == "panorama_360"
+    assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
+    assert body["vendor_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+
+
 def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exist_and_360_is_required(monkeypatch) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

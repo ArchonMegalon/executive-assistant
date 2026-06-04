@@ -519,7 +519,7 @@ def app_section_payload(
         if not isinstance(source, dict):
             continue
         source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-        for candidate in list(source.get("top_candidates") or [])[:3]:
+        for candidate in list(source.get("top_candidates") or [])[:5]:
             if not isinstance(candidate, dict):
                 continue
             title = str(candidate.get("title") or candidate.get("property_url") or "Property candidate").strip() or "Property candidate"

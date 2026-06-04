@@ -241,6 +241,9 @@ _PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
+_PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
+_PROPERTY_SEARCH_RUN_SCHEMA_READY = False
+_PROPERTY_TOUR_PREBUILD_LIMIT = 5
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -332,6 +335,110 @@ def _property_search_run_default_summary() -> dict[str, object]:
     }
 
 
+def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    return bool(facts.get("has_360") or str(facts.get("source_virtual_tour_url") or "").strip())
+
+
+def _property_search_run_database_url() -> str:
+    return str(os.environ.get("DATABASE_URL") or "").strip()
+
+
+def _property_search_run_connect():  # type: ignore[no-untyped-def]
+    database_url = _property_search_run_database_url()
+    if not database_url:
+        raise RuntimeError("database_url_missing")
+    import psycopg
+
+    return psycopg.connect(database_url, autocommit=True)
+
+
+def _ensure_property_search_run_schema() -> None:
+    global _PROPERTY_SEARCH_RUN_SCHEMA_READY
+    if _PROPERTY_SEARCH_RUN_SCHEMA_READY or not _property_search_run_database_url():
+        return
+    with _PROPERTY_SEARCH_RUN_SCHEMA_LOCK:
+        if _PROPERTY_SEARCH_RUN_SCHEMA_READY:
+            return
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS property_search_runs (
+                        run_id TEXT PRIMARY KEY,
+                        principal_id TEXT NOT NULL,
+                        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_property_search_runs_updated
+                    ON property_search_runs(updated_at DESC)
+                    """
+                )
+        _PROPERTY_SEARCH_RUN_SCHEMA_READY = True
+
+
+def _store_property_search_run_record(record: dict[str, object]) -> None:
+    if not _property_search_run_database_url():
+        return
+    _ensure_property_search_run_schema()
+    run_id = str(record.get("run_id") or "").strip()
+    principal_id = str(record.get("principal_id") or "").strip()
+    if not run_id or not principal_id:
+        return
+    from psycopg.types.json import Json
+
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO property_search_runs (run_id, principal_id, payload_json, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (run_id) DO UPDATE
+                SET principal_id = EXCLUDED.principal_id,
+                    payload_json = EXCLUDED.payload_json,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (
+                    run_id,
+                    principal_id,
+                    Json(record),
+                    str(record.get("created_at") or _now_iso()).strip() or _now_iso(),
+                    str(record.get("updated_at") or _now_iso()).strip() or _now_iso(),
+                ),
+            )
+
+
+def _load_property_search_run_record(*, run_id: str) -> dict[str, object] | None:
+    if not _property_search_run_database_url():
+        return None
+    _ensure_property_search_run_schema()
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_run_id:
+        return None
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT payload_json FROM property_search_runs WHERE run_id = %s", (normalized_run_id,))
+            row = cur.fetchone()
+    if not row:
+        return None
+    return dict(row[0] or {}) if isinstance(row[0], dict) else None
+
+
+def _prune_property_search_run_records() -> None:
+    if not _property_search_run_database_url():
+        return
+    _ensure_property_search_run_schema()
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=_PROPERTY_SEARCH_RUN_TTL_SECONDS)).isoformat()
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM property_search_runs WHERE updated_at < %s", (cutoff,))
+
+
 def _new_property_search_run_record(
     *,
     run_id: str,
@@ -381,6 +488,10 @@ def _prune_property_search_runs() -> None:
         ]
         for run_id in expired:
             _PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
+    try:
+        _prune_property_search_run_records()
+    except Exception:
+        pass
 
 
 def _property_alert_gmail_query() -> str:
@@ -3115,10 +3226,7 @@ def _property_alert_personal_fit_snapshot(
     person_id: str = "self",
     property_url: str,
 ) -> tuple[dict[str, object] | None, dict[str, object], str]:
-    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-    if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
-        return None, {}, ""
-    try:
+    def _compute_snapshot() -> tuple[dict[str, object] | None, dict[str, object], str]:
         property_facts_json, listing_id = _property_alert_facts_for_url(normalized_url)
         assess_candidate = getattr(preference_profiles, "assess_candidate", None)
         if not callable(assess_candidate):
@@ -3147,6 +3255,34 @@ def _property_alert_personal_fit_snapshot(
         if upstream_personalization:
             result["upstream_personalization"] = upstream_personalization
         return result, property_facts_json, listing_id
+
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
+        return None, {}, ""
+
+    timeout_seconds = max(0.05, min(30.0, float(str(os.getenv("EA_PROPERTY_ALERT_ASSESSMENT_TIMEOUT_SECONDS") or "12").strip() or "12")))
+    result_holder: dict[str, object] = {"done": False, "result": (None, {}, ""), "error": None}
+
+    def _runner() -> None:
+        try:
+            result_holder["result"] = _compute_snapshot()
+        except Exception as exc:
+            result_holder["error"] = exc
+        finally:
+            result_holder["done"] = True
+
+    try:
+        worker = threading.Thread(target=_runner, daemon=True)
+        worker.start()
+        worker.join(timeout_seconds)
+        if not bool(result_holder.get("done")):
+            return None, {}, ""
+        if result_holder.get("error") is not None:
+            return None, {}, ""
+        snapshot = result_holder.get("result")
+        if isinstance(snapshot, tuple) and len(snapshot) == 3:
+            return snapshot
+        return None, {}, ""
     except Exception:
         return None, {}, ""
 
@@ -4813,9 +4949,32 @@ def _willhaben_packet_panorama_media_urls(packet: dict[str, object]) -> list[str
 
 
 def _willhaben_packet_source_virtual_tour_url(packet: dict[str, object]) -> str:
+    property_facts = dict(packet.get("property_facts_json") or {})
+    attribute_map = dict(property_facts.get("attribute_map") or {}) if isinstance(property_facts.get("attribute_map"), dict) else {}
+    attribute_candidates: list[str] = []
+    for key in (
+        "VIRTUAL_VIEW_LINK/URL",
+        "INFOLINK/URL",
+        "INFOLINK/NAME",
+        "GENERAL_TEXT_ADVERT/Ausstattung",
+        "DESCRIPTION",
+    ):
+        value = attribute_map.get(key)
+        if isinstance(value, list):
+            attribute_candidates.extend(str(entry or "").strip() for entry in value if str(entry or "").strip())
+        elif str(value or "").strip():
+            attribute_candidates.append(str(value or "").strip())
+    discovered_urls: list[str] = []
+    for candidate in attribute_candidates:
+        discovered_urls.extend(_extract_urls_from_text(candidate))
+    for url in discovered_urls:
+        normalized = str(url or "").strip()
+        lowered = normalized.lower()
+        if normalized and any(token in lowered for token in ("matterport", "virtual", "tour", "rundgang", "360")):
+            return normalized
     return _first_non_empty_text(
         packet.get("source_virtual_tour_url"),
-        dict(packet.get("property_facts_json") or {}).get("source_virtual_tour_url"),
+        property_facts.get("source_virtual_tour_url"),
     )
 
 
@@ -4988,6 +5147,10 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
             has_asset = True
             break
     if not has_asset:
+        source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
+        if source_virtual_tour_url:
+            hosted_url = f"{base_url}/{slug}"
+            return f"{hosted_url}#live-360"
         return ""
     hosted_url = f"{base_url}/{slug}"
     source_virtual_tour_url = str(payload.get("source_virtual_tour_url") or "").strip()
@@ -5004,6 +5167,14 @@ def _safe_live_property_tour_url(value: object) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
     return normalized
+
+
+def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
+    normalized = _safe_live_property_tour_url(source_virtual_tour_url)
+    if not normalized:
+        return False
+    host = urllib.parse.urlparse(normalized).netloc.lower()
+    return "matterport" in host
 
 
 def _hosted_property_tour_slug(*, title: str, listing_id: str, property_url: str, variant_key: str) -> str:
@@ -5055,7 +5226,74 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
 ) -> dict[str, object]:
     live_url = _safe_live_property_tour_url(source_virtual_tour_url)
     parsed_live = urllib.parse.urlparse(live_url)
-    if "360.kalandra.at" not in parsed_live.netloc.lower() and "feelestate" not in parsed_live.netloc.lower():
+    live_host = parsed_live.netloc.lower()
+    if "matterport" in live_host:
+        base_url = _property_public_tour_base_url()
+        public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+        bundle_dir = public_dir / slug
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        facts = dict(property_facts_json or {})
+        existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
+        existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
+        facts.update(
+            {
+                "has_360": True,
+                "tour_media_mode": "panorama_360",
+                "source_virtual_tour_url": live_url,
+                "panorama_source": live_host,
+                "address_lines": existing_address_lines or ([source_host] if source_host else []),
+                "teaser_attributes": existing_teasers or ["Live 360 tour", "Embedded external panorama"],
+            }
+        )
+        display_title = compact_text(title, fallback="Live 360 Property Tour", limit=180)
+        payload = {
+            "slug": slug,
+            "hosted_url": f"{base_url}/{slug}",
+            "public_url": f"{base_url}/{slug}",
+            "principal_id": str(principal_id or "").strip(),
+            "listing_url": property_url,
+            "property_url": property_url,
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "source_virtual_tour_url": live_url,
+            "source_virtual_tour_origin": live_url,
+            "title": f"{display_title} - live 360",
+            "display_title": display_title,
+            "tour_title": f"{display_title} - live 360",
+            "tour_id": None,
+            "variant_key": variant_key,
+            "variant_label": "live 360",
+            "scene_strategy": "live_360_embed",
+            "scene_count": 1,
+            "facts": facts,
+            "brief": {
+                "theme_name": "clean_light",
+                "tour_style": "embedded_live_360",
+                "audience": "tenant_screening",
+                "creative_brief": "Render the live 360 viewer directly inside the PropertyQuarry hosted tour page.",
+                "call_to_action": "Open live 360 tour.",
+            },
+            "editor_url": "",
+            "crezlo_public_url": live_url,
+            "scenes": [
+                {
+                    "ordinal": 1,
+                    "name": "Live 360",
+                    "role": "live_360",
+                    "image_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+                    "source_url": live_url,
+                    "property_url": property_url,
+                    "mime_type": "image/gif",
+                }
+            ],
+            "generated_at": _now_iso(),
+            "creation_mode": "embedded_live_360",
+        }
+        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
+    if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
     base_url = _property_public_tour_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
@@ -11886,6 +12124,7 @@ class ProductService:
         source_virtual_tour_url = _willhaben_packet_source_virtual_tour_url(packet)
         panorama_source = _willhaben_packet_panorama_source(packet)
         has_live_360 = bool(panorama_media_urls or source_virtual_tour_url)
+        source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
         source_media_urls = list(packet.get("media_urls_json") or [])
         source_floorplan_urls = list(packet.get("floorplan_urls_json") or [])
         request_media_urls = list(panorama_media_urls or source_media_urls)
@@ -11937,6 +12176,8 @@ class ProductService:
             principal_id=principal_id,
             binding_id=binding_id,
         )
+        if _prefer_hosted_live_360_embed(source_virtual_tour_url):
+            resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
         if _willhaben_property_tour_require_360() and not has_live_360:
@@ -12023,13 +12264,16 @@ class ProductService:
                         "creation_mode": "pure_hosted_360",
                         "source_virtual_tour_url": "",
                     }
-                    self._record_product_event(
-                        principal_id=principal_id,
-                        event_type="generic_property_tour_created",
-                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
-                        source_id=resolved_source_ref,
-                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
-                    )
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
                     return payload
                 except Exception:
                     pass
@@ -12132,6 +12376,66 @@ class ProductService:
             blocked_reason = self._property_tour_execution_error_reason(exc)
 
         if blocked_reason:
+            if source_virtual_tour_url and blocked_reason in {
+                "crezlo_property_tour_not_configured",
+                "browseract_connector_unconfigured",
+                "listing_media_missing",
+                "property_tour_execution_failed",
+            }:
+                try:
+                    structured_output = _write_hosted_feelestate_pure_360_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        source_virtual_tour_url=source_virtual_tour_url,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "panorama_360",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "pure_hosted_360",
+                        "source_virtual_tour_url": "",
+                        "upstream_blocked_reason": blocked_reason,
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="willhaben_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    blocked_reason = "pure_360_assets_unavailable"
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,
@@ -12595,6 +12899,8 @@ class ProductService:
         resolved_source_ref = str(source_ref or f"property:{listing_id}").strip()
         resolved_external_id = str(external_id or listing_id or normalized_url).strip()
         resolved_binding_id = self._resolve_browseract_property_tour_binding_id(principal_id=principal_id, binding_id=binding_id)
+        if _prefer_hosted_live_360_embed(source_virtual_tour_url):
+            resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
         if _willhaben_property_tour_require_360() and not has_live_360:
@@ -12767,13 +13073,16 @@ class ProductService:
                         "source_virtual_tour_url": "",
                         "upstream_blocked_reason": blocked_reason,
                     }
-                    self._record_product_event(
-                        principal_id=principal_id,
-                        event_type="generic_property_tour_created",
-                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
-                        source_id=resolved_source_ref,
-                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
-                    )
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
                     return payload
                 except Exception:
                     blocked_reason = "pure_360_assets_unavailable"
@@ -13097,16 +13406,25 @@ class ProductService:
         _prune_property_search_runs()
         with _PROPERTY_SEARCH_RUN_LOCK:
             state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
-            if not isinstance(state, dict):
-                return None
-            if str(state.get("principal_id") or "").strip() != normalized_principal:
-                return None
-            return {
-                **dict(state),
-                "summary": dict(dict(state.get("summary") or {})),
-                "events": [dict(item) for item in list(state.get("events") or [])],
-                "selected_platforms": list(state.get("selected_platforms") or ()),
-            }
+        if not isinstance(state, dict):
+            try:
+                persisted = _load_property_search_run_record(run_id=normalized_run_id)
+            except Exception:
+                persisted = None
+            if isinstance(persisted, dict):
+                with _PROPERTY_SEARCH_RUN_LOCK:
+                    _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(persisted)
+                state = persisted
+        if not isinstance(state, dict):
+            return None
+        if str(state.get("principal_id") or "").strip() != normalized_principal:
+            return None
+        return {
+            **dict(state),
+            "summary": dict(dict(state.get("summary") or {})),
+            "events": [dict(item) for item in list(state.get("events") or [])],
+            "selected_platforms": list(state.get("selected_platforms") or ()),
+        }
 
 
     def _record_property_search_run_event(
@@ -13142,8 +13460,12 @@ class ProductService:
                     int(stages_total_override),
                 )
             stages_total = max(1, int(state.get("stages_total") or _PROPERTY_SEARCH_RUN_STAGES))
-            state["steps_completed"] = min(stages_total, max(0, int(state.get("steps_completed") or 0) + int(steps_delta)))
-            state["progress"] = int((int(state["steps_completed"]) * 100) / stages_total)
+            if updated_status in {"processed", "completed", "failed", "cancelled", "noop"}:
+                state["steps_completed"] = stages_total
+                state["progress"] = 100
+            else:
+                state["steps_completed"] = min(stages_total, max(0, int(state.get("steps_completed") or 0) + int(steps_delta)))
+                state["progress"] = int((int(state["steps_completed"]) * 100) / stages_total)
             if summary_updates:
                 summary = dict(state.get("summary") or {})
                 summary.update(dict(summary_updates))
@@ -13161,6 +13483,11 @@ class ProductService:
                 events = events[-240:]
             state["events"] = events
             state["updated_at"] = _now_iso()
+            persisted_state = dict(state)
+        try:
+            _store_property_search_run_record(persisted_state)
+        except Exception:
+            pass
 
 
     def _resolve_property_search_run_preferences(
@@ -13256,6 +13583,11 @@ class ProductService:
                 property_search_preferences=run_preferences,
                 force_refresh=force_refresh,
             )
+            persisted_state = dict(_PROPERTY_SEARCH_RUN_REGISTRY[run_id])
+        try:
+            _store_property_search_run_record(persisted_state)
+        except Exception:
+            pass
         _prune_property_search_runs()
 
         def _progress(
@@ -13567,6 +13899,10 @@ class ProductService:
                     )
 
             preliminary_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            if location_hints:
+                preliminary_matching_rows = [row for row in preliminary_rows if bool(row.get("location_match"))]
+                if preliminary_matching_rows:
+                    preliminary_rows = preliminary_matching_rows
             analysis_limit = min(len(preliminary_rows), max(max_results, max_results * 2))
             ranked_rows: list[dict[str, object]] = []
             for ordinal, row in enumerate(preliminary_rows[:analysis_limit], start=1):
@@ -13640,6 +13976,8 @@ class ProductService:
                 matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
                 if matching_rows:
                     ranked_rows = matching_rows
+                else:
+                    ranked_rows = []
             ranked_rows = ranked_rows[:max_results]
             _report(
                 step="source_shortlist",
@@ -13671,7 +14009,7 @@ class ProductService:
             top_watch_candidate: dict[str, object] | None = None
             top_candidates_for_source: list[dict[str, object]] = []
 
-            for row in ranked_rows:
+            for row_index, row in enumerate(ranked_rows, start=1):
                 property_url = str(row.get("property_url") or "").strip()
                 listing_id = str(row.get("listing_id") or "").strip() or property_url
                 title = str(row.get("title") or "").strip() or property_url
@@ -13725,7 +14063,8 @@ class ProductService:
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
 
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
-                if is_good_fit:
+                should_prebuild_tour = row_index <= _PROPERTY_TOUR_PREBUILD_LIMIT and _property_candidate_supports_live_tour(row)
+                if is_good_fit or should_prebuild_tour:
                     tour_result = self._maybe_auto_create_property_scout_tour(
                         principal_id=principal_id,
                         actor=actor,
@@ -13854,7 +14193,7 @@ class ProductService:
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
                     "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
-                    "top_candidates": top_candidates_for_source[:3],
+                    "top_candidates": top_candidates_for_source[:5],
                 }
             )
             _report(
