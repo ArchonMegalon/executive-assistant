@@ -1,5 +1,3 @@
-{% extends "base_console.html" %}
-{% block content %}
 {% set property_meta = console_form.get('meta') or {} %}
 {% set workbench = decision_workbench or {} %}
 {% set results = workbench.get('results') or [] %}
@@ -7,858 +5,1299 @@
 {% set run = workbench.get('run') or {} %}
 {% set brief = workbench.get('brief') or {} %}
 {% set recent_packets = workbench.get('recent_packets') or [] %}
-{% set show_brief = workbench.get('show_brief_default') %}
-{% set show_form_controls = show_brief_form %}
-
-<style>
-  .pw-root {
-    --pw-line: rgba(49, 60, 77, 0.74);
-    --pw-surface: rgba(13, 17, 24, 0.96);
-    --pw-soft: rgba(255, 255, 255, 0.035);
-    --pw-soft-2: rgba(255, 255, 255, 0.055);
-    --pw-accent: #d6a63f;
-    --pw-blue: #8aa4ff;
-    display: grid;
-    gap: 14px;
-  }
-  .pw-data {
-    display: none;
-  }
-  .pw-modebar,
-  .pw-runbar,
-  .pw-workbench,
-  .pw-empty,
-  .pw-drawer {
-    border: 1px solid var(--pw-line);
-    border-radius: 8px;
-    background: var(--pw-surface);
-  }
-  .pw-modebar {
-    display: none;
-    gap: 8px;
-    padding: 8px;
-  }
-  .pw-modebar button,
-  .pw-icon-button,
-  .pw-action,
-  .pw-row-action {
-    min-height: 34px;
-    border: 1px solid var(--pw-line);
-    border-radius: 8px;
-    background: var(--pw-soft);
-    color: var(--text);
-    font: inherit;
-    font-size: 13px;
-    font-weight: 650;
-    cursor: pointer;
-  }
-  .pw-modebar button.active,
-  .pw-action.primary,
-  .pw-row[aria-selected="true"],
-  .pw-chip.strong {
-    border-color: rgba(214, 166, 63, 0.42);
-    background: rgba(214, 166, 63, 0.14);
-  }
-  .pw-runbar {
-    display: grid;
-    grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.4fr) minmax(140px, 0.5fr);
-    gap: 12px;
-    align-items: center;
-    padding: 12px 14px;
-  }
-  .pw-runbar strong {
-    display: block;
-    font-size: 14px;
-  }
-  .pw-muted,
-  .pw-runbar span,
-  .pw-dossier small,
-  .pw-table td small,
-  .pw-brief-note {
-    color: var(--text-dim);
-    font-size: 12px;
-  }
-  .pw-progress-track {
-    height: 7px;
-    overflow: hidden;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
-  }
-  .pw-progress-fill {
-    width: 0;
-    height: 100%;
-    background: linear-gradient(90deg, var(--pw-accent), var(--pw-blue));
-  }
-  .pw-workbench {
-    min-height: 680px;
-    display: grid;
-    grid-template-columns: minmax(270px, 320px) minmax(520px, 1fr) minmax(390px, 0.72fr);
-    overflow: hidden;
-  }
-  .pw-workbench.compact {
-    grid-template-columns: minmax(520px, 1fr) minmax(390px, 0.72fr);
-  }
-  .pw-workbench.compact .pw-brief {
-    display: none;
-  }
-  .pw-brief,
-  .pw-results,
-  .pw-dossier {
-    min-width: 0;
-    padding: 16px;
-  }
-  .pw-brief,
-  .pw-results {
-    border-right: 1px solid var(--pw-line);
-  }
-  .pw-brief {
-    background: rgba(255, 255, 255, 0.012);
-  }
-  .pw-section-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: flex-start;
-    margin-bottom: 14px;
-  }
-  .pw-section-head h2,
-  .pw-section-head h3,
-  .pw-dossier h2,
-  .pw-dossier h3 {
-    margin: 0;
-    font-size: 1rem;
-    line-height: 1.25;
-    letter-spacing: 0;
-  }
-  .pw-brief-summary,
-  .pw-chip-row,
-  .pw-actions,
-  .pw-ooda,
-  .pw-risk-list,
-  .pw-evidence-list {
-    display: grid;
-    gap: 8px;
-  }
-  .pw-chip-row {
-    display: flex;
-    flex-wrap: wrap;
-  }
-  .pw-chip {
-    display: inline-flex;
-    align-items: center;
-    min-height: 28px;
-    padding: 0 9px;
-    border: 1px solid var(--pw-line);
-    border-radius: 999px;
-    background: var(--pw-soft);
-    color: var(--text-soft);
-    font-size: 12px;
-    font-weight: 650;
-  }
-  .pw-form {
-    display: grid;
-    gap: 12px;
-    margin-top: 14px;
-  }
-  .pw-field {
-    display: grid;
-    gap: 6px;
-  }
-  .pw-field label,
-  .pw-field-title {
-    color: var(--text-soft);
-    font-size: 12px;
-    font-weight: 700;
-  }
-  .pw-field input,
-  .pw-field select,
-  .pw-field textarea {
-    width: 100%;
-    border: 1px solid var(--pw-line);
-    border-radius: 8px;
-    background: #0f1520;
-    color: var(--text);
-    font: inherit;
-    font-size: 13px;
-    padding: 9px 10px;
-  }
-  .pw-field select,
-  .pw-field option {
-    color: var(--text);
-    background: #0f1520;
-  }
-  .pw-check-grid {
-    display: grid;
-    gap: 7px;
-    max-height: 210px;
-    overflow: auto;
-  }
-  .pw-check {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 8px;
-    align-items: start;
-    padding: 9px;
-    border: 1px solid var(--pw-line);
-    border-radius: 8px;
-    background: var(--pw-soft);
-  }
-  .pw-check input {
-    width: auto;
-    margin-top: 2px;
-  }
-  .pw-check span span {
-    display: block;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 650;
-  }
-  .pw-check small {
-    color: var(--text-dim);
-    font-size: 11px;
-  }
-  .pw-results {
-    display: grid;
-    grid-template-rows: auto 1fr;
-    gap: 12px;
-  }
-  .pw-table-wrap {
-    min-width: 0;
-    overflow: auto;
-  }
-  .pw-table {
-    width: 100%;
-    min-width: 880px;
-    border-collapse: collapse;
-  }
-  .pw-table th,
-  .pw-table td {
-    padding: 10px 8px;
-    border-bottom: 1px solid rgba(49, 60, 77, 0.66);
-    text-align: left;
-    vertical-align: top;
-  }
-  .pw-table th {
-    color: var(--text-dim);
-    font-size: 11px;
-    font-weight: 750;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-  .pw-row {
-    cursor: pointer;
-  }
-  .pw-row:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-  .pw-rank {
-    color: var(--text-dim);
-    font-size: 12px;
-    font-weight: 750;
-  }
-  .pw-title {
-    display: block;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 720;
-    line-height: 1.35;
-  }
-  .pw-row-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 9px;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  .pw-dossier {
-    display: grid;
-    align-content: start;
-    gap: 14px;
-    background: rgba(255, 255, 255, 0.018);
-  }
-  .pw-tour {
-    min-height: 230px;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-    border: 1px solid var(--pw-line);
-    border-radius: 8px;
-    background: #05070b;
-  }
-  .pw-tour iframe {
-    width: 100%;
-    height: 270px;
-    border: 0;
-  }
-  .pw-tour-placeholder {
-    display: grid;
-    gap: 8px;
-    padding: 20px;
-    text-align: center;
-  }
-  .pw-dossier-block {
-    display: grid;
-    gap: 10px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid rgba(49, 60, 77, 0.66);
-  }
-  .pw-ooda-row,
-  .pw-risk-row {
-    display: grid;
-    grid-template-columns: 110px 1fr;
-    gap: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid rgba(49, 60, 77, 0.42);
-  }
-  .pw-ooda-row:last-child,
-  .pw-risk-row:last-child {
-    border-bottom: 0;
-  }
-  .pw-ooda-row strong,
-  .pw-risk-row strong {
-    font-size: 12px;
-    color: var(--text-soft);
-  }
-  .pw-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .pw-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 11px;
-    text-decoration: none;
-  }
-  .pw-empty {
-    padding: 18px;
-  }
-  .pw-hidden {
-    display: none !important;
-  }
-  .pw-status {
-    color: var(--good);
-    font-size: 12px;
-  }
-  .pw-error {
-    color: var(--danger);
-    font-size: 12px;
-  }
-  @media (max-width: 1180px) {
-    .pw-workbench {
-      grid-template-columns: minmax(0, 1fr);
+{% set run_status = (run.get('status') or 'not_started')|string %}
+{% set terminal_states = ['processed', 'completed', 'failed', 'noop', 'cancelled'] %}
+{% set run_active = run.get('run_id') and run_status not in terminal_states %}
+{% set has_results = results|length > 0 %}
+{% set setup_mode = not run_active and not has_results %}
+{% set show_form_controls = show_brief_form and setup_mode %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title or 'PropertyQuarry' }}</title>
+  {{ clickrank_head_snippet(request) }}
+  <style>
+    :root {
+      --pq-bg: #f6f3ee;
+      --pq-ink: #191714;
+      --pq-muted: #6c675f;
+      --pq-faint: #958e83;
+      --pq-paper: #fffdf8;
+      --pq-panel: #fdf9f1;
+      --pq-line: #ded6c8;
+      --pq-line-strong: #b9ad9a;
+      --pq-charcoal: #242321;
+      --pq-charcoal-soft: #383633;
+      --pq-gold: #bd8b2f;
+      --pq-green: #276b53;
+      --pq-red: #a65347;
+      --pq-blue: #315e87;
+      --pq-shadow: 0 18px 48px rgba(38, 32, 22, 0.12);
     }
-    .pw-workbench.compact {
-      grid-template-columns: minmax(0, 1fr);
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--pq-bg);
+      color: var(--pq-ink);
+      font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Arial, sans-serif;
+      letter-spacing: 0;
     }
-    .pw-brief,
-    .pw-results {
-      border-right: 0;
-      border-bottom: 1px solid var(--pw-line);
+    a { color: inherit; text-decoration: none; }
+    button, input, select {
+      font: inherit;
+      letter-spacing: 0;
     }
-    .pw-workbench.compact .pw-brief,
-    .pw-brief:not(.active),
-    .pw-results:not(.active),
-    .pw-dossier:not(.active) {
-      display: none;
-    }
-    .pw-modebar {
+    .pqx-shell {
+      min-height: 100vh;
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: auto 1fr auto;
     }
-    .pw-runbar {
-      grid-template-columns: 1fr;
+    .pqx-topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: minmax(220px, auto) 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 14px clamp(16px, 3vw, 34px);
+      border-bottom: 1px solid var(--pq-line);
+      background: rgba(246, 243, 238, 0.92);
+      backdrop-filter: blur(14px);
     }
-    .pw-table {
+    .pqx-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
       min-width: 0;
     }
-    .pw-table thead {
-      display: none;
+    .pqx-mark {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+      font-size: 12px;
+      font-weight: 800;
     }
-    .pw-table,
-    .pw-table tbody,
-    .pw-table tr,
-    .pw-table td {
+    .pqx-brand strong,
+    .pqx-title strong,
+    .pqx-result-title,
+    .pqx-card-title {
       display: block;
-      width: 100%;
+      color: var(--pq-ink);
+      font-weight: 760;
+      line-height: 1.25;
     }
-    .pw-table tr {
-      border-bottom: 1px solid rgba(49, 60, 77, 0.66);
+    .pqx-brand span,
+    .pqx-title span,
+    .pqx-meta,
+    .pqx-small,
+    .pqx-note {
+      color: var(--pq-muted);
+      font-size: 12px;
     }
-    .pw-table td {
-      border-bottom: 0;
-      padding: 5px 0;
+    .pqx-state-strip {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      min-width: 0;
     }
-  }
-  @media (max-width: 760px) {
-    .pw-brief,
-    .pw-results,
-    .pw-dossier {
+    .pqx-state-pill {
+      min-width: 116px;
+      display: grid;
+      gap: 2px;
+      padding: 8px 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.78);
+    }
+    .pqx-state-pill span {
+      color: var(--pq-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .pqx-state-pill strong {
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-top-actions,
+    .pqx-actions,
+    .pqx-mobile-switch,
+    .pqx-context-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pqx-button,
+    .pqx-link-button,
+    .pqx-mode-button {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 0 13px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 8px;
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      font-weight: 720;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .pqx-button.primary,
+    .pqx-link-button.primary {
+      border-color: var(--pq-charcoal);
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+    }
+    .pqx-button.subtle,
+    .pqx-link-button.subtle {
+      border-color: var(--pq-line);
+      background: transparent;
+      color: var(--pq-muted);
+    }
+    .pqx-mode-button.active,
+    .pqx-workflow-step.active {
+      border-color: var(--pq-charcoal);
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+    }
+    .pqx-button:focus-visible,
+    .pqx-link-button:focus-visible,
+    .pqx-mode-button:focus-visible,
+    .pqx-result:focus-visible,
+    .pqx-check:focus-within {
+      outline: 3px solid rgba(189, 139, 47, 0.34);
+      outline-offset: 2px;
+    }
+    .pqx-main {
+      width: min(1760px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: clamp(16px, 2.6vw, 34px) 0 88px;
+    }
+    .pqx-mobile-switch {
+      display: none;
+      position: sticky;
+      top: 66px;
+      z-index: 24;
+      padding: 8px;
+      margin-bottom: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: rgba(246, 243, 238, 0.94);
+      backdrop-filter: blur(10px);
+    }
+    .pqx-mobile-switch .pqx-mode-button {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+    .pqx-stage {
+      display: grid;
+      gap: 16px;
+    }
+    .pqx-panel,
+    .pqx-command,
+    .pqx-theater,
+    .pqx-result,
+    .pqx-table-card {
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: var(--pq-paper);
+      box-shadow: var(--pq-shadow);
+    }
+    .pqx-section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+    .pqx-section-head h1,
+    .pqx-section-head h2,
+    .pqx-section-head h3,
+    .pqx-title h1,
+    .pqx-title h2 {
+      margin: 0;
+      color: var(--pq-ink);
+      line-height: 1.08;
+      font-weight: 790;
+      letter-spacing: 0;
+    }
+    .pqx-title h1 { font-size: clamp(2rem, 4vw, 4.6rem); max-width: 11ch; }
+    .pqx-section-head h2 { font-size: 1.05rem; }
+    .pqx-section-head h3 { font-size: 0.95rem; }
+    .pqx-setup {
+      min-height: calc(100vh - 172px);
+      display: grid;
+      grid-template-columns: minmax(280px, 0.84fr) minmax(460px, 1.16fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+    .pqx-setup-intro {
+      display: grid;
+      align-content: space-between;
+      gap: 28px;
+      padding: clamp(20px, 3vw, 42px);
+      border-radius: 10px;
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+      box-shadow: var(--pq-shadow);
+    }
+    .pqx-setup-intro .pqx-title h1,
+    .pqx-setup-intro .pqx-title strong {
+      color: #fff9ed;
+    }
+    .pqx-setup-intro .pqx-title span,
+    .pqx-setup-intro .pqx-note,
+    .pqx-setup-intro .pqx-small {
+      color: #d7cdbb;
+    }
+    .pqx-brief-stack,
+    .pqx-fact-grid,
+    .pqx-ooda-grid,
+    .pqx-event-list,
+    .pqx-form,
+    .pqx-field-group,
+    .pqx-results-list {
+      display: grid;
+      gap: 10px;
+    }
+    .pqx-fact-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .pqx-fact {
+      display: grid;
+      gap: 2px;
+      min-height: 76px;
       padding: 12px;
+      border: 1px solid rgba(255, 249, 237, 0.18);
+      border-radius: 8px;
+      background: rgba(255, 249, 237, 0.07);
     }
-    .pw-actions,
-    .pw-action,
-    .pw-row-action,
-    .pw-modebar button {
+    .pqx-fact span {
+      color: #d7cdbb;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .pqx-fact strong {
+      overflow: hidden;
+      color: #fff9ed;
+      font-size: 1.2rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-command {
+      display: grid;
+      gap: 16px;
+      padding: clamp(16px, 2.4vw, 28px);
+    }
+    .pqx-workflow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-workflow-step {
+      display: grid;
+      gap: 2px;
+      min-height: 64px;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+      color: var(--pq-ink);
+      text-align: left;
+      cursor: pointer;
+    }
+    .pqx-workflow-step span {
+      color: inherit;
+      font-size: 11px;
+      opacity: 0.72;
+      text-transform: uppercase;
+    }
+    .pqx-workflow-step strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pqx-form-body {
+      display: grid;
+      gap: 12px;
+    }
+    .pqx-field {
+      display: grid;
+      gap: 7px;
+    }
+    .pqx-field label,
+    .pqx-field-title {
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+    .pqx-field input:not([type="checkbox"]),
+    .pqx-field select {
       width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 8px;
+      background: #fffefa;
+      color: var(--pq-ink);
+      padding: 0 11px;
     }
-    .pw-ooda-row,
-    .pw-risk-row {
-      grid-template-columns: 1fr;
+    .pqx-field select option {
+      color: var(--pq-ink);
+      background: #fffefa;
+    }
+    .pqx-check-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      max-height: 252px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .pqx-check {
+      min-height: 58px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 9px;
+      align-items: start;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+      cursor: pointer;
+    }
+    .pqx-check input {
+      margin-top: 4px;
+      accent-color: var(--pq-charcoal);
+    }
+    .pqx-check span span {
+      display: block;
+      color: var(--pq-ink);
+      font-size: 13px;
+      font-weight: 730;
+    }
+    .pqx-check small {
+      display: block;
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .pqx-form-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding-top: 10px;
+      border-top: 1px solid var(--pq-line);
+    }
+    .pqx-inline-status { color: var(--pq-green); font-size: 12px; }
+    .pqx-inline-error { color: var(--pq-red); font-size: 12px; }
+    .pqx-running {
+      min-height: calc(100vh - 172px);
+      display: grid;
+      grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+    .pqx-run-hero {
+      display: grid;
+      align-content: space-between;
+      gap: 24px;
+      padding: clamp(20px, 3vw, 40px);
+      border-radius: 10px;
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+      box-shadow: var(--pq-shadow);
+    }
+    .pqx-run-hero h1 { color: #fff9ed; }
+    .pqx-progress-ring {
+      width: min(260px, 58vw);
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background:
+        conic-gradient(var(--pq-gold) calc(var(--progress, 0) * 1%), rgba(255, 249, 237, 0.13) 0),
+        var(--pq-charcoal-soft);
+    }
+    .pqx-progress-ring div {
+      width: 76%;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--pq-charcoal);
+      text-align: center;
+    }
+    .pqx-progress-ring strong {
+      color: #fff9ed;
+      font-size: clamp(2rem, 6vw, 4.2rem);
+      line-height: 1;
+    }
+    .pqx-progress-ring span { color: #d7cdbb; font-size: 12px; }
+    .pqx-event-card {
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+    }
+    .pqx-event-card strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+    .pqx-results {
+      display: grid;
+      grid-template-columns: minmax(420px, 1.02fr) minmax(420px, 0.98fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .pqx-review {
+      position: sticky;
+      top: 88px;
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+    .pqx-theater {
+      overflow: hidden;
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+    }
+    .pqx-theater-frame {
+      min-height: 420px;
+      display: grid;
+      place-items: center;
+      background: #171613;
+    }
+    .pqx-theater iframe {
+      width: 100%;
+      height: 520px;
+      border: 0;
+    }
+    .pqx-theater-placeholder {
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+      padding: 40px;
+      text-align: center;
+    }
+    .pqx-theater-placeholder strong {
+      color: #fff9ed;
+      font-size: clamp(1.8rem, 4vw, 3.4rem);
+      line-height: 1.05;
+      max-width: 11ch;
+    }
+    .pqx-theater-placeholder span { color: #d7cdbb; }
+    .pqx-dossier {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+    .pqx-dossier-title h1 {
+      margin: 0;
+      font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+      line-height: 1.08;
+      color: #fff9ed;
+    }
+    .pqx-dossier-title span { color: #d7cdbb; font-size: 12px; }
+    .pqx-context-actions {
+      padding-top: 4px;
+    }
+    .pqx-context-actions .pqx-link-button {
+      border-color: rgba(255, 249, 237, 0.28);
+      background: rgba(255, 249, 237, 0.08);
+      color: #fff9ed;
+    }
+    .pqx-context-actions .pqx-link-button.primary {
+      border-color: #fff9ed;
+      background: #fff9ed;
+      color: var(--pq-charcoal);
+    }
+    .pqx-evidence {
+      display: grid;
+      gap: 12px;
+    }
+    .pqx-card {
+      display: grid;
+      gap: 9px;
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: var(--pq-paper);
+    }
+    .pqx-ooda-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .pqx-ooda-item {
+      min-height: 82px;
+      display: grid;
       gap: 3px;
+      align-content: start;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
     }
-  }
-</style>
+    .pqx-ooda-item span {
+      color: var(--pq-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .pqx-ooda-item strong {
+      font-size: 1.15rem;
+      line-height: 1.15;
+    }
+    .pqx-ooda-item small {
+      color: var(--pq-muted);
+      font-size: 11px;
+    }
+    .pqx-result-panel {
+      min-width: 0;
+      display: grid;
+      gap: 12px;
+    }
+    .pqx-result-panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: end;
+    }
+    .pqx-result-panel-head h2 {
+      margin: 0;
+      font-size: clamp(1.4rem, 2vw, 2rem);
+      line-height: 1.1;
+    }
+    .pqx-result {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1.25fr) minmax(120px, 0.55fr) minmax(120px, 0.55fr) minmax(130px, 0.65fr);
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .pqx-result[aria-selected="true"] {
+      border-color: var(--pq-charcoal);
+      background: #fff8ea;
+      box-shadow: 0 0 0 2px rgba(189, 139, 47, 0.18), var(--pq-shadow);
+    }
+    .pqx-result > span:not(.pqx-rank) {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+      align-content: start;
+    }
+    .pqx-result > span strong {
+      display: block;
+      line-height: 1.2;
+    }
+    .pqx-rank {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--pq-charcoal);
+      color: #fff9ed;
+      font-weight: 800;
+    }
+    .pqx-pill {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--pq-line);
+      border-radius: 999px;
+      background: var(--pq-panel);
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+    .pqx-pill.good {
+      border-color: rgba(39, 107, 83, 0.25);
+      background: rgba(39, 107, 83, 0.09);
+      color: var(--pq-green);
+    }
+    .pqx-pill.warn {
+      border-color: rgba(189, 139, 47, 0.28);
+      background: rgba(189, 139, 47, 0.1);
+      color: #7f5a19;
+    }
+    .pqx-empty {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      border: 1px dashed var(--pq-line-strong);
+      border-radius: 10px;
+      background: rgba(255, 253, 248, 0.72);
+    }
+    .pqx-bottom-nav {
+      display: none;
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 40;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--pq-line);
+      border-radius: 12px;
+      background: rgba(255, 253, 248, 0.94);
+      box-shadow: var(--pq-shadow);
+      backdrop-filter: blur(14px);
+    }
+    .pqx-hidden { display: none !important; }
+    @media (max-width: 1180px) {
+      .pqx-topbar {
+        grid-template-columns: 1fr auto;
+      }
+      .pqx-state-strip {
+        grid-column: 1 / -1;
+        order: 3;
+        justify-content: stretch;
+        overflow-x: auto;
+      }
+      .pqx-state-pill {
+        min-width: 148px;
+      }
+      .pqx-setup,
+      .pqx-running,
+      .pqx-results {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-review {
+        position: static;
+      }
+      .pqx-theater-frame {
+        min-height: 330px;
+      }
+      .pqx-theater iframe {
+        height: 400px;
+      }
+    }
+    @media (max-width: 760px) {
+      .pqx-topbar {
+        position: static;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .pqx-top-actions {
+        justify-content: stretch;
+      }
+      .pqx-top-actions .pqx-link-button,
+      .pqx-top-actions .pqx-button {
+        flex: 1 1 0;
+      }
+      .pqx-main {
+        width: min(100vw - 20px, 760px);
+        padding-bottom: 96px;
+      }
+      .pqx-mobile-switch {
+        display: flex;
+      }
+      .pqx-panel[data-pqx-mobile-panel]:not(.active),
+      .pqx-review[data-pqx-mobile-panel]:not(.active),
+      .pqx-result-panel[data-pqx-mobile-panel]:not(.active),
+      .pqx-command[data-pqx-mobile-panel]:not(.active),
+      .pqx-setup-intro[data-pqx-mobile-panel]:not(.active),
+      .pqx-run-hero[data-pqx-mobile-panel]:not(.active) {
+        display: none;
+      }
+      .pqx-bottom-nav {
+        display: grid;
+      }
+      .pqx-workflow,
+      .pqx-check-grid,
+      .pqx-fact-grid,
+      .pqx-ooda-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-result {
+        grid-template-columns: 42px minmax(0, 1fr);
+        align-items: start;
+      }
+      .pqx-result > span:nth-child(n+3) {
+        grid-column: 2;
+      }
+      .pqx-theater-frame {
+        min-height: 260px;
+      }
+      .pqx-theater iframe {
+        height: 310px;
+      }
+      .pqx-form-footer,
+      .pqx-actions,
+      .pqx-context-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .pqx-button,
+      .pqx-link-button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else 'setup') }}">
+    <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
+    <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
-<div class="pw-root" data-property-decision-workbench>
-  <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
-  <div class="pw-data" data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
-
-  <div class="pw-modebar" aria-label="PropertyQuarry workbench mode">
-    <button type="button" class="active" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
-    <button type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
-    {% if show_form_controls or show_brief %}
-    <button type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Brief</button>
-    {% endif %}
-  </div>
-
-  <section class="pw-runbar" data-pw-runbar>
-    <div>
-      <strong data-pw-run-status>{{ run.get('status_label') or 'Not started' }}</strong>
-      <span data-pw-run-message>{{ run.get('message') or 'Ready to launch the next search.' }}</span>
-    </div>
-    <div class="pw-progress-track"><div class="pw-progress-fill" data-pw-run-progress style="width: {{ run.get('progress') or 0 }}%;"></div></div>
-    <div>
-      <strong>{{ (brief.get('plan') or current_plan_label or 'Free') }}</strong>
-      <span>{{ brief.get('country') or 'Austria' }} · {{ brief.get('mode') or 'Buy' }}</span>
-    </div>
-  </section>
-
-  <section class="pw-workbench{% if not show_brief %} compact{% endif %}">
-    <aside class="pw-brief{% if show_brief %} active{% endif %}" data-pw-panel="brief" data-workbench-brief-drawer>
-      <div class="pw-section-head">
-        <div>
-          <h2>Search brief</h2>
-          <div class="pw-muted">{{ brief.get('country') or 'Austria' }} · {{ brief.get('mode') or 'Buy' }}</div>
+    <header class="pqx-topbar">
+      <a class="pqx-brand" href="/app/properties{{ '?run_id=' ~ run.get('run_id') if run.get('run_id') else '' }}" aria-label="PropertyQuarry">
+        <span class="pqx-mark">PQ</span>
+        <span>
+          <strong>PropertyQuarry</strong>
+          <span>{{ workspace_label or 'Decision workspace' }}</span>
+        </span>
+      </a>
+      <div class="pqx-state-strip" data-property-pulse-strip aria-label="Current search context">
+        <div class="pqx-state-pill">
+          <span>Status</span>
+          <strong data-pqx-run-status>{{ run.get('status_label') or ('Ready' if setup_mode else 'Not started') }}</strong>
         </div>
-        <button class="pw-icon-button" type="button" data-pw-mode="results">Results</button>
+        <div class="pqx-state-pill">
+          <span>Market</span>
+          <strong>{{ brief.get('country') or 'Austria' }}{% if brief.get('region') %} · {{ brief.get('region') }}{% endif %}</strong>
+        </div>
+        <div class="pqx-state-pill">
+          <span>Plan</span>
+          <strong>{{ brief.get('plan') or current_plan_label or 'Free' }}</strong>
+        </div>
+        <div class="pqx-state-pill">
+          <span>Results</span>
+          <strong>{{ results|length }} ranked</strong>
+        </div>
       </div>
-      <div class="pw-brief-summary">
-        <div class="pw-chip-row">
-          {% for area in brief.get('areas') or [] %}
-          <span class="pw-chip">{{ area }}</span>
-          {% endfor %}
-          {% for priority in brief.get('priorities') or [] %}
-          <span class="pw-chip">{{ priority }}</span>
-          {% endfor %}
-          {% if not (brief.get('areas') or brief.get('priorities')) %}
-          <span class="pw-chip">No saved criteria yet</span>
-          {% endif %}
-        </div>
-        <div class="pw-brief-note">{{ (brief.get('providers') or [])|length }} providers · {{ brief.get('research_depth') or 'deep' }} research</div>
-      </div>
-
-      {% if console_form and show_form_controls %}
-      <form class="pw-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
-        {% for field in console_form.get('fields') or [] %}
-        <div class="pw-field" data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
-          {% if field.type == 'checkbox_group' %}
-          <div class="pw-field-title">{{ field.label }}</div>
-          <div class="pw-check-grid" data-pw-check-grid="{{ field.name }}">
-            {% for option in field.options or [] %}
-            {% set option_value = option.get('value') or '' %}
-            <label class="pw-check">
-              <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
-              <span>
-                <span>{{ option.get('label') }}</span>
-                {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
-              </span>
-            </label>
-            {% endfor %}
-          </div>
-          {% elif field.type == 'checkbox' %}
-          <label class="pw-check">
-            <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
-            <span><span>{{ field.label }}</span></span>
-          </label>
-          {% else %}
-          <label>{{ field.label }}
-            {% if field.type == 'select' %}
-            <select name="{{ field.name }}">
-              {% for option in field.options or [] %}
-              <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
-              {% endfor %}
-            </select>
-            {% elif field.type == 'number' %}
-            <input type="number" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.min %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %}>
-            {% else %}
-            <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
-            {% endif %}
-          </label>
-          {% endif %}
-        </div>
-        {% endfor %}
-        <div class="pw-actions">
-          <button class="pw-action" type="button" data-property-save>Save</button>
-          <button class="pw-action primary" type="button" data-property-start>{{ console_form.get('submit_label') or 'Launch search' }}</button>
-        </div>
-        <div class="pw-status" data-property-inline-status></div>
-        <div class="pw-error" data-property-inline-error></div>
-      </form>
-      {% endif %}
-    </aside>
-
-    <main class="pw-results{% if not show_brief %} active{% endif %}" data-pw-panel="results">
-      <div class="pw-section-head">
-        <div>
-          <h2>Ranked results</h2>
-          <div class="pw-muted">{{ results|length }} candidates · table-first decision surface</div>
-        </div>
-        {% if show_form_controls or show_brief %}
-        <button class="pw-icon-button" type="button" data-pw-mode="brief">Edit brief</button>
+      <div class="pqx-top-actions" data-pq-context-actions>
+        {% if has_results and selected.get('tour', {}).get('url') %}
+        <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-pqx-top-tour>Open 360</a>
+        {% endif %}
+        {% if has_results and selected.get('packet_url') %}
+        <a class="pqx-link-button" href="{{ selected.get('packet_url') }}" data-pqx-top-packet>Review packet</a>
+        {% endif %}
+        {% if run_active %}
+        <button class="pqx-button primary" type="button" data-pqx-refresh-status>Refresh status</button>
+        {% elif setup_mode %}
+        <button class="pqx-button primary" type="button" data-pqx-launch-top>Launch search</button>
         {% endif %}
       </div>
-      {% if results %}
-      <div class="pw-table-wrap">
-        <table class="pw-table" data-pw-results-table data-workbench-results-table>
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>360</th>
-              <th>Candidate</th>
-              <th>Match</th>
-              <th>Price</th>
-              <th>Layout</th>
-              <th>Investment</th>
-              <th>OODA</th>
-              <th>Risk</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for candidate in results %}
-            <tr class="pw-row" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-workbench-row>
-              <td><span class="pw-rank">#{{ candidate.get('rank') }}</span></td>
-              <td><span class="pw-chip{% if candidate.get('tour', {}).get('status') == 'ready' %} strong{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><br><small>{{ candidate.get('tour', {}).get('eta_label') }}</small></td>
-              <td><span class="pw-title">{{ candidate.get('title') }}</span><small>{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</small></td>
-              <td><span class="pw-chip">{{ candidate.get('fit_label') }}</span><br><small>{{ candidate.get('fit_summary') }}</small></td>
-              <td>{{ candidate.get('price_display') or 'n/a' }}</td>
-              <td>{{ candidate.get('layout_display') or 'n/a' }}</td>
-              <td>{{ candidate.get('investment', {}).get('price_per_sqm') or candidate.get('investment', {}).get('headline') or 'n/a' }}</td>
-              <td><small>{{ candidate.get('ooda', {}).get('summary') }}</small></td>
-              <td><span class="pw-chip">{{ candidate.get('risk', {}).get('level') }}</span><br><small>{{ candidate.get('risk', {}).get('summary') }}</small></td>
-              <td>{% if candidate.get('packet_url') %}<a class="pw-row-action" href="{{ candidate.get('packet_url') }}">Packet</a>{% else %}<button class="pw-row-action" type="button">Select</button>{% endif %}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    </header>
+
+    <main class="pqx-main">
+      <div class="pqx-mobile-switch" aria-label="PropertyQuarry workspace mode" data-property-mobile-dock>
+        <button class="pqx-mode-button active" type="button" data-pw-mode="results" data-workbench-mobile-mode="results">Results</button>
+        <button class="pqx-mode-button" type="button" data-pw-mode="property" data-workbench-mobile-mode="property">Property</button>
+        {% if setup_mode %}<button class="pqx-mode-button" type="button" data-pw-mode="brief" data-workbench-mobile-mode="brief">Brief</button>{% endif %}
       </div>
-      {% else %}
-      <div class="pw-empty">
-        <h3>No ranked results yet</h3>
-        <p class="pw-muted">Launch a search from the brief. Active progress stays here, and finished runs turn into a ranked result table.</p>
-        {% if recent_packets %}
-        <div class="pw-dossier-block">
-          <h3>Recent packets</h3>
-          <div class="pw-evidence-list">
-            {% for packet in recent_packets %}
-            <div class="pw-risk-row">
-              <strong>{{ packet.get('tag') or 'Packet' }}</strong>
-              <span>
-                {% if packet.get('url') %}<a href="{{ packet.get('url') }}">{{ packet.get('title') }}</a>{% else %}{{ packet.get('title') }}{% endif %}
-                {% if packet.get('detail') %}<small>{{ packet.get('detail') }}</small>{% endif %}
-              </span>
+
+      {% if setup_mode %}
+      <section class="pqx-stage pqx-setup">
+        <aside class="pqx-setup-intro active" data-pqx-mobile-panel="results">
+          <div class="pqx-title">
+            <span>New search</span>
+            <h1>Build the brief. Then let the agents work.</h1>
+          </div>
+          <div class="pqx-brief-stack">
+            <div class="pqx-fact-grid">
+              <div class="pqx-fact"><span>Country</span><strong>{{ brief.get('country') or 'Austria' }}</strong></div>
+              <div class="pqx-fact"><span>Mode</span><strong>{{ brief.get('mode') or 'Buy' }}</strong></div>
+              <div class="pqx-fact"><span>Providers</span><strong>{{ (brief.get('providers') or [])|length }}</strong></div>
+              <div class="pqx-fact"><span>Research</span><strong>{{ brief.get('research_depth') or 'deep' }}</strong></div>
+            </div>
+            <p class="pqx-note">Only the controls needed for the current setup step are visible. Launching replaces this screen with live run progress.</p>
+          </div>
+          {% if recent_packets %}
+          <div class="pqx-brief-stack">
+            <strong>Recent internal packets</strong>
+            {% for packet in recent_packets[:3] %}
+            <a class="pqx-link-button subtle" href="{{ packet.get('url') or '#' }}">{{ packet.get('title') }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </aside>
+
+        <section class="pqx-command active" data-pqx-mobile-panel="brief" data-workbench-brief-drawer>
+          <div class="pqx-section-head">
+            <div>
+              <h2>Search brief</h2>
+              <div class="pqx-note" data-property-step-summary>Choose the market, search posture, areas, and providers.</div>
+            </div>
+            <span class="pqx-pill" data-property-step-progress>Step 1</span>
+          </div>
+          {% if console_form and show_form_controls %}
+          <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}" data-console-form-meta='{{ property_meta|tojson|safe }}'>
+            {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
+            {% if wizard_steps %}
+            <div class="pqx-workflow" aria-label="Search setup steps">
+              {% for step in wizard_steps %}
+              <button class="pqx-workflow-step{% if loop.first %} active{% endif %}" type="button" data-property-step-trigger="{{ step.get('key') }}">
+                <span>Step {{ loop.index }}</span>
+                <strong>{{ step.get('label') }}</strong>
+              </button>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <div class="pqx-form-body">
+              {% for field in console_form.get('fields') or [] %}
+              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
+                {% if field.type == 'checkbox_group' %}
+                <div class="pqx-field-title">{{ field.label }}</div>
+                <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
+                  {% for option in field.options or [] %}
+                  {% set option_value = option.get('value') or '' %}
+                  <label class="pqx-check">
+                    <input type="checkbox" name="{{ field.name }}" value="{{ option_value }}" {% if option_value in (field.get('values') or []) %}checked{% endif %}>
+                    <span>
+                      <span>{{ option.get('label') }}</span>
+                      {% if option.get('detail') or option.get('description') %}<small>{{ option.get('detail') or option.get('description') }}</small>{% endif %}
+                    </span>
+                  </label>
+                  {% endfor %}
+                </div>
+                {% elif field.type == 'checkbox' %}
+                <label class="pqx-check">
+                  <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
+                  <span><span>{{ field.label }}</span></span>
+                </label>
+                {% else %}
+                <label>{{ field.label }}
+                  {% if field.type == 'select' %}
+                  <select name="{{ field.name }}">
+                    {% for option in field.options or [] %}
+                    <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
+                    {% endfor %}
+                  </select>
+                  {% elif field.type == 'number' %}
+                  <input type="number" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.min %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %}>
+                  {% else %}
+                  <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+                  {% endif %}
+                </label>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            <div class="pqx-form-footer">
+              <div class="pqx-actions">
+                <button class="pqx-button subtle" type="button" data-property-step-back hidden>Back</button>
+                <button class="pqx-button" type="button" data-property-step-next>Next</button>
+              </div>
+              <div class="pqx-actions" data-property-actions hidden>
+                <button class="pqx-button subtle" type="button" data-property-save>Save brief</button>
+                <button class="pqx-button primary" type="button" data-property-start>{{ console_form.get('submit_label') or 'Launch search' }}</button>
+              </div>
+            </div>
+            <div class="pqx-inline-status" data-property-inline-status></div>
+            <div class="pqx-inline-error" data-property-inline-error></div>
+          </form>
+          {% else %}
+          <div class="pqx-empty">The search brief is not editable while this run is active or completed.</div>
+          {% endif %}
+        </section>
+      </section>
+      {% elif run_active %}
+      <section class="pqx-stage pqx-running">
+        <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
+          <div class="pqx-title">
+            <span>Live run</span>
+            <h1>Search is running. Inputs are locked.</h1>
+          </div>
+          <div class="pqx-progress-ring" style="--progress: {{ run.get('progress') or 0 }};" data-pqx-progress-ring>
+            <div>
+              <strong data-pw-run-progress-label>{{ run.get('progress') or 0 }}%</strong>
+              <span>complete</span>
+            </div>
+          </div>
+          <div>
+            <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
+            <p class="pqx-note">When the final shortlist is ready, this page becomes the result desk automatically.</p>
+          </div>
+        </aside>
+        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
+          <div class="pqx-section-head">
+            <div>
+              <h2>Run activity</h2>
+              <div class="pqx-note">{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings · {{ ((run.get('summary') or {}).get('tour_created_total') or 0) + ((run.get('summary') or {}).get('tour_existing_total') or 0) }} tours</div>
+            </div>
+            <button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>
+          </div>
+          <div class="pqx-event-list" data-pqx-run-events>
+            {% for event in (run.get('events') or [])|reverse %}
+            <div class="pqx-event-card">
+              <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
+              <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
             </div>
             {% endfor %}
+            {% if not run.get('events') %}
+            <div class="pqx-empty">Waiting for the first crawler update.</div>
+            {% endif %}
           </div>
-        </div>
-        {% endif %}
-      </div>
+        </section>
+      </section>
+      {% else %}
+      <section class="pqx-stage pqx-results">
+        <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
+          <div class="pqx-theater" data-pq-theater>
+            <div class="pqx-theater-frame" data-pw-tour>
+              {% if selected.get('tour', {}).get('embed_url') %}
+              <iframe src="{{ selected.get('tour', {}).get('embed_url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
+              {% else %}
+              <div class="pqx-theater-placeholder">
+                <strong>{{ selected.get('tour', {}).get('label') or '360 not ready' }}</strong>
+                <span>{% if selected.get('tour', {}).get('url') %}The tour is available as a separate review page. It is not embedded here because the host is not PropertyQuarry-branded.{% else %}{{ selected.get('tour', {}).get('eta_label') or 'The tour queue is tracked here while the property can still be reviewed.' }}{% endif %}</span>
+              </div>
+              {% endif %}
+            </div>
+            <div class="pqx-dossier">
+              <div class="pqx-dossier-title">
+                <h1 data-pw-title>{{ selected.get('title') or 'Select a property' }}</h1>
+                <span data-pw-source>{{ selected.get('source_label') or 'No candidate selected' }}{% if selected.get('location_label') %} · {{ selected.get('location_label') }}{% endif %}</span>
+              </div>
+              <div class="pqx-context-actions" data-pw-actions>
+                {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
+                {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review packet</a>{% endif %}
+                {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="pqx-evidence">
+            <section class="pqx-card">
+              <div class="pqx-section-head">
+                <div>
+                  <h2>OODA</h2>
+                  <span class="pqx-note" data-pw-ooda-summary>{{ selected.get('ooda', {}).get('summary') or 'Select a result to inspect fit.' }}</span>
+                </div>
+              </div>
+              <div class="pqx-ooda-grid" data-pw-ooda>
+                {% for row in selected.get('ooda', {}).get('rows') or [] %}
+                <div class="pqx-ooda-item"><span>{{ row.get('label') }}</span><strong>{{ row.get('value') }}</strong><small>{{ row.get('detail') }}</small></div>
+                {% endfor %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Decision reasons</h2><span class="pqx-pill">{{ selected.get('fit_label') or 'Candidate' }}</span></div>
+              <div class="pqx-event-list" data-pw-match>
+                {% for reason in selected.get('match_reasons') or [] %}
+                <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">{{ reason }}</span></div>
+                {% endfor %}
+                {% if not selected.get('match_reasons') %}<div class="pqx-note">No explicit match reason captured yet.</div>{% endif %}
+              </div>
+            </section>
+            <section class="pqx-card">
+              <div class="pqx-section-head"><h2>Risk and investment</h2><span class="pqx-pill warn" data-pw-risk-level>{{ selected.get('risk', {}).get('level') or 'unknown' }}</span></div>
+              <div class="pqx-event-list">
+                <div class="pqx-event-card" data-pw-risk><strong>Risk</strong><span class="pqx-note">{{ selected.get('risk', {}).get('summary') or 'No risk summary captured yet.' }}</span></div>
+                <div class="pqx-event-card"><strong>Investment</strong><span class="pqx-note" data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the packet for detailed underwriting when buy mode is active.' }}</span></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="pqx-result-panel active" data-pqx-mobile-panel="results">
+          <div class="pqx-result-panel-head">
+            <div>
+              <h2>Ranked shortlist</h2>
+              <div class="pqx-note">{{ results|length }} candidates · select one to update the 360 and decision panel</div>
+            </div>
+            <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
+          </div>
+          <div class="pqx-results-list" data-workbench-results-table>
+            {% for candidate in results %}
+            <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-workbench-row>
+              <span class="pqx-rank">{{ candidate.get('rank') }}</span>
+              <span>
+                <span class="pqx-small">Candidate</span>
+                <span class="pqx-result-title">{{ candidate.get('title') }}</span>
+                <span class="pqx-meta">{{ candidate.get('source_label') }}{% if candidate.get('location_label') %} · {{ candidate.get('location_label') }}{% endif %}</span>
+              </span>
+              <span><span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span></span>
+              <span><span class="pqx-small">Price</span><strong>{{ candidate.get('price_display') or 'n/a' }}</strong><span class="pqx-small">Layout · {{ candidate.get('layout_display') or 'n/a' }}</span></span>
+              <span><span class="pqx-small">Investment</span><strong>{{ candidate.get('investment', {}).get('price_per_sqm') or 'n/a' }}</strong><span class="pqx-small">{{ candidate.get('risk', {}).get('summary') }}</span></span>
+            </button>
+            {% endfor %}
+          </div>
+        </section>
+      </section>
       {% endif %}
     </main>
+  </div>
 
-    <aside class="pw-dossier{% if not show_brief %} active{% endif %}" data-pw-panel="property" data-workbench-dossier aria-live="polite">
-      <div class="pw-section-head">
-        <div>
-          <h2 data-pw-title>{{ selected.get('title') or 'Select a property' }}</h2>
-          <div class="pw-muted" data-pw-source>{{ selected.get('source_label') or 'No candidate selected' }}</div>
-        </div>
-        <button class="pw-icon-button" type="button" data-pw-mode="results">Table</button>
-      </div>
+  <script>
+  (() => {
+    const root = document.querySelector('[data-property-decision-workbench]');
+    if (!root) return;
+    const payloadNode = root.querySelector('[data-property-workbench-json]');
+    const metaNode = root.querySelector('[data-property-workspace-meta]');
+    const data = JSON.parse(payloadNode?.textContent || '{}');
+    const meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}');
+    const candidates = Array.isArray(data.results) ? data.results : [];
+    const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled', 'completed']);
+    const escapeHtml = (value) => String(value || '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
 
-      <section class="pw-tour" data-pw-tour>
-        {% if selected.get('tour', {}).get('url') %}
-        <iframe src="{{ selected.get('tour', {}).get('url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
-        {% else %}
-        <div class="pw-tour-placeholder">
-          <strong>{{ selected.get('tour', {}).get('label') or '360 not ready' }}</strong>
-          <span class="pw-muted">{{ selected.get('tour', {}).get('eta_label') or 'The property can still be reviewed while tour status is tracked.' }}</span>
-        </div>
-        {% endif %}
-      </section>
-
-      <section class="pw-dossier-block">
-        <h3>OODA</h3>
-        <div class="pw-ooda" data-pw-ooda>
-          {% for row in selected.get('ooda', {}).get('rows') or [] %}
-          <div class="pw-ooda-row"><strong>{{ row.get('label') }}</strong><span>{{ row.get('value') }} <small>{{ row.get('detail') }}</small></span></div>
-          {% endfor %}
-        </div>
-      </section>
-
-      <section class="pw-dossier-block">
-        <h3>Why selected</h3>
-        <div class="pw-evidence-list" data-pw-match>
-          {% for reason in selected.get('match_reasons') or [] %}
-          <div class="pw-risk-row"><strong>Match</strong><span>{{ reason }}</span></div>
-          {% endfor %}
-          {% if not selected.get('match_reasons') %}<small>No explicit match reason captured yet.</small>{% endif %}
-        </div>
-      </section>
-
-      <section class="pw-dossier-block">
-        <h3>Risks</h3>
-        <div class="pw-risk-list" data-pw-risk>
-          <div class="pw-risk-row"><strong>{{ selected.get('risk', {}).get('level') or 'unknown' }}</strong><span>{{ selected.get('risk', {}).get('summary') or 'Select a property to inspect risk.' }}</span></div>
-        </div>
-      </section>
-
-      <section class="pw-dossier-block">
-        <h3>Investment read</h3>
-        <div data-pw-investment>{{ selected.get('investment', {}).get('price_per_sqm') or selected.get('investment', {}).get('headline') or 'Open the packet for detailed underwriting when buy mode is active.' }}</div>
-      </section>
-
-      <div class="pw-actions" data-pw-actions>
-        {% if selected.get('tour', {}).get('url') %}<a class="pw-action primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
-        {% if selected.get('packet_url') %}<a class="pw-action" href="{{ selected.get('packet_url') }}">Open packet</a>{% endif %}
-        {% if selected.get('source_url') %}<a class="pw-action" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
-      </div>
-    </aside>
-  </section>
-</div>
-
-<script>
-(() => {
-  const root = document.querySelector('[data-property-decision-workbench]');
-  if (!root) return;
-  const payloadNode = root.querySelector('[data-property-workbench-json]');
-  const metaNode = root.querySelector('[data-property-workspace-meta]');
-  const data = JSON.parse(payloadNode?.textContent || '{}');
-  const meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}');
-  const candidates = Array.isArray(data.results) ? data.results : [];
-  const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled', 'completed']);
-
-  const escapeHtml = (value) => String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-
-  const setMode = (mode) => {
-    root.querySelectorAll('[data-pw-panel]').forEach((panel) => {
-      panel.classList.toggle('active', panel.getAttribute('data-pw-panel') === mode || (mode === 'results' && panel.getAttribute('data-pw-panel') === 'property'));
-    });
+    const setMode = (mode) => {
+      const panel = mode === 'brief' ? 'brief' : (mode === 'property' ? 'property' : 'results');
+      root.querySelectorAll('[data-pqx-mobile-panel]').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-pqx-mobile-panel') === panel);
+      });
+      root.querySelectorAll('[data-pw-mode]').forEach((button) => {
+        button.classList.toggle('active', button.getAttribute('data-pw-mode') === mode);
+      });
+    };
     root.querySelectorAll('[data-pw-mode]').forEach((button) => {
-      button.classList.toggle('active', button.getAttribute('data-pw-mode') === mode);
+      button.addEventListener('click', (event) => {
+        const href = button.getAttribute('href');
+        if (href) return;
+        event.preventDefault();
+        setMode(button.getAttribute('data-pw-mode') || 'results');
+      });
     });
-  };
 
-  root.querySelectorAll('[data-pw-mode]').forEach((button) => {
-    button.addEventListener('click', () => setMode(button.getAttribute('data-pw-mode') || 'results'));
-  });
-
-  const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
-
-  const renderRows = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
-    <div class="pw-ooda-row"><strong>${escapeHtml(row.label)}</strong><span>${escapeHtml(row.value)} <small>${escapeHtml(row.detail)}</small></span></div>
-  `).join('') || '<small>No OODA detail captured yet.</small>';
-
-  const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
-    <div class="pw-risk-row"><strong>Match</strong><span>${escapeHtml(reason)}</span></div>
-  `).join('') || '<small>No explicit match reason captured yet.</small>';
-
-  const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
-    const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
-    if (!candidate) return;
+    const candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
+    const renderOoda = (rows) => (Array.isArray(rows) ? rows : []).map((row) => `
+      <div class="pqx-ooda-item"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong><small>${escapeHtml(row.detail)}</small></div>
+    `).join('') || '<div class="pqx-note">No OODA detail captured yet.</div>';
+    const renderMatch = (rows) => (Array.isArray(rows) ? rows : []).map((reason) => `
+      <div class="pqx-event-card"><strong>For</strong><span class="pqx-note">${escapeHtml(reason)}</span></div>
+    `).join('') || '<div class="pqx-note">No explicit match reason captured yet.</div>';
+    const actionMarkup = (candidate) => {
+      const tour = candidate.tour || {};
+      return [
+        tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
+        candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Review packet</a>` : '',
+        candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
+      ].filter(Boolean).join('');
+    };
+    const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
+      const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
+      if (!candidate) return;
+      root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
+        row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
+      });
+      const title = root.querySelector('[data-pw-title]');
+      const source = root.querySelector('[data-pw-source]');
+      if (title) title.textContent = candidate.title || 'Selected property';
+      if (source) source.textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
+      const tourNode = root.querySelector('[data-pw-tour]');
+      const tour = candidate.tour || {};
+      if (tourNode && tour.embed_url) {
+        tourNode.innerHTML = `<iframe src="${escapeHtml(tour.embed_url)}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>`;
+      } else if (tourNode) {
+        const tourMessage = tour.url
+          ? 'The tour is available as a separate review page. It is not embedded here because the host is not PropertyQuarry-branded.'
+          : (tour.eta_label || 'The tour queue is tracked here while the property can still be reviewed.');
+        tourNode.innerHTML = `<div class="pqx-theater-placeholder"><strong>${escapeHtml(tour.label || '360 not ready')}</strong><span>${escapeHtml(tourMessage)}</span></div>`;
+      }
+      const ooda = root.querySelector('[data-pw-ooda]');
+      if (ooda) ooda.innerHTML = renderOoda(candidate.ooda?.rows);
+      const oodaSummary = root.querySelector('[data-pw-ooda-summary]');
+      if (oodaSummary) oodaSummary.textContent = candidate.ooda?.summary || 'Open the packet to inspect OODA.';
+      const match = root.querySelector('[data-pw-match]');
+      if (match) match.innerHTML = renderMatch(candidate.match_reasons);
+      const risk = root.querySelector('[data-pw-risk]');
+      if (risk) risk.innerHTML = `<strong>Risk</strong><span class="pqx-note">${escapeHtml(candidate.risk?.summary || 'No risk summary captured yet.')}</span>`;
+      const riskLevel = root.querySelector('[data-pw-risk-level]');
+      if (riskLevel) riskLevel.textContent = candidate.risk?.level || 'unknown';
+      const investment = root.querySelector('[data-pw-investment]');
+      if (investment) investment.textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the packet for detailed underwriting when buy mode is active.';
+      root.querySelectorAll('[data-pw-actions], [data-pqx-top-packet], [data-pqx-top-tour]').forEach((node) => {
+        if (node.matches('[data-pw-actions]')) node.innerHTML = actionMarkup(candidate);
+      });
+      const topActions = root.querySelector('.pqx-top-actions');
+      if (topActions && candidates.length) {
+        topActions.innerHTML = actionMarkup(candidate);
+      }
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('candidate', candidate.candidate_ref || '');
+        window.history.replaceState({}, '', url);
+      }
+    };
     root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
-      row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
+      row.addEventListener('click', () => {
+        selectCandidate(row.getAttribute('data-candidate-ref'));
+        setMode('property');
+      });
     });
-    root.querySelector('[data-pw-title]').textContent = candidate.title || 'Selected property';
-    root.querySelector('[data-pw-source]').textContent = [candidate.source_label, candidate.location_label].filter(Boolean).join(' · ') || 'PropertyQuarry candidate';
-    const tourNode = root.querySelector('[data-pw-tour]');
-    const tour = candidate.tour || {};
-    if (tour.url) {
-      tourNode.innerHTML = `<iframe src="${escapeHtml(tour.url)}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>`;
-    } else {
-      tourNode.innerHTML = `<div class="pw-tour-placeholder"><strong>${escapeHtml(tour.label || '360 not ready')}</strong><span class="pw-muted">${escapeHtml(tour.eta_label || 'The property can still be reviewed while tour status is tracked.')}</span></div>`;
-    }
-    root.querySelector('[data-pw-ooda]').innerHTML = renderRows(candidate.ooda?.rows);
-    root.querySelector('[data-pw-match]').innerHTML = renderMatch(candidate.match_reasons);
-    root.querySelector('[data-pw-risk]').innerHTML = `<div class="pw-risk-row"><strong>${escapeHtml(candidate.risk?.level || 'unknown')}</strong><span>${escapeHtml(candidate.risk?.summary || 'No risk summary captured yet.')}</span></div>`;
-    root.querySelector('[data-pw-investment]').textContent = candidate.investment?.price_per_sqm || candidate.investment?.headline || 'Open the packet for detailed underwriting when buy mode is active.';
-    root.querySelector('[data-pw-actions]').innerHTML = [
-      tour.url ? `<a class="pw-action primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
-      candidate.packet_url ? `<a class="pw-action" href="${escapeHtml(candidate.packet_url)}">Open packet</a>` : '',
-      candidate.source_url ? `<a class="pw-action" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
-    ].filter(Boolean).join('');
-    if (updateUrl) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('candidate', candidate.candidate_ref || '');
-      window.history.replaceState({}, '', url);
-    }
-  };
+    const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
+    if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });
 
-  root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
-    row.addEventListener('click', (event) => {
-      if (event.target.closest('a')) return;
-      selectCandidate(row.getAttribute('data-candidate-ref'));
-      setMode('property');
-    });
-    row.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      selectCandidate(row.getAttribute('data-candidate-ref'));
-      setMode('property');
-    });
-  });
-
-  const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
-  if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });
-
-  const checkedValues = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((node) => String(node.value || '').trim()).filter(Boolean);
-  const value = (form, name) => String(form.querySelector(`[name="${name}"]`)?.value || '').trim();
-  const integer = (form, name) => {
-    const parsed = Number.parseInt(value(form, name), 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  };
-  const renderCheckboxOptions = (form, name, options, selectedValues = []) => {
-    const grid = form?.querySelector(`[data-pw-check-grid="${name}"]`);
-    if (!grid) return;
-    const selected = new Set(selectedValues.map((item) => String(item || '').trim()).filter(Boolean));
-    grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
-      const optionValue = String(option.value || '').trim();
-      const label = String(option.label || optionValue || 'Option').trim();
-      const detail = String(option.detail || option.description || '').trim();
-      return `
-        <label class="pw-check">
-          <input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}>
-          <span>
-            <span>${escapeHtml(label)}</span>
-            ${detail ? `<small>${escapeHtml(detail)}</small>` : ''}
-          </span>
-        </label>`;
-    }).join('');
-  };
-
-  const collectPayload = (form) => {
-    const selectedPlatforms = checkedValues(form, 'selected_platforms');
-    const countryCode = value(form, 'country_code') || 'AT';
-    const regionCode = value(form, 'region_code') || '';
-    const allOfVienna = Boolean(form.querySelector('input[name="all_of_vienna"]')?.checked);
-    const selectedLocations = checkedValues(form, 'location_query');
-    return {
-      selected_platforms: selectedPlatforms,
-      property_preferences: {
+    const checkedValues = (form, name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((node) => String(node.value || '').trim()).filter(Boolean);
+    const fieldValue = (form, name) => String(form.querySelector(`[name="${name}"]`)?.value || '').trim();
+    const integerValue = (form, name) => {
+      const parsed = Number.parseInt(fieldValue(form, name), 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+    const renderCheckboxOptions = (form, name, options, selectedValues = []) => {
+      const grid = form?.querySelector(`[data-pqx-check-grid="${name}"]`);
+      if (!grid) return;
+      const selected = new Set(selectedValues.map((item) => String(item || '').trim()).filter(Boolean));
+      grid.innerHTML = (Array.isArray(options) ? options : []).map((option) => {
+        const optionValue = String(option.value || '').trim();
+        const label = String(option.label || optionValue || 'Option').trim();
+        const detail = String(option.detail || option.description || '').trim();
+        return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></label>`;
+      }).join('');
+    };
+    const collectPayload = (form) => {
+      const selectedPlatforms = checkedValues(form, 'selected_platforms');
+      const countryCode = fieldValue(form, 'country_code') || 'AT';
+      const regionCode = fieldValue(form, 'region_code') || '';
+      const allOfVienna = Boolean(form.querySelector('input[name="all_of_vienna"]')?.checked);
+      const selectedLocations = checkedValues(form, 'location_query');
+      return {
         selected_platforms: selectedPlatforms,
-        country_code: countryCode,
-        region_code: regionCode,
-        language_code: value(form, 'language_code') || 'en',
-        listing_mode: value(form, 'listing_mode') || 'rent',
-        property_type: value(form, 'property_type') || 'any',
-        investment_research_mode: value(form, 'investment_research_mode') || 'off',
-        all_of_vienna: allOfVienna,
-        location_query: countryCode === 'AT' && regionCode === 'vienna' && allOfVienna ? 'Vienna' : selectedLocations.join(', '),
-        keywords: checkedValues(form, 'keywords').join(', '),
-        preference_person_id: value(form, 'preference_person_id') || 'self',
-        max_price_eur: integer(form, 'max_price_eur'),
-        min_rooms: integer(form, 'min_rooms'),
-        min_area_m2: integer(form, 'min_area_m2'),
-        max_results_per_source: integer(form, 'max_results_per_source'),
-      },
-      force_refresh: Boolean(form.querySelector('input[name="force_refresh"]')?.checked),
-      max_results_per_source: integer(form, 'max_results_per_source'),
+        property_preferences: {
+          selected_platforms: selectedPlatforms,
+          country_code: countryCode,
+          region_code: regionCode,
+          language_code: fieldValue(form, 'language_code') || 'en',
+          listing_mode: fieldValue(form, 'listing_mode') || 'rent',
+          property_type: fieldValue(form, 'property_type') || 'any',
+          investment_research_mode: fieldValue(form, 'investment_research_mode') || 'off',
+          all_of_vienna: allOfVienna,
+          location_query: countryCode === 'AT' && regionCode === 'vienna' && allOfVienna ? 'Vienna' : selectedLocations.join(', '),
+          keywords: checkedValues(form, 'keywords').join(', '),
+          preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+          max_price_eur: integerValue(form, 'max_price_eur'),
+          min_rooms: integerValue(form, 'min_rooms'),
+          min_area_m2: integerValue(form, 'min_area_m2'),
+          max_results_per_source: integerValue(form, 'max_results_per_source'),
+        },
+        force_refresh: Boolean(form.querySelector('input[name="force_refresh"]')?.checked),
+        max_results_per_source: integerValue(form, 'max_results_per_source'),
+      };
     };
-  };
-
-  const renderRun = (runPayload) => {
-    if (!runPayload || typeof runPayload !== 'object') return;
-    const status = String(runPayload.status || 'queued');
-    const progress = Math.max(0, Math.min(100, Number(runPayload.progress || 0)));
-    root.querySelector('[data-pw-run-status]').textContent = status.replaceAll('_', ' ');
-    root.querySelector('[data-pw-run-message]').textContent = String(runPayload.message || 'Queued for execution.');
-    root.querySelector('[data-pw-run-progress]').style.width = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
-  };
-
-  const pollRun = async (statusUrl) => {
-    if (!statusUrl) return;
-    while (true) {
-      const response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
-      renderRun(body);
-      if (terminalStates.has(String(body.status || ''))) {
-        window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;
-        return;
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 1400));
-    }
-  };
-
-  const form = root.querySelector('[data-console-form-variant="property_search"]');
-  if (form) {
-    const countryField = form.querySelector('select[name="country_code"]');
-    const regionField = form.querySelector('select[name="region_code"]');
-    const allViennaField = form.querySelector('input[name="all_of_vienna"]');
-    const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
-    const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
-    const syncViennaScopeControls = () => {
-      const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
-      if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
-      if (!isViennaScope && allViennaField) allViennaField.checked = false;
-      if (locationFieldWrap) locationFieldWrap.hidden = isViennaScope && Boolean(allViennaField?.checked);
+    const renderRun = (runPayload) => {
+      if (!runPayload || typeof runPayload !== 'object') return;
+      const status = String(runPayload.status || 'queued');
+      const progress = Math.max(0, Math.min(100, Number(runPayload.progress || 0)));
+      const statusNode = root.querySelector('[data-pqx-run-status]');
+      const messageNode = root.querySelector('[data-pqx-run-message]');
+      const ring = root.querySelector('[data-pqx-progress-ring]');
+      const progressLabel = root.querySelector('[data-pw-run-progress-label]');
+      if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
+      if (messageNode) messageNode.textContent = String(runPayload.message || 'Queued for execution.');
+      if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
+      if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
     };
-    const refreshRegionAndLocationChoices = () => {
-      const regionCatalog = meta.region_catalog_by_country || {};
-      const locationCatalog = meta.location_catalog_by_country_region || {};
-      const selectedCountry = String(countryField?.value || '').trim();
-      const currentRegion = String(regionField?.value || '').trim();
-      const regionOptions = Array.isArray(regionCatalog[selectedCountry]) ? regionCatalog[selectedCountry] : [];
-      if (regionField) {
-        regionField.innerHTML = regionOptions.map((option, index) => {
-          const optionValue = String(option.value || '').trim();
-          const label = String(option.label || optionValue || 'Region').trim();
-          const selected = optionValue === currentRegion || (!currentRegion && index === 0);
-          return `<option value="${escapeHtml(optionValue)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-        }).join('');
+    const pollRun = async (statusUrl) => {
+      if (!statusUrl) return;
+      while (true) {
+        const response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+        renderRun(body);
+        if (terminalStates.has(String(body.status || ''))) {
+          window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1400));
       }
-      const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
-      const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
-      renderCheckboxOptions(form, 'location_query', locationOptions, []);
+    };
+    const form = root.querySelector('[data-console-form-variant="property_search"]');
+    const initWizard = (form) => {
+      const steps = Array.isArray(meta.wizard_steps) ? meta.wizard_steps.filter((step) => step && step.key) : [];
+      const fieldNodes = [...form.querySelectorAll('[data-property-field-step]')];
+      const triggers = [...form.querySelectorAll('[data-property-step-trigger]')];
+      const progress = root.querySelector('[data-property-step-progress]');
+      const summary = root.querySelector('[data-property-step-summary]');
+      const back = root.querySelector('[data-property-step-back]');
+      const next = root.querySelector('[data-property-step-next]');
+      const actions = root.querySelector('[data-property-actions]');
+      let current = 0;
+      const applyStep = (index) => {
+        if (!steps.length) return;
+        current = Math.max(0, Math.min(steps.length - 1, index));
+        const step = steps[current] || {};
+        const stepKey = String(step.key || '').trim();
+        fieldNodes.forEach((node) => { node.hidden = String(node.getAttribute('data-property-field-step') || '') !== stepKey; });
+        triggers.forEach((node) => { node.classList.toggle('active', String(node.getAttribute('data-property-step-trigger') || '') === stepKey); });
+        if (progress) progress.textContent = `Step ${current + 1} of ${steps.length}`;
+        if (summary) summary.textContent = String(step.detail || '').trim();
+        if (back) back.hidden = current === 0;
+        if (next) {
+          next.hidden = current >= steps.length - 1;
+          next.textContent = current === steps.length - 2 ? 'Review launch' : 'Next';
+        }
+        if (actions) actions.hidden = current !== steps.length - 1;
+      };
+      triggers.forEach((node, index) => node.addEventListener('click', () => applyStep(index)));
+      back?.addEventListener('click', () => applyStep(current - 1));
+      next?.addEventListener('click', () => applyStep(current + 1));
+      applyStep(0);
+    };
+    if (form) {
+      initWizard(form);
+      const countryField = form.querySelector('select[name="country_code"]');
+      const regionField = form.querySelector('select[name="region_code"]');
+      const allViennaField = form.querySelector('input[name="all_of_vienna"]');
+      const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
+      const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
+      const syncViennaScopeControls = () => {
+        const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
+        if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
+        if (!isViennaScope && allViennaField) allViennaField.checked = false;
+        if (locationFieldWrap) locationFieldWrap.hidden = isViennaScope && Boolean(allViennaField?.checked);
+      };
+      const refreshRegionAndLocationChoices = () => {
+        const regionCatalog = meta.region_catalog_by_country || {};
+        const locationCatalog = meta.location_catalog_by_country_region || {};
+        const selectedCountry = String(countryField?.value || '').trim();
+        const currentRegion = String(regionField?.value || '').trim();
+        const regionOptions = Array.isArray(regionCatalog[selectedCountry]) ? regionCatalog[selectedCountry] : [];
+        if (regionField) {
+          regionField.innerHTML = regionOptions.map((option, index) => {
+            const optionValue = String(option.value || '').trim();
+            const label = String(option.label || optionValue || 'Region').trim();
+            const selected = optionValue === currentRegion || (!currentRegion && index === 0);
+            return `<option value="${escapeHtml(optionValue)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('');
+        }
+        const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
+        const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
+        renderCheckboxOptions(form, 'location_query', locationOptions, []);
+        syncViennaScopeControls();
+      };
+      countryField?.addEventListener('change', () => {
+        const selectedCountry = String(countryField.value || '').trim();
+        const catalog = meta.platform_catalog_by_country || {};
+        const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
+        const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
+        const defaultLanguageByCountry = meta.default_language_by_country || {};
+        const languageField = form.querySelector('select[name="language_code"]');
+        const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
+        renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
+        if (languageField && nextLanguage) languageField.value = nextLanguage;
+        refreshRegionAndLocationChoices();
+      });
+      regionField?.addEventListener('change', refreshRegionAndLocationChoices);
+      allViennaField?.addEventListener('change', syncViennaScopeControls);
       syncViennaScopeControls();
-    };
-    countryField?.addEventListener('change', () => {
-      const selectedCountry = String(countryField.value || '').trim();
-      const catalog = meta.platform_catalog_by_country || {};
-      const options = Array.isArray(catalog[selectedCountry]) ? catalog[selectedCountry] : [];
-      const defaultSelection = options.map((option) => String(option.value || '').trim()).filter(Boolean).slice(0, 4);
-      const defaultLanguageByCountry = meta.default_language_by_country || {};
-      const languageField = form.querySelector('select[name="language_code"]');
-      const nextLanguage = String(defaultLanguageByCountry[selectedCountry] || '').trim();
-      renderCheckboxOptions(form, 'selected_platforms', options, defaultSelection);
-      if (languageField && nextLanguage) languageField.value = nextLanguage;
-      refreshRegionAndLocationChoices();
-    });
-    regionField?.addEventListener('change', refreshRegionAndLocationChoices);
-    allViennaField?.addEventListener('change', syncViennaScopeControls);
-    syncViennaScopeControls();
-  }
-  form?.querySelector('[data-property-save]')?.addEventListener('click', async () => {
-    const status = root.querySelector('[data-property-inline-status]');
-    const error = root.querySelector('[data-property-inline-error]');
-    try {
+    }
+    const savePreferences = async () => {
+      if (!form) return;
+      const status = root.querySelector('[data-property-inline-status]');
+      const error = root.querySelector('[data-property-inline-error]');
       status.textContent = 'Saving...';
       error.textContent = '';
       const body = collectPayload(form);
@@ -870,42 +1309,49 @@
       });
       if (!response.ok) throw new Error('Could not save the brief.');
       status.textContent = 'Saved.';
-    } catch (err) {
-      error.textContent = err.message || 'Could not save the brief.';
-      status.textContent = '';
-    }
-  });
-
-  form?.querySelector('[data-property-start]')?.addEventListener('click', async () => {
-    const status = root.querySelector('[data-property-inline-status]');
-    const error = root.querySelector('[data-property-inline-error]');
-    try {
-      status.textContent = 'Starting search...';
-      error.textContent = '';
-      const body = collectPayload(form);
-      const prefResponse = await fetch(String(meta.preferences_endpoint || data.endpoints?.preferences || ''), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body.property_preferences),
+      return body;
+    };
+    const startSearch = async () => {
+      if (!form) return;
+      const status = root.querySelector('[data-property-inline-status]');
+      const error = root.querySelector('[data-property-inline-error]');
+      try {
+        status.textContent = 'Starting search...';
+        error.textContent = '';
+        const body = await savePreferences();
+        const runResponse = await fetch(String(meta.start_endpoint || data.endpoints?.start || ''), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const runBody = await runResponse.json().catch(() => ({}));
+        if (!runResponse.ok) throw new Error(String(runBody.detail || 'Could not start property search.'));
+        renderRun(runBody);
+        pollRun(String(runBody.status_url || ''));
+      } catch (err) {
+        error.textContent = err.message || 'Could not start property search.';
+        status.textContent = '';
+      }
+    };
+    root.querySelector('[data-property-save]')?.addEventListener('click', async () => {
+      try { await savePreferences(); } catch (err) {
+        root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the brief.';
+      }
+    });
+    root.querySelector('[data-property-start]')?.addEventListener('click', startSearch);
+    root.querySelector('[data-pqx-launch-top]')?.addEventListener('click', () => {
+      const lastStep = [...root.querySelectorAll('[data-property-step-trigger]')].at(-1);
+      lastStep?.click();
+      setMode('brief');
+    });
+    root.querySelectorAll('[data-pqx-refresh-status]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const statusUrl = String(data.run?.status_url || '').trim();
+        if (statusUrl) pollRun(statusUrl);
       });
-      if (!prefResponse.ok) throw new Error('Could not save the brief.');
-      const runResponse = await fetch(String(meta.start_endpoint || data.endpoints?.start || ''), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const runBody = await runResponse.json().catch(() => ({}));
-      if (!runResponse.ok) throw new Error(String(runBody.detail || 'Could not start property search.'));
-      renderRun(runBody);
-      setMode('results');
-      pollRun(String(runBody.status_url || ''));
-    } catch (err) {
-      error.textContent = err.message || 'Could not start property search.';
-      status.textContent = '';
-    }
-  });
-})();
-</script>
-{% endblock %}
+    });
+  })();
+  </script>
+</body>
+</html>

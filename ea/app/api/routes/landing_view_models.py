@@ -1363,14 +1363,15 @@ def property_workspace_payload(
         status = str(candidate.get("tour_status") or "").strip().lower()
         eta_minutes = str(candidate.get("tour_eta_minutes") or "").strip()
         if tour_url:
-            return {"status": "ready", "label": "360 ready", "url": tour_url, "eta_label": ""}
+            embed_url = "" if "myexternalbrain.com" in tour_url.lower() else tour_url
+            return {"status": "ready", "label": "360 ready", "url": tour_url, "embed_url": embed_url, "eta_label": ""}
         if status in {"queued", "pending"}:
-            return {"status": "queued", "label": "360 queued", "url": "", "eta_label": f"about {eta_minutes or '10'} min"}
+            return {"status": "queued", "label": "360 queued", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '10'} min"}
         if status in {"processing", "running", "in_progress", "started"}:
-            return {"status": "processing", "label": "360 rendering", "url": "", "eta_label": f"about {eta_minutes or '5'} min"}
+            return {"status": "processing", "label": "360 rendering", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '5'} min"}
         if status in {"blocked", "failed"}:
-            return {"status": "blocked", "label": "360 blocked", "url": "", "eta_label": ""}
-        return {"status": "missing", "label": "360 not ready", "url": "", "eta_label": "not scheduled yet"}
+            return {"status": "blocked", "label": "360 blocked", "url": "", "embed_url": "", "eta_label": ""}
+        return {"status": "missing", "label": "360 not ready", "url": "", "embed_url": "", "eta_label": "not scheduled yet"}
 
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}

@@ -165,10 +165,11 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    base_url = f"http://127.0.0.1:{port}"
-    _wait_for_http(base_url)
+    local_base_url = f"http://127.0.0.1:{port}"
+    browser_base_url = f"http://propertyquarry.com:{port}"
+    _wait_for_http(local_base_url)
     try:
-        yield {"base_url": base_url}
+        yield {"base_url": browser_base_url}
     finally:
         server.should_exit = True
         thread.join(timeout=10.0)
@@ -185,6 +186,8 @@ def browser() -> Iterator[Browser]:
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
                 "--disable-software-rasterizer",
+                "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
+                "--no-proxy-server",
             ],
         )
         try:
@@ -196,7 +199,7 @@ def browser() -> Iterator[Browser]:
 def _new_context(browser: Browser, *, mobile: bool = False) -> BrowserContext:
     return browser.new_context(
         viewport={"width": 430 if mobile else 1440, "height": 932 if mobile else 1100},
-        extra_http_headers={"host": "propertyquarry.com"},
+        extra_http_headers={"X-EA-Principal-ID": "pq-greenfield-browser"},
     )
 
 
@@ -214,44 +217,22 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert 'data-property-spa-shell' in content
         assert 'data-property-mobile-dock' in content
         assert 'data-property-decision-workbench' in content
+        assert 'data-pq-greenfield-shell' in content
+        assert 'data-pq-theater' in content
         assert 'data-workbench-results-table' in content
         assert 'data-workbench-dossier' in content
-        assert "Ranked results" in content
+        assert "Ranked shortlist" in content
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
         assert "360 ready" in content
-        assert "Single workspace app" in content
-        assert "Search" in content
-        assert "Shortlist" in content
-        assert "Research" in content
-        assert "Profile" in content
-        assert "Alerts" in content
-        assert "Billing" in content
+        assert "Review packet" in content
+        assert "Open 360" in content
         assert "OODA" in content
 
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
         assert page.locator("[data-workbench-dossier]", has_text="360 not ready").is_visible()
-
-        page.get_by_role("link", name="Shortlist").click()
-        page.wait_for_load_state("networkidle")
-        shortlist = page.content()
-        assert "Review only the few properties that deserve attention now." in shortlist
-        assert "Altbau near U6" in shortlist
-        assert "Review packet" in shortlist
-
-        page.get_by_role("link", name="Research").click()
-        page.wait_for_load_state("networkidle")
-        research = page.content()
-        assert "Inspect the evidence before you open the raw listing." in research
-        assert "Hosted 3D page for Auhofstrasse shortlist" in research
-
-        page.get_by_role("link", name="Open packet").first.click()
-        page.wait_for_load_state("networkidle")
-        packet = page.content()
-        assert "Internal property dossier with fit reasoning" in packet
-        assert "Open the space before you read the rest" in packet
-        assert "Original listing" in packet
+        assert page.get_by_role("link", name="Review packet").first.is_visible()
     finally:
         context.close()
 
@@ -268,26 +249,20 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-decision-workbench' in content
+        assert 'data-pq-greenfield-shell' in content
         assert 'data-property-mobile-dock' in content
-        assert page.get_by_role("button", name="Results").is_visible()
-        assert page.get_by_role("button", name="Property").is_visible()
-        mode_box = page.get_by_role("button", name="Results").bounding_box()
+        assert page.locator('[data-workbench-mobile-mode="results"]').is_visible()
+        assert page.locator('[data-workbench-mobile-mode="property"]').is_visible()
+        mode_box = page.locator('[data-workbench-mobile-mode="results"]').bounding_box()
         assert mode_box is not None and mode_box["width"] <= 430
         mobile_dock = page.locator("[data-property-mobile-dock]")
         assert mobile_dock.is_visible()
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        page.get_by_role("button", name="Property").click()
+        page.locator('[data-workbench-mobile-mode="property"]').click()
         assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
         assert page.locator("[data-workbench-dossier]", has_text="360 not ready").is_visible()
 
-        page.get_by_role("link", name="Research").click()
-        page.wait_for_load_state("networkidle")
-        page.get_by_role("link", name="Open packet").first.click()
-        page.wait_for_load_state("networkidle")
-        packet = page.content()
-        assert "Internal property dossier with fit reasoning" in packet
-        assert "Open the space before you read the rest" in packet
-        primary_action = page.get_by_role("link", name="Open source").first.bounding_box()
-        assert primary_action is not None and primary_action["width"] <= 430
+        review_action = page.get_by_role("link", name="Review packet").first.bounding_box()
+        assert review_action is not None and review_action["width"] <= 430
     finally:
         context.close()

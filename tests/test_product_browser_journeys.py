@@ -238,21 +238,19 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
     assert response.status_code == 200
     assert 'data-property-decision-workbench' in response.text
+    assert 'data-pq-greenfield-shell' in response.text
+    assert 'data-pq-theater' in response.text
     assert 'data-workbench-results-table' in response.text
     assert 'data-workbench-dossier' in response.text
-    assert "Ranked results" in response.text
-    assert "table-first decision surface" in response.text
-    assert 'href="/app/properties"' in response.text
-    assert 'href="/app/shortlist"' in response.text
-    assert 'href="/app/research"' in response.text
-    assert 'href="/app/profile"' in response.text
-    assert 'href="/app/alerts"' in response.text
-    assert 'href="/app/billing"' in response.text
+    assert "Ranked shortlist" in response.text
+    assert "select one to update the 360 and decision panel" in response.text
+    assert "Open 360" in response.text
+    assert "Review packet" in response.text
     assert "Candidate" in response.text
     assert "Price" in response.text
     assert "Layout" in response.text
     assert "OODA" in response.text
-    assert "Investment read" in response.text
+    assert "Risk and investment" in response.text
     assert "360 ready" in response.text
     assert "Berlin" in response.text
     assert "Germany" in response.text
