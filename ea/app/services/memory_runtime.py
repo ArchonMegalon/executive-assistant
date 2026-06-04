@@ -223,6 +223,33 @@ class MemoryRuntimeService:
             return None
         return found
 
+    def create_memory_item(
+        self,
+        *,
+        principal_id: str,
+        category: str,
+        summary: str,
+        fact_json: dict[str, object] | None = None,
+        provenance_json: dict[str, object] | None = None,
+        confidence: float = 0.5,
+        sensitivity: str = "internal",
+        sharing_policy: str = "private",
+        reviewer: str = "",
+        last_verified_at: str | None = None,
+    ) -> MemoryItem:
+        return self._items.create_item(
+            principal_id=principal_id,
+            category=category,
+            summary=summary,
+            fact_json=fact_json,
+            provenance_json=provenance_json,
+            confidence=confidence,
+            sensitivity=sensitivity,
+            sharing_policy=sharing_policy,
+            reviewer=reviewer,
+            last_verified_at=last_verified_at,
+        )
+
     def upsert_entity(
         self,
         *,

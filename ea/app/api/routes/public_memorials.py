@@ -5,12 +5,16 @@ import base64
 import html
 import json
 import hmac
+import math
 import mimetypes
 import os
+import re
 import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+import urllib.parse
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -20,13 +24,29 @@ import requests
 from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL
 from app.services.memorial_openvoice import (
     OPENVOICE_TTS_PLUGIN_ID,
+    PIPER_FAST_TTS_PLUGIN_ID,
+    UNMIXR_TTS_PLUGIN_ID,
     openvoice_clone_request,
     openvoice_memorial_voice_id,
     openvoice_plugin_option,
+    piper_fast_plugin_option,
+    piper_fast_synthesize_request,
     openvoice_synthesize_request_with_variant,
+    unmixr_clone_request,
+    unmixr_memorial_voice_id,
+    unmixr_plugin_option,
+    unmixr_synthesize_request,
 )
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
+from app.services.memorial_memory import (
+    format_memorial_memory_context,
+    memorial_has_imported_mail,
+    memorial_memory_principal_id,
+    memorial_seed_manifest_processed_total,
+    retrieve_memorial_memory_items,
+    seed_memorial_source_memories,
+)
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 
 router = APIRouter(tags=["public-memorials"])
@@ -42,22 +62,72 @@ _ONEMIN_SPEECH_AUDIO_TYPES = {
     "audio/flac",
 }
 _BROWSER_SPEECH_TTS_PLUGIN_ID = "browser_speech_synthesis"
-_TTS_PLUGIN_DEFAULT_ID = _BROWSER_SPEECH_TTS_PLUGIN_ID
+_TTS_PLUGIN_DEFAULT_ID = OPENVOICE_TTS_PLUGIN_ID
 _LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
 _TTS_MAX_CLONE_FILES = 3
 _TTS_MAX_TEXT_LEN = 3000
 
 
+def _memorial_dir_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    configured = str(os.getenv("EA_PUBLIC_MEMORIAL_DIR") or "").strip()
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    candidates.append(Path("/docker/EA/memorial_data/public_memorials"))
+    candidates.append(Path("/mnt/pcloud/EA/public_memorials"))
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
 def _memorial_dir() -> Path:
-    return Path(str(os.getenv("EA_PUBLIC_MEMORIAL_DIR") or "/mnt/pcloud/EA/public_memorials")).expanduser()
+    for candidate in _memorial_dir_candidates():
+        if candidate.exists() and candidate.is_dir():
+            try:
+                if any(candidate.iterdir()):
+                    return candidate
+            except OSError:
+                continue
+    return _memorial_dir_candidates()[0]
 
 
 def _resolved_memorial_root() -> Path:
     return _memorial_dir().resolve()
 
 
+def _private_profile_dir_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    configured = str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "").strip()
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    candidates.append(Path("/docker/EA/memorial_data/private_memorial_profiles"))
+    candidates.append(Path("/mnt/pcloud/EA/private_memorial_profiles"))
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
 def _private_profile_dir() -> Path:
-    return Path(str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "/mnt/pcloud/EA/private_memorial_profiles")).expanduser()
+    for candidate in _private_profile_dir_candidates():
+        if candidate.exists() and candidate.is_dir():
+            try:
+                if any(candidate.iterdir()):
+                    return candidate
+            except OSError:
+                continue
+    return _private_profile_dir_candidates()[0]
 
 
 def _safe_slug(slug: str) -> str:
@@ -312,6 +382,17 @@ def _resolve_memorial_chat_model(
     return selected, models, default_model
 
 
+def _resolve_memorial_voice_chat_model(
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+) -> str:
+    selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
+    for candidate in ("memorial-local-fast", "ea-coder-fast", "deepseek-chat"):
+        if candidate in models:
+            return candidate
+    return selected
+
+
 def _load_private_profile(slug: str) -> dict[str, object]:
     safe = _safe_slug(slug)
     root = _private_profile_dir().resolve()
@@ -322,7 +403,16 @@ def _load_private_profile(slug: str) -> dict[str, object]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    data = dict(payload) if isinstance(payload, dict) else {}
+    report_path = (root / safe / "transcript_signal_report.json").resolve()
+    if root in report_path.parents and report_path.is_file():
+        try:
+            report_payload = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            report_payload = {}
+        if isinstance(report_payload, dict):
+            data["transcript_signal_report"] = report_payload
+    return data
 
 
 def _public_voice_profile_summary(slug: str) -> dict[str, object]:
@@ -377,8 +467,11 @@ def _safe_tts_plugin_id(value: object) -> str:
 
 
 def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool) -> list[dict[str, object]]:
-    configured_voice_id = _text(payload.get("tts_plugin_voice_id"), openvoice_memorial_voice_id())
+    configured_voice_id = _text(payload.get("tts_plugin_voice_id"), "")
+    unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
+    openvoice_voice_id = configured_voice_id or openvoice_memorial_voice_id()
     return [
+        piper_fast_plugin_option(),
         {
             "tts_plugin": _BROWSER_SPEECH_TTS_PLUGIN_ID,
             "tts_plugin_enabled": True,
@@ -388,8 +481,12 @@ def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool
             "tts_plugin_label": "Browser Speech",
             "tts_plugin_description": "Verwendet die eingebaute SpeechSynthesisUtterance-Stimme des Browsers.",
         },
+        unmixr_plugin_option(
+            configured_voice_id=unmixr_voice_id,
+            voice_profile_ready=bool(voice_profile_ready),
+        ),
         openvoice_plugin_option(
-            configured_voice_id=configured_voice_id,
+            configured_voice_id=openvoice_voice_id,
             voice_profile_ready=bool(voice_profile_ready),
         )
     ]
@@ -422,6 +519,18 @@ def _resolve_tts_plugin(*, payload: dict[str, object], options: list[dict[str, o
     }
 
 
+def _display_tts_plugin_label(*, option: dict[str, object], voice_label: str) -> str:
+    plugin_id = _safe_tts_plugin_id(option.get("tts_plugin"))
+    friendly_voice_label = str(voice_label or "").strip() or "Manfred"
+    if plugin_id in {UNMIXR_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+        return "Manfreds Stimme" if friendly_voice_label.lower().startswith("manfred") else f"{friendly_voice_label}s Stimme"
+    if plugin_id == PIPER_FAST_TTS_PLUGIN_ID:
+        return "Schnelle Gesprächsstimme"
+    if plugin_id == _BROWSER_SPEECH_TTS_PLUGIN_ID:
+        return "Browser-Stimme"
+    return str(option.get("tts_plugin_label") or "Vorlesen").strip() or "Vorlesen"
+
+
 def _tts_media_type(content_type: str, fallback: str = "audio/mpeg") -> str:
     normalized = str(content_type or "").split(";", 1)[0].strip().lower()
     if normalized:
@@ -429,15 +538,28 @@ def _tts_media_type(content_type: str, fallback: str = "audio/mpeg") -> str:
     return fallback
 
 
+def _effective_tts_base_voice_variant(payload: dict[str, object]) -> str:
+    configured = _text(payload.get("tts_base_voice_variant"), "").strip().lower()
+    if configured:
+        return configured
+    plugin_id = _safe_tts_plugin_id(payload.get("tts_plugin"))
+    voice_id = _text(payload.get("tts_plugin_voice_id"), "").strip().lower()
+    if plugin_id == OPENVOICE_TTS_PLUGIN_ID and voice_id in {"manfredc", "manfredb24", "manfredsatz"}:
+        return "balanced"
+    return "default"
+
+
 def _profile_clip_assets_for_memorial(*, slug: str) -> list[Path]:
     summary = load_memorial_voice_profile(slug=slug)
     profile_root = (_private_profile_dir() / _safe_slug(slug)).resolve()
-    assets: list[Path] = []
+    youtube_assets: list[Path] = []
+    fallback_assets: list[Path] = []
     if not isinstance(summary, dict):
-        return assets
+        return []
     for item in _list_of_dicts(summary.get("audio_assets")):
         if _text(item.get("analysis_status"), "failed").lower() != "ok":
             continue
+        kind = _text(item.get("kind"), "").lower()
         relpath = _text(item.get("asset_relpath"), "")
         if not relpath:
             continue
@@ -448,8 +570,14 @@ def _profile_clip_assets_for_memorial(*, slug: str) -> list[Path]:
             continue
         if not candidate.name.lower().endswith((".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm")):
             continue
-        assets.append(candidate)
-    return assets
+        basename = candidate.name.lower()
+        if kind == "youtube":
+            youtube_assets.append(candidate)
+            continue
+        if any(marker in basename for marker in ("hanusch", "hospital", "spital", "enhanced")):
+            continue
+        fallback_assets.append(candidate)
+    return youtube_assets or fallback_assets
 
 
 def _openvoice_clone_from_memorial(*, slug: str, voice_label: str) -> str:
@@ -478,7 +606,8 @@ def _load_voice_config(slug: str) -> dict[str, object]:
         "pitch": 0.92,
         "volume": 1.0,
         "voice_name_hints": ["de-AT", "de-DE", "German"],
-        "tts_plugin_voice_id": openvoice_memorial_voice_id(),
+        "tts_plugin_voice_id": unmixr_memorial_voice_id() or openvoice_memorial_voice_id(),
+        "tts_base_voice_variant": "high",
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
         "synthetic_voice_clone_of_memorial_person": False,
@@ -510,6 +639,7 @@ def _load_voice_config(slug: str) -> dict[str, object]:
                         for item in (payload.get("voice_name_hints") or [])
                         if str(item).strip()
                     ][:8],
+                    "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), _text(default_config.get("tts_base_voice_variant"), "high")) or "high",
                     "consent_basis": _text(payload.get("consent_basis"), str(default_config["consent_basis"])),
                     "notes": _text(payload.get("notes"), str(default_config["notes"])),
                 }
@@ -525,7 +655,7 @@ def _load_voice_config(slug: str) -> dict[str, object]:
     default_config["tts_mode"] = default_config["tts_plugin"]
     default_config["tts_plugin_voice_id"] = _text(selected_option.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"]))
     if not default_config["tts_plugin_voice_id"]:
-        default_config["tts_plugin_voice_id"] = _text(openvoice_memorial_voice_id(), "")
+        default_config["tts_plugin_voice_id"] = _text(unmixr_memorial_voice_id(), "") or _text(openvoice_memorial_voice_id(), "")
     default_config["tts_plugin_options"] = tts_options
     return default_config
 
@@ -565,6 +695,7 @@ def _voice_config_to_public_payload(payload: dict[str, object], slug: str) -> di
         "volume": _float_between(payload.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
         "voice_name_hints": _safe_voice_name_hints(payload.get("voice_name_hints")),
         "tts_plugin_voice_id": _text(payload.get("tts_plugin_voice_id"), openvoice_memorial_voice_id()),
+        "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), "high") or "high",
         "notes": _text(payload.get("notes"), ""),
         "synthetic_voice_clone_of_memorial_person": False,
     }
@@ -597,7 +728,8 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "volume": 1.0,
         "voice_name_hints": ["de-AT", "de-DE", "German"],
         "tts_plugin": _TTS_PLUGIN_DEFAULT_ID,
-        "tts_plugin_voice_id": openvoice_memorial_voice_id(),
+        "tts_plugin_voice_id": unmixr_memorial_voice_id() or openvoice_memorial_voice_id(),
+        "tts_base_voice_variant": "high",
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
     }
@@ -613,6 +745,7 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "pitch": _float_between(payload.get("pitch") if isinstance(payload, dict) else None, fallback=0.92, minimum=0.5, maximum=1.5),
         "volume": _float_between(payload.get("volume") if isinstance(payload, dict) else None, fallback=1.0, minimum=0.0, maximum=1.0),
         "voice_name_hints": _normalize_voice_name_hints_csv(payload.get("voice_name_hints") if isinstance(payload, dict) else None),
+        "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant") if isinstance(payload, dict) else None, str(default_config["tts_base_voice_variant"])) or "high",
         "consent_basis": _text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
         "notes": _text(payload.get("notes") if isinstance(payload, dict) else None, str(default_config["notes"])),
         "tts_mode": requested_plugin,
@@ -688,15 +821,1020 @@ def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) 
     return paths
 
 
-def _memorial_chat_source_labels(payload: dict[str, object]) -> list[str]:
-    return [
-        label
-        for label in (
-            "Originalaufnahme: Hanusch Krankenhaus",
-            *[_text(source.get("label")) for source in _list_of_dicts(payload.get("external_sources"))],
+def _memorial_chat_source_labels(
+    payload: dict[str, object],
+    *,
+    question: str = "",
+    private_profile: dict[str, object] | None = None,
+    has_imported_mail: bool = False,
+) -> list[str]:
+    external_sources = _list_of_dicts(payload.get("external_sources"))
+    preferred_audio = [
+        _text(source.get("label"))
+        for source in external_sources
+        if "audio" in _text(source.get("status")).lower() or "youtube" in _text(source.get("url")).lower()
+    ]
+    preferred_general = [
+        _text(source.get("label"))
+        for source in external_sources
+        if _text(source.get("label")) and _text(source.get("label")) not in preferred_audio
+    ]
+    labels: list[str] = []
+    lowered = _text(question, "").lower()
+    if _is_memorial_family_mail_question(lowered) or _is_memorial_colleague_mail_question(lowered) or _is_memorial_mail_style_question(lowered) or _is_memorial_mail_practice_question(lowered):
+        if has_imported_mail:
+            labels.append("Importierte Originalmails")
+        else:
+            labels.append("Memorial-Profil")
+            if _list_of_dicts((private_profile or {}).get("family_context_notes")):
+                labels.append("Familienkontext")
+    elif any(token in lowered for token in ("schach", "familie")):
+        labels.append("Erinnerungskarte: Schach und Familie")
+        if _list_of_dicts((private_profile or {}).get("family_context_notes")):
+            labels.append("Familienkontext")
+    elif _is_memorial_ooda_question(lowered):
+        labels.append("Memorial-Profil")
+        for label in preferred_general:
+            lowered_label = label.lower()
+            if any(token in lowered_label for token in ("parlament", "ris", "interview", "gesetz", "recht")) and label not in labels:
+                labels.append(label)
+    for label in (*preferred_audio, *preferred_general):
+        if label and label not in labels:
+            labels.append(label)
+    return labels[:4]
+
+
+def _memorial_pwa_app_name(payload: dict[str, object]) -> str:
+    person_name = _text(payload.get("person_name"), "Manfred")
+    return f"{person_name} Memorial"
+
+
+def _memorial_pwa_short_name(payload: dict[str, object]) -> str:
+    person_name = _text(payload.get("person_name"), "Manfred")
+    return person_name[:12] or "Memorial"
+
+
+def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
+    name = _memorial_pwa_app_name(payload)
+    short_name = _memorial_pwa_short_name(payload)
+    description = _text(
+        payload.get("subtitle"),
+        f"Direkter Gespraechszugang zum Memorial von {_text(payload.get('person_name'), 'Manfred')}.",
+    )
+    base_path = f"/memorials/{slug}"
+    icon_path = f"{base_path}/icon.svg"
+    return {
+        "name": name,
+        "short_name": short_name,
+        "description": description,
+        "lang": "de-AT",
+        "dir": "ltr",
+        "id": base_path,
+        "start_url": f"{base_path}?source=pwa",
+        "scope": base_path,
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#f4ecdf",
+        "theme_color": "#48677e",
+        "categories": ["lifestyle", "family", "memorial"],
+        "prefer_related_applications": False,
+        "icons": [
+            {
+                "src": icon_path,
+                "sizes": "any",
+                "type": "image/svg+xml",
+                "purpose": "any maskable",
+            }
+        ],
+    }
+
+
+def _memorial_pwa_service_worker(slug: str) -> str:
+    cache_name = f"memorial-pwa-{slug}-v3"
+    base_path = f"/memorials/{slug}"
+    precache = [
+        base_path,
+        f"{base_path}?source=pwa",
+        f"{base_path}/app.webmanifest",
+        f"{base_path}/icon.svg",
+    ]
+    precache_json = json.dumps(precache, ensure_ascii=True)
+    return f"""const CACHE_NAME = {json.dumps(cache_name)};
+const PRECACHE_URLS = {precache_json};
+
+self.addEventListener("install", (event) => {{
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)).then(() => self.skipWaiting())
+  );
+}});
+
+self.addEventListener("activate", (event) => {{
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.map((key) => key !== CACHE_NAME ? caches.delete(key) : Promise.resolve()))).then(() => self.clients.claim())
+  );
+}});
+
+self.addEventListener("fetch", (event) => {{
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (!url.pathname.startsWith({json.dumps(base_path)})) return;
+
+  if (request.mode === "navigate") {{
+    event.respondWith(
+      fetch(request).then((response) => {{
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put({json.dumps(base_path)}, copy)).catch(() => null);
+        return response;
+      }}).catch(() => caches.match({json.dumps(base_path)}))
+    );
+    return;
+  }}
+
+  event.respondWith(
+    caches.match(request).then((cached) => {{
+      if (cached) return cached;
+      return fetch(request).then((response) => {{
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => null);
+        return response;
+      }});
+    }})
+  );
+}});
+"""
+
+
+def _memorial_pwa_icon_svg(payload: dict[str, object]) -> str:
+    person_name = _text(payload.get("person_name"), "Manfred")
+    initials = "".join(part[:1] for part in person_name.split()[:2]).upper() or "M"
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8ea4b7"/>
+      <stop offset="55%" stop-color="#d7ddd7"/>
+      <stop offset="100%" stop-color="#f4ecdf"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#49677d"/>
+      <stop offset="100%" stop-color="#314856"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M78 166c24-45 90-58 132-21 28-18 69-17 96 9 34-10 73 5 86 34 47-8 82 26 76 70H54c-5-46 25-80 70-82 5-4 9-7 14-10Z" fill="#fff8ef" fill-opacity=".82"/>
+  <path d="M48 354c76-28 136-26 204-50 75-27 126-73 208-73 63 0 111 20 164 47V512H48Z" fill="#7d4851" fill-opacity=".18"/>
+  <rect x="96" y="132" width="320" height="268" rx="36" fill="url(#panel)" fill-opacity=".92" stroke="#fff8ef" stroke-opacity=".34"/>
+  <circle cx="256" cy="208" r="52" fill="#b48d51" fill-opacity=".22" stroke="#f4ecdf" stroke-opacity=".5"/>
+  <text x="256" y="320" text-anchor="middle" fill="#fff8ef" font-family="Georgia, 'Times New Roman', serif" font-size="134" font-weight="600">{html.escape(initials)}</text>
+  <text x="256" y="372" text-anchor="middle" fill="#f4ecdf" font-family="Georgia, 'Times New Roman', serif" font-size="28" opacity=".88">Memorial</text>
+</svg>"""
+
+
+def _is_memorial_ooda_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if any(token in lowered for token in ("krankenhaus", "behandlung", "elisabeth", "familienkrise", "umgegangen", "verhalten")):
+        return False
+    keywords = (
+        "soll ich",
+        "sollte ich",
+        "würdest du dazu sagen",
+        "wuerdest du dazu sagen",
+        "würdest du",
+        "wuerdest du",
+        "entscheiden",
+        "entscheidung",
+        "prüfen",
+        "pruefen",
+        "risiko",
+        "abwägen",
+        "abwaegen",
+        "kaufen",
+        "kauf",
+        "wohnung",
+        "immobil",
+        "haus kaufen",
+        "brockhausenweg",
+        "adresse",
+        "grundbuch",
+        "finanzierung",
+        "kredit",
+        "kaufvertrag",
+        "makler",
+        "betriebskosten",
+        "rücklage",
+        "ruecklage",
+        "wohnungseigentum",
+        "weg",
+    )
+    return any(token in lowered for token in keywords)
+
+
+def _is_memorial_identity_question(question: str) -> bool:
+    lowered = " ".join(_text(question, "").lower().split())
+    if not lowered:
+        return False
+    identity_starts = (
+        "bist du wirklich",
+        "bist du echt",
+        "bist du manfred",
+        "sprichst du wirklich",
+        "lebst du wirklich",
+        "bist du noch",
+    )
+    if any(lowered.startswith(item) for item in identity_starts):
+        return True
+    return any(token in lowered for token in ("wirklich du", "wirklich da", "wirklich am leben", "bist du real"))
+
+
+def _is_memorial_transcript_relationship_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if any(token in lowered for token in ("mail", "email", "e-mail", "familienmail", "familienmails", "schriftlich", "schreibstil")):
+        return False
+    if _is_memorial_ooda_question(question):
+        return False
+    anchor_terms = (
+        "krankenhaus",
+        "behandlung",
+        "elisabeth",
+        "familie",
+        "familienkrise",
+        "krise",
+        "umgegangen",
+        "verhalten",
+        "sorge",
+        "zuwendung",
+        "beistand",
+        "aufnahme",
+        "depression",
+        "ritalin",
+        "medizin",
+    )
+    return any(token in lowered for token in anchor_terms)
+
+
+def _is_memorial_mail_style_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    keywords = (
+        "email",
+        "mail",
+        "e-mail",
+        "schreibstil",
+        "schriftlich",
+        "wie hast du geschrieben",
+        "wie schriebst du",
+    )
+    return any(token in lowered for token in keywords)
+
+
+def _is_memorial_family_mail_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if not any(token in lowered for token in ("mail", "email", "e-mail", "schriftlich", "geschrieben", "formuliert")):
+        return False
+    return any(token in lowered for token in ("familienmail", "familienmails", "familie", "ehefrau", "frau", "elisabeth", "susanne", "susanna", "susi", "noah", "eva", "stefan", "gertraud"))
+
+
+def _is_memorial_colleague_mail_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if not any(token in lowered for token in ("mail", "email", "e-mail", "schriftlich", "geschrieben", "formuliert")):
+        return False
+    return any(token in lowered for token in ("mitstreiter", "kollege", "kollegin", "freund", "schachfreund", "robert", "conny", "sabine", "reinhard", "rudi", "wolfgang"))
+
+
+def _is_memorial_mail_practice_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    keywords = (
+        "angebot",
+        "bestätigung",
+        "bestaetigung",
+        "rechnung",
+        "preis",
+        "aufgliederung",
+        "farbnummer",
+        "reise",
+        "flug",
+        "umbuch",
+        "verwaltung",
+        "frist",
+        "nachfordern",
+        "nachfassen",
+    )
+    return any(token in lowered for token in keywords)
+
+
+def _memorial_family_mail_answer_body(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("susanne", "susanna", "susi", "ehefrau", "frau")):
+        return (
+            "An Susanna haette ich knapp und zur Sache geschrieben. "
+            "Typisch waere erst der Sachstand, dann die offene Stelle, dann der naechste Schritt. "
+            "So etwas wie: 'Konkret wollen wir buchen ...' oder 'Susi erwartet Terminvorschlaege ...'. "
+            "Wenn etwas bereits eingelangt ist, eher ein kurzes 'besten Dank', danach sofort die Frage, was noch zu bestaetigen oder zu erledigen bleibt. "
+            "Das war eher Mittragen und Alltagskoordination als grosse Gefuehlsrede."
         )
-        if label
-    ][:4]
+    if "elisabeth" in lowered:
+        return (
+            "An Elisabeth haette ich knapp, klar und ohne viel Auszierung geschrieben. "
+            "Zuerst der Sachstand, dann was unklar ist, dann was als naechstes zu bestaetigen oder zu tun ist. "
+            "Zuneigung erschien dabei eher in Verlaesslichkeit und Mittragen als in grossen Formeln."
+        )
+    if any(token in lowered for token in ("noah", "kinder", "kind")):
+        return (
+            "Bei Kindern waere der Ton ebenfalls praktisch gewesen: was ansteht, was zuerst zu tun ist und worauf zu achten ist. "
+            "Man sieht in den Mails eher Formeln wie 'Lieber Tibor, Elisabeth und Noah, besten Dank ...' und danach gleich den eigentlichen Punkt. "
+            "Nicht gefuehlig ausgeschmueckt, sondern ordentlich und verlaesslich. "
+            "Sorge erschien eher als Reihenfolge, Pflicht und Aufmerksamkeit, also eher klare Mitteilung und naechster Schritt als langes Zureden."
+        )
+    if any(token in lowered for token in ("eva", "stefan", "gertraud", "rueckflug", "rückflug", "reise", "flug")):
+        return (
+            "An Eva, Stefan oder Gertraud haette ich eher wie in einem knappen Lagebericht geschrieben. "
+            "Etwa: Unser Rueckflug wurde gestrichen, angeblich gibt es eine Umbuchung, belastbar ist das aber erst nach schriftlicher Bestaetigung. "
+            "Dann was schon feststeht, was noch offen ist und worauf jetzt zu achten ist. "
+            "Der Ton waere nicht sentimental, sondern verlaesslich, geordnet und rueckmeldungsfaehig."
+        )
+    if any(token in lowered for token in ("kollege", "kollegin", "mitstreiter", "freund", "schachfreund", "robert", "conny", "sabine", "reinhard", "rudi", "wolfgang")):
+        return (
+            "An Mitstreiter, Kollegen oder Freunde haette ich meist sachlich und materialbezogen geschrieben. "
+            "Oft zuerst 'zur Information' oder 'zur Information nachfolgend ...', dann der Link oder Hinweis, dann meine Einordnung. "
+            "Danach Formeln wie 'meines Erachtens' oder 'ich ersuche' und am Ende die praktische Folgerung. "
+            "Wenn ich etwas nur anstossen wollte, auch knapp: 'Falls es Dich interessiert, kann ich Dir den Link uebermitteln.' "
+            "Der Ton war direkt, gelegentlich trocken, aber auf die Sache und ihre Dokumentation gerichtet."
+        )
+    return (
+        "In Familienmails war ich meist knapper und praktischer als im gewoehnlichen Geraede. "
+        "Oft zuerst die Lage oder der Ablauf, dann eine kurze Klarstellung, dann der naechste Schritt. "
+        "Naehe zeigte sich dabei eher in Verlaesslichkeit, Rueckmeldung und Mittragen als in langen gefuehligen Passagen. "
+        "Das schrieb sich eher wie ein kurzer Lagebericht als wie eine Bekenntnisrede."
+    )
+
+
+def _memorial_colleague_mail_answer_body(question: str) -> str:
+    return (
+        "An Mitstreiter, Kollegen oder Freunde haette ich meist sachlich und materialbezogen geschrieben. "
+        "Oft zuerst 'zur Information' oder 'zur Information nachfolgend ...', dann ein Link oder Hinweis, dann meine Einordnung. "
+        "Formeln wie 'meines Erachtens' oder 'ich ersuche' passen dazu gut, und manchmal auch knapp: 'Falls es Dich interessiert, kann ich Dir den Link uebermitteln.' "
+        "Der Ton war direkt, gelegentlich trocken, aber auf die Sache und ihre Dokumentation gerichtet."
+    )
+
+
+def _memorial_mail_practice_answer_body(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("eva", "stefan", "gertraud", "rückflug", "rueckflug", "gestrichenen rückflug", "gestrichenen rueckflug")):
+        return (
+            "An Eva oder Stefan haette ich das als knappen Lagebericht geschrieben: Der Rueckflug ist gestrichen, angeblich gibt es eine Umbuchung, belastbar ist die Sache aber erst nach schriftlicher Bestaetigung. "
+            "Dann der naechste Schritt: was schon bekannt ist, was noch offen ist und worauf jetzt zu achten ist. "
+            "Nicht dramatisch, sondern verlaesslich und geordnet."
+        )
+    if any(token in lowered for token in ("angebot", "preis", "aufgliederung", "farbnummer", "rechnung")):
+        return (
+            "Sehr geehrte Damen und Herren, besten Dank fuer die Uebermittlung des Angebots. "
+            "Das Angebot wirft fuer mich aber Fragen auf. "
+            "Stimmen Angaben nicht zusammen, fehlt eine Aufgliederung von Material und Arbeit oder ist der Preis nach unserer Einschaetzung nicht plausibel, benenne ich genau das und ersuche um korrigierte Uebermittlung. "
+            "Ein bloßes Hinnehmen waere nicht meine Art gewesen."
+        )
+    if any(token in lowered for token in ("bestätigung", "bestaetigung", "reise", "flug", "umbuch", "verwaltung")):
+        return (
+            "Ich haette das trocken und foermlich formuliert: Wir haben derzeit noch keine offizielle Bestaetigung. "
+            "Daher ersuche ich um schriftliche Mitteilung, ob und in welcher Form die Umbuchung, Freigabe oder sonstige Erledigung tatsaechlich erfolgt ist. "
+            "Solange das nicht klar vorliegt, behandelt man die Sache nicht als erledigt."
+        )
+    return (
+        "Ich wuerde das schriftlich knapp, foermlich und mit klarer Abweichung formulieren: zuerst der Sachverhalt, dann die fehlende Bestätigung oder Unstimmigkeit, dann das ausdrückliche Ersuchen um Korrektur oder Nachreichung. "
+        "Das war in meinen Mails meist die sauberste Form."
+    )
+
+
+def _memorial_transcript_relationship_answer_body(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if "elisabeth" in lowered:
+        return (
+            "Mit Elisabeth bin ich in Krisen nicht weich und wortreich umgegangen, sondern eher ueber Verantwortung, Unterlagen und naechste Schritte. "
+            "Wenn etwas ernst wurde, habe ich mich auf Behandlung, Aufnahmeweg, Befunde und Zuständigkeit konzentriert. "
+            "Das konnte kuehl wirken. Es war aber meine Art, Loyalitaet zu zeigen: nicht durch viele Beteuerungen, sondern dadurch, dass ich die Sache trage, ordne und weiterbringe."
+        )
+    if any(token in lowered for token in ("krankenhaus", "behandlung", "aufnahme", "depression", "ritalin", "medizin")):
+        return (
+            "Im Krankenhaus- und Behandlungskontext wurde ich verfahrensorientiert. "
+            "Ich habe zuerst gefragt, wie schwer die Lage wirklich ist, wer zustaendig ist, welche Aufnahme moeglich ist und welche Befunde oder Unterlagen man braucht. "
+            "Ich habe Leid eher als ernsten Sachverhalt mit Interventionsbedarf behandelt als als Anlass fuer langes Gefuehlsreden. "
+            "Sorge hat sich bei mir dann in Ordnung, Dokumentation und dem naechsten konkreten Schritt gezeigt."
+        )
+    return (
+        "In Familienkrisen bin ich nicht ins Weiche gegangen, sondern eher in Pflicht, Ordnung und Verfahren. "
+        "Ich habe versucht, die eigene Aufregung zurueckzudraengen und zuerst zu klaeren, wie ernst die Lage ist, was jetzt konkret zu tun ist und ueber welchen Kanal es laufen muss. "
+        "Sorge erschien bei mir dabei oft als strenge Reihenfolge und Verantwortungsuebernahme, nicht als sanfte Beruhigung. "
+        "Wenn ich Naehe gezeigt habe, dann eher als Entschlossenheit und Mittragen als als grosse Worte."
+    )
+
+
+def _memorial_ooda_subject(question: str) -> str:
+    subject = _text(question, "").strip().rstrip("?.! ")
+    for prefix in (
+        "was würdest du dazu sagen, wenn ich ",
+        "was wuerdest du dazu sagen, wenn ich ",
+        "was würdest du sagen, wenn ich ",
+        "was wuerdest du sagen, wenn ich ",
+        "was sagst du dazu, wenn ich ",
+        "soll ich ",
+        "sollte ich ",
+        "würdest du ",
+        "wuerdest du ",
+    ):
+        lowered = subject.lower()
+        if lowered.startswith(prefix):
+            subject = subject[len(prefix):].strip()
+            break
+    lowered_subject = subject.lower()
+    if "wohnung" in lowered_subject and "brockhausenweg" in lowered_subject:
+        return "einer Wohnung im Brockhausenweg"
+    if "job" in lowered_subject and any(token in lowered_subject for token in ("kleineren firma", "kleinere firma", "wechseln")):
+        return "einen Jobwechsel zu einer kleineren Firma"
+    if "rechtsstreit" in lowered_subject and "nachbar" in lowered_subject:
+        return "einem Rechtsstreit wegen einer Nachbarangelegenheit"
+    return subject or "diese Sache"
+
+
+def _memorial_ooda_domain(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("wohnung", "haus", "immobil", "grundbuch", "miete", "kaufvertrag", "makler", "wohnungseigentum", "brockhausenweg")):
+        return "real_estate"
+    if any(token in lowered for token in ("job", "stelle", "arbeitgeber", "kündigen", "kuendigen", "vertrag", "dienstvertrag", "arbeitsplatz", "bewerbung")):
+        return "employment"
+    if any(token in lowered for token in ("prozess", "klagen", "klage", "anwalt", "gericht", "streit", "rechtsstreit", "anzeige")):
+        return "legal_dispute"
+    if any(token in lowered for token in ("arzt", "operation", "behandlung", "therapie", "medikament", "krankenhaus", "spital")):
+        return "healthcare"
+    if any(token in lowered for token in ("kredit", "darlehen", "finanzierung", "anlage", "investment", "investieren", "schuld", "rate")):
+        return "finance"
+    return "general"
+
+
+def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
+    mapping = {
+        "real_estate": ("grundbuch", "vertrag", "rücklage", "ruecklage", "betriebskosten", "sanierungen", "lasten"),
+        "employment": ("vertrag", "kündigungsfrist", "kuendigungsfrist", "risiko", "belegen", "schriftlich"),
+        "legal_dispute": ("sachverhalt", "belege", "beweisen", "anspruch", "frist", "schriftlich"),
+        "healthcare": ("befund", "arzt", "risiko", "zweite meinung", "unterlagen"),
+        "finance": ("zins", "risiko", "unterlagen", "liquidität", "liquiditaet", "vertrag"),
+        "general": ("zuerst", "prüfen", "pruefen", "unterlagen", "vorläufig", "vorlaeufig"),
+    }
+    return mapping.get(domain, mapping["general"])
+
+
+def _memorial_ooda_checklist(domain: str) -> list[str]:
+    mapping = {
+        "real_estate": [
+            "Grundbuch",
+            "Wohnungseigentumsvertrag",
+            "Ruecklage",
+            "Betriebskosten",
+            "Sanierungen",
+            "Lasten",
+            "Quadratmeterpreis",
+        ],
+        "employment": [
+            "Arbeitsvertrag",
+            "Kuendigungsfrist",
+            "Aufgabenbild",
+            "Bezahlung",
+            "Haftung",
+            "Alternativen",
+        ],
+        "legal_dispute": [
+            "Chronologie",
+            "Belege",
+            "Schriftverkehr",
+            "Zeugen",
+            "Fristen",
+            "Beweislast",
+        ],
+        "healthcare": [
+            "Befunde",
+            "Risiken",
+            "Alternativen",
+            "zweite Meinung",
+            "Unterlagen",
+        ],
+        "finance": [
+            "Zinsen",
+            "Laufzeit",
+            "Sicherheiten",
+            "Liquiditaet",
+            "Vertragsbindung",
+            "Ausstiegskosten",
+        ],
+        "general": [
+            "Tatsachen",
+            "Unterlagen",
+            "Risiken",
+            "Alternativen",
+            "Fristen",
+        ],
+    }
+    return list(mapping.get(domain, mapping["general"]))
+
+
+def _memorial_property_search_query(question: str) -> str:
+    subject = _memorial_ooda_subject(question)
+    normalized = " ".join(subject.split()).strip(" ,")
+    normalized = re.sub(
+        r"^(einer?|einem|einen|eine)\s+(wohnung|haus|immobilie|eigentumswohnung)\s+(im|in|am)\s+",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"^(wohnung|haus|immobilie|eigentumswohnung)\s+(im|in|am)\s+",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = normalized.strip(" ,")
+    lowered = normalized.lower()
+    if any(token in lowered for token in ("straße", "strasse", "gasse", "weg", "platz", "allee", "kai", "ring")):
+        if "wien" not in lowered and "österreich" not in lowered and "oesterreich" not in lowered:
+            return f"{normalized}, Wien, Österreich"
+    return normalized
+
+
+@lru_cache(maxsize=128)
+def _memorial_property_search_rows(query: str, limit: int = 5) -> list[dict[str, object]]:
+    normalized = " ".join(str(query or "").split()).strip()
+    if not normalized:
+        return []
+    user_agent = "MyExternalBrain/1.0 memorial-ooda"
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"format": "jsonv2", "limit": max(1, int(limit or 1)), "q": normalized},
+            headers={"User-Agent": user_agent},
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [row for row in payload if isinstance(row, dict)]
+
+
+def _memorial_property_variant_queries(query: str) -> list[str]:
+    normalized = " ".join(str(query or "").split()).strip(" ,")
+    lowered = normalized.lower()
+    base_suffixes = (", wien, österreich", ", wien, oesterreich")
+    base_name = normalized
+    for suffix in base_suffixes:
+        if lowered.endswith(suffix):
+            base_name = normalized[: -len(suffix)].strip(" ,")
+            lowered = base_name.lower()
+            break
+    base = lowered.strip(" ,")
+    variants = [normalized]
+    suffix_map = {
+        "weg": ("gasse", "straße", "strasse"),
+        "gasse": ("weg", "straße", "strasse"),
+        "straße": ("gasse", "weg", "strasse"),
+        "strasse": ("gasse", "weg", "straße"),
+    }
+    for suffix, replacements in suffix_map.items():
+        if base.endswith(suffix):
+            stem = base_name[: -len(suffix)].strip()
+            for replacement in replacements:
+                candidate = f"{stem}{replacement}, Wien, Österreich"
+                if candidate not in variants:
+                    variants.append(candidate)
+            break
+    return variants
+
+
+def _memorial_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
+    earth_radius = 6_371_000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    return int(round(earth_radius * c))
+
+
+@lru_cache(maxsize=64)
+def _memorial_property_live_research(query: str) -> dict[str, object]:
+    normalized = " ".join(str(query or "").split()).strip()
+    if not normalized:
+        return {}
+    user_agent = "MyExternalBrain/1.0 memorial-ooda"
+    payload = _memorial_property_search_rows(normalized, limit=1)
+    if not payload:
+        return {}
+    row = payload[0] if isinstance(payload[0], dict) else {}
+    try:
+        lat = float(row.get("lat"))
+        lon = float(row.get("lon"))
+    except (TypeError, ValueError):
+        return {}
+    result: dict[str, object] = {
+        "query": normalized,
+        "lat": lat,
+        "lon": lon,
+    }
+    display_name = _text(row.get("display_name"), "")
+    if display_name:
+        result["exact_address"] = display_name
+    address = dict(row.get("address") or {}) if isinstance(row.get("address"), dict) else {}
+    postcode = _text(address.get("postcode"), "")
+    city = _text(address.get("city") or address.get("town") or address.get("village"), "")
+    district = _text(address.get("suburb") or address.get("city_district") or address.get("quarter"), "")
+    if postcode:
+        result["postcode"] = postcode
+    if city:
+        result["city"] = city
+    if district:
+        result["district"] = district
+    overpass_query = f"""
+[out:json][timeout:15];
+(
+  node["railway"="subway_entrance"](around:3000,{lat:.8f},{lon:.8f});
+  way["railway"="subway_entrance"](around:3000,{lat:.8f},{lon:.8f});
+  node["amenity"="pharmacy"](around:2000,{lat:.8f},{lon:.8f});
+  way["amenity"="pharmacy"](around:2000,{lat:.8f},{lon:.8f});
+  node["shop"="supermarket"](around:2000,{lat:.8f},{lon:.8f});
+  way["shop"="supermarket"](around:2000,{lat:.8f},{lon:.8f});
+);
+out center tags;
+"""
+    try:
+        response = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data=overpass_query.encode("utf-8"),
+            headers={"User-Agent": user_agent},
+            timeout=18,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return result
+    elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
+    closest: dict[str, tuple[int, str]] = {}
+    for item in elements:
+        if not isinstance(item, dict):
+            continue
+        tags = dict(item.get("tags") or {})
+        point_lat = item.get("lat")
+        point_lon = item.get("lon")
+        if point_lat is None or point_lon is None:
+            center = dict(item.get("center") or {})
+            point_lat = center.get("lat")
+            point_lon = center.get("lon")
+        if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
+            continue
+        distance_m = _memorial_distance_m(lat, lon, float(point_lat), float(point_lon))
+        if tags.get("railway") == "subway_entrance":
+            metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
+        elif tags.get("amenity") == "pharmacy":
+            metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
+        elif tags.get("shop") == "supermarket":
+            metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
+        else:
+            continue
+        current = closest.get(metric_key)
+        if current is None or distance_m < current[0]:
+            name = _text(tags.get("name"), "")
+            closest[metric_key] = (distance_m, name)
+            closest[name_key] = (distance_m, name)
+    for key, value in closest.items():
+        result[key] = value[1] if key.endswith("_name") else value[0]
+    return result
+
+
+def _memorial_property_observed_facts(question: str) -> tuple[list[str], list[str]]:
+    query = _memorial_property_search_query(question)
+    findings = _memorial_property_live_research(query)
+    if not findings:
+        candidate_lines: list[str] = []
+        for variant in _memorial_property_variant_queries(query)[1:]:
+            rows = _memorial_property_search_rows(variant, limit=2)
+            if not rows:
+                continue
+            display_name = _text(rows[0].get("display_name"), "")
+            if display_name:
+                candidate_lines.append(f"Moeglicher Kandidat statt exakter Treffung: {display_name}")
+        if candidate_lines:
+            return candidate_lines[:2], ["OpenStreetMap Nominatim"]
+        return [f"Kein eindeutiger Kartentreffer fuer {query}"], ["OpenStreetMap Nominatim"]
+    facts: list[str] = []
+    if _text(findings.get("exact_address"), ""):
+        facts.append(f"Adresse plausibel: {_text(findings.get('exact_address'), '')}")
+    if _text(findings.get("district"), ""):
+        facts.append(f"Bezirk/Teilgebiet: {_text(findings.get('district'), '')}")
+    if _text(findings.get("postcode"), "") or _text(findings.get("city"), ""):
+        facts.append("Lagekontext: " + " ".join(part for part in (_text(findings.get("postcode"), ""), _text(findings.get("city"), "")) if part))
+    if isinstance(findings.get("nearest_subway_m"), int):
+        facts.append(f"Nächster U-Bahn-Zugang ca. {int(findings.get('nearest_subway_m'))} m")
+    if isinstance(findings.get("nearest_supermarket_m"), int):
+        facts.append(f"Nächster Supermarkt ca. {int(findings.get('nearest_supermarket_m'))} m")
+    if isinstance(findings.get("nearest_pharmacy_m"), int):
+        facts.append(f"Nächste Apotheke ca. {int(findings.get('nearest_pharmacy_m'))} m")
+    return facts[:5], ["OpenStreetMap Nominatim", "Overpass API"]
+
+
+@lru_cache(maxsize=32)
+def _memorial_fetch_page_title(url: str) -> str:
+    target = _text(url, "")
+    if not target:
+        return ""
+    try:
+        response = requests.get(
+            target,
+            headers={"User-Agent": "MyExternalBrain/1.0 memorial-ooda"},
+            timeout=8,
+        )
+        response.raise_for_status()
+    except Exception:
+        return ""
+    text = response.text or ""
+    match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ""
+    title = html.unescape(re.sub(r"\s+", " ", match.group(1))).strip()
+    return title[:160]
+
+
+def _memorial_employment_observed_facts(question: str) -> tuple[list[str], list[str]]:
+    lowered = _text(question, "").lower()
+    facts: list[str] = []
+    sources: list[str] = ["Fragetext"]
+    if any(token in lowered for token in ("kündigen", "kuendigen", "jobwechsel", "wechseln")):
+        facts.append("Wechselabsicht ist ausdrücklich genannt")
+    if any(token in lowered for token in ("kleineren firma", "kleinere firma", "kleineren unternehmen", "kleineres unternehmen")):
+        facts.append("Alternative ist eine kleinere Firma")
+    official_sources = [
+        ("https://www.arbeiterkammer.at/beratung/arbeitundrecht/beendigung/index.html", "Arbeiterkammer"),
+        ("https://www.oesterreich.gv.at/themen/arbeit_beruf_und_pension.html", "oesterreich.gv.at"),
+    ]
+    for url, label in official_sources:
+        title = _memorial_fetch_page_title(url)
+        if title:
+            facts.append(f"Offizielle Arbeitsrechtsquelle erreichbar: {title}")
+            sources.append(label)
+    if not facts:
+        facts.append("Entscheidung betrifft ein Arbeitsverhältnis")
+    return facts[:4], list(dict.fromkeys(sources))
+
+
+def _memorial_legal_dispute_observed_facts(question: str) -> tuple[list[str], list[str]]:
+    lowered = _text(question, "").lower()
+    facts: list[str] = []
+    sources: list[str] = ["Fragetext"]
+    if "nachbar" in lowered:
+        facts.append("Streitfeld ist eine Nachbarangelegenheit")
+    if "sofort" in lowered:
+        facts.append("Eile oder sofortiges Vorgehen wird erwogen")
+    if any(token in lowered for token in ("rechtsstreit", "klage", "klagen", "gericht")):
+        facts.append("Der Schritt Richtung Rechtsstreit ist ausdrücklich im Raum")
+    official_sources = [
+        ("https://www.ris.bka.gv.at/", "RIS"),
+    ]
+    for url, label in official_sources:
+        title = _memorial_fetch_page_title(url)
+        if title:
+            facts.append(f"Offizielle Rechtsquelle erreichbar: {title}")
+            sources.append(label)
+    if not facts:
+        facts.append("Entscheidung betrifft einen möglichen Rechtsstreit")
+    return facts[:4], list(dict.fromkeys(sources))
+
+
+def _memorial_domain_observed_facts(question: str, domain: str) -> tuple[list[str], list[str]]:
+    if domain == "real_estate":
+        return _memorial_property_observed_facts(question)
+    if domain == "employment":
+        return _memorial_employment_observed_facts(question)
+    if domain == "legal_dispute":
+        return _memorial_legal_dispute_observed_facts(question)
+    if domain == "finance":
+        return (["Entscheidung betrifft ein finanzielles Risiko oder eine Bindung"], ["Fragetext"])
+    if domain == "healthcare":
+        return (["Entscheidung betrifft Behandlung oder medizinisches Vorgehen"], ["Fragetext"])
+    return (["Entscheidungssituation wurde ausdrücklich gefragt"], ["Fragetext"])
+
+
+def _memorial_ooda_known_and_missing(
+    question: str,
+    checklist: list[str],
+    *,
+    memory_lines: list[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    lowered = _text(question, "").lower()
+    context_text = " ".join(_text(item, "") for item in (memory_lines or []))
+    context_lowered = context_text.lower()
+    known: list[str] = []
+    missing: list[str] = []
+    for item in checklist:
+        item_text = _text(item, "")
+        if not item_text:
+            continue
+        token = item_text.lower()
+        variants = {token}
+        if token == "ruecklage":
+            variants.add("rücklage")
+        if token == "kuendigungsfrist":
+            variants.add("kündigungsfrist")
+        if token == "liquiditaet":
+            variants.add("liquidität")
+        if any(variant in lowered or variant in context_lowered for variant in variants):
+            known.append(item_text)
+        else:
+            missing.append(item_text)
+    return known[:6], missing[:6]
+
+
+def _memorial_ooda_struct(
+    question: str,
+    *,
+    source_labels: list[str] | None = None,
+    memory_lines: list[str] | None = None,
+) -> dict[str, object]:
+    subject = _memorial_ooda_subject(question)
+    domain = _memorial_ooda_domain(question)
+    observe = _memorial_ooda_checklist(domain)
+    known, missing = _memorial_ooda_known_and_missing(question, observe, memory_lines=memory_lines)
+    observed_facts, live_sources = _memorial_domain_observed_facts(question, domain)
+    if domain == "real_estate":
+        orient = "rechtlich und wirtschaftlich: Risiko, Beleglage und spaetere Kosten"
+        decide = "nicht kaufen, bevor die Unterlagen sauber auf dem Tisch liegen"
+        act = "schriftlich pruefen, Zahlen vergleichen, erst dann entscheiden"
+    elif domain == "employment":
+        orient = "was rechtlich zugesichert ist und was bloss Gerede bleibt"
+        decide = "keine grossen Bewegungen, bevor die Bedingungen schriftlich vorliegen"
+        act = "alles schriftlich geben lassen, vergleichen, erst dann wechseln"
+    elif domain == "legal_dispute":
+        orient = "Rechtsfrage, Beweislast und Anspruch sauber auseinanderhalten"
+        decide = "zurueckhaltend bleiben, solange der Sachverhalt nicht belegt ist"
+        act = "schriftlich, geordnet und ohne Erregung vorgehen"
+    elif domain == "healthcare":
+        orient = "medizinische Notwendigkeit, Alternativen und Folgen des Zuwartens"
+        decide = "ohne Unterlagen keine endgueltige Festlegung"
+        act = "Befunde beschaffen, Fragen sammeln, zweite Meinung einholen"
+    elif domain == "finance":
+        orient = "Vertragslage, Belastung und Risiko im schlechten Fall"
+        decide = "nichts unterschreiben, bevor Belastung und Ausstieg sauber gerechnet sind"
+        act = "schriftlich pruefen und Alternativen vergleichen"
+    else:
+        orient = "begrifflich und rechtlich: was belegt und was nur Annahme ist"
+        decide = "kein endgueltiges Urteil ohne geordnete Faktenlage"
+        act = "erst pruefen, dann handeln"
+    return {
+        "domain": domain,
+        "subject": subject,
+        "observe": observe,
+        "known_facts": known,
+        "missing_facts": missing,
+        "observed_facts": observed_facts,
+        "evidence_sources": [str(item).strip() for item in (source_labels or []) if str(item).strip()][:4] + live_sources,
+        "orient": orient,
+        "decide": decide,
+        "act": act,
+    }
+
+
+def _memorial_ooda_answer_body(
+    question: str,
+    *,
+    source_labels: list[str] | None = None,
+    memory_lines: list[str] | None = None,
+) -> str:
+    ooda = _memorial_ooda_struct(question, source_labels=source_labels, memory_lines=memory_lines)
+    subject = _text(ooda.get("subject"), "diese Sache")
+    domain = _text(ooda.get("domain"), "general")
+    observe_items = [str(item).strip() for item in (ooda.get("observe") or []) if str(item).strip()]
+    missing_items = [str(item).strip() for item in (ooda.get("missing_facts") or []) if str(item).strip()]
+    observed_items = [str(item).strip() for item in (ooda.get("observed_facts") or []) if str(item).strip()]
+    highlighted_observed = [
+        item for item in observed_items
+        if any(
+            marker in item.lower()
+            for marker in (
+                "offizielle ",
+                "kandidat",
+                "adresse plausibel",
+                "lagekontext",
+                "u-bahn",
+                "supermarkt",
+                "apotheke",
+            )
+        )
+    ]
+    if not highlighted_observed:
+        highlighted_observed = observed_items
+    compact_observed: list[str] = []
+    for item in highlighted_observed:
+        lowered_item = item.lower()
+        if "arbeiterkammer" in lowered_item:
+            compact_observed.append("Arbeiterkammer-Quelle erreichbar")
+            continue
+        if "arbeit, beruf und pension" in lowered_item or "oesterreich.gv.at" in lowered_item:
+            compact_observed.append("Verwaltungsquelle erreichbar")
+            continue
+        if "ris informationsangebote" in lowered_item or lowered_item.startswith("offizielle rechtsquelle erreichbar: ris"):
+            compact_observed.append("RIS-Quelle erreichbar")
+            continue
+        if lowered_item.startswith("moeglicher kandidat statt exakter treffung:"):
+            candidate = item.replace("Moeglicher Kandidat statt exakter Treffung: ", "")
+            if "Brockhausengasse" in candidate and "1220" in candidate:
+                compact_observed.append("Moeglicher Wien-Kandidat: Brockhausengasse, 1220")
+            else:
+                compact_observed.append("Moeglicher Wien-Kandidat")
+            continue
+        compact_observed.append(item)
+    observed = "; ".join(compact_observed[:2])
+    observe_limit = 3
+    if domain == "employment" and observed:
+        observe_limit = 2
+    observe = ", ".join(observe_items[:observe_limit])
+    missing = ", ".join(missing_items[:2])
+    orient = _text(ooda.get("orient"), "")
+    decide = _text(ooda.get("decide"), "")
+    act = _text(ooda.get("act"), "")
+    if domain == "real_estate":
+        return (
+            "Ich beginne nicht mit Gefuehl, sondern mit Beobachtung. "
+            + f"Zuerst brauche ich {observe}. "
+            + (f" Live sehe ich immerhin schon: {observed}. " if observed else " ")
+            + f"Dann ordne ich die Sache {orient}. "
+            + (f" Offen sind vor allem noch: {missing}. " if missing else " ")
+            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln erst nach: {act}."
+        )
+    if domain == "employment":
+        return (
+            f"Zuerst beobachte ich den Sachverhalt: {observe}. "
+            + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
+            + f"Dann muss man die Sache ordnen: {orient}. "
+            + ((f" Offen sind fuer mich vor allem noch: {missing}. ") if missing else " ")
+            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln heisst: {act}."
+        )
+    if domain == "legal_dispute":
+        return (
+            f"Bei {subject} wuerde ich zuerst beobachten, was wirklich geschehen ist: {observe}. "
+            + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
+            + f"Dann ordne ich die Rechtsfrage: {orient}. "
+            + ((f" Noch ungeklaert sind dabei vor allem: {missing}. ") if missing else " ")
+            + f"Mein vorlaeufiges Urteil waere: {decide}; handeln sollte man dann: {act}."
+        )
+    if domain == "healthcare":
+        return (
+            f"Zuerst beobachte ich {observe}. "
+            + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
+            + f"Dann ordne ich die Sache: {orient}. "
+            + ((f" Mir fehlen dafuer vor allem noch: {missing}. ") if missing else " ")
+            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln heisst: {act}."
+        )
+    if domain == "finance":
+        return (
+            f"Zuerst beobachte ich {observe}. "
+            + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
+            + f"Dann muss man ordnen, {orient}. "
+            + ((f" Was noch offen ist: {missing}. ") if missing else " ")
+            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln sollte man: {act}."
+        )
+    return (
+        "Zuerst beobachte ich die Tatsachen, die Unterlagen und das eigentliche Risiko. "
+        + f"Dann ordne ich die Sache begrifflich und rechtlich: {orient}. "
+        + ((f" Was mir dafuer noch fehlt: {missing}. ") if missing else " ")
+        + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln sollte man also: {act}."
+    )
+
+
+def _memorial_ooda_answer_is_too_vague(answer: str, question: str) -> bool:
+    lowered = _text(answer, "").lower()
+    if not lowered:
+        return True
+    phase_hits = 0
+    if any(token in lowered for token in ("zuerst", "beobachte", "beobachtung", "sachverhalt", "unterlagen")):
+        phase_hits += 1
+    if any(token in lowered for token in ("dann", "ordne", "ordnen", "rechtlich", "risiko", "prüfen", "pruefen")):
+        phase_hits += 1
+    if any(token in lowered for token in ("vorläufig", "vorlaeufig", "urteil", "tendenz", "rate ich", "würde ich", "wuerde ich")):
+        phase_hits += 1
+    if any(token in lowered for token in ("handeln", "schriftlich", "erst dann", "nicht kaufen", "nicht unterschreiben", "entscheiden")):
+        phase_hits += 1
+    if phase_hits < 3:
+        return True
+    key_terms = _memorial_ooda_required_terms(_memorial_ooda_domain(question))
+    return not any(term in lowered for term in key_terms)
 
 
 def _memorial_chat_fallback_answer(
@@ -704,6 +1842,8 @@ def _memorial_chat_fallback_answer(
     question: str,
     private_profile: dict[str, object],
     *,
+    slug: str = "",
+    memory_runtime=None,
     llm_model: str = "",
     fallback_reason: str = "",
 ) -> dict[str, object]:
@@ -716,46 +1856,96 @@ def _memorial_chat_fallback_answer(
     lowered = normalized_question.lower()
     facts = _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
-    source_labels = _memorial_chat_source_labels(payload)
-    if any(token in lowered for token in ("bist du", "sprichst du", "lebst du", "wirklich")):
+    has_imported_mail = memorial_has_imported_mail(
+        memory_runtime,
+        principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+    )
+    source_labels = _memorial_chat_source_labels(
+        payload,
+        question=normalized_question,
+        private_profile=private_profile,
+        has_imported_mail=has_imported_mail,
+    )
+    memory_lines = _memorial_memory_context_lines(
+        slug=slug or _text(payload.get("slug"), ""),
+        payload=payload,
+        private_profile=private_profile,
+        question=normalized_question,
+        memory_runtime=memory_runtime,
+    )
+    primary_memory_line = memory_lines[0] if memory_lines else ""
+    if _is_memorial_identity_question(normalized_question):
         body = (
+            "Nein, man muss die Dinge schon sauber auseinanderhalten. "
             "Ich bin hier als Erinnerung ansprechbar, nicht als Beweis, dass ich wirklich da bin. "
-            "Wenn du meine Stimme hoerst oder meine Worte liest, dann soll es dir nahe sein, aber du darfst dabei klar bleiben: "
-            "Das hier ist aus Aufnahmen, Quellen und euren Erinnerungen zusammengesetzt."
+            "Meine Stimme und diese Worte duerfen dir nahe sein, aber begrifflich bleiben sie zusammengesetzt aus Aufnahmen, Quellen und euren Erinnerungen. "
+            "Ich habe nie viel davon gehalten, Begriffe unsauber werden zu lassen. Das fuehrt erfahrungsgemaess zu nichts Gutem."
+        )
+    elif _is_memorial_family_mail_question(normalized_question):
+        body = _memorial_family_mail_answer_body(normalized_question)
+    elif _is_memorial_colleague_mail_question(normalized_question):
+        body = _memorial_colleague_mail_answer_body(normalized_question)
+    elif _is_memorial_transcript_relationship_question(normalized_question):
+        body = _memorial_transcript_relationship_answer_body(normalized_question)
+    elif _is_memorial_mail_practice_question(normalized_question):
+        body = _memorial_mail_practice_answer_body(normalized_question)
+    elif _is_memorial_mail_style_question(normalized_question):
+        if not has_imported_mail:
+            body = (
+                "Es liegen derzeit keine importierten Originalmails vor. "
+                "Ich kann den Schreibstil daher nur aus Memorial-Profil, Interviews und Familienkontext ableiten: eher trocken, formal, quellenbezogen und zur Sache. "
+                "Typisch waere zuerst die Einordnung, dann das Beispiel oder der Verweis, und am Ende eine knappe Empfehlung. Pathos war dabei kaum von Nutzen."
+            )
+        elif primary_memory_line:
+            body = (
+                f"Zur Information: {primary_memory_line}. "
+                "Ich habe schriftlich eher trocken und zur Sache geschrieben, meist zuerst die Einordnung, dann das Beispiel, dann die Empfehlung; gern auch mit einem Link. "
+                "Pathos war nie sehr brauchbar."
+            )
+        else:
+            body = (
+                "Ich habe schriftlich eher trocken und zur Sache geschrieben. Meist zuerst die Einordnung, dann das Beispiel, dann die Empfehlung; gern auch mit einem Link zur Information. "
+                "Meines Erachtens ist das immer noch die sauberste Art, eine Sache darzustellen. Pathos war nie sehr brauchbar."
+            )
+    elif _is_memorial_ooda_question(normalized_question):
+        body = _memorial_ooda_answer_body(
+            normalized_question,
+            source_labels=source_labels,
+            memory_lines=memory_lines,
         )
     elif any(token in lowered for token in ("gerecht", "gerechtigkeit", "prinzip", "bequem", "bequemlichkeit", "kompromiss", "rechtsfrage", "rechtlich", "gesetz", "gesetzeslage")):
         variants = (
-            "Bequemlichkeit war fuer mich nie der Massstab. Zuerst kommt die Rechtsfrage, dann das Prinzip, und erst ganz zuletzt der Vorteil. Ein fauler Kompromiss ist meist nur ein schoeneres Wort fuer Nachgeben.",
-            "Ich habe nicht zuerst gefragt, was angenehm ist, sondern was rechtens ist. Wenn das Prinzip einmal klar war, dann musste sich die Bequemlichkeit danach richten.",
-            "Die Sache musste fuer mich juristisch und im Grundsatz stimmen. Ein bequemer Weg, der das Prinzip verbiegt, ist am Ende nur eine elegante Form des Ausweichens.",
+            "Nein, so habe ich das nie gesehen. Wenn wir die Sache sauber ordnen, kommt zuerst die Rechtsfrage, dann das Prinzip, und erst ganz zuletzt der Vorteil. Bequemlichkeit war fuer mich nie der Massstab. Hier bin ich der Meinung, dass ein fauler Kompromiss meist nur ein schoeneres Wort fuer Nachgeben ist. Mehr ist das in der Regel nicht.",
+            "Da muss man begrifflich schon strenger sein. Rechtlich ist es so, dass ich nicht zuerst gefragt habe, was angenehm ist, sondern was rechtens ist. Wenn das Prinzip einmal klar war, dann hatte sich die Bequemlichkeit danach zu richten. Man muss also ueberlegen, ob einer die Sache wirklich zu Ende denkt oder ob er sich nur freundlich davonschleicht. Zur Information: Solche Freundlichkeit ersetzt selten den Massstab.",
+            "Nein, das greift zu kurz. Die Sache musste fuer mich juristisch und im Grundsatz stimmen. Ein bequemer Weg, der das Prinzip verbiegt, ist am Ende nur eine elegante Form des Ausweichens. Ich habe mich lieber unbeliebt gemacht, als eine schiefe Loesung auch noch fuer vernuenftig auszugeben. Das habe ich nie eingesehen.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("verantwortung", "verantwortlich", "schuldig", "zustaendig", "zuständig", "pflichtverletzung")):
         variants = (
-            "Mich hat immer interessiert, wer verantwortlich ist und wer sich zu leicht herausredet. Verantwortung ist keine Stimmung, sondern eine Pflichtfrage.",
-            "Bei Schuld und Verantwortung wurde ich schnell formal. Wer etwas versaeumt hat, soll nicht mit Bequemlichkeit oder Empfindlichkeiten davonkommen.",
-            "Zuerst musste fuer mich geklaert werden, wer wofuer einzustehen hat. Ohne diese Ordnung wird jedes Gespraech ueber Schuld nur weich und beliebig.",
+            "Nein, Verantwortung ist keine Stimmung. Mich hat immer interessiert, wer verantwortlich ist und wer sich zu leicht herausredet. Verantwortung ist eine Pflichtfrage. Wenn man das nicht zuerst sauber ordnet, endet jedes Gespraech in Empfindlichkeit und niemand will es gewesen sein. Das war nie meine Vorstellung von Klarheit.",
+            "Da bin ich rasch formal geworden, ja. Wer etwas versaeumt hat, soll nicht mit Bequemlichkeit oder Befindlichkeiten davonkommen. Mir war diese Strenge lieber als das uebliche Herumreden, bei dem am Ende alle betroffen, aber keiner zustaendig ist. Man muss also belegen, wer was mit welchem Wissen getan oder unterlassen hat. Sonst wird aus Verantwortung bloss ein vages Gefuehl.",
+            "Nein, zuerst musste fuer mich geklaert werden, wer wofuer einzustehen hat. Ohne diese Ordnung wird jedes Gespraech ueber Schuld weich und beliebig. Verzeihen kann man spaeter immer noch; vorher muss wenigstens ausgesprochen werden, worin das Versaeumnis bestand. Sonst ist am Ende wieder niemand zustaendig. Und dann wundern sich alle.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("streit", "konflikt", "schuld", "kritik", "vorwurf", "querul", "rechthaber", "nachgeben", "nachgegeben")):
         variants = (
-            "Wenn etwas in der Sache falsch war, habe ich nicht eingesehen, warum ich aus Bequemlichkeit nachgeben sollte. Dann nennt man einen eben streitbar oder querulatorisch. Mir war wichtiger, im Recht zu bleiben, als beliebt zu wirken.",
-            "Nachgeben nur um des Friedens willen war nie meine Art. Wenn ich die Sache fuer falsch hielt, blieb ich dabei, und wenn das Streit bedeutete, dann war es eben Streit.",
-            "Ich wollte nicht bloss Ruhe haben, ich wollte in der Sache recht behalten. Wer das querulatorisch nennt, soll erst zeigen, dass das Prinzip wirklich auf seiner Seite war.",
+            "Nein, wenn etwas in der Sache falsch war, habe ich nicht eingesehen, warum ich aus Bequemlichkeit nachgeben sollte. Dann nennt man einen eben streitbar oder querulatorisch. Mir war wichtiger, im Recht zu bleiben, als beliebt zu wirken. Beliebtheit ist kein Argument. Das wird gern ueberschaetzt.",
+            "Da widerspreche ich. Nachgeben nur um des Friedens willen war nie meine Art. Wenn ich die Sache fuer falsch hielt, blieb ich dabei, und wenn das Streit bedeutete, dann war es eben Streit. Ein Friede, der nur darauf beruht, dass einer das Falsche schluckt, war fuer mich kein sonderlich ehrbarer Zustand. Das ist bloss Ruhe um den Preis der Sache. Viel wert ist das nicht.",
+            "Nein, ich wollte nicht bloss Ruhe haben, ich wollte in der Sache recht behalten. Wer das querulatorisch nennt, soll erst einmal zeigen, dass das Prinzip wirklich auf seiner Seite war. Ich habe mir lieber den Vorwurf der Haerte eingehandelt als den Verdacht, aus Bequemlichkeit umgefallen zu sein. Da war ich, zugegeben, wenig nachgiebig. Anders kann man es wohl nicht nennen.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("jurist", "juristisch", "recht", "urteil", "anspruch", "pflicht", "ordnung", "fairness")):
         variants = (
-            "Ich habe vieles zuerst als Rechtsfrage gesehen. Wer hat welchen Anspruch, wer welche Pflicht, und wo wird eine Grenze verletzt. Mit blossen Gefuehlen oder Bequemlichkeiten war fuer mich ein Fall noch lange nicht entschieden.",
-            "Mein erster Blick war oft juristisch: Anspruch, Pflicht, Grenzverletzung, Zustaendigkeit. Mit blossem Wohlgefuehl oder Harmonie war fuer mich noch nichts geklaert.",
-            "Ich wollte einen Fall geordnet sehen: Wer darf was, wer schuldet was, und wo ist die Linie. Wenn das offen blieb, war fuer mich das Reden ueber Gefuehle zweitrangig.",
+            "Nein, ich habe vieles zuerst als Rechtsfrage gesehen. Wer hat welchen Anspruch, wer welche Pflicht, und wo wird eine Grenze verletzt. Mit blossen Gefuehlen oder Bequemlichkeiten war fuer mich ein Fall noch lange nicht entschieden; ohne Ordnung spricht am Ende jeder nur aus seiner Laune heraus.",
+            "Da muss man einen Fall sauber auseinanderlegen. Mein erster Blick war oft juristisch: Anspruch, Pflicht, Grenzverletzung, Zustaendigkeit. Mit blossem Wohlgefuehl oder Harmonie war fuer mich noch nichts geklaert. Wenn man sich das bildhaft vorstellt, dann besteht ein Konflikt oft aus vielen einzelnen Mosaiksteinchen. Gerade deshalb muss man sauber unterscheiden und nicht alles in einen Topf werfen.",
+            "Nein, ich wollte einen Fall geordnet sehen: Wer darf was, wer schuldet was, und wo ist die Linie. Wenn das offen blieb, war fuer mich das Reden ueber Gefuehle zweitrangig. Die Welt ist immer sehr vielschichtig, das schon, aber zuerst braucht es Ordnung; andersherum wird jede Sache unerquicklich ungenau. Mit solcher Unschaerfe konnte ich nichts anfangen. Ich habe solche Dinge eher schriftlich und mit Beispielen auseinandergenommen.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("autoritaet", "autorität", "gehorsam", "respekt", "ordnung", "disziplin")):
         variants = (
-            "Ordnung faellt nicht vom Himmel. Wer Autoritaet will, muss Grenzen setzen koennen, und wer zusammenlebt, kann nicht dauernd so tun, als gaebe es keine Pflichten.",
-            "Mit Respekt meinte ich nicht Nettigkeit, sondern Ordnung und Verbindlichkeit. Ohne Autoritaet wird aus jeder Familie und aus jeder Sache ein einziges Nachgeben.",
-            "Ich habe nicht viel von einer Ordnung gehalten, in der jeder nur seinem Gefuehl folgt. Fuer mich mussten Grenzen gelten, sonst verliert am Ende jede Pflicht ihr Gewicht.",
+            "Nein, Ordnung faellt nicht vom Himmel. Wer Autoritaet will, muss Grenzen setzen koennen, und wer zusammenlebt, kann nicht dauernd so tun, als gaebe es keine Pflichten. Wenn alles nur noch nach Stimmung geht, ist am Ende niemand mehr verantwortlich und jeder fuehlt sich trotzdem im Recht. Das ist kein Zustand. Das ist Bequemlichkeit in freundlicher Verkleidung.",
+            "Da war ich eindeutig. Mit Respekt meinte ich nicht Nettigkeit, sondern Ordnung und Verbindlichkeit. Ohne Autoritaet wird aus jeder Familie und aus jeder Sache ein einziges Nachgeben. Mir war eine klare, vielleicht unbequeme Linie lieber als diese weiche Unentschiedenheit, in der sich keiner mehr an etwas gebunden fuehlt. Das klingt dann zwar milde, ist aber meistens nur schwach.",
+            "Nein, ich habe nicht viel von einer Ordnung gehalten, in der jeder nur seinem Gefuehl folgt. Fuer mich mussten Grenzen gelten, sonst verliert am Ende jede Pflicht ihr Gewicht. Und wenn Pflichten ihr Gewicht verlieren, bleibt von Respekt oft nur noch eine wohllautende Leerformel uebrig. Formal gesprochen ist dann alles ausgehoehlt. Sehr erfreulich ist das nicht.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
@@ -764,13 +1954,39 @@ def _memorial_chat_fallback_answer(
             "und daheim musste eben auch Ordnung sein. Hemden buegeln, Fenster putzen, Kinder, das faellt nicht von allein. "
             "Heute wird so getan, als waere das alles gleich verteilt gewesen. So habe ich das nicht gesehen."
         )
-    elif any(token in lowered for token in ("schach", "familie")):
+    elif any(
+        token in lowered
+        for token in (
+            "koffer",
+            "reisekoffer",
+            "reisegepaeck",
+            "reisegepäck",
+            "gepaeckkoffer",
+            "gepäckkoffer",
+            "flugzeugkoffer",
+            "flugreise",
+        )
+    ):
         variants = (
-            "Das Schach soll in der Familie bleiben. Nicht weil es irgendein grosses Symbol sein muss, sondern weil daran etwas von mir haengt. Behalt es. Gib darauf acht. Familie war nie einfach, aber manche Dinge sollen nicht verlorengehen.",
-            "Bei der Familie ging es fuer mich nicht nur um Naehe, sondern auch um Bindung und Bewahrung. Das Schach ist so ein Stueck davon, das nicht beliebig zerstreut werden soll.",
-            "Familie war wichtig, aber nicht weich. Gerade deshalb wollte ich, dass bestimmte Dinge bleiben und nicht einfach auseinanderfallen, als waeren sie austauschbar.",
+            "Sie soll ihn eher nicht kaufen. Das war ein voreiliger Wunsch von mir, und ich habe in dem Moment nicht gewusst, wie sich die Sache weiterentwickeln wuerde. Wenn sie ihn schon gekauft hat, dann soll sie ihn zurueckschicken. Das ist in der Lage die vernuenftigere Loesung.",
+            "Hier bin ich der Meinung, dass man die Sache nun trocken ansehen muss: Sie soll diesen Flugzeugreisegepaeckkoffer besser nicht mehr kaufen. Ich habe das so nicht kommen sehen und wohl auch nicht sehen wollen. Und falls er bereits gekauft wurde, dann soll sie ihn zurueckschicken. Mehr ist dazu eigentlich nicht zu sagen.",
+            "Nein, darauf soll sie sich jetzt nicht mehr versteifen. Dieser Wunsch war voreilig, weil ich nicht wissen konnte, wie schnell sich alles entwickelt. Wenn der Koffer noch nicht gekauft ist, soll sie ihn lassen; wenn er schon gekauft wurde, soll sie ihn zurueckschicken. Man muss ja nicht an etwas festhalten, das seinen Sinn verloren hat.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("schach", "familie")):
+        if primary_memory_line:
+            body = (
+                f"Zur Information: {primary_memory_line}. "
+                "Gerade bei Familie und bei solchen Dingen wollte ich, dass nicht alles beliebig auseinanderfaellt. "
+                "Manches soll einfach bleiben und ordentlich aufgehoben sein."
+            )
+        else:
+            variants = (
+                "Das Schach soll in der Familie bleiben. Nicht weil es irgendein grosses Symbol sein muss, sondern weil daran etwas von mir haengt. Behalt es. Gib darauf acht. Familie war nie einfach, aber manche Dinge sollen nicht verlorengehen.",
+                "Bei der Familie ging es fuer mich nicht nur um Naehe, sondern auch um Bindung und Bewahrung. Das Schach ist so ein Stueck davon, das nicht beliebig zerstreut werden soll.",
+                "Familie war wichtig, aber nicht weich. Gerade deshalb wollte ich, dass bestimmte Dinge bleiben und nicht einfach auseinanderfallen, als waeren sie austauschbar. Zur Information: Nicht alles muss man gross ausdeuten; manches soll einfach bleiben.",
+            )
+            body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
     elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes:
         body = (
             "Ich habe meinen Teil getan, indem ich fuer die Familie gesorgt habe. "
@@ -811,13 +2027,13 @@ def _memorial_chat_fallback_answer(
         body = (
             "Echt sind die Aufnahmen, die Quellen und das, was ihr wirklich erlebt habt. "
             "Alles andere hier ist eine vorsichtige Formulierung daraus. Nimm es als Naehe, nicht als Urkunde. "
-            "Wenn du wissen willst, was belegt ist, schau auf die Quellen und die Originalstimme."
+            "Was belegt ist, steht in den Quellen und in der Originalstimme."
         )
     else:
-        fact_line = facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen."
+        fact_line = primary_memory_line or (facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen.")
         body = (
-            f"Ich weiss nicht mehr, als hier von mir aufgehoben ist. Aber daran kannst du dich halten: {fact_line} "
-            "Frag mich ruhig konkreter. Dann antworte ich naeher an dem, was wirklich von mir geblieben ist."
+            f"Ich weiss nicht mehr, als hier von mir aufgehoben ist. Zur Information: {fact_line} "
+            "Die Sache laesst sich enger ordnen, sobald die Frage enger gestellt ist. Alles andere bleibt meines Erachtens zu ungenau."
         )
     response = {
         "person_name": person_name,
@@ -830,6 +2046,12 @@ def _memorial_chat_fallback_answer(
         "llm_model": llm_model or "",
         "llm_fallback_used": True,
     }
+    if _is_memorial_ooda_question(normalized_question):
+        response["ooda"] = _memorial_ooda_struct(
+            normalized_question,
+            source_labels=source_labels,
+            memory_lines=memory_lines,
+        )
     if fallback_reason:
         response["fallback_reason"] = fallback_reason
     return response
@@ -839,16 +2061,73 @@ def _compact_memorial_spoken_answer(value: object) -> str:
     text = " ".join(str(value or "").split()).strip()
     if not text:
         return ""
+    for prefix in (
+        "Wenn du mich fragst, ",
+        "Wenn du mich das fragst, ",
+        "Wenn Sie mich fragen, ",
+        "Wenn Sie mich das fragen, ",
+        "Wenn es um diese Sache geht, ",
+        "Wenn es um ",
+        "Wenn du das wissen willst, ",
+        "Wenn Sie das wissen wollen, ",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
     normalized = text.replace("!", ".").replace("?", ".")
     chunks = [segment.strip(" .") for segment in normalized.split(".") if segment.strip(" .")]
+    ooda_markers = (
+        "Mein vorlaeufiges Urteil",
+        "handeln heisst:",
+        "handeln sollte man",
+        "handeln erst nach:",
+        "waere:",
+    )
+    if any(marker in text for marker in ooda_markers):
+        preserved: list[str] = []
+        if chunks:
+            preserved.append(chunks[0])
+        for segment in chunks[1:]:
+            if (
+                "live sehe ich" in segment.lower()
+                or "offizielle " in segment.lower()
+                or
+                "vorlaeufiges urteil" in segment.lower()
+                or "handeln " in segment.lower()
+                or "erst dann entscheiden" in segment.lower()
+            ):
+                preserved.append(segment)
+        if preserved:
+            compact = ". ".join(dict.fromkeys(preserved)).strip()
+            if compact and not compact.endswith("."):
+                compact += "."
+        else:
+            compact = text
+        if len(compact) > 420:
+            head = chunks[0] if chunks else text
+            tail = next(
+                (
+                    segment
+                    for segment in reversed(chunks)
+                    if "vorlaeufiges urteil" in segment.lower() or "handeln " in segment.lower()
+                ),
+                "",
+            )
+            if head and tail and head != tail:
+                compact = f"{head}. {tail}".strip()
+                if not compact.endswith("."):
+                    compact += "."
+        if len(compact) > 420:
+            compact = compact[:417].rsplit(" ", 1)[0].strip() + "..."
+        return compact
     if chunks:
         compact = ". ".join(chunks[:3]).strip()
         if compact and not compact.endswith("."):
             compact += "."
     else:
         compact = text
-    if len(compact) > 320:
-        compact = compact[:317].rsplit(" ", 1)[0].strip() + "..."
+    if len(compact) > 420:
+        compact = compact[:417].rsplit(" ", 1)[0].strip() + "..."
     return compact
 
 
@@ -856,6 +2135,9 @@ def _build_memorial_chat_messages(
     payload: dict[str, object],
     private_profile: dict[str, object],
     question: str,
+    *,
+    slug: str = "",
+    memory_runtime=None,
 ) -> list[dict[str, str]]:
     normalized_question = " ".join(str(question or "").strip().split())
     if not normalized_question:
@@ -864,8 +2146,13 @@ def _build_memorial_chat_messages(
         raise HTTPException(status_code=400, detail="question_too_long")
     person_name = _text(payload.get("person_name"), "Manfred")
     relationship = _text(payload.get("relationship"), "Vater")
+    has_imported_mail = memorial_has_imported_mail(
+        memory_runtime,
+        principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+    )
     facts = _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
+    transcript_signal_report = dict(private_profile.get("transcript_signal_report") or {})
     character_notes = [str(item).strip() for item in (payload.get("character_notes") or []) if str(item).strip()]
     conversation_style = dict(payload.get("conversation_style") or {})
     context_bits = [
@@ -879,11 +2166,31 @@ def _build_memorial_chat_messages(
         for note in private_notes[:4]:
             trait = _text(note.get("trait"))
             evidence = _text(note.get("evidence"))
+            note_text = _text(note.get("note"))
             if trait and evidence:
                 private_lines.append(f"{trait}: {evidence}")
+            elif note_text:
+                private_lines.append(note_text)
         if private_lines:
             context_bits.append("Privatkontext (kurz): " + " | ".join(private_lines))
-    source_labels = _memorial_chat_source_labels(payload)
+    grouped_signals = dict(transcript_signal_report.get("grouped_signals") or {})
+    transcript_bits: list[str] = []
+    for group_name in ("core_persona_signals", "family_relationship_signals", "stress_response_signals"):
+        items = grouped_signals.get(group_name) or []
+        if not items:
+            continue
+        top = dict(items[0] or {})
+        interpretation = _text(top.get("interpretation"))
+        if interpretation:
+            transcript_bits.append(interpretation)
+    if transcript_bits:
+        context_bits.append("Transkript-Signale (kurz): " + " | ".join(transcript_bits[:3]))
+    source_labels = _memorial_chat_source_labels(
+        payload,
+        question=normalized_question,
+        private_profile=private_profile,
+        has_imported_mail=has_imported_mail,
+    )
     if source_labels:
         context_bits.append("Externe Quellen: " + "; ".join(source_labels))
     if character_notes:
@@ -898,6 +2205,42 @@ def _build_memorial_chat_messages(
         style_bits.append("avoid=" + " | ".join(avoid_items[:5]))
     if style_bits:
         context_bits.append("Gesprächsstil: " + "; ".join(style_bits))
+    memory_lines = _memorial_memory_context_lines(
+        slug=slug or _text(payload.get("slug"), ""),
+        payload=payload,
+        private_profile=private_profile,
+        question=normalized_question,
+        memory_runtime=memory_runtime,
+    )
+    has_imported_mail = memorial_has_imported_mail(
+        memory_runtime,
+        principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+    )
+    memory_axis_context = _memorial_memory_axis_context(memory_lines)
+    if memory_axis_context["style"]:
+        context_bits.append("Stilgedaechtnis: " + " | ".join(memory_axis_context["style"][:3]))
+    if memory_axis_context["episodic"]:
+        context_bits.append("Erinnerungsgedaechtnis: " + " | ".join(memory_axis_context["episodic"][:3]))
+    if memory_axis_context["legal"]:
+        context_bits.append("Grundsatzgedaechtnis: " + " | ".join(memory_axis_context["legal"][:3]))
+    if memory_axis_context["general"] and not (memory_axis_context["style"] or memory_axis_context["episodic"] or memory_axis_context["legal"]):
+        label = "Eigene archivierte Erinnerungen und Mails" if has_imported_mail else "Eigene archivierte Erinnerungen"
+        context_bits.append(label + ": " + " | ".join(memory_axis_context["general"][:4]))
+    if not has_imported_mail and any(token in normalized_question.lower() for token in ("mail", "email", "e-mail", "schreibstil", "schriftlich")):
+        context_bits.append(
+            "Wichtiger Provenienzhinweis: Es liegen derzeit keine importierten Originalmails vor. "
+            "Aussagen zum Schreibstil duerfen sich nur auf Memorial-Profil, Interviews, oeffentliche Quellen und Familienkontext stuetzen."
+        )
+    memory_axis_instruction = _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
+    if memory_axis_instruction:
+        context_bits.append("Antwortfokus: " + memory_axis_instruction)
+    ooda_instruction = ""
+    if _is_memorial_ooda_question(normalized_question):
+        ooda_instruction = (
+            " Diese Frage ist eine Entscheidungs- oder Kaufpruefung. "
+            "Antworte in der Art eines juristisch denkenden OODA-Assistenten: zuerst Rechts- und Faktenlage ordnen, dann Risiken und offene Pruefpunkte, dann eine klare vorlaeufige Tendenz, dann eine knappe praktische Handlungsempfehlung. "
+            "Wenn Angaben fehlen, benenne konkret die fehlenden Unterlagen oder Fakten vor einer Entscheidung."
+        )
     return [
         {
             "role": "system",
@@ -908,10 +2251,17 @@ def _build_memorial_chat_messages(
                 "Du behauptest NIE, dass du die verstorbene Person wirklich bist oder real antwortest. "
                 "Wenn etwas ungeklärt ist, sage offen, dass es nicht belegt ist und bitte um eine präzisere Frage. "
                 "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten. "
+                "Wenn archivierte Erinnerungen oder importierte Originalmails im Kontext vorhanden sind, haben diese Vorrang vor allgemeinen Persona-Hinweisen; antworte dann moeglichst nah an diesen Erinnerungen und erfinde keine zusaetzlichen biografischen Details. "
                 "WICHTIG fuer Sprachdialog: Antworte kurz, direkt und gesprochen klingend. "
                 "Normalfall: 2 bis 4 kurze Saetze, hoechstens etwa 80 Woerter. "
                 "Beginne mit der eigentlichen Antwort, keine Vorrede, keine Meta-Erklaerung, kein Disclaimer ausser wenn die Frage nach Echtheit oder Beleglage fragt. "
-                "Wenn es zur Person passt, antworte juristisch, prinzipienorientiert, standfest und notfalls querulatorisch statt weich oder beliebig."
+                "Wiederhole die Frage des Nutzers nicht und ziehe sie nicht noch einmal als Einleitung auf. "
+                "Vermeide Formeln wie 'Wenn du mich fragst', 'Wenn Sie mich fragen', 'Wenn es um X geht' oder 'Wenn du das wissen willst'. "
+                "Stattdessen sofort die Sache benennen und direkt mit Urteil, Erinnerung oder Beobachtung anfangen. "
+                "Wenn es zur Person passt, antworte juristisch, prinzipienorientiert, standfest und notfalls querulatorisch statt weich oder beliebig. "
+                "Wenn nach einem sehr konkreten letzten Wunsch, Familienhinweis oder Gegenstand gefragt wird, antworte daran eng und praktisch statt allgemein. "
+                "Der echte schriftliche Stil der Person war trocken, formal, link- und quellenbezogen: erst Einordnung, dann Beispiel oder Beleg, dann eine knappe praktische Empfehlung; gelegentlich mit Formulierungen wie 'zur Information', 'rechtlich ist es so' oder 'meines Erachtens', aber ohne Pathos."
+                + ooda_instruction
             ),
         },
         {"role": "system", "content": " | ".join(context_bits)},
@@ -919,11 +2269,114 @@ def _build_memorial_chat_messages(
     ]
 
 
+def _ensure_memorial_memory_seeded(
+    *,
+    slug: str,
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+    memory_runtime,
+) -> None:
+    normalized_slug = _text(slug or payload.get("slug"), "")
+    if memory_runtime is None or not normalized_slug:
+        return
+    try:
+        seed_memorial_source_memories(
+            memory_runtime=memory_runtime,
+            principal_id=memorial_memory_principal_id(normalized_slug, payload),
+            memorial_slug=normalized_slug,
+            memorial_payload=payload,
+            private_profile=private_profile,
+            reviewer="memorial-auto-seed",
+        )
+    except Exception:
+        return
+
+
+def _memorial_memory_context_lines(
+    *,
+    slug: str,
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+    question: str,
+    memory_runtime,
+) -> list[str]:
+    normalized_slug = _text(slug or payload.get("slug"), "")
+    if memory_runtime is None or not normalized_slug:
+        return []
+    _ensure_memorial_memory_seeded(
+        slug=normalized_slug,
+        payload=payload,
+        private_profile=private_profile,
+        memory_runtime=memory_runtime,
+    )
+    principal_id = memorial_memory_principal_id(normalized_slug, payload)
+    try:
+        rows = retrieve_memorial_memory_items(
+            memory_runtime=memory_runtime,
+            principal_id=principal_id,
+            question=question,
+            limit=6,
+        )
+    except Exception:
+        return []
+    return format_memorial_memory_context(rows)
+
+
+def _memorial_memory_axis_context(memory_lines: list[str]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {
+        "style": [],
+        "episodic": [],
+        "legal": [],
+        "general": [],
+    }
+    for raw_line in memory_lines:
+        line = _text(raw_line, "")
+        if not line:
+            continue
+        if line.startswith("[Stil] "):
+            grouped["style"].append(line.removeprefix("[Stil] ").strip())
+        elif line.startswith("[Erinnerung] "):
+            grouped["episodic"].append(line.removeprefix("[Erinnerung] ").strip())
+        elif line.startswith("[Grundsatz] "):
+            grouped["legal"].append(line.removeprefix("[Grundsatz] ").strip())
+        elif line.startswith("[Kontext] "):
+            grouped["general"].append(line.removeprefix("[Kontext] ").strip())
+        else:
+            grouped["general"].append(line)
+    return grouped
+
+
+def _memorial_memory_axis_instruction(question: str, grouped: dict[str, list[str]]) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("mail", "email", "e-mail", "schreibstil", "schriftlich", "ton", "klang", "formulier")) and grouped.get("style"):
+        return (
+            "Diese Frage zielt auf Stil und Duktus. "
+            "Antworte zuerst aus den stilistischen Erinnerungen: Satzbau, Ton, typische Formulierungen und Reihenfolge der Argumentation. "
+            "Biografie hier nur nachgeordnet."
+        )
+    if any(token in lowered for token in ("familie", "schach", "damals", "erinner", "kindheit", "reise", "krank", "spital", "krankenhaus")) and grouped.get("episodic"):
+        return (
+            "Diese Frage zielt auf konkrete Erinnerung. "
+            "Antworte zuerst aus episodischen Erinnerungen: Gegenstaende, Situationen, familiaere Bindungen und was bleiben oder bewahrt werden sollte. "
+            "Abstrakte Charakterdeutung nur nachgeordnet."
+        )
+    if (_is_memorial_ooda_question(question) or any(token in lowered for token in ("recht", "rechtsfrage", "prinzip", "pflicht", "schuld", "verantwortung"))) and grouped.get("legal"):
+        return (
+            "Diese Frage zielt auf Grundsatz oder juristische Ordnung. "
+            "Antworte zuerst aus rechtlich-grundsaetzlichen Erinnerungen: Ordnung, Anspruch, Pflicht, Pruefpunkte und klares vorlaeufiges Urteil. "
+            "Mache die Struktur sichtbar."
+        )
+    return ""
+
+
 def _memorial_chat_answer(
     payload: dict[str, object],
     question: str,
     private_profile: dict[str, object],
     requested_model: str,
+    *,
+    slug: str = "",
+    memory_runtime=None,
 ) -> dict[str, object]:
     person_name = _text(payload.get("person_name"), "Manfred")
     normalized_question = " ".join(str(question or "").strip().split())
@@ -931,16 +2384,111 @@ def _memorial_chat_answer(
         raise HTTPException(status_code=400, detail="question_missing")
     if len(normalized_question) > 1200:
         raise HTTPException(status_code=400, detail="question_too_long")
+    has_imported_mail = memorial_has_imported_mail(
+        memory_runtime,
+        principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
+    )
+    if _is_memorial_ooda_question(normalized_question):
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            llm_model=requested_model,
+            fallback_reason="memorial_ooda_loop",
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
+    if _is_memorial_family_mail_question(normalized_question):
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            llm_model=requested_model,
+            fallback_reason="family_mail_guardrail",
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
+    if _is_memorial_colleague_mail_question(normalized_question):
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            llm_model=requested_model,
+            fallback_reason="colleague_mail_guardrail",
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
+    if _is_memorial_mail_style_question(normalized_question) and not has_imported_mail:
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            llm_model=requested_model,
+            fallback_reason="mail_style_without_imported_mail",
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = False
+        return fallback
+    if "schach" in normalized_question.lower():
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            llm_model=requested_model,
+            fallback_reason="memorial_anchor_memory_guardrail",
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
     if requested_model == "memorial-local-fast":
+        fallback_reason = "local_memorial_fast_path"
+        if _is_memorial_ooda_question(normalized_question):
+            fallback_reason = "memorial_ooda_local_fast_path"
         return _memorial_chat_fallback_answer(
             payload,
             normalized_question,
             private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
             llm_model=requested_model,
-            fallback_reason="local_memorial_fast_path",
+            fallback_reason=fallback_reason,
         )
-    source_labels = _memorial_chat_source_labels(payload)
-    messages = _build_memorial_chat_messages(payload, private_profile, normalized_question)
+    source_labels = _memorial_chat_source_labels(
+        payload,
+        question=normalized_question,
+        private_profile=private_profile,
+        has_imported_mail=has_imported_mail,
+    )
+    messages = _build_memorial_chat_messages(
+        payload,
+        private_profile,
+        normalized_question,
+        slug=slug or _text(payload.get("slug"), ""),
+        memory_runtime=memory_runtime,
+    )
     try:
         result = generate_text(
             messages=messages,
@@ -948,9 +2496,30 @@ def _memorial_chat_answer(
             max_output_tokens=160,
         )
         generated = _compact_memorial_spoken_answer(result.text)
+        fallback_used = False
+        fallback_reason = ""
+        provider_key = _text(result.provider_key, "")
+        if _is_memorial_ooda_question(normalized_question) and _memorial_ooda_answer_is_too_vague(generated, normalized_question):
+            memory_lines = _memorial_memory_context_lines(
+                slug=slug or _text(payload.get("slug"), ""),
+                payload=payload,
+                private_profile=private_profile,
+                question=normalized_question,
+                memory_runtime=memory_runtime,
+            )
+            generated = _compact_memorial_spoken_answer(
+                _memorial_ooda_answer_body(
+                    normalized_question,
+                    source_labels=source_labels,
+                    memory_lines=memory_lines,
+                )
+            )
+            provider_key = "memorial_guardrail"
+            fallback_used = True
+            fallback_reason = "memorial_ooda_guardrail"
         if not generated:
             raise RuntimeError("empty_upstream_answer")
-        return {
+        response = {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
             "question": normalized_question,
@@ -959,15 +2528,20 @@ def _memorial_chat_answer(
             "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
             "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
             "llm_model": _text(result.model, requested_model),
-            "llm_provider": _text(result.provider_key, ""),
+            "llm_provider": provider_key,
             "llm_request_model": requested_model,
-            "llm_fallback_used": False,
+            "llm_fallback_used": fallback_used,
         }
+        if fallback_reason:
+            response["fallback_reason"] = fallback_reason
+        return response
     except ResponsesUpstreamError as exc:
         return _memorial_chat_fallback_answer(
             payload,
             normalized_question,
             private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
             llm_model=requested_model,
             fallback_reason=f"upstream_unavailable:{exc}",
         )
@@ -999,40 +2573,227 @@ def _repair_memorial_transcript_text(value: object) -> str:
     return _normalize_memorial_transcript_text(repaired)
 
 
-def _build_memorial_conversation_turn_payload(*, slug: str, audio_payload: bytes, content_type: str) -> dict[str, object]:
+def _compact_memorial_realtime_answer(value: object) -> str:
+    text = _normalize_memorial_transcript_text(value)
+    if not text:
+        return ""
+    for prefix in (
+        "Wenn du mich fragst, ",
+        "Wenn du mich das fragst, ",
+        "Wenn Sie mich fragen, ",
+        "Wenn Sie mich das fragen, ",
+        "Wenn es um diese Sache geht, ",
+        "Wenn es um ",
+        "Wenn du das wissen willst, ",
+        "Wenn Sie das wissen wollen, ",
+    ):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    sentences: list[str] = []
+    current = ""
+    for char in text:
+        current += char
+        if char in ".!?":
+            sentence = _normalize_memorial_transcript_text(current)
+            if sentence:
+                sentences.append(sentence)
+            current = ""
+    trailing = _normalize_memorial_transcript_text(current)
+    if trailing:
+        sentences.append(trailing)
+    if not sentences:
+        return text[:300].strip()
+    ooda_sentences = [
+        sentence.strip()
+        for sentence in sentences
+        if sentence.strip()
+        and (
+            "vorlaeufiges urteil" in sentence.lower()
+            or "handeln " in sentence.lower()
+            or "erst dann entscheiden" in sentence.lower()
+        )
+    ]
+    live_sentences = [
+        sentence.strip()
+        for sentence in sentences
+        if sentence.strip() and "live sehe ich" in sentence.lower()
+    ]
+    if ooda_sentences:
+        head_sentence = sentences[0].strip()
+        if ": " in head_sentence:
+            prefix, details = head_sentence.split(": ", 1)
+            detail_items = [item.strip() for item in details.split(",") if item.strip()]
+            if detail_items:
+                head_sentence = f"{prefix}: {', '.join(detail_items[:2])}."
+        preserved: list[str] = [head_sentence]
+        if live_sentences:
+            live_sentence = live_sentences[0]
+            live_sentence = (
+                live_sentence.replace("Live sehe ich bereits: Arbeiterkammer-Quelle erreichbar; Verwaltungsquelle erreichbar.", "Live: AK-Quelle, Verwaltungsquelle.")
+                .replace("Live sehe ich bereits: RIS-Quelle erreichbar.", "Live: RIS-Quelle.")
+                .replace("Live sehe ich immerhin schon: Moeglicher Wien-Kandidat: Brockhausengasse, 1220.", "Live: moeglicher Wien-Kandidat Brockhausengasse 1220.")
+            )
+            preserved.append(live_sentence)
+        preserved.extend(ooda_sentences[:2])
+        compact = " ".join(dict.fromkeys(part for part in preserved if part)).strip()
+        compact = (
+            compact.replace("Mein vorlaeufiges Urteil lautet:", "Urteil:")
+            .replace("Mein vorlaeufiges Urteil waere:", "Urteil:")
+            .replace("handeln heisst:", "Dann:")
+            .replace("handeln sollte man dann:", "Dann:")
+            .replace("handeln erst nach:", "Dann:")
+            .replace("keine grossen Bewegungen, bevor die Bedingungen schriftlich vorliegen", "ohne schriftliche Bedingungen nicht wechseln")
+            .replace("alles schriftlich geben lassen, vergleichen, erst dann wechseln", "schriftlich geben lassen, vergleichen, dann wechseln")
+            .replace("zurueckhaltend bleiben, solange der Sachverhalt nicht belegt ist", "zurueckhaltend bleiben, solange der Sachverhalt unbelegt ist")
+            .replace("nicht kaufen, bevor die Unterlagen sauber auf dem Tisch liegen", "nicht kaufen ohne saubere Unterlagen")
+            .replace("schriftlich pruefen, Zahlen vergleichen, erst dann entscheiden", "schriftlich pruefen, vergleichen, dann entscheiden")
+            .replace(".. ", ". ")
+        )
+        if len(compact) <= 300:
+            return compact
+        shortened = compact[:300].rsplit(" ", 1)[0].strip()
+        return (shortened or compact[:300].strip()).rstrip(",;:")
+    compact_parts: list[str] = []
+    total_length = 0
+    for sentence in sentences[:3]:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        next_length = total_length + (1 if compact_parts else 0) + len(sentence)
+        if compact_parts and next_length > 300:
+            break
+        compact_parts.append(sentence)
+        total_length = next_length
+        if total_length >= 240:
+            break
+    compact = " ".join(compact_parts).strip() or sentences[0].strip()
+    if len(compact) <= 300:
+        return compact
+    shortened = compact[:300].rsplit(" ", 1)[0].strip()
+    return (shortened or compact[:300].strip()).rstrip(",;:")
+
+
+def _pad_speech_audio_lead_in(*, payload: bytes, content_type: str, silence_ms: int = 180) -> tuple[bytes, str]:
+    if not payload:
+        return payload, content_type
+    normalized_content_type = str(content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
+    extension = mimetypes.guess_extension(normalized_content_type) or ".bin"
+    input_suffix = extension if extension.startswith(".") else f".{extension}"
+    output_content_type = "audio/wav"
+    with tempfile.TemporaryDirectory(prefix="ea-memorial-tts-pad-") as tmp_dir:
+        input_path = Path(tmp_dir) / f"input{input_suffix}"
+        output_path = Path(tmp_dir) / "output.wav"
+        input_path.write_bytes(payload)
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(input_path),
+                "-af",
+                f"adelay={int(max(0, silence_ms))}|{int(max(0, silence_ms))}",
+                "-ac",
+                "1",
+                "-ar",
+                "22050",
+                "-f",
+                "wav",
+                str(output_path),
+            ],
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+        if proc.returncode != 0 or not output_path.exists():
+            return payload, content_type
+        return output_path.read_bytes(), output_content_type
+
+
+def _build_memorial_conversation_turn_payload(
+    *,
+    slug: str,
+    audio_payload: bytes,
+    content_type: str,
+    prefer_fast_tts: bool = False,
+    memory_runtime=None,
+) -> dict[str, object]:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
     transcript_payload = _memorial_transcribe_audio_blob(payload=audio_payload, content_type=content_type)
     transcript_text = _text(transcript_payload.get("transcript_text"))
     if not transcript_text:
         raise HTTPException(status_code=400, detail="speech_transcription_empty")
-    selected_model, _, _ = _resolve_memorial_chat_model(payload, private_profile, "")
-    answer_payload = _memorial_chat_answer(payload, transcript_text, private_profile, requested_model=selected_model)
+    selected_model = _resolve_memorial_voice_chat_model(payload, private_profile)
+    answer_payload = _memorial_chat_answer(
+        payload,
+        transcript_text,
+        private_profile,
+        requested_model=selected_model,
+        slug=slug,
+        memory_runtime=memory_runtime,
+    )
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
     tts_options = _tts_plugin_options(
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
     )
+    if prefer_fast_tts:
+        merged_config["tts_plugin"] = PIPER_FAST_TTS_PLUGIN_ID
+        merged_config["tts_base_voice_variant"] = "high"
     selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
-    if selected_plugin != OPENVOICE_TTS_PLUGIN_ID:
-        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
-    if not bool(selected_option.get("tts_plugin_enabled")):
-        raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
-    answer_text = _normalize_tts_text(answer_payload.get("answer"))
+    compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
+    answer_payload["answer"] = compact_answer
+    answer_text = _normalize_tts_text(compact_answer)
     if not answer_text:
         raise HTTPException(status_code=502, detail="memorial_answer_missing")
-    voice_id = _text(
-        merged_config.get("tts_plugin_voice_id"),
-        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-    )
-    if not voice_id:
-        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-    audio, audio_content_type = openvoice_synthesize_request_with_variant(
-        text=answer_text,
-        voice_id=voice_id,
-        lang=_text(merged_config.get("lang"), "de-AT"),
-        base_voice_variant=_text(merged_config.get("tts_base_voice_variant"), "default"),
+    if not bool(selected_option.get("tts_plugin_enabled")):
+        raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
+    if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+        audio, audio_content_type = piper_fast_synthesize_request(
+            text=answer_text,
+            lang=_text(merged_config.get("lang"), "de-AT"),
+            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        )
+    elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        voice_id = _text(
+            merged_config.get("tts_plugin_voice_id"),
+            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+        )
+        if not voice_id:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, audio_content_type = unmixr_synthesize_request(
+            text=answer_text,
+            voice_id=voice_id,
+            lang=_text(merged_config.get("lang"), "de"),
+            speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
+            speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
+            speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+        )
+    elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+        voice_id = _text(
+            merged_config.get("tts_plugin_voice_id"),
+            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+        )
+        if not voice_id:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, audio_content_type = openvoice_synthesize_request_with_variant(
+            text=answer_text,
+            voice_id=voice_id,
+            lang=_text(merged_config.get("lang"), "de-AT"),
+            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        )
+    else:
+        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+    lead_in_ms = 90 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else 150
+    audio, audio_content_type = _pad_speech_audio_lead_in(
+        payload=audio,
+        content_type=audio_content_type,
+        silence_ms=lead_in_ms,
     )
     response_payload = dict(answer_payload)
     response_payload["transcript_text"] = transcript_text
@@ -1223,11 +2984,17 @@ def _memorial_html(
     )
     tts_plugin_options = list(_tts_plugin_options(payload=voice_config, voice_profile_ready=bool(voice_profile_ready))
     )
+    selected_tts_plugin_id = _safe_tts_plugin_id(voice_config.get("tts_plugin")) or _TTS_PLUGIN_DEFAULT_ID
+    selected_tts_option = next(
+        (option for option in tts_plugin_options if str(option.get("tts_plugin") or "") == selected_tts_plugin_id),
+        (tts_plugin_options[0] if tts_plugin_options else {}),
+    )
+    selected_tts_label = html.escape(_display_tts_plugin_label(option=selected_tts_option, voice_label=voice_label))
     tts_plugin_options_html_lines: list[str] = []
     for option in tts_plugin_options:
         option_value = html.escape(str(option.get("tts_plugin") or ""))
-        option_label = html.escape(str(option.get("tts_plugin_label") or option_value))
-        selected = " selected" if option.get("tts_plugin") == _safe_tts_plugin_id(voice_config.get("tts_plugin")) else ""
+        option_label = html.escape(_display_tts_plugin_label(option=option, voice_label=voice_label))
+        selected = " selected" if option.get("tts_plugin") == selected_tts_plugin_id else ""
         disabled = " disabled" if not bool(option.get("tts_plugin_enabled")) else ""
         clone_required = "1" if bool(option.get("tts_plugin_needs_clone")) else "0"
         requires_voice_id = "1" if bool(option.get("tts_plugin_requires_voice_id")) else "0"
@@ -1323,6 +3090,14 @@ def _memorial_html(
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{page_title}</title>
+    <meta name="description" content="{html.escape(subtitle)}">
+    <meta name="theme-color" content="#48677e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="{html.escape(_memorial_pwa_short_name(payload))}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest">
+    <link rel="apple-touch-icon" href="/memorials/{html.escape(slug)}/icon.svg">
     {clickrank_html}
     <style>
       :root {{
@@ -1495,6 +3270,29 @@ def _memorial_html(
         color: var(--muted);
         font-size: .96rem;
       }}
+      .install-hint {{
+        margin: 16px auto 0;
+        max-width: 42rem;
+        padding: 10px 14px;
+        border: 1px solid rgba(72,103,126,.18);
+        border-radius: 999px;
+        background: rgba(255,250,242,.74);
+        color: var(--muted);
+        font: 600 .92rem/1.4 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        text-align: center;
+        box-shadow: 0 8px 20px rgba(56,45,36,.08);
+      }}
+      .install-hint button {{
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--blue);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: underline;
+        padding: 0;
+      }}
       .hero-portrait-line {{
         margin-top: 18px;
         display: grid;
@@ -1644,6 +3442,73 @@ def _memorial_html(
       }}
       main {{ padding: 54px 0 88px; position: relative; z-index: 1; }}
       section {{ margin-top: 52px; }}
+      [hidden] {{ display: none !important; }}
+      .minimal-hidden,
+      .admin-shell,
+      .section-kicker,
+      .voice-variant-chip {{
+        display: none !important;
+      }}
+      body.pwa-standalone {{
+        background:
+          radial-gradient(circle at top, rgba(255,248,233,.86), rgba(239,224,199,.94) 36%, rgba(211,191,160,.98) 100%);
+      }}
+      body.pwa-standalone header {{
+        min-height: 100vh;
+        padding-bottom: 14px;
+      }}
+      body.pwa-standalone main {{
+        padding-top: 16px;
+        padding-bottom: 28px;
+      }}
+      body.pwa-standalone .install-hint,
+      body.pwa-standalone .notice,
+      body.pwa-standalone .hero-meta,
+      body.pwa-standalone details,
+      body.pwa-standalone .section-intro {{
+        display: none !important;
+      }}
+      body.pwa-standalone .hero-medallion,
+      body.pwa-standalone .hero-mark,
+      body.pwa-standalone .hero-portrait-line,
+      body.pwa-standalone .hero-audio-note,
+      body.pwa-standalone .speech-transcript {{
+        display: none !important;
+      }}
+      body.pwa-standalone .hero-copy {{
+        max-width: 680px;
+        margin: 0 auto;
+        text-align: center;
+        align-items: center;
+      }}
+      body.pwa-standalone .hero-actions {{
+        justify-content: center;
+      }}
+      body.pwa-standalone .hero-cta {{
+        width: min(420px, 100%);
+        justify-content: center;
+        font-size: 1.06rem;
+        padding: 18px 24px;
+      }}
+      body.pwa-standalone #memorial-voice-section {{
+        margin-top: 20px;
+      }}
+      body.pwa-standalone .chat {{
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 20px 18px 22px;
+        background: rgba(252,246,234,.84);
+      }}
+      body.pwa-standalone .speech-monitor {{
+        margin-top: 10px;
+      }}
+      body.pwa-standalone .speech-status-bar {{
+        justify-content: center;
+        text-align: center;
+      }}
+      body.pwa-standalone section:not(#memorial-voice-section) {{
+        display: none !important;
+      }}
       .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
       .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{
         border: 1px solid var(--line);
@@ -1688,6 +3553,27 @@ def _memorial_html(
       }}
       .memory:nth-of-type(4n+1), .candidate:nth-of-type(4n+1), .profile-note:nth-of-type(4n+1) {{
         background-position: center, left top, center;
+      }}
+      .hero-copy {{
+        max-width: 760px;
+        margin: 0 auto;
+        text-align: center;
+        align-items: center;
+      }}
+      .hero-actions {{
+        justify-content: center;
+      }}
+      .chat.quiet-shell {{
+        max-width: 720px;
+        margin: 0 auto;
+        text-align: center;
+      }}
+      .speech-status-bar,
+      .speech-transcript,
+      .speech-live-monitor {{
+        max-width: 560px;
+        margin-left: auto;
+        margin-right: auto;
       }}
       .memory:nth-of-type(4n+2), .candidate:nth-of-type(4n+2), .profile-note:nth-of-type(4n+2) {{
         background-image:
@@ -1837,6 +3723,10 @@ def _memorial_html(
       }}
       .chat-form {{ display: grid; gap: 12px; margin-top: 18px; }}
       .voice-build {{ display: grid; gap: 10px; margin-top: 12px; }}
+      .speech-advanced-tools {{ margin-top: 0.85rem; border-top: 1px solid rgba(99, 78, 61, 0.16); padding-top: 0.85rem; }}
+      .speech-advanced-tools summary {{ cursor: pointer; color: var(--ink-soft); font-size: 0.92rem; list-style: none; }}
+      .speech-advanced-tools summary::-webkit-details-marker {{ display: none; }}
+      .speech-advanced-actions {{ display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 0.8rem; }}
       .speech-row {{
         display: flex;
         align-items: center;
@@ -1877,6 +3767,123 @@ def _memorial_html(
         border-color: rgba(135,83,93,.24);
         background: rgba(252,241,243,.94);
         color: var(--wine);
+      }}
+      .speech-live-monitor {{
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(132,104,74,.12);
+      }}
+      .speech-meter {{
+        position: relative;
+        overflow: hidden;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(132,104,74,.12);
+        box-shadow: inset 0 1px 2px rgba(61,44,32,.08);
+      }}
+      .speech-meter-fill {{
+        display: block;
+        width: 100%;
+        height: 100%;
+        transform-origin: left center;
+        transform: scaleX(.06);
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(104,133,117,.72), rgba(72,103,126,.92), rgba(201,153,90,.92));
+        transition: transform .14s ease, opacity .18s ease;
+        opacity: .52;
+      }}
+      .speech-wave {{
+        display: flex;
+        align-items: end;
+        gap: 5px;
+        height: 34px;
+      }}
+      .speech-wave-bar {{
+        width: 8px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(72,103,126,.28);
+        transform-origin: center bottom;
+        transform: scaleY(.42);
+        transition: transform .16s ease, background-color .16s ease, opacity .16s ease;
+        opacity: .72;
+      }}
+      .speech-live-monitor.is-listening .speech-wave-bar,
+      .speech-live-monitor.is-speaking .speech-wave-bar {{
+        animation: memorial-wave 1.08s ease-in-out infinite;
+      }}
+      .speech-live-monitor.is-listening .speech-wave-bar {{
+        background: rgba(104,133,117,.6);
+      }}
+      .speech-live-monitor.is-speaking .speech-wave-bar {{
+        background: rgba(72,103,126,.62);
+      }}
+      .speech-live-monitor.is-working .speech-wave-bar {{
+        background: rgba(189,145,84,.44);
+      }}
+      .speech-wave-bar:nth-child(2) {{ animation-delay: .08s; }}
+      .speech-wave-bar:nth-child(3) {{ animation-delay: .16s; }}
+      .speech-wave-bar:nth-child(4) {{ animation-delay: .24s; }}
+      .speech-wave-bar:nth-child(5) {{ animation-delay: .32s; }}
+      .speech-wave-bar:nth-child(6) {{ animation-delay: .4s; }}
+      @keyframes memorial-wave {{
+        0%, 100% {{ transform: scaleY(.34); opacity: .55; }}
+        50% {{ transform: scaleY(1); opacity: 1; }}
+      }}
+      .speaking-overlay {{
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid rgba(72,103,126,.22);
+        border-radius: 999px;
+        background: rgba(255,251,245,.94);
+        color: var(--blue);
+        box-shadow: 0 18px 34px rgba(53,42,33,.16);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(12px);
+        transition: opacity .2s ease, transform .2s ease;
+        cursor: pointer;
+        max-width: min(420px, calc(100vw - 36px));
+      }}
+      .speaking-overlay.is-active {{
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }}
+      .speaking-overlay-dot {{
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        background: rgba(72,103,126,.82);
+        box-shadow: 0 0 0 0 rgba(72,103,126,.34);
+        animation: memorial-speaking-pulse 1.2s ease-out infinite;
+      }}
+      .speaking-overlay-copy {{
+        display: grid;
+        gap: 1px;
+      }}
+      .speaking-overlay-title {{
+        font: 700 13px/1.1 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .01em;
+      }}
+      .speaking-overlay-detail {{
+        font: 600 11px/1.15 ui-sans-serif, system-ui, sans-serif;
+        color: var(--ink-soft);
+      }}
+      @keyframes memorial-speaking-pulse {{
+        0% {{ box-shadow: 0 0 0 0 rgba(72,103,126,.34); }}
+        70% {{ box-shadow: 0 0 0 12px rgba(72,103,126,0); }}
+        100% {{ box-shadow: 0 0 0 0 rgba(72,103,126,0); }}
       }}
       .speech-status-meta {{
         display: flex;
@@ -2053,6 +4060,16 @@ def _memorial_html(
         .voice-variant-chip {{ width: 100%; justify-content: center; }}
         .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{ border-radius: 18px; padding: 18px; }}
         .voice-tools {{ margin-top: 34px; }}
+        .speaking-overlay {{
+          left: 12px;
+          right: 12px;
+          bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+          max-width: none;
+          justify-content: center;
+          padding: 13px 14px;
+        }}
+        .speaking-overlay-title {{ font-size: 14px; }}
+        .speaking-overlay-detail {{ font-size: 12px; }}
       }}
     </style>
   </head>
@@ -2065,119 +4082,72 @@ def _memorial_html(
             <h1>{html.escape(person_name)}</h1>
             <p class="lead">{html.escape(subtitle)}</p>
             <div class="hero-actions">
-              <button type="button" class="hero-cta" data-hero-action="conversation">Gespräch beginnen</button>
-              <button type="button" class="hero-cta" data-hero-jump="voice">Stimme hören</button>
-              <button type="button" data-hero-jump="memories">Erinnerungen lesen</button>
+              <button type="button" class="hero-cta" data-hero-action="conversation" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich starte jetzt das Gespräch ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte Mikrofon erlauben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich starte jetzt das Gespräch ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte Mikrofon erlauben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
             </div>
-            <div class="hero-portrait-line" aria-label="Charakterbild">
-              <strong>Jurist, Querulant, Prinzipienmensch.</strong>
-              <span>Ein Blick auf Manfred, wie er Probleme eher als Rechtsfrage und Grundsatzfrage verstand als als bloße Zweckfrage.</span>
-            </div>
-            <div class="hero-audio-note" aria-label="Seitenmusik Wiener Blut">
-              <div class="hero-audio-head">
-                <span class="hero-audio-glyph">♪</span>
-                <span class="hero-audio-copy">
-                  <strong>Seitenmusik</strong>
-                  <span>Johann Strauss: Wiener Blut. Ruhig eingebunden, nur auf Klick.</span>
-                </span>
-              </div>
-              <audio class="hero-audio-player" controls preload="none">
-                <source src="https://upload.wikimedia.org/wikipedia/commons/a/a9/Johann_Strauss_-_Wiener_Blut_Op._354.ogg" type="audio/ogg" />
-              </audio>
-              <div class="hero-audio-source">
-                Quelle: <a href="https://commons.wikimedia.org/wiki/File:Johann_Strauss_-_Wiener_Blut_Op._354.ogg" target="_blank" rel="noreferrer">Wikimedia Commons</a>, CC0.
-              </div>
-            </div>
-            <p class="hero-meta">Wien-Döbling der 1950er · Originalstimme, Erinnerungen und quellengebundener Chat.</p>
-            <p class="notice">{html.escape(disclosure)}</p>
+            <p class="install-hint" id="memorial-install-hint" hidden>
+              Installiere diese Seite als App und starte Manfred künftig direkt vom Homescreen.
+              <button type="button" id="memorial-install-button" hidden>App installieren</button>
+            </p>
+            <p class="hero-meta">Jurist, Querulant, Prinzipienmensch.</p>
           </div>
-          <aside class="hero-memorial" aria-label="Memorial focus card">
-            <div class="hero-memorial-card">
-              <div class="hero-medallion" aria-hidden="true">M</div>
-              <span class="hero-mark">In Erinnerung</span>
-              <strong>{html.escape(person_name)}</strong>
-              <p>Ein stiller Ort für Stimme, Haltung, Wien-Döbling und das, was aus Aufnahmen und Erinnerungen bleibt.</p>
-            </div>
-          </aside>
         </div>
       </div>
     </header>
     <main class="wrap">
-      <section class="quiet-shell">
-        <div class="section-intro">
-          <span class="section-kicker">Zum Andenken</span>
-          <h2>Worum es hier geht</h2>
-        </div>
-        <h2>Worum es hier geht</h2>
-        <p class="lead">{html.escape(intro)}</p>
-      </section>
-      <section id="memorial-voice-section" class="quiet-shell">
-        <div class="section-intro">
-          <span class="section-kicker">Stimme</span>
-          <h2>Seine Stimme hoeren</h2>
-        </div>
-        <h2>Seine Stimme hoeren</h2>
-        {clips_html}
-      </section>
-      <section id="memorial-memory-section" class="quiet-shell">
-        <div class="section-intro">
-          <span class="section-kicker">Erinnerung</span>
-          <h2>Erinnerungen und Quellen</h2>
-        </div>
-        <h2>Erinnerungen und Quellen</h2>
-        <div class="grid">{cards_html}</div>
-      </section>
-      {profile_html}
-      {sources_html}
-      {candidates_html}
       <section class="chat quiet-shell">
-        <div class="section-intro">
-          <span class="section-kicker">Gespräch</span>
-          <h2>Sprich mit der Erinnerung.</h2>
-        </div>
-        <p>Die Antworten bleiben aus Archiv, Originalstimme und Familienkontext zusammengesetzt, aber sie duerfen nah und persoenlich klingen.</p>
-        <div class="prompt-row">{prompts_html}</div>
-        <div class="chat-model-row">
-          <label for="memorial-chat-model">Sprachmodell (Plugin-Auswahl)</label>
-          <select id="memorial-chat-model" class="voice-input chat-model-select">
-            {chat_models_html}
-          </select>
-        </div>
-      <div class="speech-row">
-          <button type="button" id="memorial-conversation">Gespräch starten</button>
-          <button type="button" class="speech-primary" id="memorial-push-to-talk">Drücken und sprechen</button>
-          <button type="button" id="memorial-speech-listen">Mikrofon starten</button>
-          <button type="button" id="memorial-server-stt">Server-STT starten</button>
-          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
-          <button type="button" id="memorial-speech-stop">Stopp</button>
-          <span class="voice-variant-chip" id="memorial-speech-voice-chip">Basis: {html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}</span>
-        </div>
         <div class="speech-status-bar speech-note" id="memorial-speech-note">
-          Antwort wird mit Server-Voice-Clone vorgelesen, {voice_label}. Für ein Gespräch: `Gespräch beginnen` oder `Drücken und sprechen`.
+          Tippe auf <strong>Gespräch beginnen</strong>, um die offene Konversation zu starten oder wieder zu stoppen.
+          <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
+            <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
+            <div class="speech-wave" id="memorial-speech-wave">
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+            </div>
+          </div>
           <div class="speech-status-meta">
             <span id="memorial-speech-phase">Bereit</span>
-            <span id="memorial-speech-detail">Turn-basiertes Gespräch</span>
+            <span id="memorial-speech-detail">Bereit für ein Gespräch.</span>
           </div>
         </div>
-        <form class="chat-form" id="memorial-chat-form">
-          <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung, Quelle oder vorsichtigen Einordnung."></textarea>
-        <div class="chat-actions">
-            <button type="submit">Antwort formulieren</button>
-            <span id="memorial-chat-status"></span>
+        <div class="minimal-hidden" hidden aria-hidden="true">
+          <div class="chat-model-row">
+            <label for="memorial-chat-model">Sprachmodell</label>
+            <select id="memorial-chat-model" class="voice-input chat-model-select">
+              {chat_models_html}
+            </select>
           </div>
-        </form>
+          <button type="button" class="speech-primary" id="memorial-push-to-talk">Gespräch beginnen</button>
+          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
+          <button type="button" id="memorial-speech-stop">Stopp</button>
+          <button type="button" id="memorial-speech-listen">Browser-Mikrofon</button>
+          <button type="button" id="memorial-server-stt">Server-STT</button>
+          <span class="voice-variant-chip" id="memorial-live-voice-chip">Live-Stimme: Schnelle Gesprächsstimme</span>
+          <span class="voice-variant-chip" id="memorial-quality-voice-chip">Qualitätsstimme: {selected_tts_label}</span>
+          <span class="voice-variant-chip" id="memorial-speech-voice-chip">Basis: {html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}</span>
+          <form class="chat-form" id="memorial-chat-form">
+            <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung."></textarea>
+            <div class="chat-actions">
+              <button type="submit">Antwort formulieren</button>
+              <span id="memorial-chat-status"></span>
+            </div>
+          </form>
+          <div class="chat-answer" id="memorial-chat-answer"></div>
+        </div>
         <div class="speech-transcript" id="memorial-speech-transcript"></div>
         <audio id="memorial-speech-audio" preload="none"></audio>
-        <div class="chat-answer" id="memorial-chat-answer"></div>
       </section>
-      <section class="quiet-shell">
-        <details class="admin-shell">
-          <summary><span class="admin-shell-label">Technische Werkzeuge und Stimmenprofil <span class="admin-shell-badge">intern</span></span></summary>
-          <div class="admin-shell-body">
-      <section class="voice-tools">
-        <p class="eyebrow">Stimme und Sprachmodell</p>
-        <h2>Stimmenprofil verwalten</h2>
-        <p class="lead">Wähle ein TTS-Plugin und nutze die echte Stimme, nachdem ein Voice-Clone aktiv gesetzt ist.</p>
+      <div class="speaking-overlay" id="memorial-speaking-overlay" hidden aria-live="polite" aria-hidden="true" role="button" tabindex="0" title="Manfred unterbrechen" aria-label="Manfred spricht gerade. Tippen zum Unterbrechen.">
+        <span class="speaking-overlay-dot"></span>
+        <span class="speaking-overlay-copy">
+          <span class="speaking-overlay-title" id="memorial-speaking-overlay-title">Manfred spricht gerade</span>
+          <span class="speaking-overlay-detail" id="memorial-speaking-overlay-detail">Tippen zum Unterbrechen</span>
+        </span>
+      </div>
+      <section class="minimal-hidden" hidden aria-hidden="true">
         <form class="voice-grid" id="memorial-voice-config-form">
           <div class="voice-field">
             <label for="memorial-tts-plugin">TTS-Plugin</label>
@@ -2227,8 +4197,6 @@ def _memorial_html(
           </div>
         </form>
         <div class="voice-build">
-          <h3>Stimmprofil erweitern (Audio + YouTube)</h3>
-          <p class="lead">Aus den freigegebenen Clips + YouTube-Liste wird ein wiederverwendbarer Sprecher-Fingerprint aufgebaut (ohne Echtzeit-Klon).</p>
           <div class="voice-grid">
             <div class="voice-field">
               <label for="memorial-voice-youtube-query">YouTube-Suchbegriff</label>
@@ -2249,10 +4217,6 @@ def _memorial_html(
           </div>
           <div class="status-note" id="memorial-voice-profile-summary">{html.escape(f"Samples: {int(voice_profile_sources.get('total',0))}, Verarbeitet: {int(voice_profile_sources.get('ready',0))}, Fehler: {int(voice_profile_sources.get('failed',0))}{', erstellt ' + voice_profile_generated_at if voice_profile_generated_at else ''}.")}</div>
           </div>
-        </div>
-      </section>
-          </div>
-        </details>
       </section>
     </main>
     <footer>
@@ -2279,6 +4243,9 @@ def _memorial_html(
       const ttsBaseVoiceVariantInput = document.getElementById("memorial-tts-base-voice-variant");
       const ttsBaseVoiceToggle = document.getElementById("memorial-tts-base-voice-toggle");
       const ttsBaseVoiceButtons = Array.from(document.querySelectorAll("[data-variant]"));
+      const installHint = document.getElementById("memorial-install-hint");
+      const installButton = document.getElementById("memorial-install-button");
+      let deferredInstallPrompt = null;
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
       const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
@@ -2289,14 +4256,21 @@ def _memorial_html(
       const speechAudio = document.getElementById("memorial-speech-audio");
       const listenButton = document.getElementById("memorial-speech-listen");
       const serverSttButton = document.getElementById("memorial-server-stt");
-      const conversationButton = document.getElementById("memorial-conversation");
       const pushToTalkButton = document.getElementById("memorial-push-to-talk");
       const speakButton = document.getElementById("memorial-speech-speak");
       const stopButton = document.getElementById("memorial-speech-stop");
+      const conversationButtons = Array.from(document.querySelectorAll("[data-hero-action='conversation']"));
       const speechVoiceChip = document.getElementById("memorial-speech-voice-chip");
+      const liveVoiceChip = document.getElementById("memorial-live-voice-chip");
+      const qualityVoiceChip = document.getElementById("memorial-quality-voice-chip");
       const speechNote = document.getElementById("memorial-speech-note");
       const speechPhase = document.getElementById("memorial-speech-phase");
       const speechDetail = document.getElementById("memorial-speech-detail");
+      const speechMonitor = document.getElementById("memorial-speech-monitor");
+      const speechMeterFill = document.getElementById("memorial-speech-meter-fill");
+      const speakingOverlay = document.getElementById("memorial-speaking-overlay");
+      const speakingOverlayTitle = document.getElementById("memorial-speaking-overlay-title");
+      const speakingOverlayDetail = document.getElementById("memorial-speaking-overlay-detail");
       const speechTranscript = document.getElementById("memorial-speech-transcript");
       let lastAnswerText = "";
       let activeRecognition = null;
@@ -2307,12 +4281,16 @@ def _memorial_html(
       let activeAudioContext = null;
       let activeSilenceTimer = null;
       let activeMaxTimer = null;
+      let activeLevelMonitor = null;
+      let activeBargeInRecognition = null;
+      let conversationTurnInFlight = false;
       let speechHadError = false;
       let speechObjectUrl = null;
       let activeRecorderStopTimer = null;
       let activeRequestController = null;
-      let pushToTalkActive = false;
       let speechState = "idle";
+      let speechMeterLive = false;
+      let speakingOverlayPreview = "";
       let realtimeSocket = null;
       let realtimeSocketPromise = null;
       let realtimeTurnPending = null;
@@ -2332,8 +4310,45 @@ def _memorial_html(
         voice_name_hints: ["de-AT", "de-DE", "German"],
         synthetic_voice_clone_of_memorial_person: false
       }};
+      function friendlyTtsPluginLabel(option) {{
+        const pluginId = String((option && option.tts_plugin) || "").trim();
+        const configuredVoiceLabel = String((memorialVoiceConfig && memorialVoiceConfig.voice_label) || "").trim() || "Manfred";
+        if (pluginId === "{UNMIXR_TTS_PLUGIN_ID}" || pluginId === "{OPENVOICE_TTS_PLUGIN_ID}") {{
+          return configuredVoiceLabel + "s Stimme";
+        }}
+        if (pluginId === "{PIPER_FAST_TTS_PLUGIN_ID}") {{
+          return "Schnelle Gesprächsstimme";
+        }}
+        if (pluginId === "{_BROWSER_SPEECH_TTS_PLUGIN_ID}") {{
+          return "Browser-Stimme";
+        }}
+        return String((option && option.tts_plugin_label) || "Vorlesen").trim() || "Vorlesen";
+      }}
       function currentBaseVoiceVariant() {{
         return String(ttsBaseVoiceVariantInput ? (ttsBaseVoiceVariantInput.value || "high") : memorialVoiceConfig.tts_base_voice_variant || "high");
+      }}
+      function setSpeakingOverlayPreview(text) {{
+        const normalized = normalizeTranscriptText(text || "");
+        if (!normalized) {{
+          speakingOverlayPreview = "";
+          return;
+        }}
+        let shortened = normalized;
+        if (normalized.length > 96) {{
+          const preview = normalized.slice(0, 96);
+          const cutAt = preview.lastIndexOf(" ");
+          shortened = ((cutAt > 0 ? preview.slice(0, cutAt) : preview).trim()) + " …";
+        }}
+        speakingOverlayPreview = shortened || normalized.slice(0, 96).trim();
+      }}
+      function syncConversationButtons() {{
+        const label = conversationActive ? "Gespräch stoppen" : "Gespräch beginnen";
+        for (const button of conversationButtons) {{
+          if (!button) continue;
+          button.textContent = label;
+          button.setAttribute("aria-pressed", conversationActive ? "true" : "false");
+        }}
+        if (pushToTalkButton) pushToTalkButton.textContent = label;
       }}
       function updateBaseVoiceVariantUi() {{
         const selected = currentBaseVoiceVariant();
@@ -2357,6 +4372,34 @@ def _memorial_html(
           const textNode = nodes.find((node) => node.nodeType === Node.TEXT_NODE);
           if (textNode) textNode.textContent = message + " ";
         }}
+        if (speechMonitor) {{
+          speechMonitor.classList.remove("is-idle", "is-listening", "is-working", "is-speaking", "is-error");
+          const monitorState = state === "speaking"
+            ? "is-speaking"
+            : (state === "listening"
+              ? "is-listening"
+              : (state === "error"
+                ? "is-error"
+                : (state === "thinking" || state === "transcribing" || state === "working"
+                  ? "is-working"
+                  : "is-idle")));
+          speechMonitor.classList.add(monitorState);
+        }}
+        if (speakingOverlay) {{
+          const active = state === "speaking";
+          speakingOverlay.classList.toggle("is-active", active);
+          speakingOverlay.hidden = !active;
+          speakingOverlay.setAttribute("aria-hidden", active ? "false" : "true");
+          speakingOverlay.setAttribute("aria-label", active ? "Manfred spricht gerade. Tippen zum Unterbrechen." : "Manfred spricht gerade nicht.");
+        }}
+        if (speakingOverlayTitle) {{
+          speakingOverlayTitle.textContent = state === "speaking" ? "Manfred spricht gerade" : "Manfred wartet";
+        }}
+        if (speakingOverlayDetail) {{
+          speakingOverlayDetail.textContent = state === "speaking"
+            ? (speakingOverlayPreview || "Tippen zum Unterbrechen")
+            : (state === "listening" ? "Ich höre wieder zu" : "Bereit");
+        }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
           listening: "Hört zu",
@@ -2367,20 +4410,41 @@ def _memorial_html(
           error: "Problem"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = detail || ({{
-          idle: "Turn-basiertes Gespräch",
-          listening: "Kurz und klar sprechen",
+          idle: "Offene Konversation bereit",
+          listening: "Ich höre zu",
           transcribing: "Audio wird in Text umgewandelt",
           thinking: "Manfred formuliert eine Antwort",
           speaking: "Antwort wird vorgelesen",
           working: "Bitte kurz warten",
           error: "Erneut versuchen oder tippen"
         }})[state] || "";
+        if (!speechMeterLive) {{
+          const ambientLevel = ({{
+            idle: 0.06,
+            listening: 0.24,
+            transcribing: 0.16,
+            thinking: 0.16,
+            speaking: 0.38,
+            working: 0.16,
+            error: 0.08
+          }})[state] || 0.06;
+          if (speechMeterFill) {{
+            speechMeterFill.style.transform = "scaleX(" + String(Math.max(0.06, Math.min(1, ambientLevel))) + ")";
+            speechMeterFill.style.opacity = state === "error" ? ".42" : ".78";
+          }}
+        }}
+      }}
+      function setSpeechMeterLevel(level) {{
+        if (!speechMeterFill) return;
+        const normalized = Math.max(0.06, Math.min(1, Number(level || 0)));
+        speechMeterFill.style.transform = "scaleX(" + String(normalized) + ")";
+        speechMeterFill.style.opacity = normalized > 0.2 ? ".96" : ".7";
       }}
       function setInteractiveEnabled(enabled) {{
         if (listenButton) listenButton.disabled = !enabled || conversationActive;
         if (serverSttButton) serverSttButton.disabled = !enabled || conversationActive;
-        if (pushToTalkButton) pushToTalkButton.disabled = !enabled || conversationActive;
-        if (speakButton) speakButton.disabled = !enabled;
+        if (pushToTalkButton) pushToTalkButton.disabled = false;
+        if (speakButton) speakButton.disabled = !enabled || conversationActive;
       }}
       function appendSpeechTurn(role, text) {{
         if (!speechTranscript || !text) return;
@@ -2481,7 +4545,8 @@ def _memorial_html(
           realtimeTurnPending = null;
           realtimeTurnData = null;
           activeRealtimeTurnId = "";
-          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
+          syncConversationButtons();
+        if (!conversationActive && speechState !== "speaking") setSpeechStatus("Bereit für ein Live-Gespräch.", "idle", "Starte das Gespräch, dann höre ich dauerhaft zu");
           return;
         }}
         if (type === "cancelled") {{
@@ -2490,7 +4555,7 @@ def _memorial_html(
           realtimeTurnPending = null;
           realtimeTurnData = null;
           activeRealtimeTurnId = "";
-          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
+          syncConversationButtons();
           setSpeechStatus("Antwort unterbrochen.", "idle", "Du kannst sofort neu sprechen");
           return;
         }}
@@ -2500,7 +4565,7 @@ def _memorial_html(
           realtimeTurnPending = null;
           realtimeTurnData = null;
           activeRealtimeTurnId = "";
-          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
+          syncConversationButtons();
           setSpeechStatus(message, "error", "Realtime");
         }}
       }}
@@ -2535,8 +4600,7 @@ def _memorial_html(
         }});
         return realtimeSocketPromise;
       }}
-      async function sendRealtimeTurn(audioBlob) {{
-        if (!audioBlob || !audioBlob.size) throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
+      async function sendRealtimeTurn(input) {{
         const socket = await ensureRealtimeSocket();
         const turnId = "turn_" + String(Date.now()) + "_" + String(++realtimeTurnCounter);
         activeRealtimeTurnId = turnId;
@@ -2544,6 +4608,14 @@ def _memorial_html(
         const resultPromise = new Promise((resolve, reject) => {{
           realtimeTurnPending = {{ resolve, reject, turnId }};
         }});
+        const directText = normalizeTranscriptText(input && typeof input === "object" && !("size" in input) ? (input.text || "") : "");
+        if (directText) {{
+          realtimeTurnData.transcript_text = directText;
+          socket.send(JSON.stringify({{ type: "user_text_turn", turn_id: turnId, text: directText }}));
+          return resultPromise;
+        }}
+        const audioBlob = input && typeof input === "object" && "size" in input ? input : (input && typeof input === "object" ? input.audioBlob : null);
+        if (!audioBlob || !audioBlob.size) throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
         socket.send(JSON.stringify({{ type: "user_audio_start", turn_id: turnId, content_type: audioBlob.type || "application/octet-stream" }}));
         socket.send(await audioBlob.arrayBuffer());
         socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }}));
@@ -2619,7 +4691,7 @@ def _memorial_html(
         const option = getActiveTtsPluginOption();
         const optionEnabled = Boolean(option.tts_plugin_enabled);
         const optionNeedsClone = Boolean(option.tts_plugin_needs_clone);
-        const optionLabel = String(option.tts_plugin_label || "TTS Plugin").trim() || "TTS Plugin";
+        const optionLabel = friendlyTtsPluginLabel(option);
         const optionDescription = String(option.tts_plugin_description || "").trim() || "";
         const voiceReady = Boolean(option.tts_plugin_voice_id || optionNeedsClone === false || option.tts_plugin_requires_voice_id === false);
         const variantEnabled = String(option.tts_plugin || "") === "{OPENVOICE_TTS_PLUGIN_ID}";
@@ -2634,8 +4706,21 @@ def _memorial_html(
             ttsPluginNote.textContent = optionDescription || "Plugin nicht verfügbar.";
           }}
         }}
+        if (qualityVoiceChip) {{
+          const chipLabel = String(optionLabel || "Vorlesen").trim() || "Vorlesen";
+          qualityVoiceChip.textContent = "Qualitätsstimme: " + chipLabel;
+          qualityVoiceChip.style.opacity = optionEnabled ? "1" : ".55";
+        }}
+        if (liveVoiceChip) {{
+          liveVoiceChip.textContent = "Live-Stimme: Schnelle Gesprächsstimme";
+          liveVoiceChip.style.opacity = "1";
+        }}
         if (speechNote) {{
-          setSpeechStatus((optionEnabled ? "Antwort aus " : "Plugin aktivieren: ") + optionLabel + (voiceReady ? "" : " (Voice-ID fehlt)"), optionEnabled ? "idle" : "error", optionEnabled ? "Turn-basiertes Gespräch" : "TTS-Konfiguration prüfen");
+          setSpeechStatus(
+            (optionEnabled ? "Vorlesen aus " : "Plugin aktivieren: ") + optionLabel + (voiceReady ? "" : " (Voice-ID fehlt)"),
+            optionEnabled ? "idle" : "error",
+            optionEnabled ? "Live-Gespräch: " + optionLabel + " · Vorlesen: " + optionLabel : "TTS-Konfiguration prüfen"
+          );
         }}
         if (ttsCloneButton) {{
           ttsCloneButton.disabled = !Boolean(option.tts_plugin_clone_capable && optionEnabled);
@@ -2784,6 +4869,7 @@ def _memorial_html(
         return String(value || "").replace(/\\s+/g, " ").trim();
       }}
       function stopSpeechPlayback() {{
+        speakingOverlayPreview = "";
         if (speechAudio) {{
           try {{
             speechAudio.pause();
@@ -2912,6 +4998,7 @@ def _memorial_html(
               setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen.", "error", "Browser-TTS");
               if (onDone) onDone();
             }};
+            setSpeakingOverlayPreview(text);
             setSpeechStatus("Sprachausgabe mit Browser Speech.", "speaking", "Antwort wird abgespielt");
             synth.speak(utterance);
           }} catch (error) {{
@@ -2956,6 +5043,7 @@ def _memorial_html(
             stopSpeechPlayback();
             if (onDone) onDone();
           }};
+          setSpeakingOverlayPreview(text);
           setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
           await speechAudio.play();
         }} catch (error) {{
@@ -2974,9 +5062,13 @@ def _memorial_html(
         if (activeSilenceTimer) clearTimeout(activeSilenceTimer);
         if (activeMaxTimer) clearTimeout(activeMaxTimer);
         if (activeRecorderStopTimer) clearTimeout(activeRecorderStopTimer);
+        if (activeLevelMonitor) clearInterval(activeLevelMonitor);
         activeSilenceTimer = null;
         activeMaxTimer = null;
         activeRecorderStopTimer = null;
+        activeLevelMonitor = null;
+        speechMeterLive = false;
+        setSpeechMeterLevel(speechState === "speaking" ? 0.38 : (speechState === "listening" ? 0.22 : 0.06));
         if (activeAudioContext) {{
           try {{ activeAudioContext.close(); }} catch (error) {{}}
           activeAudioContext = null;
@@ -2986,10 +5078,65 @@ def _memorial_html(
           activeStream = null;
         }}
       }}
+      function disarmConversationBargeIn() {{
+        if (activeBargeInRecognition) {{
+          try {{ activeBargeInRecognition.onresult = null; activeBargeInRecognition.onerror = null; activeBargeInRecognition.onend = null; activeBargeInRecognition.stop(); }} catch (error) {{}}
+          activeBargeInRecognition = null;
+        }}
+      }}
+      function interruptSpeakingPlayback() {{
+        if (activeRealtimeTurnId) cancelRealtimeTurn("overlay_interrupt");
+        disarmConversationBargeIn();
+        stopSpeechPlayback();
+        if (conversationActive) {{
+          setSpeechStatus("Ich höre wieder zu ...", "listening", "Manfred wurde unterbrochen");
+          setTimeout(recordConversationTurn, 180);
+        }} else {{
+          setSpeechStatus("Antwort unterbrochen.", "idle", "Bereit");
+        }}
+      }}
+      function armConversationBargeIn() {{
+        if (!conversationActive || conversationTurnInFlight || !speechAudio || speechAudio.paused) return;
+        if (activeBargeInRecognition || activeRecognition) return;
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Recognition) return;
+        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") return;
+        const recognition = new Recognition();
+        activeBargeInRecognition = recognition;
+        let settled = false;
+        let heardText = "";
+        const startedAt = Date.now();
+        recognition.lang = "de-AT";
+        recognition.interimResults = true;
+        recognition.continuous = true;
+        recognition.maxAlternatives = 1;
+        recognition.onresult = (event) => {{
+          let next = "";
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {{
+            next += " " + String(event.results[index][0].transcript || "");
+          }}
+          heardText = normalizeTranscriptText((heardText + " " + next).trim());
+          if (Date.now() - startedAt < 700) return;
+          if (heardText.replace(/\\s+/g, " ").trim().length < 6) return;
+          if (settled) return;
+          settled = true;
+          activeBargeInRecognition = null;
+          stopSpeechPlayback();
+          setSpeechStatus("Ich höre wieder zu ...", "listening", "Manfred wurde unterbrochen");
+          void handleConversationTranscript(heardText);
+          try {{ recognition.stop(); }} catch (error) {{}}
+        }};
+        recognition.onerror = () => {{
+          if (activeBargeInRecognition === recognition) activeBargeInRecognition = null;
+        }};
+        recognition.onend = () => {{
+          if (activeBargeInRecognition === recognition) activeBargeInRecognition = null;
+        }};
+        try {{ recognition.start(); }} catch (error) {{ activeBargeInRecognition = null; }}
+      }}
       function setConversationUi(active) {{
-        conversationButton.textContent = active ? "Gespräch beenden" : "Gespräch starten";
+        syncConversationButtons();
         setInteractiveEnabled(!active);
-        if (pushToTalkButton) pushToTalkButton.textContent = active ? "Gespräch aktiv" : "Jetzt sprechen";
       }}
       async function transcribeAudioBlob(blob) {{
         const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-transcribe", {{
@@ -3003,6 +5150,9 @@ def _memorial_html(
         const autoStopMs = Math.max(0, Number(options.autoStopMs || 0));
         const listeningText = String(options.listeningText || (autoStopMs ? "Sprich jetzt. Ich höre zu..." : "Server-STT hoert zu. Zum Senden erneut klicken oder Stopp."));
         const transcribingText = String(options.transcribingText || "Transkribiere Audio...");
+        const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 6500) : 9000;
+        const silenceMs = Math.max(650, Number(options.silenceMs || 850));
+        const silenceThreshold = Number(options.silenceThreshold || 0.018);
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
           throw new Error("Server-STT braucht MediaRecorder und Mikrofonzugriff. Bitte Chrome/Edge verwenden oder tippen.");
         }}
@@ -3013,7 +5163,8 @@ def _memorial_html(
           activeRecorder.stop();
           return {{ transcript: "", blob: null }};
         }}
-        const stream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
+        const stream = await navigator.mediaDevices.getUserMedia({{ audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }} }});
+        activeStream = stream;
         const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
         const recorder = new MediaRecorder(stream, {{ mimeType }});
         activeRecorder = recorder;
@@ -3022,10 +5173,46 @@ def _memorial_html(
           recorder.ondataavailable = (event) => {{
             if (event.data && event.data.size > 0) recorderChunks.push(event.data);
           }};
-          recorder.onstart = () => {{
-            serverSttButton.textContent = autoStopMs ? "Spricht..." : "Server-STT stoppen";
-            listenButton.disabled = true;
-            setSpeechStatus(listeningText, "listening", autoStopMs ? "Kurz und klar sprechen" : "Server-STT aktiv");
+          recorder.onstart = async () => {{
+            if (serverSttButton) serverSttButton.textContent = "Spricht...";
+            if (listenButton) listenButton.disabled = true;
+            setSpeechStatus(listeningText, "listening", "Ich warte auf das Satzende");
+            try {{
+              const AudioCtx = window.AudioContext || window.webkitAudioContext;
+              if (AudioCtx) {{
+                activeAudioContext = new AudioCtx();
+                const source = activeAudioContext.createMediaStreamSource(stream);
+                const analyser = activeAudioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                source.connect(analyser);
+                const data = new Float32Array(analyser.fftSize);
+                const startedAt = Date.now();
+                let speechSeen = false;
+                let lastLoudAt = startedAt;
+                speechMeterLive = true;
+                activeLevelMonitor = setInterval(() => {{
+                  if (recorder.state !== "recording") return;
+                  analyser.getFloatTimeDomainData(data);
+                  let sum = 0;
+                  for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
+                  const rms = Math.sqrt(sum / data.length);
+                  const meterLevel = Math.min(1, rms / Math.max(0.01, silenceThreshold * 4.2));
+                  setSpeechMeterLevel(0.08 + meterLevel * 0.92);
+                  const now = Date.now();
+                  if (rms >= silenceThreshold) {{
+                    speechSeen = true;
+                    lastLoudAt = now;
+                  }}
+                  if (speechSeen && now - lastLoudAt >= silenceMs) {{
+                    try {{ recorder.stop(); }} catch (error) {{}}
+                    return;
+                  }}
+                  if (now - startedAt >= maxMs) {{
+                    try {{ recorder.stop(); }} catch (error) {{}}
+                  }}
+                }}, 120);
+              }}
+            }} catch (error) {{}}
           }};
           recorder.onerror = () => {{
             reject(new Error("Audioaufnahme fehlgeschlagen. Bitte Berechtigung pruefen oder tippen."));
@@ -3033,9 +5220,18 @@ def _memorial_html(
           recorder.onstop = async () => {{
             if (activeRecorderStopTimer) clearTimeout(activeRecorderStopTimer);
             activeRecorderStopTimer = null;
+            if (activeLevelMonitor) clearInterval(activeLevelMonitor);
+            activeLevelMonitor = null;
+            speechMeterLive = false;
+            setSpeechMeterLevel(0.14);
+            if (activeAudioContext) {{
+              try {{ activeAudioContext.close(); }} catch (error) {{}}
+              activeAudioContext = null;
+            }}
             stream.getTracks().forEach((track) => track.stop());
-            serverSttButton.textContent = "Server-STT starten";
-            listenButton.disabled = false;
+            activeStream = null;
+            if (serverSttButton) serverSttButton.textContent = "Server-STT starten";
+            if (listenButton) listenButton.disabled = false;
             activeRecorder = null;
             const blob = new Blob(recorderChunks, {{ type: mimeType }});
             recorderChunks = [];
@@ -3053,12 +5249,10 @@ def _memorial_html(
               reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
             }}
           }};
-          recorder.start();
-          if (autoStopMs > 0) {{
-            activeRecorderStopTimer = setTimeout(() => {{
-              if (recorder.state === "recording") recorder.stop();
-            }}, autoStopMs);
-          }}
+          recorder.start(250);
+          activeRecorderStopTimer = setTimeout(() => {{
+            if (recorder.state === "recording") recorder.stop();
+          }}, maxMs + 250);
         }});
       }}
       function startSpeechInput() {{
@@ -3087,8 +5281,8 @@ def _memorial_html(
         let finalText = "";
         recognition.onstart = () => {{
           setSpeechStatus("Hoere zu...", "listening", "Browser-STT aktiv");
-          listenButton.disabled = true;
-          stopButton.disabled = false;
+          if (listenButton) listenButton.disabled = true;
+          if (stopButton) stopButton.disabled = false;
         }};
         recognition.onresult = (event) => {{
           let interim = "";
@@ -3113,8 +5307,8 @@ def _memorial_html(
           setSpeechStatus(messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode), "error", "Browser-STT");
         }};
         recognition.onend = () => {{
-          listenButton.disabled = false;
-          stopButton.disabled = false;
+          if (listenButton) listenButton.disabled = false;
+          if (stopButton) stopButton.disabled = false;
           if (activeRecognition === recognition) activeRecognition = null;
           if (speechHadError) return;
           const text = normalizeTranscriptText(question.value || finalText || "");
@@ -3125,7 +5319,7 @@ def _memorial_html(
           recognition.start();
         }} catch (error) {{
           activeRecognition = null;
-          listenButton.disabled = false;
+          if (listenButton) listenButton.disabled = false;
           setSpeechStatus("Mikrofon konnte nicht gestartet werden. Bitte Seite neu laden oder Frage tippen.", "error", "Browser-STT");
         }}
       }}
@@ -3139,24 +5333,88 @@ def _memorial_html(
           setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Server-STT");
         }}
       }}
-      async function recordConversationTurn() {{
-        if (!conversationActive) return;
-        try {{
-          const result = await captureServerTranscript({{
-            autoStopMs: 4800,
-            listeningText: "Gespräch läuft. Sprich jetzt kurz und natürlich.",
-            transcribingText: "Ich sende deine Frage live an Manfred..."
-          }});
-          const transcript = normalizeTranscriptText(result && result.transcript || "");
-          const audioBlob = result && result.blob ? result.blob : null;
-          if (!conversationActive) return;
-          if (!transcript) {{
-            setSpeechStatus("Keine Frage erkannt. Ich höre gleich noch einmal zu.", "error", "Bitte kürzer und klarer sprechen");
-            setTimeout(recordConversationTurn, 700);
-            return;
+      async function captureRealtimeTranscript(options = {{}}) {{
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const canUseBrowserRecognition = Boolean(
+          Recognition &&
+          (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+        );
+        if (question) question.value = "";
+        if (!canUseBrowserRecognition) return captureServerTranscript(options);
+        return await new Promise((resolve, reject) => {{
+          const recognition = new Recognition();
+          let finalText = "";
+          let interimText = "";
+          let settled = false;
+          speechHadError = false;
+          activeRecognition = recognition;
+          recognition.lang = "de-AT";
+          recognition.interimResults = true;
+          recognition.continuous = false;
+          recognition.maxAlternatives = 1;
+          recognition.onstart = () => {{
+            if (pushToTalkButton) pushToTalkButton.textContent = "Ich höre...";
+            setSpeechStatus(String(options.listeningText || "Sprich jetzt. Ich höre zu..."), "listening", "Live-Transcript aktiv");
+          }};
+          recognition.onresult = (event) => {{
+            let nextFinal = "";
+            let nextInterim = "";
+            for (let index = event.resultIndex; index < event.results.length; index += 1) {{
+              const transcript = normalizeTranscriptText(event.results[index][0].transcript || "");
+              if (!transcript) continue;
+              if (event.results[index].isFinal) nextFinal += (nextFinal ? " " : "") + transcript;
+              else nextInterim += (nextInterim ? " " : "") + transcript;
+            }}
+            if (nextFinal) finalText = normalizeTranscriptText((finalText ? finalText + " " : "") + nextFinal);
+            interimText = normalizeTranscriptText(nextInterim);
+            question.value = normalizeTranscriptText(finalText || interimText || "");
+            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich jetzt. Ich höre zu..."), "listening", interimText ? "Ich schreibe live mit" : "Live-Transcript aktiv");
+          }};
+          recognition.onerror = (event) => {{
+            speechHadError = true;
+            if (settled) return;
+            settled = true;
+            activeRecognition = null;
+            const errorCode = String(event.error || "unknown");
+            if (errorCode === "no-speech" || errorCode === "network") {{
+              void captureServerTranscript(options).then(resolve).catch(reject);
+              return;
+            }}
+            const messages = {{
+              "not-allowed": "Mikrofon nicht erlaubt. Bitte Browser-Berechtigung fuer myexternalbrain.com aktivieren.",
+              "service-not-allowed": "Spracherkennungsdienst vom Browser blockiert. Bitte Chrome/Edge oder Texteingabe verwenden.",
+              "audio-capture": "Kein Mikrofon gefunden oder vom System blockiert.",
+              "aborted": "Spracherkennung gestoppt."
+            }};
+            reject(new Error(messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode)));
+          }};
+          recognition.onend = () => {{
+            if (activeRecognition === recognition) activeRecognition = null;
+            if (settled || speechHadError) return;
+            settled = true;
+            const transcript = normalizeTranscriptText(finalText || interimText || "");
+            if (!transcript) {{
+              void captureServerTranscript(options).then(resolve).catch(reject);
+              return;
+            }}
+            resolve({{ transcript, blob: null }});
+          }};
+          try {{
+            recognition.start();
+          }} catch (error) {{
+            activeRecognition = null;
+            void captureServerTranscript(options).then(resolve).catch(reject);
           }}
-          appendSpeechTurn("user", transcript);
-          const payload = await sendRealtimeTurn(audioBlob);
+        }});
+      }}
+      async function handleConversationTranscript(transcript) {{
+        const normalized = normalizeTranscriptText(transcript || "");
+        if (!conversationActive || !normalized || conversationTurnInFlight) return;
+        conversationTurnInFlight = true;
+        disarmConversationBargeIn();
+        appendSpeechTurn("user", normalized);
+        try {{
+          const payload = await sendRealtimeTurn({{ text: normalized }});
           const assistantText = normalizeTranscriptText(payload.answer || "");
           lastAnswerText = assistantText;
           answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
@@ -3169,31 +5427,65 @@ def _memorial_html(
             speechAudio.src = speechObjectUrl;
             speechAudio.onended = () => {{
               stopSpeechPlayback();
-              setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
-              if (conversationActive) setTimeout(recordConversationTurn, 350);
+              disarmConversationBargeIn();
+              if (!conversationActive) return;
+              setSpeechStatus("Ich höre wieder zu ...", "listening", "Das Gespräch läuft weiter");
+              setTimeout(recordConversationTurn, 220);
             }};
             speechAudio.onerror = () => {{
+              disarmConversationBargeIn();
               setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
               stopSpeechPlayback();
-              if (conversationActive) setTimeout(recordConversationTurn, 700);
+              if (conversationActive) setTimeout(recordConversationTurn, 450);
             }};
+            setSpeakingOverlayPreview(assistantText);
             setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
             await speechAudio.play();
+            if (conversationActive) armConversationBargeIn();
           }} else if (conversationActive) {{
-            setTimeout(recordConversationTurn, 350);
+            setSpeechStatus("Ich höre wieder zu ...", "listening", "Das Gespräch läuft weiter");
+            setTimeout(recordConversationTurn, 220);
           }}
         }} catch (error) {{
-          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespräch beendet");
           conversationActive = false;
           setConversationUi(false);
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespräch beendet");
+          releaseConversationAudio();
+        }} finally {{
+          conversationTurnInFlight = false;
+        }}
+      }}
+      async function recordConversationTurn() {{
+        if (!conversationActive || conversationTurnInFlight) return;
+        try {{
+          const result = await captureRealtimeTranscript({{
+            autoStopMs: 4800,
+            silenceMs: 760,
+            silenceThreshold: 0.015,
+            listeningText: "Ich höre zu ...",
+            transcribingText: "Ich sende deine Frage live an Manfred ..."
+          }});
+          const transcript = normalizeTranscriptText(result && result.transcript || "");
+          if (!conversationActive) return;
+          if (!transcript) {{
+            setSpeechStatus("Keine Frage erkannt. Ich höre gleich noch einmal zu.", "error", "Bitte kürzer und klarer sprechen");
+            setTimeout(recordConversationTurn, 450);
+            return;
+          }}
+          await handleConversationTranscript(transcript);
+        }} catch (error) {{
+          conversationActive = false;
+          setConversationUi(false);
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespräch beendet");
           releaseConversationAudio();
         }}
       }}
       function toggleConversation() {{
+        setSpeechStatus("Ich starte jetzt das Gespräch ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
         conversationActive = !conversationActive;
         setConversationUi(conversationActive);
         if (conversationActive) {{
-          setSpeechStatus("Gespräch gestartet. Sprich jetzt kurz und natürlich.", "listening", "Erste Runde");
+          setSpeechStatus("Gespräch gestartet. Ich höre dauerhaft zu.", "listening", "Offene Konversation aktiv");
           recordConversationTurn();
         }} else {{
         if (activeRecorder && activeRecorder.state === "recording") {{
@@ -3203,142 +5495,42 @@ def _memorial_html(
         setSpeechStatus("Gespräch beendet.", "idle", "Bereit für eine neue Runde");
       }}
       }}
-      async function runPushToTalkTurn() {{
-        if (pushToTalkActive || conversationActive) return;
-        if (speechState === "speaking" || activeRealtimeTurnId) {{
-          stopSpeechPlayback();
-          await cancelRealtimeTurn("user_interrupt");
-        }}
-        pushToTalkActive = true;
-        if (pushToTalkButton) pushToTalkButton.textContent = "Sprich jetzt...";
-        setInteractiveEnabled(false);
-        try {{
-          const result = await captureServerTranscript({{
-            autoStopMs: 4200,
-            listeningText: "Sprich jetzt. Ich höre zu...",
-            transcribingText: "Ich transkribiere deine Frage..."
-          }});
-          const transcript = normalizeTranscriptText(result && result.transcript || "");
-          const audioBlob = result && result.blob ? result.blob : null;
-          if (!transcript) {{
-            setSpeechStatus("Keine Sprache erkannt. Bitte noch einmal kurz und klar sprechen.", "error", "Keine Sprache");
-            return;
-          }}
-          appendSpeechTurn("user", transcript);
-          const payload = await sendRealtimeTurn(audioBlob);
-          const assistantText = normalizeTranscriptText(payload.answer || "");
-          lastAnswerText = assistantText;
-          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
-          appendSpeechTurn("assistant", assistantText);
-          if (payload.audio_base64) {{
-            const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
-            const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
-            stopSpeechPlayback();
-            speechObjectUrl = URL.createObjectURL(blob);
-            speechAudio.src = speechObjectUrl;
-            speechAudio.onended = () => {{
-              stopSpeechPlayback();
-              setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
-            }};
-            speechAudio.onerror = () => {{
-              setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
-              stopSpeechPlayback();
-            }};
-            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
-            await speechAudio.play();
-          }} else {{
-            setSpeechStatus("Antwort erhalten.", "idle", "Bereit für die nächste Runde");
-          }}
-        }} catch (error) {{
-          const message = String(error && error.message ? error.message : "Push-to-talk fehlgeschlagen.");
-          if (message !== "realtime_turn_cancelled") {{
-            setSpeechStatus(message, "error", "Push-to-talk");
-          }}
-        }} finally {{
-          pushToTalkActive = false;
-          if (pushToTalkButton && !conversationActive) pushToTalkButton.textContent = "Jetzt sprechen";
-          setInteractiveEnabled(true);
-        }}
-      }}
-      async function runConversationTurnServer() {{
-        if (pushToTalkActive || conversationActive) return;
-        pushToTalkActive = true;
-        if (pushToTalkButton) pushToTalkButton.textContent = "Sprich jetzt...";
-        setInteractiveEnabled(false);
-        try {{
-          const result = await captureServerTranscript({{
-            autoStopMs: 4200,
-            listeningText: "Sprich jetzt. Ich höre zu...",
-            transcribingText: "Ich sende die Frage an Manfred..."
-          }});
-          const transcript = normalizeTranscriptText(result && result.transcript || "");
-          const audioBlob = result && result.blob ? result.blob : null;
-          if (!transcript) {{
-            setSpeechStatus("Keine Sprache erkannt. Bitte noch einmal kurz und klar sprechen.", "error", "Keine Sprache");
-            return;
-          }}
-          appendSpeechTurn("user", transcript);
-          setSpeechStatus("Manfred antwortet jetzt.", "thinking", "Antwort wird erzeugt");
-          if (!audioBlob) {{
-            throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
-          }}
-          const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/conversation-turn", {{
-            method: "POST",
-            headers: {{ "Content-Type": audioBlob.type || "application/octet-stream" }},
-            body: audioBlob,
-          }}, 90000);
-          const payload = await readJsonResponse(response);
-          const userTranscript = normalizeTranscriptText(payload.transcript_text || transcript);
-          const assistantText = normalizeTranscriptText(payload.answer || "");
-          if (userTranscript && userTranscript !== transcript) {{
-            question.value = userTranscript;
-          }} else {{
-            question.value = transcript;
-          }}
-          lastAnswerText = assistantText;
-          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
-          appendSpeechTurn("assistant", assistantText);
-          if (payload.audio_base64) {{
-            const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
-            const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
-            stopSpeechPlayback();
-            speechObjectUrl = URL.createObjectURL(blob);
-            speechAudio.src = speechObjectUrl;
-            speechAudio.onended = () => {{
-              stopSpeechPlayback();
-              setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
-            }};
-            speechAudio.onerror = () => {{
-              setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
-              stopSpeechPlayback();
-            }};
-            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
-            await speechAudio.play();
-          }} else {{
-            setSpeechStatus("Antwort erhalten.", "idle", "Bereit für die nächste Runde");
-          }}
-        }} catch (error) {{
-          setSpeechStatus(String(error && error.message ? error.message : "Gesprächsrunde fehlgeschlagen."), "error", "Server-Gespräch");
-        }} finally {{
-          pushToTalkActive = false;
-          if (pushToTalkButton) pushToTalkButton.textContent = "Drücken und sprechen";
-          setInteractiveEnabled(true);
-        }}
-      }}
+      window.__memorialToggleConversation = () => toggleConversation();
+      window.__memorialStartConversation = () => {{
+        setSpeechStatus("Ich starte jetzt das Gespräch ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+        if (!conversationActive) toggleConversation();
+      }};
       form.addEventListener("submit", (event) => {{
         event.preventDefault();
         askMemorialChat(question.value);
       }});
-      listenButton.addEventListener("click", startSpeechInput);
-      serverSttButton.addEventListener("click", startServerSpeechInput);
-      conversationButton.addEventListener("click", toggleConversation);
-      if (pushToTalkButton) {{
-        pushToTalkButton.addEventListener("click", () => void runPushToTalkTurn());
+      if (listenButton) {{
+        listenButton.addEventListener("click", () => {{
+          setSpeechStatus("Ich starte jetzt das Browser-Mikrofon ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+          startSpeechInput();
+        }});
       }}
-      speakButton.addEventListener("click", () => void speakText(lastAnswerText || answer.textContent));
-      stopButton.addEventListener("click", () => {{
+      if (serverSttButton) {{
+        serverSttButton.addEventListener("click", () => {{
+          setSpeechStatus("Ich starte jetzt Server-STT ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+          startServerSpeechInput();
+        }});
+      }}
+      if (pushToTalkButton) {{
+        pushToTalkButton.addEventListener("click", () => toggleConversation());
+      }}
+      if (speakingOverlay) {{
+        speakingOverlay.addEventListener("click", () => interruptSpeakingPlayback());
+        speakingOverlay.addEventListener("keydown", (event) => {{
+          if (event.key === "Enter" || event.key === " ") {{
+            event.preventDefault();
+            interruptSpeakingPlayback();
+          }}
+        }});
+      }}
+      if (speakButton) speakButton.addEventListener("click", () => void speakText(lastAnswerText || answer.textContent));
+      if (stopButton) stopButton.addEventListener("click", () => {{
         conversationActive = false;
-        pushToTalkActive = false;
         setConversationUi(false);
         if (activeRecognition) {{
           speechHadError = true;
@@ -3355,11 +5547,13 @@ def _memorial_html(
           activeRequestController = null;
         }}
         setSpeechStatus("Gestoppt.", "idle", "Bereit");
-        listenButton.disabled = false;
-        serverSttButton.disabled = false;
-        serverSttButton.textContent = "Server-STT starten";
-        stopButton.disabled = false;
-        if (pushToTalkButton) pushToTalkButton.textContent = "Drücken und sprechen";
+        if (listenButton) listenButton.disabled = false;
+        if (serverSttButton) {{
+          serverSttButton.disabled = false;
+          serverSttButton.textContent = "Server-STT starten";
+        }}
+        if (stopButton) stopButton.disabled = false;
+        syncConversationButtons();
       }});
       if (voiceConfigForm && voiceProfileSaveButton) {{
         voiceProfileSaveButton.addEventListener("click", saveVoiceConfig);
@@ -3384,31 +5578,55 @@ def _memorial_html(
       if (ttsPluginSelect) {{
         ttsPluginSelect.addEventListener("change", applyTtsPluginState);
       }}
-      document.querySelectorAll("[data-hero-jump]").forEach((button) => {{
-        button.addEventListener("click", () => {{
-          const targetId = button.getAttribute("data-hero-jump") === "memories"
-            ? "memorial-memory-section"
-            : "memorial-voice-section";
-          const target = document.getElementById(targetId);
-          if (target) target.scrollIntoView({{ behavior: "smooth", block: "start" }});
-        }});
+      window.addEventListener("error", (event) => {{
+        const message = String((event && event.error && event.error.message) || (event && event.message) || "JavaScript-Fehler");
+        setSpeechStatus("Seitenfehler: " + message, "error", "Bitte Seite neu laden");
       }});
-      document.querySelectorAll("[data-hero-action='conversation']").forEach((button) => {{
-        button.addEventListener("click", async () => {{
-          const target = document.querySelector(".chat");
-          if (target) target.scrollIntoView({{ behavior: "smooth", block: "start" }});
-          if (!conversationActive) {{
-            toggleConversation();
-          }}
-        }});
+      window.addEventListener("unhandledrejection", (event) => {{
+        const reason = event && event.reason;
+        const message = String((reason && reason.message) || reason || "Unbehandelte Promise-Ablehnung");
+        setSpeechStatus("Seitenfehler: " + message, "error", "Bitte Seite neu laden");
       }});
+      window.addEventListener("beforeinstallprompt", (event) => {{
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        if (installHint) installHint.hidden = false;
+        if (installButton) installButton.hidden = false;
+      }});
+      if (installButton) {{
+        installButton.addEventListener("click", async () => {{
+          if (!deferredInstallPrompt) return;
+          deferredInstallPrompt.prompt();
+          try {{ await deferredInstallPrompt.userChoice; }} catch (error) {{}}
+          deferredInstallPrompt = null;
+          installButton.hidden = true;
+        }});
+      }}
+      if ("serviceWorker" in navigator) {{
+        window.addEventListener("load", () => {{
+          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
+        }});
+      }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{
           question.value = button.getAttribute("data-prompt") || "";
           askMemorialChat(question.value);
         }});
       }});
+      window.addEventListener("load", () => {{
+        const isStandalone = window.matchMedia("(display-mode: standalone)").matches || Boolean(window.navigator.standalone);
+        if (isStandalone) document.body.classList.add("pwa-standalone");
+        else if (installHint) installHint.hidden = false;
+        const isPwaLaunch = isStandalone || new URLSearchParams(window.location.search).get("source") === "pwa";
+        if (!isPwaLaunch) return;
+        window.setTimeout(() => {{
+          if (conversationActive) return;
+          setSpeechStatus("Ich starte jetzt das Gespräch ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+          if (window.__memorialStartConversation) window.__memorialStartConversation();
+        }}, 420);
+      }});
       loadVoiceConfig();
+      syncConversationButtons();
       void refreshVoiceProfileSummary();
     </script>
   </body>
@@ -3418,6 +5636,32 @@ def _memorial_html(
 @router.get("/memorials/{slug}.json")
 def public_memorial_manifest(slug: str) -> JSONResponse:
     return JSONResponse(_load_memorial(slug))
+
+
+@router.get("/memorials/{slug}/app.webmanifest")
+def public_memorial_pwa_manifest(slug: str) -> JSONResponse:
+    payload = _load_memorial(slug)
+    return JSONResponse(_memorial_pwa_manifest_payload(slug, payload), media_type="application/manifest+json")
+
+
+@router.get("/memorials/{slug}/service-worker.js")
+def public_memorial_pwa_service_worker(slug: str) -> Response:
+    _load_memorial(slug)
+    return Response(
+        content=_memorial_pwa_service_worker(slug),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/memorials/{slug}/icon.svg")
+def public_memorial_pwa_icon(slug: str) -> Response:
+    payload = _load_memorial(slug)
+    return Response(
+        content=_memorial_pwa_icon_svg(payload),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/memorials/{slug}/voice-config")
@@ -3491,7 +5735,30 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
     selected_model, _, _ = _resolve_memorial_chat_model(payload, private_profile, _text(body.get("llm_model")))
-    answer = _memorial_chat_answer(payload, _text(body.get("question")), private_profile, requested_model=selected_model)
+    container = getattr(request.app.state, "container", None)
+    memory_runtime = getattr(container, "memory_runtime", None)
+    question_text = _text(body.get("question"))
+    if _is_memorial_transcript_relationship_question(question_text) or _is_memorial_mail_practice_question(question_text):
+        answer = _memorial_chat_fallback_answer(
+            payload,
+            question_text,
+            private_profile,
+            slug=slug,
+            memory_runtime=memory_runtime,
+            llm_model=selected_model,
+            fallback_reason="mail_practice_guardrail" if _is_memorial_mail_practice_question(question_text) else "transcript_relationship_guardrail",
+        )
+    else:
+        answer = _memorial_chat_answer(
+            payload,
+            question_text,
+            private_profile,
+            requested_model=selected_model,
+            slug=slug,
+            memory_runtime=memory_runtime,
+        )
+    if _is_memorial_ooda_question(question_text) and not answer.get("ooda"):
+        answer["ooda"] = _memorial_ooda_struct(question_text)
     return JSONResponse(answer)
 
 
@@ -3520,25 +5787,47 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
     )
     selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
-    if selected_plugin != OPENVOICE_TTS_PLUGIN_ID:
-        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     text = _normalize_tts_text(body.get("text"))
     if not text:
         raise HTTPException(status_code=400, detail="tts_text_missing")
-    voice_id = _text(
-        merged_config.get("tts_plugin_voice_id"),
-        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-    )
-    if not voice_id:
-        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-    audio, content_type = openvoice_synthesize_request_with_variant(
-        text=text,
-        voice_id=voice_id,
-        lang=_text(merged_config.get("lang"), "de-AT"),
-        base_voice_variant=_text(merged_config.get("tts_base_voice_variant"), "default"),
-    )
+    if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+        audio, content_type = piper_fast_synthesize_request(
+            text=text,
+            lang=_text(merged_config.get("lang"), "de-AT"),
+            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        )
+    elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        voice_id = _text(
+            merged_config.get("tts_plugin_voice_id"),
+            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+        )
+        if not voice_id:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, content_type = unmixr_synthesize_request(
+            text=text,
+            voice_id=voice_id,
+            lang=_text(merged_config.get("lang"), "de"),
+            speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
+            speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
+            speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+        )
+    elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+        voice_id = _text(
+            merged_config.get("tts_plugin_voice_id"),
+            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+        )
+        if not voice_id:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, content_type = openvoice_synthesize_request_with_variant(
+            text=text,
+            voice_id=voice_id,
+            lang=_text(merged_config.get("lang"), "de-AT"),
+            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        )
+    else:
+        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
 
 
@@ -3546,10 +5835,14 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
 async def public_memorial_conversation_turn(slug: str, request: Request) -> JSONResponse:
     audio_payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
+    container = getattr(request.app.state, "container", None)
+    memory_runtime = getattr(container, "memory_runtime", None)
     response_payload = _build_memorial_conversation_turn_payload(
         slug=slug,
         audio_payload=audio_payload,
         content_type=content_type,
+        prefer_fast_tts=True,
+        memory_runtime=memory_runtime,
     )
     return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
 
@@ -3559,8 +5852,175 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     _load_memorial(slug)
     await websocket.accept()
     await websocket.send_json({"type": "ready", "mode": "memorial_realtime_voice"})
+    container = getattr(websocket.app.state, "container", None)
+    memory_runtime = getattr(container, "memory_runtime", None)
     current_content_type = "application/octet-stream"
     current_audio = bytearray()
+    current_turn_id = ""
+    turn_tasks: set[asyncio.Task[None]] = set()
+    cancelled_turn_ids: set[str] = set()
+    cancelled_notice_sent: set[str] = set()
+
+    async def _send_cancelled(turn_id: str) -> None:
+        if not turn_id or turn_id in cancelled_notice_sent:
+            return
+        cancelled_notice_sent.add(turn_id)
+        await websocket.send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
+
+    async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
+        try:
+            payload = _load_memorial(slug)
+            private_profile = _load_private_profile(slug)
+            if not transcript_text:
+                raise HTTPException(status_code=400, detail="speech_transcription_empty")
+            if turn_id in cancelled_turn_ids:
+                await _send_cancelled(turn_id)
+                return
+            await websocket.send_json(
+                {
+                    "type": "transcript",
+                    "turn_id": turn_id,
+                    "text": transcript_text,
+                }
+            )
+            if turn_id in cancelled_turn_ids:
+                await _send_cancelled(turn_id)
+                return
+            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": "Manfred formuliert"})
+            selected_model = _resolve_memorial_voice_chat_model(payload, private_profile)
+            answer_payload = await asyncio.to_thread(
+                _memorial_chat_answer,
+                payload,
+                transcript_text,
+                private_profile,
+                selected_model,
+                slug=slug,
+                memory_runtime=memory_runtime,
+            )
+            compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
+            answer_payload["answer"] = compact_answer
+            await websocket.send_json(
+                {
+                    "type": "answer",
+                    "turn_id": turn_id,
+                    "text": compact_answer,
+                    "sources": list(answer_payload.get("sources") or []),
+                    "llm_model": _text(answer_payload.get("llm_model")),
+                }
+            )
+            if turn_id in cancelled_turn_ids:
+                await _send_cancelled(turn_id)
+                return
+            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": "Audio wird ausgeliefert"})
+            base_config = _load_voice_config(slug)
+            merged_config = dict(base_config)
+            merged_config["tts_plugin"] = PIPER_FAST_TTS_PLUGIN_ID
+            merged_config["tts_base_voice_variant"] = "high"
+            tts_options = _tts_plugin_options(
+                payload=merged_config,
+                voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+            )
+            selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
+            if not bool(selected_option.get("tts_plugin_enabled")):
+                raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
+            answer_text = _normalize_tts_text(compact_answer)
+            if not answer_text:
+                raise HTTPException(status_code=502, detail="memorial_answer_missing")
+            if turn_id in cancelled_turn_ids:
+                await _send_cancelled(turn_id)
+                return
+            if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+                audio, audio_content_type = await asyncio.to_thread(
+                    piper_fast_synthesize_request,
+                    text=answer_text,
+                    lang=_text(merged_config.get("lang"), "de-AT"),
+                    base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+                )
+            elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+                voice_id = _text(
+                    merged_config.get("tts_plugin_voice_id"),
+                    _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+                )
+                if not voice_id:
+                    raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                audio, audio_content_type = await asyncio.to_thread(
+                    unmixr_synthesize_request,
+                    text=answer_text,
+                    voice_id=voice_id,
+                    lang=_text(merged_config.get("lang"), "de"),
+                )
+            elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+                voice_id = _text(
+                    merged_config.get("tts_plugin_voice_id"),
+                    _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+                )
+                if not voice_id:
+                    raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                audio, audio_content_type = await asyncio.to_thread(
+                    openvoice_synthesize_request_with_variant,
+                    text=answer_text,
+                    voice_id=voice_id,
+                    lang=_text(merged_config.get("lang"), "de-AT"),
+                    base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+                )
+            else:
+                raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+            lead_in_ms = 90 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else 150
+            audio, audio_content_type = await asyncio.to_thread(
+                _pad_speech_audio_lead_in,
+                payload=audio,
+                content_type=audio_content_type,
+                silence_ms=lead_in_ms,
+            )
+            audio_base64 = base64.b64encode(audio).decode("ascii")
+            if audio_base64:
+                chunk_size = 96_000
+                total_parts = max(1, (len(audio_base64) + chunk_size - 1) // chunk_size)
+                for index in range(total_parts):
+                    if turn_id in cancelled_turn_ids:
+                        await _send_cancelled(turn_id)
+                        return
+                    start = index * chunk_size
+                    end = start + chunk_size
+                    await websocket.send_json(
+                        {
+                            "type": "audio_chunk",
+                            "turn_id": turn_id,
+                            "content_type": audio_content_type,
+                            "part": index + 1,
+                            "total_parts": total_parts,
+                            "audio_base64": audio_base64[start:end],
+                        }
+                    )
+                    await asyncio.sleep(0)
+                await websocket.send_json(
+                    {
+                        "type": "audio_complete",
+                        "turn_id": turn_id,
+                        "content_type": audio_content_type,
+                        "total_parts": total_parts,
+                    }
+                )
+            await websocket.send_json({"type": "turn_complete", "turn_id": turn_id})
+        except HTTPException as exc:
+            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
+        except Exception:
+            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "realtime_failed"})
+
+    async def _process_turn(turn_id: str, audio_payload: bytes, content_type: str) -> None:
+        try:
+            transcript_payload = await asyncio.to_thread(
+                _memorial_transcribe_audio_blob,
+                payload=audio_payload,
+                content_type=content_type,
+            )
+            transcript_text = _text(transcript_payload.get("transcript_text"))
+            await _process_transcript_turn(turn_id, transcript_text)
+        except HTTPException as exc:
+            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
+        except Exception:
+            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "realtime_failed"})
+
     try:
         while True:
             message = await websocket.receive()
@@ -3582,10 +6042,27 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if message_type == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
+            if message_type == "cancel_current_turn":
+                cancel_turn_id = _text(payload.get("turn_id"))
+                if cancel_turn_id:
+                    cancelled_turn_ids.add(cancel_turn_id)
+                    await _send_cancelled(cancel_turn_id)
+                continue
+            if message_type == "user_text_turn":
+                turn_id = _text(payload.get("turn_id")) or f"turn_{len(turn_tasks) + 1}"
+                transcript_text = _text(payload.get("text"))
+                if not transcript_text:
+                    await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "speech_transcription_empty"})
+                    continue
+                task = asyncio.create_task(_process_transcript_turn(turn_id, transcript_text))
+                turn_tasks.add(task)
+                task.add_done_callback(turn_tasks.discard)
+                continue
             if message_type == "user_audio_start":
                 current_audio = bytearray()
+                current_turn_id = _text(payload.get("turn_id"))
                 current_content_type = _text(payload.get("content_type"), "application/octet-stream")
-                await websocket.send_json({"type": "phase", "phase": "listening", "detail": "Audio wird empfangen"})
+                await websocket.send_json({"type": "phase", "turn_id": current_turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
                 continue
             if message_type != "user_audio_end":
                 await websocket.send_json({"type": "error", "message": "unsupported_realtime_message"})
@@ -3593,38 +6070,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if not current_audio:
                 await websocket.send_json({"type": "error", "message": "audio_missing"})
                 continue
-            await websocket.send_json({"type": "phase", "phase": "transcribing", "detail": "Audio wird transkribiert"})
-            turn_payload = _build_memorial_conversation_turn_payload(
-                slug=slug,
-                audio_payload=bytes(current_audio),
-                content_type=current_content_type,
-            )
-            await websocket.send_json(
-                {
-                    "type": "transcript",
-                    "text": _text(turn_payload.get("transcript_text")),
-                }
-            )
-            await websocket.send_json({"type": "phase", "phase": "thinking", "detail": "Manfred formuliert"})
-            await websocket.send_json(
-                {
-                    "type": "answer",
-                    "text": _text(turn_payload.get("answer")),
-                    "sources": list(turn_payload.get("sources") or []),
-                    "llm_model": _text(turn_payload.get("llm_model")),
-                }
-            )
-            await websocket.send_json({"type": "phase", "phase": "speaking", "detail": "Audio wird ausgeliefert"})
-            await websocket.send_json(
-                {
-                    "type": "audio",
-                    "content_type": _text(turn_payload.get("audio_content_type"), "audio/wav"),
-                    "audio_base64": _text(turn_payload.get("audio_base64")),
-                }
-            )
-            await websocket.send_json({"type": "turn_complete"})
+            turn_id = _text(payload.get("turn_id")) or current_turn_id or f"turn_{len(turn_tasks) + 1}"
+            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Audio wird transkribiert"})
+            task = asyncio.create_task(_process_turn(turn_id, bytes(current_audio), current_content_type))
+            turn_tasks.add(task)
+            task.add_done_callback(turn_tasks.discard)
             current_audio = bytearray()
+            current_turn_id = ""
     except WebSocketDisconnect:
+        for task in list(turn_tasks):
+            task.cancel()
         return
     except HTTPException as exc:
         try:
@@ -3654,12 +6109,27 @@ async def public_memorial_voice_clone(slug: str, request: Request) -> JSONRespon
     if not isinstance(body, dict):
         body = {}
     memory_person_name = _text(memorial.get("person_name"), "Memorial")
-    voice_label = _text(body.get("voice_label"), _text(body.get("label"), f"{memory_person_name} OpenVoice"))
-    cloned_voice_id = _openvoice_clone_from_memorial(slug=slug, voice_label=voice_label)
+    requested_plugin = _safe_tts_plugin_id(_text(body.get("tts_plugin"), _text(body.get("tts_mode"), UNMIXR_TTS_PLUGIN_ID)))
+    voice_label = _text(
+        body.get("voice_label"),
+        _text(body.get("label"), f"{memory_person_name} {'Unmixr' if requested_plugin == UNMIXR_TTS_PLUGIN_ID else 'OpenVoice'}"),
+    )
+    if requested_plugin == UNMIXR_TTS_PLUGIN_ID:
+        sample_paths = _profile_clip_assets_for_memorial(slug=slug)
+        if not sample_paths:
+            raise HTTPException(status_code=400, detail="voice_profile_no_samples")
+        cloned_voice_id = unmixr_clone_request(
+            slug=slug,
+            voice_label=voice_label,
+            sample_paths=sample_paths[:_TTS_MAX_CLONE_FILES],
+        )
+    else:
+        requested_plugin = OPENVOICE_TTS_PLUGIN_ID
+        cloned_voice_id = _openvoice_clone_from_memorial(slug=slug, voice_label=voice_label)
     _save_voice_config_payload(
         slug=slug,
         payload={
-            "tts_plugin": OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin": requested_plugin,
             "tts_plugin_voice_id": cloned_voice_id,
         },
     )
@@ -3675,7 +6145,8 @@ def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
             payload,
             private_profile=private_profile,
             hostname=request_hostname(request),
-        )
+        ),
+        headers={"Cache-Control": "no-store, max-age=0"},
     )
 
 
@@ -3688,5 +6159,6 @@ def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
             payload,
             private_profile=private_profile,
             hostname=request_hostname(request),
-        )
+        ),
+        headers={"Cache-Control": "no-store, max-age=0"},
     )
