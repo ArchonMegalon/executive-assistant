@@ -454,6 +454,73 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
     assert sent[0]["hosted_tour_total"] == 1
 
 
+def test_property_search_run_status_snapshot_finishes_results_email_after_restart(monkeypatch) -> None:
+    principal_id = "cf-email:tour.restart@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Results Restart Office")
+
+    sent: list[dict[str, object]] = []
+
+    class _Receipt:
+        provider = "emailit"
+        message_id = "results-ready-3"
+        accepted_at = "2026-06-04T12:10:00+00:00"
+
+    monkeypatch.setattr(
+        product_service,
+        "send_property_search_results_ready_email",
+        lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
+    )
+
+    container = client.app.state.container
+    service = product_service.build_product_service(container)
+    run_id = "run-final-2"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "processed"
+    state["summary"] = {
+        "status": "processed",
+        "listing_total": 1,
+        "sources": [
+            {
+                "source_label": "Willhaben",
+                "top_candidates": [
+                    {
+                        "source_ref": "property-scout:test-2",
+                        "tour_status": "queued",
+                        "tour_url": "",
+                        "blocked_reason": "",
+                        "property_facts": {"has_360": True},
+                    }
+                ],
+            }
+        ],
+    }
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_event",
+        lambda self, *, principal_id, source_ref: {
+            "event_type": "generic_property_tour_created",
+            "payload": {"tour_url": "https://propertyquarry.com/tours/recovered-tour"},
+            "created_at": product_service._now_iso(),
+        },
+    )
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert sent
+    assert sent[0]["hosted_tour_total"] == 1
+    assert status["summary"]["ready_tour_total"] == 1
+
+
 def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:
     principal_id = "exec-property-search-run-persisted"
     client = build_property_client(principal_id=principal_id)

@@ -14761,6 +14761,11 @@ class ProductService:
             return None
         if str(state.get("principal_id") or "").strip() != normalized_principal:
             return None
+        state = self._maybe_advance_property_search_run_finalization(
+            principal_id=normalized_principal,
+            run_id=normalized_run_id,
+            state=dict(state),
+        )
         return {
             **dict(state),
             "summary": dict(dict(state.get("summary") or {})),
@@ -15139,6 +15144,70 @@ class ProductService:
         refreshed["eligible_tour_total"] = eligible_total
         refreshed["hosted_tour_total"] = ready_total
         return refreshed
+
+    def _maybe_advance_property_search_run_finalization(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        state: dict[str, object],
+    ) -> dict[str, object]:
+        normalized_status = str(state.get("status") or "").strip().lower()
+        if normalized_status not in {"processed", "completed"}:
+            return dict(state)
+        summary = dict(state.get("summary") or {})
+        refreshed_summary = self._refresh_property_search_results_delivery_state(
+            principal_id=principal_id,
+            result=summary,
+        )
+        if refreshed_summary != summary:
+            self._record_property_search_run_event(
+                run_id=run_id,
+                principal_id=principal_id,
+                step="results_finalizing",
+                message=(
+                    "Waiting for hosted tours to finish before emailing the final results."
+                    if self._property_search_results_delivery_pending(result=refreshed_summary)
+                    else "Results are fully ready."
+                ),
+                status="processed",
+                steps_delta=0,
+                summary_updates=refreshed_summary,
+                force_status="processed",
+            )
+            refreshed_state = self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
+            if isinstance(refreshed_state, dict):
+                state = refreshed_state
+            else:
+                state = {**dict(state), "summary": refreshed_summary}
+        else:
+            state = {**dict(state), "summary": refreshed_summary}
+        if self._property_search_results_delivery_pending(result=refreshed_summary):
+            return state
+        if not self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="property_search_results_ready_email_sent",
+            source_id=str(run_id or "").strip(),
+            dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email",
+        ):
+            try:
+                self._notify_property_search_results_ready(
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    result=refreshed_summary,
+                )
+            except Exception as exc:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_search_results_ready_email_failed",
+                    payload={
+                        "run_id": run_id,
+                        "error": compact_text(str(exc or "property search results email failed"), fallback="property search results email failed", limit=280),
+                    },
+                    source_id=run_id,
+                    dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email-failed",
+                )
+        return state
 
     def _property_search_results_delivery_pending(self, *, result: dict[str, object]) -> bool:
         refreshed = dict(result or {})
