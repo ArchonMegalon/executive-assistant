@@ -4329,6 +4329,46 @@ def _property_alert_personal_fit_assessment(
     return assessment
 
 
+def _property_alert_personal_fit_from_facts(
+    *,
+    preference_profiles: object,
+    principal_id: str,
+    person_id: str = "self",
+    property_url: str,
+    property_facts_json: dict[str, object] | None,
+    listing_id: str = "",
+) -> dict[str, object] | None:
+    assess_candidate = getattr(preference_profiles, "assess_candidate", None)
+    if not callable(assess_candidate):
+        return None
+    object_id = str(listing_id or "").strip() or urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    facts = dict(property_facts_json or {})
+    assessment = assess_candidate(
+        principal_id=principal_id,
+        person_id=str(person_id or "").strip() or "self",
+        domain="willhaben",
+        object_type="listing",
+        object_id=object_id,
+        object_payload=facts,
+        persist=True,
+        require_existing_profile=True,
+    )
+    if not isinstance(assessment, dict):
+        return None
+    result = dict(assessment or {})
+    upstream_personalization = _property_alert_upstream_personalization(
+        preference_profiles=preference_profiles,
+        principal_id=principal_id,
+        person_id=str(person_id or "").strip() or "self",
+        property_facts=facts,
+        domain="willhaben",
+        assessment=result,
+    )
+    if upstream_personalization:
+        result["upstream_personalization"] = upstream_personalization
+    return result
+
+
 def _property_alert_personal_fit_snapshot(
     *,
     preference_profiles: object,
@@ -4338,32 +4378,14 @@ def _property_alert_personal_fit_snapshot(
 ) -> tuple[dict[str, object] | None, dict[str, object], str]:
     def _compute_snapshot() -> tuple[dict[str, object] | None, dict[str, object], str]:
         property_facts_json, listing_id = _property_alert_facts_for_url(normalized_url)
-        assess_candidate = getattr(preference_profiles, "assess_candidate", None)
-        if not callable(assess_candidate):
-            return None, property_facts_json, listing_id
-        assessment = assess_candidate(
-            principal_id=principal_id,
-            person_id=str(person_id or "").strip() or "self",
-            domain="willhaben",
-            object_type="listing",
-            object_id=listing_id,
-            object_payload=property_facts_json,
-            persist=True,
-            require_existing_profile=True,
-        )
-        if not isinstance(assessment, dict):
-            return None, property_facts_json, listing_id
-        result = dict(assessment or {})
-        upstream_personalization = _property_alert_upstream_personalization(
+        result = _property_alert_personal_fit_from_facts(
             preference_profiles=preference_profiles,
             principal_id=principal_id,
             person_id=str(person_id or "").strip() or "self",
-            property_facts=property_facts_json,
-            domain="willhaben",
-            assessment=result,
+            property_url=normalized_url,
+            property_facts_json=property_facts_json,
+            listing_id=listing_id,
         )
-        if upstream_personalization:
-            result["upstream_personalization"] = upstream_personalization
         return result, property_facts_json, listing_id
 
     normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
@@ -15036,16 +15058,14 @@ class ProductService:
                             preview = detailed_preview
                     except Exception:
                         pass
-                assessment, detailed_facts, detailed_listing_id = _property_alert_personal_fit_snapshot(
+                assessment = _property_alert_personal_fit_from_facts(
                     preference_profiles=self._preference_profiles,
                     principal_id=principal_id,
                     person_id=source_preference_person_id,
                     property_url=property_url,
+                    property_facts_json=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                    listing_id=str(preview.get("listing_id") or property_url).strip(),
                 )
-                if detailed_listing_id:
-                    preview["listing_id"] = detailed_listing_id
-                if detailed_facts:
-                    preview["property_facts_json"] = detailed_facts
                 ranked_rows.append(
                     {
                         "property_url": property_url,
