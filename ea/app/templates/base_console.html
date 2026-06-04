@@ -567,6 +567,287 @@
       background: rgba(255,255,255,0.02);
       font-size: 14px;
     }
+    .pq-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      background:
+        radial-gradient(circle at top right, rgba(214, 166, 63, 0.08), transparent 24rem),
+        radial-gradient(circle at bottom left, rgba(138, 164, 255, 0.09), transparent 28rem),
+        linear-gradient(180deg, #070a10 0%, #0a0d14 100%);
+    }
+    .pq-rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr auto;
+      gap: 18px;
+      padding: 20px 18px 18px;
+      border-right: 1px solid rgba(49, 60, 77, 0.72);
+      background:
+        linear-gradient(180deg, rgba(9, 12, 18, 0.98), rgba(7, 10, 15, 0.98)),
+        rgba(7, 10, 15, 0.98);
+      backdrop-filter: blur(18px);
+    }
+    .pq-rail-brand {
+      display: grid;
+      gap: 10px;
+    }
+    .pq-rail-brand .brand {
+      gap: 14px;
+    }
+    .pq-rail-brand-copy {
+      color: var(--text-dim);
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 0 2px;
+    }
+    .pq-rail-workspace {
+      padding: 16px;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015)),
+        rgba(255,255,255,0.01);
+      display: grid;
+      gap: 8px;
+    }
+    .pq-rail-workspace strong {
+      font-size: 15px;
+      display: block;
+    }
+    .pq-rail-pulse {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .pq-rail-pulse-card {
+      padding: 12px 13px;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.02);
+      display: grid;
+      gap: 4px;
+    }
+    .pq-rail-pulse-card span {
+      color: var(--text-dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .pq-rail-pulse-card strong {
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.25;
+      font-weight: 620;
+    }
+    .pq-rail-section {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+    }
+    .pq-rail-label {
+      color: var(--text-dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0 6px;
+    }
+    .pq-rail-nav {
+      display: grid;
+      gap: 6px;
+    }
+    .pq-rail-link {
+      display: grid;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-soft);
+    }
+    .pq-rail-link span {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    .pq-rail-link strong {
+      font-size: 14px;
+      font-weight: 620;
+    }
+    .pq-rail-link.active {
+      border-color: rgba(214, 166, 63, 0.28);
+      background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(138, 164, 255, 0.05));
+      color: var(--text);
+    }
+    .pq-rail-link.active span {
+      color: var(--text-soft);
+    }
+    .pq-rail-foot {
+      display: grid;
+      gap: 10px;
+    }
+    .pq-rail-foot-card {
+      padding: 14px;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.02);
+      color: var(--text-soft);
+      font-size: 13px;
+    }
+    .pq-stage {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 16px;
+      padding: 18px 18px 28px;
+    }
+    .pq-appbar {
+      position: sticky;
+      top: 14px;
+      z-index: 30;
+      display: grid;
+      gap: 12px;
+      padding: 16px 18px;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      border-radius: 20px;
+      background:
+        linear-gradient(180deg, rgba(12, 15, 22, 0.92), rgba(10, 13, 19, 0.88)),
+        rgba(10, 13, 19, 0.88);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+    }
+    .pq-appbar-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .pq-appbar-breadcrumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .pq-appbar-breadcrumbs span:last-child {
+      color: var(--warn);
+    }
+    .pq-main {
+      min-width: 0;
+      display: grid;
+      gap: 18px;
+      align-content: start;
+    }
+    .pq-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .pq-topbar-copy {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+    .pq-topbar-copy h1 {
+      font-size: 1.45rem;
+      max-width: none;
+      margin: 0;
+    }
+    .pq-topbar-copy p,
+    .pq-topbar-copy .context {
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+    .pq-appbar-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pq-meta-pill {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-soft);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pq-topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .pq-stage-window {
+      min-width: 0;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      border-radius: 24px;
+      background:
+        linear-gradient(180deg, rgba(13, 17, 24, 0.94), rgba(10, 13, 19, 0.98)),
+        rgba(10, 13, 19, 0.96);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.26);
+      overflow: hidden;
+    }
+    .pq-stage-window-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+      background: rgba(255,255,255,0.015);
+    }
+    .pq-stage-window-title {
+      display: grid;
+      gap: 2px;
+    }
+    .pq-stage-window-title strong {
+      font-size: 14px;
+      font-weight: 620;
+    }
+    .pq-stage-window-title span {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    .pq-stat-strip {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .pq-stat {
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(49, 60, 77, 0.72);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-soft);
+      font-size: 13px;
+    }
+    .pq-stat strong {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 620;
+    }
+    .pq-surface {
+      padding: 18px 18px 96px;
+      min-width: 0;
+    }
+    .pq-mobile-nav {
+      display: none;
+    }
 
     @media (max-width: 1080px) {
       .hero,
@@ -583,6 +864,50 @@
       .summary-strip { grid-template-columns: 1fr; }
       .console { grid-template-columns: 1fr; }
       .sidebar { display: none; }
+      .pq-shell {
+        grid-template-columns: 1fr;
+      }
+      .pq-rail {
+        display: none;
+      }
+      .pq-stage {
+        padding: 12px 12px 94px;
+      }
+      .pq-mobile-nav {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 50;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid rgba(49, 60, 77, 0.72);
+        border-radius: 18px;
+        background: rgba(10, 13, 19, 0.92);
+        backdrop-filter: blur(16px);
+        box-shadow: 0 14px 44px rgba(0, 0, 0, 0.32);
+      }
+      .pq-mobile-nav a {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+        place-items: center;
+        padding: 8px 6px;
+        border-radius: 12px;
+        color: var(--text-dim);
+        font-size: 11px;
+        text-align: center;
+      }
+      .pq-mobile-nav a strong {
+        font-size: 12px;
+        font-weight: 620;
+      }
+      .pq-mobile-nav a.active {
+        background: linear-gradient(180deg, rgba(214, 166, 63, 0.16), rgba(138, 164, 255, 0.08));
+        color: var(--text);
+      }
     }
     @media (max-width: 760px) {
       .nav { display: none; }
@@ -594,23 +919,139 @@
         align-items: flex-start;
       }
       main, .console-main { padding-top: 24px; }
+      .pq-appbar-row,
+      .pq-topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .pq-topbar-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .pq-surface {
+        padding: 16px 14px 98px;
+      }
+      .pq-stage-window-bar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .pq-rail-pulse {
+        grid-template-columns: 1fr;
+      }
     }
 </style>
 </head>
 <body>
+  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'shortlist', 'research', 'profile', 'alerts', 'billing', 'settings'] %}
+  {% if property_app_nav %}
+  {% set mobile_nav = namespace(items=[]) %}
+  {% for group in nav_groups %}
+    {% for item in group["items"] %}
+      {% if mobile_nav.items|length < 5 %}
+        {% set mobile_nav.items = mobile_nav.items + [item] %}
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+  <div class="pq-shell" data-property-app-shell>
+    <aside class="pq-rail">
+      <div class="pq-rail-brand">
+        <div class="brand">
+          <span class="brand-mark">{{ brand.mark }}</span>
+          <span>{{ brand.name }}</span>
+        </div>
+        <div class="pq-rail-brand-copy">Property decision desk. Search, shortlist, research packet, and 360 review in one persistent shell.</div>
+      </div>
+      <div class="pq-rail-workspace">
+        <div class="pq-rail-label">Workspace</div>
+        <strong>{{ workspace_label }}</strong>
+        <div>{{ access_email or brand.workspace_label }}</div>
+      </div>
+      <div class="pq-rail-pulse" data-property-pulse-strip>
+        <div class="pq-rail-pulse-card">
+          <span>Mode</span>
+          <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
+        </div>
+        <div class="pq-rail-pulse-card">
+          <span>Surface</span>
+          <strong>360 First</strong>
+        </div>
+      </div>
+      <div class="pq-rail-section">
+        <div class="pq-rail-label">Navigate</div>
+        <nav class="pq-rail-nav" aria-label="PropertyQuarry app sections">
+          {% for group in nav_groups %}
+            {% for item in group["items"] %}
+            <a class="pq-rail-link {% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
+              <strong>{{ item.label }}</strong>
+              <span>{{ 'Current section' if current_nav == item.key else 'Open section' }}</span>
+            </a>
+            {% endfor %}
+          {% endfor %}
+        </nav>
+      </div>
+      <div class="pq-rail-foot">
+        <div class="pq-rail-foot-card">360 comes first. Dossier second. Raw portals last.</div>
+        <div class="pq-rail-foot-card">Keep runs visible while active. Replace the brief with the result table once the run is finished.</div>
+      </div>
+    </aside>
+    <main class="pq-stage" data-property-spa-shell>
+      <header class="pq-appbar">
+        <div class="pq-appbar-breadcrumbs" aria-label="PropertyQuarry section context">
+          <span>{{ brand.name }}</span>
+          <span>{{ workspace_label }}</span>
+          <span>{{ current_nav|replace('_', ' ')|title }}</span>
+        </div>
+        <div class="pq-appbar-row">
+          <div class="pq-topbar-copy">
+            <div class="context">{% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Property workspace{% endif %}</div>
+            <h1>{{ page_heading or console_title or page_title }}</h1>
+            {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
+          </div>
+          <div class="pq-topbar-actions">
+            {% if primary_action_href and primary_action_label %}
+            <a class="btn primary" href="{{ primary_action_href }}">{{ primary_action_label }}</a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="pq-appbar-row">
+          <div class="pq-appbar-meta">
+            <span class="pq-meta-pill">Single workspace app</span>
+            <span class="pq-meta-pill">Run-first results</span>
+            <span class="pq-meta-pill">Packet + 360 review</span>
+          </div>
+          {% if stats %}
+          <div class="pq-stat-strip">
+            {% for stat in stats[:4] %}
+            <div class="pq-stat"><span>{{ stat.label }}</span><strong>{{ stat.value }}</strong></div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      </header>
+      <div class="pq-stage-window">
+        <div class="pq-stage-window-bar">
+          <div class="pq-stage-window-title">
+            <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
+            <span>Persistent PropertyQuarry workspace surface</span>
+          </div>
+          <div class="pq-appbar-meta">
+            <span class="pq-meta-pill">{{ workspace_label }}</span>
+            {% if access_email %}<span class="pq-meta-pill">{{ access_email }}</span>{% endif %}
+          </div>
+        </div>
+        <section class="pq-surface">
+  {% else %}
   <div class="console">
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">{{ brand.mark }}</span>
         <span>{{ brand.name }}</span>
       </div>
-
       <div class="workspace-card">
         <div class="label">Workspace</div>
         <strong>{{ workspace_label }}</strong>
         <div>{{ brand.workspace_label }}</div>
       </div>
-
       {% for group in nav_groups %}
       <div class="group-label">{{ group.label }}</div>
       <div class="nav-list">
@@ -623,7 +1064,6 @@
       </div>
       {% endfor %}
     </aside>
-
     <main class="console-main">
       <div class="console-topbar">
         <div class="console-title">
@@ -637,9 +1077,26 @@
         <div class="actions"><a class="btn primary" href="{{ primary_action_href }}">{{ primary_action_label }}</a></div>
         {% endif %}
       </div>
+  {% endif %}
 
       {% block content %}{% endblock %}
+
+  {% if property_app_nav %}
+        </section>
+      </div>
+    </main>
+    <nav class="pq-mobile-nav" aria-label="PropertyQuarry mobile navigation" data-property-mobile-dock>
+      {% for item in mobile_nav.items %}
+      <a class="{% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
+        <strong>{{ item.label }}</strong>
+        <span>{% if current_nav == item.key %}Open{% else %}Go{% endif %}</span>
+      </a>
+      {% endfor %}
+    </nav>
+  </div>
+  {% else %}
     </main>
   </div>
+  {% endif %}
 </body>
 </html>

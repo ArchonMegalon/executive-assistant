@@ -183,7 +183,10 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
         content = page.content()
+        assert 'data-property-spa-shell' in content
+        assert 'data-property-mobile-dock' in content
         assert "Shape the next market sweep before the crawlers fan out." in content
+        assert "Single workspace app" in content
         assert "Search" in content
         assert "Shortlist" in content
         assert "Research" in content
@@ -225,11 +228,15 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
     try:
         response = page.goto(f"{base_url}/app/properties?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert "Shape the next market sweep before the crawlers fan out." in page.content()
+        content = page.content()
+        assert "Shape the next market sweep before the crawlers fan out." in content
+        assert 'data-property-mobile-dock' in content
         assert page.get_by_role("button", name="Next").is_visible()
         assert page.get_by_role("button", name="Next").is_enabled()
         step_box = page.get_by_role("button", name="Step 1 Search posture").bounding_box()
         assert step_box is not None and step_box["width"] <= 430
+        mobile_dock = page.locator("[data-property-mobile-dock]")
+        assert mobile_dock.is_visible()
 
         page.get_by_role("link", name="Research").click()
         page.wait_for_load_state("networkidle")

@@ -154,6 +154,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     headers = {"host": "propertyquarry.com"}
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert search.status_code == 200
+    assert 'data-property-app-shell' in search.text
+    assert 'data-property-spa-shell' in search.text
+    assert 'data-property-pulse-strip' in search.text
+    assert 'data-property-mobile-dock' in search.text
+    assert "Single workspace app" in search.text
+    assert "Run-first results" in search.text
     assert "Review the finished shortlist in one table." in search.text
     assert "Finished run" in search.text
     assert "Nothing but the final result table." in search.text
@@ -273,6 +279,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     live = client.get("/app/properties", params={"run_id": "run-live"}, headers=headers)
     assert live.status_code == 200
+    assert 'data-property-spa-shell' in live.text
     assert "Keep the run visible until the shortlist is ready." in live.text
     assert "Live search" in live.text
     assert "Scoring shortlist candidate 2 of 4" in live.text
