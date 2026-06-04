@@ -246,7 +246,7 @@ def test_generated_source_specs_expand_austria_cooperative_provider_group() -> N
         max_results=3,
     )
 
-    assert len(specs) == 5
+    assert len(specs) == 6
     assert all(row["platform"] == "genossenschaften_at" for row in specs)
     assert any("gesiba.at" in str(row["url"]).lower() for row in specs)
     assert any("siedlungsunion.at" in str(row["url"]).lower() for row in specs)

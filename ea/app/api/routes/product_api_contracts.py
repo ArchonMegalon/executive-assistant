@@ -1316,6 +1316,7 @@ class PropertyScoutSourceOut(BaseModel):
     source_label: str = ""
     preference_person_id: str = "self"
     listing_total: int = 0
+    duplicate_listing_total: int = 0
     review_created_total: int = 0
     review_existing_total: int = 0
     notified_total: int = 0
@@ -1334,6 +1335,7 @@ class PropertyScoutSyncOut(BaseModel):
     status: str = "noop"
     sources_total: int = 0
     listing_total: int = 0
+    duplicate_listing_total: int = 0
     review_created_total: int = 0
     review_existing_total: int = 0
     notified_total: int = 0

@@ -324,6 +324,7 @@ def _property_search_run_default_summary() -> dict[str, object]:
         "status": "queued",
         "sources_total": 0,
         "listing_total": 0,
+        "duplicate_listing_total": 0,
         "review_created_total": 0,
         "review_existing_total": 0,
         "notified_total": 0,
@@ -15085,6 +15086,7 @@ class ProductService:
             }
 
         listing_total = 0
+        duplicate_listing_total = 0
         review_created_total = 0
         review_existing_total = 0
         notified_total = 0
@@ -15096,6 +15098,7 @@ class ProductService:
         watch_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
+        seen_listing_urls: set[str] = set()
         for source_spec in specs:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
@@ -15286,6 +15289,19 @@ class ProductService:
                 else:
                     ranked_rows = []
             ranked_rows = ranked_rows[:max_results]
+            duplicate_for_source = 0
+            unique_ranked_rows: list[dict[str, object]] = []
+            for row in ranked_rows:
+                normalized_property_url = urllib.parse.urldefrag(str(row.get("property_url") or "").strip())[0]
+                if not normalized_property_url:
+                    continue
+                if normalized_property_url in seen_listing_urls:
+                    duplicate_for_source += 1
+                    duplicate_listing_total += 1
+                    continue
+                seen_listing_urls.add(normalized_property_url)
+                unique_ranked_rows.append(row)
+            ranked_rows = unique_ranked_rows
             _report(
                 step="source_shortlist",
                 message=f"Built shortlist of {len(ranked_rows)} listing(s) for {source_label}.",
@@ -15491,6 +15507,7 @@ class ProductService:
                     "source_label": source_label,
                     "preference_person_id": source_preference_person_id,
                     "listing_total": len(ranked_rows),
+                    "duplicate_listing_total": duplicate_for_source,
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
                     "notified_total": notified_for_source,
@@ -15516,6 +15533,7 @@ class ProductService:
             "status": "processed",
             "sources_total": len(specs),
             "listing_total": listing_total,
+            "duplicate_listing_total": duplicate_listing_total,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,

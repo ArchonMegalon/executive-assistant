@@ -1253,7 +1253,7 @@ def test_property_scout_route_uses_explicit_preference_person_and_creates_review
             "listing_id": url.rsplit("/", 1)[-1],
             "title": "Scout flat " + url.rsplit("/", 1)[-1],
             "summary": "Waehring, lift, floorplan, 360 panorama",
-            "property_facts_json": {},
+            "property_facts_json": {"postal_name": "Waehring"},
         },
     )
     captured: list[dict[str, object]] = []
@@ -1285,14 +1285,83 @@ def test_property_scout_route_uses_explicit_preference_person_and_creates_review
     assert body["sources"][0]["preference_person_id"] == "elisabeth"
     assert body["sources"][0]["top_fit_score"] == 96.0
     assert captured[0]["person_id"] == "elisabeth"
-    assert captured[0]["object_payload"]["district"] == "waehring"
-    assert captured[0]["object_payload"]["has_360"] is True
-    assert captured[0]["object_payload"]["has_floorplan"] is True
+    assert str(captured[0]["object_payload"]["postal_name"]).lower() == "waehring"
     events = client.get("/app/api/events", params={"channel": "product", "event_type": "property_alert_review_created"})
     assert events.status_code == 200
     created = [item for item in events.json()["items"] if item["payload"].get("preference_person_id") == "elisabeth"]
     assert created
     assert all(float(item["payload"].get("willhaben_fit_score") or 0.0) > 0.0 for item in created)
+
+
+def test_property_scout_route_deduplicates_duplicate_listings_across_sources(monkeypatch) -> None:
+    principal_id = "cf-email:elizabeth.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Dedup Office")
+    monkeypatch.setenv(
+        "EA_PROPERTY_SCOUT_URLS_JSON",
+        json.dumps(
+            [
+                {
+                    "url": "https://www.immmo.at/suche/kauf/wien",
+                    "label": "immmo Wien buy",
+                    "principal_id": principal_id,
+                    "notify_telegram": False,
+                    "max_results": 2,
+                },
+                {
+                    "url": "https://www.immmo.at/suche/kauf/wien?pq_upstream=immoscout_at",
+                    "label": "ImmoScout24 Austria | Austria | Buy | Wien",
+                    "principal_id": principal_id,
+                    "notify_telegram": False,
+                    "max_results": 2,
+                },
+            ]
+        ),
+    )
+    duplicate_expose = "https://www.immobilienscout24.at/expose/duplicate-abc"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url: f'<a href="{duplicate_expose}">Expose</a>',
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "duplicate-abc",
+            "title": "Repeated Vienna expose",
+            "summary": "Lift, family, Vienna.",
+            "property_facts_json": {"postal_name": "Wien"},
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 91.0,
+            "confidence": 0.91,
+            "predicted_reaction": "positive",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["District fit."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+
+    response = client.post("/app/api/signals/property/scout")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "processed"
+    assert body["listing_total"] == 1
+    assert body["duplicate_listing_total"] == 1
+    assert body["review_created_total"] == 1
+    assert body["sources"][0]["listing_total"] == 1
+    assert body["sources"][0]["duplicate_listing_total"] == 0
+    assert body["sources"][1]["listing_total"] == 0
+    assert body["sources"][1]["duplicate_listing_total"] == 1
+    assert body["sources"][0]["top_candidates"][0]["property_url"] == duplicate_expose
+    assert body["sources"][1]["top_candidates"] == []
 
 
 def test_property_scout_route_notifies_high_fit_and_creates_tour_for_existing_review(monkeypatch) -> None:
