@@ -199,7 +199,6 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Research language" in response.text
     assert "Berlin" in response.text
     assert "What this search is optimizing for" in response.text
-    assert "Best candidates to review now" in response.text
     assert "Germany" in response.text
     assert "Buy" in response.text
     assert "Apartment" in response.text
@@ -211,13 +210,7 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Portugal" in response.text
     assert "Australia" in response.text
     assert "Property scouting run completed." in response.text
-    assert "Altbau near U6" in response.text
-    assert "Review packet" in response.text
-    assert "Open 360" in response.text
-    assert "What the product has learned from feedback" in response.text
-    assert 'data-property-learning-list' in response.text
-    assert "Hosted 3D page for Auhofstrasse shortlist" in response.text
-    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in response.text
+    assert "Current crawl" in response.text
     assert "Plus checkout" in response.text
     assert 'data-console-form-variant="property_search"' in response.text
     assert 'data-property-step-trigger="search"' in response.text
@@ -227,8 +220,35 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert 'data-property-step-panel="providers" hidden' in response.text
     assert "JavaScript is unavailable. The guided wizard is disabled" in response.text
     assert "Step 1 of 3" in response.text
-    assert "Saved. Learning loop updated." in response.text
-    assert "Reload the page to see the updated learning summary." not in response.text
+    assert "Office signals ingested" not in response.text
+    assert "Morning Memo" not in response.text
+
+    shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    assert shortlist.status_code == 200
+    assert "Review only the few properties that deserve attention now." in shortlist.text
+    assert "Altbau near U6" in shortlist.text
+    assert "Review packet" in shortlist.text
+    assert "Hosted review" in shortlist.text
+    assert "Open 360" in shortlist.text
+    assert "data-feedback-save" in shortlist.text
+
+    research = client.get("/app/research", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    assert research.status_code == 200
+    assert "Inspect the evidence before you open the raw listing." in research.text
+    assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
+    assert "https://myexternalbrain.com/tours/auhofstrasse-14997053" in research.text
+    assert "/app/research/f0f77942b07c4f19?run_id=run-42" in research.text
+
+    packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    assert packet.status_code == 200
+    assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Hosted review" in packet.text
+    assert "Original listing" in packet.text
+
+    profile = client.get("/app/profile", params={"run_id": "run-42"}, headers={"host": "propertyquarry.com"})
+    assert profile.status_code == 200
+    assert "Make the learning loop visible and editable." in profile.text
+    assert 'data-property-learning-list' in profile.text
 
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
@@ -268,6 +288,9 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert settings.status_code == 200
     assert "Identity and return access" in settings.text
     assert "Current search brief state" in settings.text
+    assert "Operating posture" in settings.text
+    assert "Open pricing" in settings.text
+    assert "Open security" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
     assert "Office signals ingested" not in settings.text

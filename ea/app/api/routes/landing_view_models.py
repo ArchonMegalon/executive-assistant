@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 
@@ -221,6 +222,14 @@ def _compact_when(value: str | None, fallback: str) -> str:
     if "T" in normalized:
         return normalized.split("T", 1)[0]
     return normalized
+
+
+def _property_candidate_ref(candidate: dict[str, object]) -> str:
+    raw = "|".join(
+        str(candidate.get(key) or "").strip()
+        for key in ("title", "property_url", "review_url", "tour_url", "source_label")
+    )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def approval_rows(values: object) -> list[dict[str, str]]:
@@ -505,6 +514,7 @@ def app_section_payload(
     ]
     property_shortlist_rows: list[dict[str, str]] = []
     property_shortlist_cards: list[dict[str, object]] = []
+    active_run_id = str(property_run.get("run_id") or "").strip()
     for source in list(property_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
@@ -539,12 +549,35 @@ def app_section_payload(
             review_url = str(candidate.get("review_url") or "").strip()
             tour_url = str(candidate.get("tour_url") or "").strip()
             property_url = str(candidate.get("property_url") or "").strip()
+            packet_ref = _property_candidate_ref(
+                {
+                    "title": title,
+                    "property_url": property_url,
+                    "review_url": review_url,
+                    "tour_url": tour_url,
+                    "source_label": source_label,
+                }
+            )
+            packet_url = f"/app/research/{packet_ref}"
+            if active_run_id:
+                packet_url = f"{packet_url}?run_id={active_run_id}"
             if review_url:
-                row["action_href"] = review_url
+                row["action_href"] = packet_url
+                row["action_method"] = "get"
+                row["action_label"] = "Review packet"
+                row["secondary_action_href"] = review_url
+                row["secondary_action_method"] = "get"
+                row["secondary_action_label"] = "Hosted review"
+            else:
+                row["action_href"] = packet_url
                 row["action_method"] = "get"
                 row["action_label"] = "Review packet"
             if tour_url:
-                if row.get("action_href"):
+                if row.get("secondary_action_href"):
+                    row["tertiary_action_href"] = tour_url
+                    row["tertiary_action_method"] = "get"
+                    row["tertiary_action_label"] = "Open 360"
+                elif row.get("action_href"):
                     row["secondary_action_href"] = tour_url
                     row["secondary_action_method"] = "get"
                     row["secondary_action_label"] = "Open 360"
@@ -553,7 +586,11 @@ def app_section_payload(
                     row["action_method"] = "get"
                     row["action_label"] = "Open 360"
             if property_url:
-                if row.get("secondary_action_href"):
+                if row.get("tertiary_action_href"):
+                    row["quaternary_action_href"] = property_url
+                    row["quaternary_action_method"] = "get"
+                    row["quaternary_action_label"] = "Source"
+                elif row.get("secondary_action_href"):
                     row["tertiary_action_href"] = property_url
                     row["tertiary_action_method"] = "get"
                     row["tertiary_action_label"] = "Source"
@@ -575,6 +612,7 @@ def app_section_payload(
                     "fit_summary": str(candidate.get("fit_summary") or "").strip(),
                     "recommendation": str(candidate.get("recommendation") or "").strip(),
                     "property_url": property_url,
+                    "packet_url": packet_url,
                     "review_url": review_url,
                     "tour_url": tour_url,
                     "match_reasons": match_reasons,
@@ -1153,6 +1191,23 @@ def property_workspace_payload(
             "Plan",
         ),
     ]
+    settings_connection_rows = [
+        row_item(
+            "Google sign-in",
+            "Identity-only return access. PropertyQuarry should not widen this into office sync on the settings surface.",
+            "Connection",
+        ),
+        row_item(
+            "Notification delivery",
+            "Good matches can leave through Telegram or email once the shortlist is credible enough to notify.",
+            "Alerts",
+        ),
+        row_item(
+            "Workspace posture",
+            "Billing, saved defaults, and security should stay explicit and product-specific.",
+            "Control",
+        ),
+    ]
     alerts_rows = list(recent_matches_card.get("items") or []) + [
         row_item(
             str(event.get("step") or "Run update").replace("_", " ").strip().title(),
@@ -1212,12 +1267,12 @@ def property_workspace_payload(
                 "title": title,
                 "detail": " | ".join(part for part in detail_parts if part) or "Open the packet to inspect the fit and missing evidence.",
                 "tag": str(candidate.get("tag") or candidate.get("recommendation") or "Packet").strip() or "Packet",
-                "action_href": str(candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
+                "action_href": str(candidate.get("packet_url") or candidate.get("review_url") or candidate.get("tour_url") or candidate.get("property_url") or "").strip(),
                 "action_method": "get",
-                "action_label": "Open packet" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else "Open source"),
-                "secondary_action_href": str(candidate.get("tour_url") or "").strip(),
-                "secondary_action_method": "get" if candidate.get("tour_url") else "",
-                "secondary_action_label": "Open 360" if candidate.get("tour_url") and candidate.get("review_url") else "",
+                "action_label": "Open packet",
+                "secondary_action_href": str(candidate.get("review_url") or candidate.get("tour_url") or "").strip(),
+                "secondary_action_method": "get" if (candidate.get("review_url") or candidate.get("tour_url")) else "",
+                "secondary_action_label": "Hosted review" if candidate.get("review_url") else ("Open 360" if candidate.get("tour_url") else ""),
             }
         )
     if not research_rows:
@@ -1363,7 +1418,7 @@ def property_workspace_payload(
                     "eyebrow": "Connections",
                     "title": "Identity and return access",
                     "body": "Google is optional identity and easier return access. It is not an office sync contract here.",
-                    "items": preference_rows,
+                    "items": preference_rows + settings_connection_rows,
                 },
                 {
                     "eyebrow": "Saved defaults",
@@ -1371,13 +1426,45 @@ def property_workspace_payload(
                     "body": "The saved brief stays visible so you can change the product posture before the next run.",
                     "items": list(search_posture_card.get("items") or []),
                 },
+                {
+                    "eyebrow": "Operating posture",
+                    "title": "Where the next change belongs",
+                    "body": "Settings should tell the user what to change next instead of leaking inherited assistant concepts.",
+                    "items": [
+                        row_item("Search brief", "Go back to Search when the market, provider mix, or shortlist depth needs adjustment.", "Search"),
+                        row_item("Billing", "Use Billing when you need more providers, deeper research, or more sustained automation.", "Billing"),
+                        row_item("Security", "Use the public security page to inspect retention and identity posture on this product.", "Trust"),
+                    ],
+                },
             ],
             "secondary_cards": [billing_rows and {
                 "eyebrow": "Plan",
                 "title": "Commercial posture",
                 "body": "Plan limits and research depth stay visible here too.",
                 "items": billing_rows,
-            } or {}],
+            } or {}, {
+                "eyebrow": "Public surfaces",
+                "title": "Product-facing controls",
+                "body": "The user should understand where the public contract lives too.",
+                "items": [
+                    {
+                        "title": "Pricing",
+                        "detail": "Inspect the current plan ladder and commercial delta on the public product page.",
+                        "tag": "Public",
+                        "action_href": "/pricing",
+                        "action_method": "get",
+                        "action_label": "Open pricing",
+                    },
+                    {
+                        "title": "Security",
+                        "detail": "Review trust, identity, and data-posture language on the public product page.",
+                        "tag": "Public",
+                        "action_href": "/security",
+                        "action_method": "get",
+                        "action_label": "Open security",
+                    },
+                ],
+            }],
             "console_form": property_form,
             "show_brief_form": False,
             "show_shortlist_cards": False,

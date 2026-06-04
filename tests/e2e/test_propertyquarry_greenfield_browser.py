@@ -204,6 +204,12 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         research = page.content()
         assert "Inspect the evidence before you open the raw listing." in research
         assert "Hosted 3D page for Auhofstrasse shortlist" in research
+
+        page.get_by_role("link", name="Open packet").first.click()
+        page.wait_for_load_state("networkidle")
+        packet = page.content()
+        assert "Internal property dossier with fit reasoning" in packet
+        assert "Original listing" in packet
     finally:
         context.close()
 

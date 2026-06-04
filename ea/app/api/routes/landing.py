@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import hmac
 import os
+import hashlib
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1292,6 +1293,195 @@ def _render_console_object_detail(
             "object_sections": object_sections,
             "object_sidebar_form": object_sidebar_form or {},
         },
+    )
+
+
+def _property_candidate_ref(candidate: dict[str, object]) -> str:
+    raw = "|".join(
+        str(candidate.get(key) or "").strip()
+        for key in ("title", "property_url", "review_url", "tour_url", "source_label")
+    )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _property_lookup_candidate(
+    *,
+    property_context: dict[str, object],
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    summary = dict(dict(property_context.get("run") or {}).get("summary") or {})
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+        for raw_candidate in list(source.get("top_candidates") or []):
+            if not isinstance(raw_candidate, dict):
+                continue
+            candidate = dict(raw_candidate)
+            candidate.setdefault("source_label", source_label)
+            if _property_candidate_ref(candidate) == candidate_ref:
+                return candidate
+    return None
+
+
+def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
+    labels = {
+        "price_eur": "Price",
+        "warm_rent_eur": "Warm rent",
+        "cold_rent_eur": "Cold rent",
+        "area_m2": "Area",
+        "rooms": "Rooms",
+        "bedrooms": "Bedrooms",
+        "bathrooms": "Bathrooms",
+        "floor": "Floor",
+        "has_lift": "Lift",
+        "heating_type": "Heating",
+        "energy_class": "Energy class",
+        "distance_supermarket_m": "Supermarket",
+        "distance_playground_m": "Playground",
+        "distance_pharmacy_m": "Pharmacy",
+        "distance_underground_m": "Underground",
+        "address": "Address",
+    }
+    rows: list[dict[str, str]] = []
+    for key, label in labels.items():
+        value = facts.get(key)
+        if value in (None, "", []):
+            continue
+        text = str(value).strip()
+        if key.endswith("_eur"):
+            text = f"{text} EUR"
+        elif key.endswith("_m"):
+            text = f"{text} m"
+        elif key == "area_m2":
+            text = f"{text} m2"
+        elif isinstance(value, bool):
+            text = "Yes" if value else "No"
+        rows.append(_object_detail_row(label, text, "Fact"))
+    return rows
+
+
+@router.get("/app/research/{candidate_ref}", response_class=HTMLResponse)
+def property_research_packet(
+    candidate_ref: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+    run_id: str = Query(default=""),
+) -> HTMLResponse:
+    status = container.onboarding.status(principal_id=context.principal_id)
+    property_context = _property_console_context(
+        container=container,
+        principal_id=context.principal_id,
+        status=status,
+        run_id=run_id,
+    )
+    candidate = _property_lookup_candidate(property_context=property_context, candidate_ref=str(candidate_ref or "").strip())
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="property_research_packet_not_found")
+    workspace = dict(status.get("workspace") or {})
+    assessment = dict(candidate.get("assessment") or {})
+    facts = dict(candidate.get("property_facts") or {})
+    match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
+    mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
+    fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "No fit summary captured.").strip()
+    review_url = str(candidate.get("review_url") or "").strip()
+    tour_url = str(candidate.get("tour_url") or "").strip()
+    property_url = str(candidate.get("property_url") or "").strip()
+    source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
+    title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
+    run_target = f"/app/research/{candidate_ref}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else "")
+    return _render_console_object_detail(
+        request=request,
+        context=context,
+        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+        page_title=f"PropertyQuarry {title}",
+        current_nav="research",
+        console_title=title,
+        console_summary="Internal property dossier with fit reasoning, supporting facts, and next research actions.",
+        object_kind="Research packet",
+        object_title=title,
+        object_summary=f"{fit_summary} · {source_label}",
+        object_meta=[
+            {"label": "Source", "value": source_label},
+            {"label": "Recommendation", "value": str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate"},
+            {"label": "Run", "value": str(run_id or "latest").strip() or "latest"},
+            {"label": "Packet", "value": str(candidate_ref)},
+        ],
+        object_sidebar_title="Packet actions",
+        object_sidebar_copy="Open the internal packet first. Raw portals and hosted tours stay secondary to the actual research decision surface.",
+        object_sidebar_rows=[
+            _object_detail_row("Fit summary", fit_summary, "Fit"),
+            _object_detail_row(
+                "Internal packet",
+                "This page stays on PropertyQuarry and should remain the primary review surface.",
+                "Primary",
+                href=run_target,
+            ),
+            _object_detail_row(
+                "Hosted review",
+                review_url or "No hosted review page exists for this candidate yet.",
+                "Review",
+                href=review_url,
+                secondary_action_href=review_url,
+                secondary_action_label="Open hosted review" if review_url else "",
+                secondary_action_method="get" if review_url else "",
+            ),
+            _object_detail_row(
+                "Hosted 360",
+                tour_url or "No hosted 360 tour exists for this candidate yet.",
+                "Tour",
+                href=tour_url,
+                secondary_action_href=tour_url,
+                secondary_action_label="Open 360" if tour_url else "",
+                secondary_action_method="get" if tour_url else "",
+            ),
+            _object_detail_row(
+                "Original listing",
+                property_url or "No raw listing URL was captured.",
+                "Listing",
+                href=property_url,
+                secondary_action_href=property_url,
+                secondary_action_label="Open source" if property_url else "",
+                secondary_action_method="get" if property_url else "",
+            ),
+        ],
+        object_sections=[
+            {
+                "eyebrow": "Fit reasoning",
+                "title": "Why this candidate matched",
+                "items": (
+                    [_object_detail_row(item, "Positive signal used in ranking.", "Match") for item in match_reasons]
+                    + [_object_detail_row(item, "Risk, mismatch, or still-open weakness.", "Risk") for item in mismatch_reasons]
+                ) or [_object_detail_row("No explicit reasoning captured", "The packet has not yet received structured fit reasoning.", "Waiting")],
+            },
+            {
+                "eyebrow": "Property facts",
+                "title": "What the product currently knows",
+                "items": _property_fact_rows(facts) or [_object_detail_row("No structured facts yet", "Run deeper enrichment or inspect the raw listing.", "Pending")],
+            },
+            {
+                "eyebrow": "Research next",
+                "title": "What still needs verification",
+                "items": [
+                    _object_detail_row(
+                        "Confirm missing building facts",
+                        "Lift, heating, exact address, and neighbourhood distances should be explicit before a human spends more time here.",
+                        "Follow-up",
+                    ),
+                    _object_detail_row(
+                        "Review the hosted surfaces",
+                        "Use the hosted review and 360 pages only after the internal packet already looks compelling.",
+                        "Review",
+                    ),
+                    _object_detail_row(
+                        "Record preference feedback",
+                        "Like, dislike, or hide the candidate from the shortlist lane so the next run learns.",
+                        "Learning",
+                    ),
+                ],
+            },
+        ],
     )
 
 

@@ -612,7 +612,8 @@
               {% endif %}
             </div>
             <div class="pq-actions">
-              {% if candidate.get('review_url') %}<a class="pq-action primary" href="{{ candidate.get('review_url') }}">Review packet</a>{% endif %}
+              {% if candidate.get('packet_url') %}<a class="pq-action primary" href="{{ candidate.get('packet_url') }}">Review packet</a>{% endif %}
+              {% if candidate.get('review_url') %}<a class="pq-action" href="{{ candidate.get('review_url') }}">Hosted review</a>{% endif %}
               {% if candidate.get('tour_url') %}<a class="pq-action" href="{{ candidate.get('tour_url') }}">Open 360</a>{% endif %}
               {% if candidate.get('property_url') %}<a class="pq-action" href="{{ candidate.get('property_url') }}">Source</a>{% endif %}
             </div>

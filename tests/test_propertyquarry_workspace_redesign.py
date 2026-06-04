@@ -110,11 +110,19 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Review only the few properties that deserve attention now." in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Review packet" in shortlist.text
+    assert "Hosted review" in shortlist.text
 
     research = client.get("/app/research", params={"run_id": "run-42"}, headers=headers)
     assert research.status_code == 200
     assert "Inspect the evidence before you open the raw listing." in research.text
     assert "Hosted 3D page for Auhofstrasse shortlist" in research.text
+    assert "/app/research/" in research.text
+
+    packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers=headers)
+    assert packet.status_code == 200
+    assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Hosted review" in packet.text
+    assert "Original listing" in packet.text
 
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=headers)
     assert profile.status_code == 200
@@ -168,6 +176,9 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     assert settings.status_code == 200
     assert "Identity and return access" in settings.text
     assert "Current search brief state" in settings.text
+    assert "Operating posture" in settings.text
+    assert "Open pricing" in settings.text
+    assert "Open security" in settings.text
     assert "Sync runs" not in settings.text
     assert "Last Google sync" not in settings.text
     assert "Office signals ingested" not in settings.text
