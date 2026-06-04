@@ -4,6 +4,7 @@ import html
 import hmac
 import os
 import hashlib
+import re
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1349,6 +1350,46 @@ def _property_lookup_candidate(
     return None
 
 
+def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[str, object]:
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    title = str(candidate.get("title") or "").strip()
+    summary = str(candidate.get("summary") or "").strip()
+    text = " | ".join(part for part in (title, summary) if part)
+    if text:
+        if "price_eur" not in facts:
+            price_match = re.search(r"(?:€|EUR)\s*([\d\.\s]+(?:,\d+)?)", text, flags=re.IGNORECASE)
+            if price_match:
+                raw_amount = str(price_match.group(1) or "").strip().replace(" ", "")
+                normalized_amount = raw_amount.replace(".", "").replace(",", ".")
+                try:
+                    facts["price_eur"] = float(normalized_amount)
+                    facts.setdefault("price_display", compact_text(price_match.group(0), fallback=f"EUR {facts['price_eur']:.0f}", limit=120))
+                except Exception:
+                    pass
+        if "area_m2" not in facts and "living_area_m2" not in facts:
+            area_match = re.search(r"(\d+(?:[.,]\d+)?)\s*m[²2]", text, flags=re.IGNORECASE)
+            if area_match:
+                try:
+                    facts["area_m2"] = float(str(area_match.group(1) or "").replace(",", "."))
+                except Exception:
+                    pass
+        if "rooms" not in facts and "room_count" not in facts:
+            rooms_match = re.search(r"(\d+(?:[.,]\d+)?)\s*[- ]?Zimmer", text, flags=re.IGNORECASE)
+            if rooms_match:
+                try:
+                    facts["rooms"] = float(str(rooms_match.group(1) or "").replace(",", "."))
+                except Exception:
+                    pass
+        if "postal_name" not in facts and "address" not in facts and "district" not in facts:
+            postal_match = re.search(r"\((\d{4}\s+[A-Za-zÄÖÜäöüß][^)]*)\)", text)
+            if postal_match:
+                postal_name = str(postal_match.group(1) or "").strip()[:160]
+                if postal_name:
+                    facts["postal_name"] = postal_name
+                    facts.setdefault("address", postal_name)
+    return facts
+
+
 def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     labels = {
         "price_eur": "Price",
@@ -1760,7 +1801,7 @@ def property_research_packet(
         raise HTTPException(status_code=404, detail="property_research_packet_not_found")
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
-    facts = dict(candidate.get("property_facts") or {})
+    facts = _property_enriched_candidate_facts(candidate=candidate)
     match_reasons = [str(item).strip() for item in list(candidate.get("match_reasons") or []) if str(item).strip()]
     mismatch_reasons = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
     preferences = dict(property_context.get("preferences") or {})

@@ -218,6 +218,100 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Plus checkout" in billing.text
 
 
+def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
+    principal_id = "pq-packet-fact-enrichment"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Packet Enrichment")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "investment_research_mode": "auto",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "preference_person_id": "self",
+            "property_commercial": {
+                "status": "active",
+                "active_plan_key": "agent",
+                "active_until": "2099-12-31T23:59:59+00:00",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    sparse_candidate = {
+        "title": "Familien-Maisonette mit weitläufiger Terrasse und drei Zimmern, 88,48 m², € 659.000,-, (1160 Wien) - willhaben",
+        "property_url": "https://www.willhaben.at/iad/object?adId=2113641102",
+        "fit_summary": "Sparse candidate facts should still allow underwriting.",
+        "recommendation": "shortlist",
+        "review_url": "",
+        "tour_url": "",
+        "match_reasons": ["Location and layout fit."],
+        "mismatch_reasons": [],
+        "property_facts": {"has_360": False},
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Buy | Wien",
+                        "listing_total": 1,
+                        "top_candidates": [sparse_candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_investment_research_snapshot",
+        lambda **kwargs: {
+            "current_price_eur": 659000.0,
+            "current_area_sqm": 88.48,
+            "current_price_per_sqm_eur": 7448.01,
+            "market_buy_per_sqm_eur": 7000.0,
+            "market_buy_delta_pct": 6.4,
+            "market_rent_per_sqm_eur": 18.5,
+            "expected_monthly_rent_eur": 1636.88,
+            "gross_yield_pct": 2.98,
+            "payback_years": 33.5,
+            "buy_sample_count": 4,
+            "rent_sample_count": 3,
+            "buy_samples": [{"title": "Comp A", "per_sqm_eur": 7000.0, "source_label": "Willhaben"}],
+            "rent_samples": [{"title": "Rent Comp A", "per_sqm_eur": 18.5, "source_label": "Willhaben"}],
+        },
+    )
+
+    headers = {"host": "propertyquarry.com"}
+    research = client.get("/app/research", params={"run_id": "run-88"}, headers=headers)
+    packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-88"', research.text)
+    assert packet_match is not None
+    packet = client.get(packet_match.group(1), params={"run_id": "run-88", "investment": 1}, headers=headers)
+    assert packet.status_code == 200
+    assert "Investment research is waiting on core facts" not in packet.text
+    assert "Current underwriting base" in packet.text
+    assert "Buy-side benchmark" in packet.text
+    assert "Gross yield" in packet.text
+
+
 def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monkeypatch) -> None:
     principal_id = "pq-redesign-no-fallback"
     client = build_product_client(principal_id=principal_id)

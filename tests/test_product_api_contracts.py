@@ -12811,3 +12811,76 @@ def test_property_payfunnels_webhook_accepts_hidden_additional_fields_shape(
     commercial = status_after_webhook.json()["property_search_preferences"]["property_commercial"]
     assert commercial["active_plan_key"] == "plus"
     assert commercial["last_order_id"] == "pf-plus-456"
+
+
+def test_property_investment_comp_samples_filter_to_matching_location(monkeypatch: pytest.MonkeyPatch) -> None:
+    candidate_urls = [
+        "https://example.test/rent-linz",
+        "https://example.test/rent-vienna-1",
+        "https://example.test/rent-vienna-2",
+    ]
+
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms=(): (
+            {
+                "platform": "willhaben",
+                "label": "Willhaben | Austria | Rent | 1160 Wien",
+                "url": "https://example.test/search",
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: list(candidate_urls))
+
+    previews = {
+        "https://example.test/rent-linz": {
+            "title": "Flat in Linz, 55 m², € 700,-, (4020 Linz)",
+            "summary": "Linz sample",
+            "property_facts_json": {"area_m2": 55.0, "total_rent_eur": 700.0, "postal_name": "4020 Linz"},
+            "media_urls_json": [],
+        },
+        "https://example.test/rent-vienna-1": {
+            "title": "Apartment in Ottakring, 60 m², € 990,-, (1160 Wien)",
+            "summary": "Vienna comp one",
+            "property_facts_json": {"area_m2": 60.0, "total_rent_eur": 990.0, "postal_name": "1160 Wien"},
+            "media_urls_json": [],
+        },
+        "https://example.test/rent-vienna-2": {
+            "title": "Apartment in Währing, 63 m², € 1.050,-, (1180 Wien)",
+            "summary": "Vienna comp two",
+            "property_facts_json": {"area_m2": 63.0, "total_rent_eur": 1050.0, "postal_name": "1180 Wien"},
+            "media_urls_json": [],
+        },
+    }
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+    monkeypatch.setattr(
+        product_service,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): dict(property_facts),
+    )
+
+    samples = product_service._property_investment_comp_samples(
+        property_url="https://example.test/current-buy",
+        country_code="AT",
+        listing_mode="rent",
+        location_query="1160 Wien",
+        selected_platforms=("willhaben",),
+        max_samples=5,
+    )
+
+    assert len(samples) == 1
+    assert samples[0]["property_url"] == "https://example.test/rent-vienna-1"
+
+
+def test_property_investment_text_enrichment_prefers_larger_area_when_title_mentions_terrace() -> None:
+    enriched = product_service._property_enrich_facts_from_listing_text(
+        facts={},
+        title="Maisonette with terrace, 127 m², terrace 37 m², € 2.667,72, (1030 Wien)",
+        summary="",
+        listing_mode="rent",
+    )
+
+    assert enriched["area_m2"] == 127.0

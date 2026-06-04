@@ -377,6 +377,46 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     assert status_snapshot.status_code == 200
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
 
+
+def test_property_search_preferences_update_preserves_existing_commercial_state() -> None:
+    principal_id = "pq-commercial-preserve"
+    client = build_client(principal_id=principal_id)
+    started = client.post("/v1/onboarding/start", json={"workspace_name": "Commercial Preserve", "workspace_mode": "personal"})
+    assert started.status_code == 200
+
+    seeded = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "property_commercial": {
+                "status": "active",
+                "active_plan_key": "agent",
+                "active_until": "2099-12-31T23:59:59+00:00",
+            },
+        },
+    )
+    assert seeded.status_code == 200
+
+    updated = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben", "genossenschaften_at"],
+            "investment_research_mode": "auto",
+        },
+    )
+    assert updated.status_code == 200
+    commercial = updated.json()["property_search_preferences"]["property_commercial"]
+    assert commercial["active_plan_key"] == "agent"
+    assert commercial["status"] == "active"
+
     observed: dict[str, object] = {}
 
     def _fake_sync_direct_property_scout(

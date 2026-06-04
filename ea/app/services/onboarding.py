@@ -7,7 +7,28 @@ from app.domain.models import ConnectorBinding, OnboardingState
 from app.repositories.onboarding_state import InMemoryOnboardingStateRepository, OnboardingStateRepository
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository
 from app.services.assistant_onboarding_service import AssistantOnboardingService
-from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_bundle_supports_workspace_sync, google_scope_bundle_details
+from app.services.google_oauth import GOOGLE_PROVIDER_KEY, google_scope_bundle_details
+try:
+    from app.services.google_oauth import google_bundle_supports_workspace_sync
+except ImportError:
+    def google_bundle_supports_workspace_sync(
+        bundle: str | None = None,
+        *,
+        scopes: tuple[str, ...] | list[str] | None = None,
+    ) -> bool:
+        effective_scopes = tuple(str(item or "").strip() for item in (scopes or ()) if str(item or "").strip())
+        if not effective_scopes and bundle:
+            bundle_details = google_scope_bundle_details(bundle)
+            effective_scopes = tuple(str(item or "").strip() for item in list(bundle_details.get("scopes") or []) if str(item or "").strip())
+        supported_signal_scopes = {
+            "https://www.googleapis.com/auth/gmail.metadata",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/calendar.readonly",
+            "https://www.googleapis.com/auth/contacts.readonly",
+            "https://www.googleapis.com/auth/drive.metadata.readonly",
+        }
+        return any(scope in supported_signal_scopes for scope in effective_scopes)
 from app.services.memory_runtime import MemoryRuntimeService
 from app.services.property_billing import normalize_property_commercial
 from app.services.provider_registry import ProviderRegistryService
@@ -206,6 +227,18 @@ class OnboardingService(AssistantOnboardingService):
     ) -> dict[str, object]:
         state = self._ensure_state(principal_id)
         normalized_preferences = self._normalize_property_search_preferences(property_search_preferences_json)
+        existing_preferences = dict(state.property_search_preferences_json or {})
+        existing_raw_preferences = dict(existing_preferences.get("raw_preferences") or {}) if isinstance(existing_preferences.get("raw_preferences"), dict) else {}
+        incoming_commercial = dict(normalized_preferences.get("property_commercial") or {}) if isinstance(normalized_preferences.get("property_commercial"), dict) else {}
+        existing_commercial = dict(existing_preferences.get("property_commercial") or {}) if isinstance(existing_preferences.get("property_commercial"), dict) else {}
+        if not incoming_commercial and existing_commercial:
+            normalized_preferences["property_commercial"] = existing_commercial
+        raw_preferences = dict(normalized_preferences.get("raw_preferences") or {}) if isinstance(normalized_preferences.get("raw_preferences"), dict) else {}
+        incoming_raw_commercial = dict(raw_preferences.get("property_commercial") or {}) if isinstance(raw_preferences.get("property_commercial"), dict) else {}
+        existing_raw_commercial = dict(existing_raw_preferences.get("property_commercial") or {}) if isinstance(existing_raw_preferences.get("property_commercial"), dict) else {}
+        if not incoming_raw_commercial and existing_raw_commercial:
+            raw_preferences["property_commercial"] = existing_raw_commercial
+            normalized_preferences["raw_preferences"] = raw_preferences
         saved = self._repo.upsert_state(
             principal_id=state.principal_id,
             onboarding_id=state.onboarding_id,

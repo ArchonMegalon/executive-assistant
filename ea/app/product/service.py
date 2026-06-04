@@ -2041,6 +2041,93 @@ def _property_investment_location_seed(facts: dict[str, object], preferences: di
     return str(preferences.get("location_query") or "").strip()
 
 
+def _property_enrich_facts_from_listing_text(
+    *,
+    facts: dict[str, object],
+    title: str,
+    summary: str,
+    listing_mode: str,
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    text = " | ".join(part for part in (str(title or "").strip(), str(summary or "").strip()) if part)
+    if not text:
+        return enriched
+    price_match = re.search(r"(?:€|EUR)\s*([\d\.\s]+(?:,\d+)?)", text, flags=re.IGNORECASE)
+    if price_match:
+        raw_amount = str(price_match.group(1) or "").strip().replace(" ", "")
+        normalized_amount = raw_amount.replace(".", "").replace(",", ".")
+        try:
+            amount = float(normalized_amount)
+        except Exception:
+            amount = 0.0
+        if amount > 0.0:
+            if listing_mode == "rent":
+                enriched.setdefault("total_rent_eur", amount)
+                enriched.setdefault("rent_display", compact_text(price_match.group(0), fallback=f"EUR {amount:.0f}", limit=120))
+            else:
+                enriched.setdefault("price_eur", amount)
+                enriched.setdefault("price_display", compact_text(price_match.group(0), fallback=f"EUR {amount:.0f}", limit=120))
+    area_matches = re.findall(r"(\d+(?:[.,]\d+)?)\s*m[²2]", text, flags=re.IGNORECASE)
+    if area_matches and "area_sqm" not in enriched and "area_m2" not in enriched and "living_area_m2" not in enriched:
+        try:
+            area_value = max(float(str(raw or "").replace(",", ".")) for raw in area_matches)
+            if area_value > 0.0:
+                enriched["area_m2"] = area_value
+        except Exception:
+            pass
+    rooms_match = re.search(r"(\d+(?:[.,]\d+)?)\s*[- ]?Zimmer", text, flags=re.IGNORECASE)
+    if rooms_match and "rooms" not in enriched and "room_count" not in enriched:
+        try:
+            enriched["rooms"] = float(str(rooms_match.group(1) or "").replace(",", "."))
+        except Exception:
+            pass
+    postal_match = re.search(r"\((\d{4}\s+[A-Za-zÄÖÜäöüß][^)]*)\)", text)
+    if postal_match and "postal_name" not in enriched and "address" not in enriched and "district" not in enriched:
+        postal_name = str(postal_match.group(1) or "").strip()[:160]
+        if postal_name:
+            enriched["postal_name"] = postal_name
+            enriched.setdefault("address", postal_name)
+    return enriched
+
+
+def _property_investment_location_match_score(
+    *,
+    location_query: str,
+    title: str,
+    summary: str,
+    facts: dict[str, object],
+) -> int:
+    normalized_query = compact_text(str(location_query or "").strip().lower(), fallback="", limit=160)
+    if not normalized_query:
+        return 1
+    location_text = " ".join(
+        part
+        for part in (
+            str(title or "").strip(),
+            str(summary or "").strip(),
+            str(facts.get("postal_name") or "").strip(),
+            str(facts.get("district") or "").strip(),
+            str(facts.get("street_address") or facts.get("address") or "").strip(),
+        )
+        if part
+    ).lower()
+    if not location_text:
+        return 0
+    postal_codes = re.findall(r"\b\d{4}\b", normalized_query)
+    if postal_codes and any(postal in location_text for postal in postal_codes):
+        return 3
+    city_tokens = [
+        token
+        for token in re.split(r"[^a-zA-ZäöüÄÖÜß]+", normalized_query)
+        if len(token) >= 4 and not token.isdigit()
+    ]
+    if city_tokens and any(token in location_text for token in city_tokens):
+        return 2
+    if any(token in location_text for token in ("wien", "vienna")) and any(token in normalized_query for token in ("wien", "vienna")):
+        return 2
+    return 0
+
+
 def _property_investment_comp_samples(
     *,
     property_url: str,
@@ -2050,6 +2137,7 @@ def _property_investment_comp_samples(
     selected_platforms: tuple[str, ...],
     max_samples: int,
 ) -> list[dict[str, object]]:
+    deadline = time.monotonic() + 20.0
     preferences = normalize_property_search_preferences(
         {
             "country_code": country_code,
@@ -2060,11 +2148,16 @@ def _property_investment_comp_samples(
             "selected_platforms": list(selected_platforms),
         }
     )
-    source_specs = generated_property_source_specs(preferences)[: max(2, len(selected_platforms) or 2)]
+    source_specs = generated_property_source_specs(
+        preferences=preferences,
+        selected_platforms=tuple(selected_platforms),
+    )[: min(max(2, len(selected_platforms) or 2), 3)]
     normalized_current = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     seen_urls: set[str] = {normalized_current}
-    samples: list[dict[str, object]] = []
+    scored_samples: list[tuple[int, dict[str, object]]] = []
     for source in source_specs:
+        if time.monotonic() >= deadline:
+            break
         source_url = str(source.get("url") or "").strip()
         if not source_url:
             continue
@@ -2072,21 +2165,42 @@ def _property_investment_comp_samples(
             source_html = _property_scout_fetch_html(source_url, timeout_seconds=4.0)
         except Exception:
             continue
-        listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=source_html)
+        listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=source_html)[: max(24, max_samples * 8)]
         for candidate_url in listing_urls:
+            if time.monotonic() >= deadline:
+                break
             normalized_candidate = urllib.parse.urldefrag(str(candidate_url or "").strip())[0]
             if not normalized_candidate or normalized_candidate in seen_urls:
                 continue
             seen_urls.add(normalized_candidate)
-            preview = _property_scout_page_preview(normalized_candidate, prefer_fast=True)
+            try:
+                preview = _property_scout_page_preview(normalized_candidate, prefer_fast=True)
+            except Exception:
+                continue
             if not preview:
                 continue
-            preview_facts = dict(preview.get("property_facts_json") or {})
-            enriched = _merge_property_facts_with_source_research(
-                property_url=normalized_candidate,
-                property_facts=preview_facts,
-                image_urls=tuple(str(value or "").strip() for value in (preview.get("media_urls_json") or ()) if str(value or "").strip()),
+            preview_facts = _property_enrich_facts_from_listing_text(
+                facts=dict(preview.get("property_facts_json") or {}),
+                title=str(preview.get("title") or "").strip(),
+                summary=str(preview.get("summary") or "").strip(),
+                listing_mode=listing_mode,
             )
+            location_score = _property_investment_location_match_score(
+                location_query=location_query,
+                title=str(preview.get("title") or "").strip(),
+                summary=str(preview.get("summary") or "").strip(),
+                facts=preview_facts,
+            )
+            if location_score <= 0:
+                continue
+            try:
+                enriched = _merge_property_facts_with_source_research(
+                    property_url=normalized_candidate,
+                    property_facts=preview_facts,
+                    image_urls=tuple(str(value or "").strip() for value in (preview.get("media_urls_json") or ()) if str(value or "").strip()),
+                )
+            except Exception:
+                enriched = dict(preview_facts)
             area_sqm = _property_investment_area_sqm(enriched)
             if not isinstance(area_sqm, float) or area_sqm <= 0.0:
                 continue
@@ -2102,10 +2216,15 @@ def _property_investment_comp_samples(
                 "area_sqm": round(area_sqm, 2),
                 "per_sqm_eur": per_sqm,
             }
-            samples.append(sample)
-            if len(samples) >= max_samples:
-                return samples
-    return samples
+            scored_samples.append((location_score, sample))
+            if len(scored_samples) >= max_samples and all(score >= 3 for score, _ in scored_samples[-max_samples:]):
+                break
+    if not scored_samples:
+        return []
+    scored_samples.sort(key=lambda item: (item[0], -abs(float(item[1].get("area_sqm") or 0.0))), reverse=True)
+    best_score = max(score for score, _ in scored_samples)
+    filtered = [sample for score, sample in scored_samples if score == best_score]
+    return filtered[:max_samples]
 
 
 @lru_cache(maxsize=128)
