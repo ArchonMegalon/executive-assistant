@@ -157,6 +157,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     packet = client.get("/app/research/f0f77942b07c4f19", params={"run_id": "run-42"}, headers=headers)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Decision call" in packet.text
+    assert "Why now" in packet.text
+    assert "Missing-data severity" in packet.text
     assert "Decision scorecard" in packet.text
     assert "Evidence and provenance" in packet.text
     assert "Open questions" in packet.text

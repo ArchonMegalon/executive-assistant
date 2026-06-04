@@ -1489,8 +1489,41 @@ def _property_packet_missing_rows(
             continue
         if key == "heating_type" and not ({"no gas", "district heating"} & wanted_keywords):
             continue
-        rows.append(_object_detail_row(title, detail, "Missing"))
+        severity = "Critical" if key in {"address", "heating_type", "has_lift"} else "Important"
+        rows.append(_object_detail_row(title, detail, severity))
     return rows
+
+
+def _property_packet_decision_rows(
+    *,
+    candidate: dict[str, object],
+    match_reasons: list[str],
+    mismatch_reasons: list[str],
+    missing_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    why_now = "; ".join(match_reasons[:2]) if match_reasons else "Enough positive fit signals are present to justify review now."
+    why_not_now = "; ".join(mismatch_reasons[:2]) if mismatch_reasons else "No major blocking caution has been captured yet."
+    critical_missing = sum(1 for row in missing_rows if str(row.get("tag") or "").strip().lower() == "critical")
+    important_missing = sum(1 for row in missing_rows if str(row.get("tag") or "").strip().lower() == "important")
+    if critical_missing:
+        severity = "High"
+        severity_detail = f"{critical_missing} critical fact(s) still missing before this should be trusted fully."
+    elif important_missing >= 2:
+        severity = "Medium"
+        severity_detail = f"{important_missing} important fact(s) still missing. Keep this on the shortlist, but do not treat it as settled."
+    elif important_missing == 1:
+        severity = "Low"
+        severity_detail = "One important fact is still missing. The packet is usable, but not fully closed."
+    else:
+        severity = "Low"
+        severity_detail = "No major missing-data pressure remains in the current packet."
+    recommendation = str(candidate.get("recommendation") or candidate.get("tag") or "candidate").replace("_", " ").strip().title() or "Candidate"
+    return [
+        _object_detail_row("Why now", why_now, "Now"),
+        _object_detail_row("Why not now", why_not_now, "Risk"),
+        _object_detail_row("Missing-data severity", severity_detail, severity),
+        _object_detail_row("Current recommendation", recommendation, "Decision"),
+    ]
 
 
 def _property_packet_compare_rows(
@@ -1630,6 +1663,12 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
+    decision_rows = _property_packet_decision_rows(
+        candidate=candidate,
+        match_reasons=match_reasons,
+        mismatch_reasons=mismatch_reasons,
+        missing_rows=missing_rows,
+    )
     provenance_rows = _property_packet_provenance_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
@@ -1696,6 +1735,11 @@ def property_research_packet(
             ),
         ],
         object_sections=[
+            {
+                "eyebrow": "Decision call",
+                "title": "The current recommendation in plain terms",
+                "items": decision_rows,
+            },
             {
                 "eyebrow": "Decision scorecard",
                 "title": "The first reasons to keep or reject this property",
