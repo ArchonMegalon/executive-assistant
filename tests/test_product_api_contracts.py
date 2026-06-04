@@ -9065,6 +9065,44 @@ def test_delivery_followup_completion_can_record_waiting_on_principal() -> None:
     assert "Waiting on principal" in handoff_page.text
 
 
+def test_property_market_bootstrap_ready_notification_sends_email(monkeypatch) -> None:
+    principal_id = "cf-email:bootstrap.ready@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Bootstrap Ready Office")
+
+    started = client.post(
+        "/app/api/signals/property/search/run",
+        json={"property_preferences": {"country_code": "NO", "listing_mode": "buy", "location_query": "Oslo"}},
+    )
+    assert started.status_code == 200, started.text
+    handoff_ref = started.json()["bootstrap_handoff_ref"]
+
+    sent: list[dict[str, object]] = []
+
+    class _Receipt:
+        provider = "emailit"
+        message_id = "market-ready-1"
+        accepted_at = "2026-06-04T12:00:00+00:00"
+
+    monkeypatch.setattr(
+        product_service,
+        "send_property_market_ready_email",
+        lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
+    )
+
+    service = ProductService(client.app.state.container)
+    task = service._container.orchestrator.fetch_human_task(
+        handoff_ref.split(":", 1)[1],
+        principal_id=principal_id,
+    )
+    assert task is not None
+    service._notify_property_market_bootstrap_ready(principal_id=principal_id, task=task)
+    assert sent
+    assert sent[0]["recipient_email"] == "bootstrap.ready@example.com"
+    assert sent[0]["country_label"] == "NO"
+    assert "workspace-access/" in str(sent[0]["workspace_url"])
+
+
 def test_thread_delivery_followup_can_be_resumed_via_product_api() -> None:
     principal_id = "exec-product-thread-resume-followup"
     client = build_operator_product_client(principal_id=principal_id, operator_id="operator-office")

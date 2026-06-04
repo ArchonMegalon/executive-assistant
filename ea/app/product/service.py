@@ -104,18 +104,23 @@ from app.services.registration_email import (
     send_channel_digest_email,
     send_google_connect_email,
     send_property_match_email,
+    send_property_market_ready_email,
+    send_property_search_results_ready_email,
     send_property_tour_email,
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
 from app.services.property_market_catalog import (
+    country_label,
     default_platforms_for_country,
     generated_source_specs as generated_property_source_specs,
+    is_supported_country_code,
     is_known_property_platform,
     normalize_country_code,
     normalize_listing_mode,
     normalize_property_platform,
     normalize_property_search_preferences,
+    resolve_country_code,
     property_platform_keys,
     property_provider_for_platform,
     provider_host_markers,
@@ -246,6 +251,8 @@ _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
+_PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
+_PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -341,6 +348,16 @@ def _property_search_run_default_summary() -> dict[str, object]:
 def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     return bool(facts.get("has_360") or str(facts.get("source_virtual_tour_url") or "").strip())
+
+
+def _property_tour_status_is_pending(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"queued", "pending", "processing", "running", "in_progress", "started"}
+
+
+def _property_tour_status_is_terminal(value: object) -> bool:
+    normalized = str(value or "").strip().lower()
+    return normalized in {"created", "existing", "ready", "blocked", "failed", "skipped", "not_applicable"}
 
 
 def _property_search_run_database_url() -> str:
@@ -7251,6 +7268,21 @@ def _display_name_from_email(value: str) -> str:
     local = normalized.split("@", 1)[0] if "@" in normalized else normalized
     parts = [part for part in re.split(r"[._+-]+", local) if part]
     return " ".join(part[:1].upper() + part[1:] for part in parts)
+
+
+def _property_market_bootstrap_eta_hours() -> int:
+    try:
+        return max(1, min(72, int(os.getenv("EA_PROPERTY_MARKET_BOOTSTRAP_ETA_HOURS") or "3")))
+    except Exception:
+        return 3
+
+
+def _property_market_label(value: object) -> str:
+    resolved = resolve_country_code(value)
+    if resolved:
+        return country_label(resolved)
+    normalized = compact_text(str(value or "").strip(), fallback="", limit=80)
+    return normalized or "Requested market"
 
 
 def _counterparty_label(*, counterparty: str, email: str) -> str:
@@ -14799,6 +14831,389 @@ class ProductService:
         except Exception:
             pass
 
+    def _merged_raw_property_search_preferences(
+        self,
+        *,
+        principal_id: str,
+        property_preferences: dict[str, object] | None,
+    ) -> dict[str, object]:
+        merged_preferences = dict(property_preferences or {})
+        try:
+            onboarding_state = self._container.onboarding.status(principal_id=principal_id)
+            onboarding_preferences_payload = dict(onboarding_state.get("property_search_preferences") or {})
+            onboarding_preferences = dict(onboarding_preferences_payload.get("raw_preferences") or onboarding_preferences_payload)
+            for key, value in onboarding_preferences.items():
+                if key not in merged_preferences or _property_search_pref_value_missing(merged_preferences.get(key)):
+                    merged_preferences[key] = value
+        except Exception:
+            pass
+        return merged_preferences
+
+    def _find_pending_property_market_bootstrap_task(
+        self,
+        *,
+        principal_id: str,
+        requested_country_code: str,
+    ) -> HumanTask | None:
+        normalized_country = str(requested_country_code or "").strip().upper()
+        if not normalized_country:
+            return None
+        for task in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+            if str(task.task_type or "").strip() != "property_market_bootstrap":
+                continue
+            input_json = dict(task.input_json or {})
+            if str(input_json.get("requested_country_code") or "").strip().upper() == normalized_country:
+                return task
+        return None
+
+    def _open_property_market_bootstrap(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...],
+        property_search_preferences: dict[str, object] | None,
+        force_refresh: bool,
+        max_results_per_source: int | None,
+    ) -> dict[str, object] | None:
+        merged_preferences = self._merged_raw_property_search_preferences(
+            principal_id=principal_id,
+            property_preferences=property_search_preferences,
+        )
+        raw_country_value = merged_preferences.get("country_code")
+        requested_country_code = resolve_country_code(raw_country_value)
+        if requested_country_code and is_supported_country_code(requested_country_code):
+            return None
+        requested_country_label = _property_market_label(raw_country_value)
+        requested_country_code = compact_text(str(raw_country_value or "").strip().upper(), fallback="", limit=24)
+        if not requested_country_code:
+            return None
+        eta_hours = _property_market_bootstrap_eta_hours()
+        existing = self._find_pending_property_market_bootstrap_task(
+            principal_id=principal_id,
+            requested_country_code=requested_country_code,
+        )
+        if existing is None:
+            session_id = self._start_product_review_session(
+                principal_id=principal_id,
+                goal=f"Initialize PropertyQuarry market for {requested_country_label}",
+                source_ref=f"property-market-bootstrap:{requested_country_code}",
+            )
+            task = self._container.orchestrator.create_human_task(
+                session_id=session_id,
+                principal_id=principal_id,
+                task_type="property_market_bootstrap",
+                role_required="operator",
+                brief=f"Initialize PropertyQuarry market for {requested_country_label}",
+                why_human=(
+                    "Requested market is not implemented yet. Research providers, cooperative housing lanes, and foreclosure lanes, "
+                    "then wire the market into PropertyQuarry before search can start."
+                ),
+                priority="high",
+                sla_due_at=(datetime.now(timezone.utc) + timedelta(hours=eta_hours)).isoformat(),
+                input_json={
+                    "requested_country_code": requested_country_code,
+                    "requested_country_label": requested_country_label,
+                    "selected_platforms": list(selected_platforms or ()),
+                    "property_search_preferences": dict(merged_preferences),
+                    "force_refresh": bool(force_refresh),
+                    "max_results_per_source": max_results_per_source,
+                    "requested_by_actor": str(actor or "").strip(),
+                    "recipient_email": _principal_email_hint(principal_id),
+                },
+                desired_output_json={
+                    "resolution": "completed",
+                    "provider_summary": "Providers, cooperatives, and foreclosure sources added.",
+                    "proof": "Market initialization completed and ready for user search.",
+                },
+            )
+            handoff_ref = f"human_task:{task.human_task_id}"
+        else:
+            handoff_ref = f"human_task:{existing.human_task_id}"
+        message = (
+            f"Initialization is required for {requested_country_label}. "
+            f"This usually takes about {eta_hours} hour{'s' if eta_hours != 1 else ''}. "
+            "You will get an email when the market is ready and the search can be started."
+        )
+        return {
+            "generated_at": _now_iso(),
+            "run_id": "",
+            "principal_id": str(principal_id or "").strip(),
+            "status": "initialization_required",
+            "status_url": "",
+            "selected_platforms": list(selected_platforms or ()),
+            "progress": 0,
+            "current_step": "market_initialization_required",
+            "message": message,
+            "stages_total": 1,
+            "steps_completed": 0,
+            "summary": {
+                "bootstrap_required": True,
+                "bootstrap_country_code": requested_country_code,
+                "bootstrap_country_label": requested_country_label,
+                "bootstrap_eta_hours": eta_hours,
+                "bootstrap_handoff_ref": handoff_ref,
+            },
+            "events": [
+                {
+                    "at": _now_iso(),
+                    "step": "market_initialization_required",
+                    "message": message,
+                    "status": "initialization_required",
+                }
+            ],
+            "bootstrap_required": True,
+            "bootstrap_country_code": requested_country_code,
+            "bootstrap_country_label": requested_country_label,
+            "bootstrap_eta_hours": eta_hours,
+            "bootstrap_handoff_ref": handoff_ref,
+        }
+
+    def _notify_property_market_bootstrap_ready(
+        self,
+        *,
+        principal_id: str,
+        task: HumanTask,
+    ) -> None:
+        input_json = dict(task.input_json or {})
+        recipient_email = str(input_json.get("recipient_email") or _principal_email_hint(principal_id)).strip().lower()
+        if not recipient_email:
+            return
+        market_label = _property_market_label(input_json.get("requested_country_label") or input_json.get("requested_country_code"))
+        access_session = self.issue_workspace_access_session(
+            principal_id=principal_id,
+            email=recipient_email,
+            role="principal",
+            display_name=_display_name_from_email(recipient_email),
+            source_kind="property_market_bootstrap_ready",
+            expires_in_hours=72,
+            default_target="/app/properties",
+        )
+        access_url = str(access_session.get("access_url") or "").strip()
+        absolute_access_url = (
+            urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+            if access_url
+            else f"{_property_public_app_base_url()}/app/properties"
+        )
+        separator = "&" if "?" in absolute_access_url else "?"
+        workspace_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote('/app/properties', safe='/?:=&')}"
+        receipt = send_property_market_ready_email(
+            recipient_email=recipient_email,
+            country_label=market_label,
+            workspace_url=workspace_url,
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_market_bootstrap_ready_email_sent",
+            payload={
+                "handoff_ref": f"human_task:{task.human_task_id}",
+                "recipient_email": recipient_email,
+                "requested_country_label": market_label,
+                "workspace_url": workspace_url,
+                "provider": receipt.provider,
+                "message_id": receipt.message_id,
+            },
+            source_id=task.human_task_id,
+            dedupe_key=f"{principal_id}|{task.human_task_id}|property-market-bootstrap-ready-email",
+        )
+
+    def _notify_property_search_results_ready(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        result: dict[str, object],
+    ) -> None:
+        recipient_email = str(_principal_email_hint(principal_id)).strip().lower()
+        if not recipient_email:
+            return
+        access_session = self.issue_workspace_access_session(
+            principal_id=principal_id,
+            email=recipient_email,
+            role="principal",
+            display_name=_display_name_from_email(recipient_email),
+            source_kind="property_search_results_ready",
+            expires_in_hours=72,
+            default_target=f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}",
+        )
+        access_url = str(access_session.get("access_url") or "").strip()
+        absolute_access_url = (
+            urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+            if access_url
+            else f"{_property_public_app_base_url()}/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
+        )
+        results_target = f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
+        separator = "&" if "?" in absolute_access_url else "?"
+        results_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote(results_target, safe='/?:=&')}"
+        hosted_tour_total = max(
+            int(result.get("hosted_tour_total") or 0),
+            int(result.get("ready_tour_total") or 0),
+            int(result.get("tour_created_total") or 0) + int(result.get("tour_existing_total") or 0),
+        )
+        receipt = send_property_search_results_ready_email(
+            recipient_email=recipient_email,
+            results_url=results_url,
+            result_total=int(result.get("listing_total") or 0),
+            hosted_tour_total=hosted_tour_total,
+        )
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_search_results_ready_email_sent",
+            payload={
+                "run_id": run_id,
+                "recipient_email": recipient_email,
+                "results_url": results_url,
+                "listing_total": int(result.get("listing_total") or 0),
+                "hosted_tour_total": hosted_tour_total,
+                "provider": receipt.provider,
+                "message_id": receipt.message_id,
+            },
+            source_id=str(run_id or "").strip(),
+            dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email",
+        )
+
+    def _refresh_property_search_results_delivery_state(
+        self,
+        *,
+        principal_id: str,
+        result: dict[str, object],
+    ) -> dict[str, object]:
+        refreshed = dict(result or {})
+        refreshed_sources: list[dict[str, object]] = []
+        ready_total = 0
+        pending_total = 0
+        blocked_total = 0
+        eligible_total = 0
+        for source in list(refreshed.get("sources") or []):
+            source_row = dict(source or {})
+            refreshed_candidates: list[dict[str, object]] = []
+            for candidate in list(source_row.get("top_candidates") or []):
+                candidate_row = dict(candidate or {})
+                supports_tour = _property_candidate_supports_live_tour(candidate_row)
+                if supports_tour:
+                    eligible_total += 1
+                source_ref = str(candidate_row.get("source_ref") or "").strip()
+                existing_tour_url = str(candidate_row.get("tour_url") or "").strip()
+                existing_status = str(candidate_row.get("tour_status") or "").strip().lower()
+                blocked_reason = str(candidate_row.get("blocked_reason") or "").strip()
+                if supports_tour and source_ref:
+                    latest_event = self._latest_property_tour_event(
+                        principal_id=principal_id,
+                        source_ref=source_ref,
+                    )
+                    if latest_event is not None:
+                        payload = dict(latest_event.get("payload") or {})
+                        event_type = str(latest_event.get("event_type") or "").strip().lower()
+                        latest_tour_url = str(payload.get("tour_url") or "").strip()
+                        latest_vendor_tour_url = str(payload.get("vendor_tour_url") or "").strip()
+                        latest_blocked_reason = str(payload.get("blocked_reason") or "").strip()
+                        if latest_tour_url:
+                            candidate_row["tour_url"] = latest_tour_url
+                            if latest_vendor_tour_url:
+                                candidate_row["vendor_tour_url"] = latest_vendor_tour_url
+                            candidate_row["tour_status"] = "created"
+                            candidate_row["blocked_reason"] = ""
+                        elif latest_blocked_reason or "blocked" in event_type or "failed" in event_type:
+                            candidate_row["tour_status"] = "blocked"
+                            candidate_row["blocked_reason"] = latest_blocked_reason or blocked_reason
+                tour_url = str(candidate_row.get("tour_url") or existing_tour_url).strip()
+                tour_status = str(candidate_row.get("tour_status") or existing_status).strip().lower()
+                blocked_reason = str(candidate_row.get("blocked_reason") or blocked_reason).strip()
+                if supports_tour and not tour_url and not tour_status:
+                    tour_status = "queued"
+                    candidate_row["tour_status"] = tour_status
+                if tour_url:
+                    ready_total += 1
+                    candidate_row["tour_status"] = str(candidate_row.get("tour_status") or "created").strip() or "created"
+                elif supports_tour and _property_tour_status_is_pending(tour_status):
+                    pending_total += 1
+                elif supports_tour and (blocked_reason or tour_status in {"blocked", "failed", "skipped"}):
+                    blocked_total += 1
+                refreshed_candidates.append(candidate_row)
+            source_row["top_candidates"] = refreshed_candidates
+            refreshed_sources.append(source_row)
+        refreshed["sources"] = refreshed_sources
+        refreshed["ready_tour_total"] = ready_total
+        refreshed["pending_tour_total"] = pending_total
+        refreshed["blocked_tour_total"] = blocked_total
+        refreshed["eligible_tour_total"] = eligible_total
+        refreshed["hosted_tour_total"] = ready_total
+        return refreshed
+
+    def _property_search_results_delivery_pending(self, *, result: dict[str, object]) -> bool:
+        refreshed = dict(result or {})
+        if int(refreshed.get("pending_tour_total") or 0) > 0:
+            return True
+        if int(refreshed.get("eligible_tour_total") or 0) <= 0:
+            return False
+        return int(refreshed.get("ready_tour_total") or 0) + int(refreshed.get("blocked_tour_total") or 0) < int(refreshed.get("eligible_tour_total") or 0)
+
+    def _await_property_search_results_delivery_ready(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        result: dict[str, object],
+        timeout_seconds: float | None = None,
+        poll_interval_seconds: float | None = None,
+    ) -> None:
+        if self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="property_search_results_ready_email_sent",
+            source_id=str(run_id or "").strip(),
+            dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email",
+        ):
+            return
+        deadline = time.time() + max(float(timeout_seconds or _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS), 60.0)
+        interval = max(float(poll_interval_seconds or _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS), 0.1)
+        waiting_recorded = False
+        latest_result = dict(result or {})
+        while True:
+            latest_result = self._refresh_property_search_results_delivery_state(
+                principal_id=principal_id,
+                result=latest_result,
+            )
+            self._record_property_search_run_event(
+                run_id=run_id,
+                principal_id=principal_id,
+                step="results_finalizing",
+                message=(
+                    "All hosted tours are ready. Sending the final results email."
+                    if not self._property_search_results_delivery_pending(result=latest_result)
+                    else (
+                        f"Waiting for {int(latest_result.get('pending_tour_total') or 0)} hosted tour(s) to finish."
+                    )
+                ),
+                status="processed",
+                steps_delta=0,
+                summary_updates=latest_result,
+                force_status="processed",
+            )
+            if not self._property_search_results_delivery_pending(result=latest_result):
+                self._notify_property_search_results_ready(
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    result=latest_result,
+                )
+                return
+            waiting_recorded = True
+            if time.time() >= deadline:
+                break
+            time.sleep(interval)
+        if waiting_recorded:
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="property_search_results_ready_email_deferred",
+                payload={
+                    "run_id": run_id,
+                    "pending_tour_total": int(latest_result.get("pending_tour_total") or 0),
+                    "eligible_tour_total": int(latest_result.get("eligible_tour_total") or 0),
+                    "ready_tour_total": int(latest_result.get("ready_tour_total") or 0),
+                },
+                source_id=str(run_id or "").strip(),
+                dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email-deferred",
+            )
+
 
     def _resolve_property_search_run_preferences(
         self,
@@ -14809,17 +15224,10 @@ class ProductService:
         max_results_per_source: int | None,
         force_refresh: bool,
     ) -> tuple[tuple[str, ...], dict[str, object], int | None]:
-        merged_preferences = dict(property_preferences or {})
-        try:
-            onboarding_state = self._container.onboarding.status(principal_id=principal_id)
-            onboarding_preferences_payload = dict(onboarding_state.get("property_search_preferences") or {})
-            onboarding_preferences = dict(onboarding_preferences_payload.get("raw_preferences") or onboarding_preferences_payload)
-            for key, value in onboarding_preferences.items():
-                if key not in merged_preferences or _property_search_pref_value_missing(merged_preferences.get(key)):
-                    merged_preferences[key] = value
-        except Exception:
-            onboarding_preferences = {}
-
+        merged_preferences = self._merged_raw_property_search_preferences(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+        )
         merged_preferences = normalize_property_search_preferences(merged_preferences)
 
         explicit_platform_input = bool(selected_platforms)
@@ -14832,7 +15240,9 @@ class ProductService:
                 normalized_platforms = tuple(default_platforms_for_country(merged_preferences.get("country_code")))
 
         merged_preferences["selected_platforms"] = list(normalized_platforms)
-        merged_preferences["country_code"] = normalize_country_code(merged_preferences.get("country_code"))
+        merged_preferences["country_code"] = normalize_country_code(
+            resolve_country_code(merged_preferences.get("country_code")) or merged_preferences.get("country_code")
+        )
         merged_preferences["listing_mode"] = normalize_listing_mode(merged_preferences.get("listing_mode"))
         merged_preferences["preference_person_id"] = str(
             merged_preferences.get("preference_person_id")
@@ -14872,6 +15282,16 @@ class ProductService:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             raise ValueError("principal_id_required")
+        bootstrap_payload = self._open_property_market_bootstrap(
+            principal_id=normalized_principal,
+            actor=actor,
+            selected_platforms=tuple(selected_platforms or ()),
+            property_search_preferences=property_search_preferences,
+            force_refresh=force_refresh,
+            max_results_per_source=max_results_per_source,
+        )
+        if isinstance(bootstrap_payload, dict):
+            return bootstrap_payload
         run_platforms, run_preferences, run_max_results = self._resolve_property_search_run_preferences(
             principal_id=normalized_principal,
             selected_platforms=tuple(selected_platforms or ()),
@@ -14951,6 +15371,58 @@ class ProductService:
                     summary_updates=result,
                     force_status=final_status,
                 )
+                if final_status == "processed":
+                    try:
+                        threading.Thread(
+                            target=self._await_property_search_results_delivery_ready,
+                            kwargs={
+                                "principal_id": normalized_principal,
+                                "run_id": run_id,
+                                "result": dict(result or {}),
+                            },
+                            daemon=True,
+                        ).start()
+                    except Exception as exc:
+                        self._record_product_event(
+                            principal_id=normalized_principal,
+                            event_type="property_search_results_ready_email_failed",
+                            payload={
+                                "run_id": run_id,
+                                "error": compact_text(str(exc or "property search results email failed"), fallback="property search results email failed", limit=280),
+                            },
+                            source_id=run_id,
+                            dedupe_key=f"{normalized_principal}|{run_id}|property-search-results-ready-email-failed",
+                        )
+                    try:
+                        refreshed_result = self._refresh_property_search_results_delivery_state(
+                            principal_id=normalized_principal,
+                            result=dict(result or {}),
+                        )
+                        self._record_property_search_run_event(
+                            run_id=run_id,
+                            principal_id=normalized_principal,
+                            step="results_finalizing",
+                            message=(
+                                "Waiting for hosted tours to finish before emailing the final results."
+                                if self._property_search_results_delivery_pending(result=refreshed_result)
+                                else "Results are fully ready."
+                            ),
+                            status="processed",
+                            steps_delta=0,
+                            summary_updates=refreshed_result,
+                            force_status="processed",
+                        )
+                    except Exception as exc:
+                        self._record_product_event(
+                            principal_id=normalized_principal,
+                            event_type="property_search_results_ready_refresh_failed",
+                            payload={
+                                "run_id": run_id,
+                                "error": compact_text(str(exc or "property search result refresh failed"), fallback="property search result refresh failed", limit=280),
+                            },
+                            source_id=run_id,
+                            dedupe_key=f"{normalized_principal}|{run_id}|property-search-results-ready-refresh-failed",
+                        )
             except Exception as exc:
                 self._record_property_search_run_event(
                     run_id=run_id,
@@ -15450,6 +15922,8 @@ class ProductService:
                 top_candidates_for_source.append(
                     {
                         "property_url": property_url,
+                        "source_ref": source_ref,
+                        "listing_id": listing_id,
                         "title": title,
                         "summary": summary,
                         "fit_score": fit_score,
@@ -22331,6 +22805,20 @@ class ProductService:
                 actor=actor,
                 resolution=normalized_resolution,
             )
+        elif str(current.task_type or "").strip() == "property_market_bootstrap" and normalized_resolution in {"completed", "ready", "done"}:
+            try:
+                self._notify_property_market_bootstrap_ready(principal_id=principal_id, task=updated)
+            except Exception as exc:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_market_bootstrap_ready_email_failed",
+                    payload={
+                        "handoff_ref": handoff_ref,
+                        "error": compact_text(str(exc or "bootstrap ready email failed"), fallback="bootstrap ready email failed", limit=280),
+                    },
+                    source_id=updated.human_task_id,
+                    dedupe_key=f"{principal_id}|{updated.human_task_id}|property-market-bootstrap-ready-email-failed",
+                )
         self._record_product_event(
             principal_id=principal_id,
             event_type="handoff_completed",

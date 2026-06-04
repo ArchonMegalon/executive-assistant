@@ -289,6 +289,171 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
     assert intruder_status.status_code == 404
 
 
+def test_property_search_run_requests_market_initialization_for_unsupported_country() -> None:
+    principal_id = "cf-email:bootstrap.market@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Bootstrap Request Office")
+
+    started = client.post(
+        "/app/api/signals/property/search/run",
+        json={
+            "property_preferences": {
+                "country_code": "NO",
+                "language_code": "en",
+                "listing_mode": "buy",
+                "location_query": "Oslo",
+            }
+        },
+    )
+    assert started.status_code == 200, started.text
+
+    body = started.json()
+    assert body["status"] == "initialization_required"
+    assert body["run_id"] == ""
+    assert body["bootstrap_required"] is True
+    assert body["bootstrap_country_code"] == "NO"
+    assert body["bootstrap_country_label"] == "NO"
+    assert body["bootstrap_eta_hours"] == 3
+    assert body["bootstrap_handoff_ref"].startswith("human_task:")
+    assert body["status_url"] == ""
+
+    handoffs = client.get("/app/api/handoffs")
+    assert handoffs.status_code == 200
+    bootstrap = next(item for item in handoffs.json() if item["task_type"] == "property_market_bootstrap")
+    assert bootstrap["id"] == body["bootstrap_handoff_ref"]
+    assert "Initialize PropertyQuarry market" in bootstrap["summary"]
+
+
+def test_property_search_run_sends_results_ready_email_when_processed(monkeypatch) -> None:
+    principal_id = "cf-email:results.ready@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Results Ready Office")
+
+    sent: list[dict[str, object]] = []
+
+    class _Receipt:
+        provider = "emailit"
+        message_id = "results-ready-1"
+        accepted_at = "2026-06-04T12:00:00+00:00"
+
+    monkeypatch.setattr(
+        product_service,
+        "send_property_search_results_ready_email",
+        lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
+    )
+    monkeypatch.setattr(product_service.time, "sleep", lambda _seconds: None)
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        return {
+            "generated_at": product_service._now_iso(),
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 3,
+            "review_created_total": 2,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "tour_created_total": 1,
+            "tour_existing_total": 1,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+
+    started = client.post(
+        "/app/api/signals/property/search/run",
+        json={"selected_platforms": ["willhaben"], "property_preferences": {"country_code": "AT", "location_query": "Wien"}},
+    )
+    assert started.status_code == 200, started.text
+    run_id = started.json()["run_id"]
+    status = _poll_property_search_run_status(client, run_id)
+    assert status["status"] == "processed"
+    assert sent
+    assert sent[0]["recipient_email"] == "results.ready@example.com"
+    assert sent[0]["result_total"] == 3
+    assert sent[0]["hosted_tour_total"] == 2
+    assert f"run_id={run_id}" in str(sent[0]["results_url"])
+
+
+def test_property_search_results_ready_email_waits_for_tour_completion(monkeypatch) -> None:
+    principal_id = "cf-email:tour.wait@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Results Finalization Office")
+
+    sent: list[dict[str, object]] = []
+
+    class _Receipt:
+        provider = "emailit"
+        message_id = "results-ready-2"
+        accepted_at = "2026-06-04T12:05:00+00:00"
+
+    monkeypatch.setattr(
+        product_service,
+        "send_property_search_results_ready_email",
+        lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
+    )
+    monkeypatch.setattr(product_service.time, "sleep", lambda _seconds: None)
+
+    poll_state = {"calls": 0}
+
+    def _fake_latest_property_tour_event(self, *, principal_id: str, source_ref: str):  # type: ignore[no-untyped-def]
+        poll_state["calls"] += 1
+        if poll_state["calls"] < 2:
+            return None
+        return {
+            "event_type": "generic_property_tour_created",
+            "payload": {
+                "tour_url": "https://propertyquarry.com/tours/final-tour",
+                "vendor_tour_url": "https://vendor.example/tour",
+            },
+            "created_at": product_service._now_iso(),
+        }
+
+    monkeypatch.setattr(ProductService, "_latest_property_tour_event", _fake_latest_property_tour_event)
+
+    service = product_service.build_product_service(client.app.state.container)
+    result = {
+        "status": "processed",
+        "listing_total": 1,
+        "sources": [
+            {
+                "source_label": "Willhaben",
+                "top_candidates": [
+                    {
+                        "source_ref": "property-scout:test-1",
+                        "tour_status": "queued",
+                        "tour_url": "",
+                        "blocked_reason": "",
+                        "property_facts": {"has_360": True},
+                    }
+                ],
+            }
+        ],
+    }
+
+    service._await_property_search_results_delivery_ready(
+        principal_id=principal_id,
+        run_id="run-final-1",
+        result=result,
+        timeout_seconds=1,
+        poll_interval_seconds=0.01,
+    )
+
+    assert sent
+    assert sent[0]["hosted_tour_total"] == 1
+
+
 def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:
     principal_id = "exec-property-search-run-persisted"
     client = build_property_client(principal_id=principal_id)
@@ -378,9 +543,9 @@ def test_property_search_preferences_persist_and_merge_into_run(monkeypatch) -> 
     assert set(status_snapshot.json()["property_search_preferences"]["selected_platforms"]) == {"willhaben", "kalandra"}
 
 
-def test_property_search_preferences_update_preserves_existing_commercial_state() -> None:
+def test_property_search_preferences_update_preserves_existing_commercial_state(monkeypatch) -> None:
     principal_id = "pq-commercial-preserve"
-    client = build_client(principal_id=principal_id)
+    client = build_property_client(principal_id=principal_id)
     started = client.post("/v1/onboarding/start", json={"workspace_name": "Commercial Preserve", "workspace_mode": "personal"})
     assert started.status_code == 200
 
@@ -456,9 +621,9 @@ def test_property_search_preferences_update_preserves_existing_commercial_state(
         json={"property_preferences": {"preference_person_id": "override"}},
     )
     assert started.status_code == 200
-    assert set(observed.get("selected_platforms") or ()) == {"willhaben", "kalandra"}
+    assert set(observed.get("selected_platforms") or ()) == {"willhaben", "genossenschaften_at"}
     assert observed.get("preference_person_id") == "override"
-    assert observed.get("max_results_per_source") == 10
+    assert observed.get("max_results_per_source") is None
 
 
 def test_property_search_run_defaults_platforms_from_country_preferences(monkeypatch) -> None:

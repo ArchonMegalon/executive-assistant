@@ -718,7 +718,8 @@ def start_property_search_run(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    payload["status_url"] = f"/app/api/signals/property/search/run/{payload.get('run_id')}"
+    if not str(payload.get("status_url") or "").strip() and str(payload.get("run_id") or "").strip():
+        payload["status_url"] = f"/app/api/signals/property/search/run/{payload.get('run_id')}"
     return PropertySearchRunStartOut(**payload)
 
 

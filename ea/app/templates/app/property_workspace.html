@@ -10,7 +10,8 @@
   .pq-choice-grid,
   .pq-shortlist-grid,
   .pq-metric-grid,
-  .pq-plan-grid {
+  .pq-plan-grid,
+  .pq-table-wrap {
     display: grid;
     gap: 16px;
   }
@@ -86,6 +87,32 @@
   }
   .pq-metric-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .pq-results-table {
+    width: 100%;
+    min-width: 760px;
+    border-collapse: collapse;
+  }
+  .pq-results-table th,
+  .pq-results-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+    text-align: left;
+    vertical-align: top;
+  }
+  .pq-results-table th {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .pq-results-table td strong {
+    display: block;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .pq-results-table td small {
+    color: var(--text-dim);
   }
   .pq-hero-highlights {
     display: grid;
@@ -538,7 +565,7 @@
   <section class="pq-grid">
     <div class="pq-page">
       {% if show_brief_form and console_form %}
-      <section class="pq-panel">
+      <section class="pq-panel" data-property-brief-panel>
         <div class="pq-kicker">{{ console_form.get('eyebrow') or 'Search brief' }}</div>
         <h3>{{ console_form.get('title') or 'Search brief' }}</h3>
         {% if console_form.get('copy') %}<p class="pq-copy">{{ console_form.get('copy') }}</p>{% endif %}
@@ -578,7 +605,7 @@
           <div class="pq-form-grid">
             {% for field in console_form.get('fields') or [] %}
             {% set is_wide = field.type == 'checkbox_group' or field.name in ('location_query', 'keywords') %}
-            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}">
+            <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
               <label>{{ field.label }}
                 {% if field.type == 'number' %}
                 <input
@@ -690,10 +717,40 @@
             <div class="pq-run-note" data-property-run-message></div>
             <div class="pq-progress-track"><div class="pq-progress-fill" data-property-run-progress></div></div>
             <div class="pq-run-note" data-property-run-summary></div>
+            <div class="pq-actions"><button class="pq-action" type="button" data-property-edit-brief>Edit brief</button></div>
             <div class="pq-list" data-property-run-sources></div>
             <div class="pq-list" data-property-run-events></div>
           </section>
         </form>
+      </section>
+      {% endif %}
+
+      {% if show_results_table and (results_table_rows or []) %}
+      <section class="pq-panel">
+        <div class="pq-kicker">Results</div>
+        <h3>Finished run</h3>
+        <p class="pq-copy">This is the ranked result table. Open the packet first. Tour status stays visible even when a hosted 360 is still pending.</p>
+        <div class="pq-table-wrap">
+          <div style="overflow-x:auto;">
+            <table class="pq-results-table">
+              <thead>
+                <tr>{% for header in results_table_headers or [] %}<th>{{ header }}</th>{% endfor %}</tr>
+              </thead>
+              <tbody>
+                {% for row in results_table_rows or [] %}
+                <tr>
+                  {% for cell in row.get('cells') or [] %}
+                  <td>
+                    {% if cell.get('href') %}<strong><a href="{{ cell.get('href') }}">{{ cell.get('title') }}</a></strong>{% else %}<strong>{{ cell.get('title') }}</strong>{% endif %}
+                    {% if cell.get('detail') %}<small>{{ cell.get('detail') }}</small>{% endif %}
+                  </td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
       {% endif %}
 
@@ -844,6 +901,8 @@
     const node = form?.querySelector(`[name="${name}"]`);
     return node ? String(node.value || '').trim() : '';
   };
+
+  const checkedValue = (form, name) => Boolean(form?.querySelector(`input[name="${name}"]`)?.checked);
 
   const selectedValuesForForm = (form, name) => [...(form?.querySelectorAll(`input[name="${name}"]:checked`) || [])]
     .map((node) => String(node.value || '').trim())
@@ -1000,17 +1059,24 @@
     const selectedLocations = selectedValuesForForm(form, 'location_query');
     const selectedKeywords = selectedValuesForForm(form, 'keywords');
     const parsedMaxResults = integerValue(form, 'max_results_per_source');
+    const countryCode = fieldValue(form, 'country_code') || 'AT';
+    const regionCode = fieldValue(form, 'region_code') || '';
+    const allOfVienna = checkedValue(form, 'all_of_vienna');
+    const resolvedLocationQuery = countryCode === 'AT' && regionCode === 'vienna' && allOfVienna
+      ? 'Vienna'
+      : selectedLocations.join(', ');
     return {
       selected_platforms: selectedPlatforms,
       property_preferences: {
         selected_platforms: selectedPlatforms,
-        country_code: fieldValue(form, 'country_code') || 'AT',
-        region_code: fieldValue(form, 'region_code') || '',
+        country_code: countryCode,
+        region_code: regionCode,
         language_code: fieldValue(form, 'language_code') || 'en',
         listing_mode: fieldValue(form, 'listing_mode') || 'rent',
         property_type: fieldValue(form, 'property_type') || 'any',
         investment_research_mode: fieldValue(form, 'investment_research_mode') || 'off',
-        location_query: selectedLocations.join(', '),
+        all_of_vienna: allOfVienna,
+        location_query: resolvedLocationQuery,
         keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
         max_price_eur: integerValue(form, 'max_price_eur'),
@@ -1025,6 +1091,7 @@
 
   const renderRun = (root, payload) => {
     const panel = root.querySelector('[data-property-run]');
+    const briefPanel = root.querySelector('[data-property-brief-panel]');
     const statusNode = root.querySelector('[data-property-run-status]');
     const messageNode = root.querySelector('[data-property-run-message]');
     const progressNode = root.querySelector('[data-property-run-progress]');
@@ -1035,6 +1102,7 @@
 
     if (!payload || !Object.keys(payload).length) {
       panel.hidden = true;
+      if (briefPanel) briefPanel.hidden = false;
       sourceNode.innerHTML = '';
       eventsNode.innerHTML = '';
       return;
@@ -1045,6 +1113,7 @@
     const progress = Math.max(0, Math.min(100, Number(payload.progress || 0)));
     const statusValue = String(payload.status || '').trim();
     const displayProgress = terminalStates.has(statusValue) ? progress : Math.min(progress, 95);
+    if (briefPanel) briefPanel.hidden = !terminalStates.has(statusValue);
     statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
     messageNode.textContent = String(payload.message || 'Queued for execution.');
     progressNode.style.width = `${displayProgress}%`;
@@ -1233,6 +1302,15 @@
       initPropertyWizard(form, meta);
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
+      const allViennaField = form.querySelector('input[name="all_of_vienna"]');
+      const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
+      const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
+      const syncViennaScopeControls = () => {
+        const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
+        if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
+        if (!isViennaScope && allViennaField) allViennaField.checked = false;
+        if (locationFieldWrap) locationFieldWrap.hidden = isViennaScope && Boolean(allViennaField?.checked);
+      };
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -1251,6 +1329,7 @@
         const effectiveRegion = String(regionField?.value || regionOptions[0]?.value || '').trim();
         const locationOptions = locationCatalog[selectedCountry]?.[effectiveRegion] || [];
         renderCheckboxOptions(form, 'location_query', locationOptions, []);
+        syncViennaScopeControls();
       };
       if (countryField) {
         countryField.addEventListener('change', () => {
@@ -1267,7 +1346,12 @@
         });
       }
       if (regionField) regionField.addEventListener('change', refreshRegionAndLocationChoices);
+      if (allViennaField) allViennaField.addEventListener('change', syncViennaScopeControls);
+      syncViennaScopeControls();
       renderRun(root, meta.initial_run || {});
+      root.querySelector('[data-property-edit-brief]')?.addEventListener('click', () => {
+        root.querySelector('[data-property-brief-panel]')?.removeAttribute('hidden');
+      });
 
       form.querySelector('[data-property-save]')?.addEventListener('click', async () => {
         const payload = collectPayload(form);

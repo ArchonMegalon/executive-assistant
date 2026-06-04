@@ -551,6 +551,66 @@ def send_property_match_email(
     )
 
 
+def send_property_market_ready_email(
+    *,
+    recipient_email: str,
+    country_label: str,
+    workspace_url: str,
+    sender_email: str = "",
+    sender_name: str = "",
+) -> RegistrationEmailReceipt:
+    label = str(country_label or "Requested market").strip() or "Requested market"
+    review_url = str(workspace_url or "").strip()
+    body = [
+        "Hello,",
+        "",
+        f"Initialization for {label} is complete.",
+        "",
+        "Your market is now ready in PropertyQuarry. You can start the search now.",
+    ]
+    if review_url:
+        body.extend(["", f"Open PropertyQuarry: {review_url}"])
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject=f"PropertyQuarry market ready: {label}"[:220],
+        text="\n".join(body).strip() + "\n",
+        kind="ea_property_market_ready_delivery",
+        meta={"market_label": label, "workspace_ref": _meta_ref(review_url)},
+        sender_email=sender_email,
+        sender_name=sender_name,
+    )
+
+
+def send_property_search_results_ready_email(
+    *,
+    recipient_email: str,
+    results_url: str,
+    result_total: int,
+    hosted_tour_total: int,
+    sender_email: str = "",
+    sender_name: str = "",
+) -> RegistrationEmailReceipt:
+    body = [
+        "Hello,",
+        "",
+        "Your PropertyQuarry results are ready.",
+        "",
+        f"Ranked results: {max(int(result_total), 0)}",
+        f"Hosted tours ready: {max(int(hosted_tour_total), 0)}",
+    ]
+    if str(results_url or "").strip():
+        body.extend(["", f"Open the results page: {results_url}"])
+    return _send_emailit_email(
+        recipient_email=recipient_email,
+        subject="PropertyQuarry results ready"[:220],
+        text="\n".join(body).strip() + "\n",
+        kind="ea_property_search_results_ready_delivery",
+        meta={"results_ref": _meta_ref(results_url)},
+        sender_email=sender_email,
+        sender_name=sender_name,
+    )
+
+
 def send_channel_digest_email(
     *,
     recipient_email: str,

@@ -427,6 +427,7 @@ def app_section_payload(
     selected_location_values = _csv_values(property_preferences.get("location_query"))
     selected_keyword_values = _csv_values(property_preferences.get("keywords"))
     selected_region_code = str(property_preferences.get("region_code") or "").strip().lower()
+    selected_all_of_vienna = bool(property_preferences.get("all_of_vienna"))
     country_options = [dict(option) for option in list(property_state.get("country_options") or []) if isinstance(option, dict)]
     language_options = [dict(option) for option in list(property_state.get("language_options") or []) if isinstance(option, dict)]
     listing_mode_options = [dict(option) for option in list(property_state.get("listing_mode_options") or []) if isinstance(option, dict)]
@@ -445,6 +446,13 @@ def app_section_payload(
     region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
     if not selected_region_code and region_options:
         selected_region_code = str(region_options[0].get("value") or "").strip().lower()
+    if (
+        str(property_preferences.get("country_code") or "AT").strip().upper() == "AT"
+        and selected_region_code == "vienna"
+        and not selected_location_values
+        and str(property_preferences.get("location_query") or "").strip().lower() in {"vienna", "wien"}
+    ):
+        selected_all_of_vienna = True
     location_options = _merge_option_catalog(
         _property_location_options(
             str(property_preferences.get("country_code") or "AT"),
@@ -732,11 +740,22 @@ def app_section_payload(
                 "step": "areas",
             },
             {
+                "type": "checkbox",
+                "name": "all_of_vienna",
+                "label": "All of Vienna",
+                "value": "true",
+                "checked": selected_all_of_vienna,
+                "step": "areas",
+            },
+            {
                 "type": "checkbox_group",
                 "name": "location_query",
                 "label": "Target areas",
                 "options": location_options,
                 "values": selected_location_values,
+                "hidden": selected_all_of_vienna
+                and str(property_preferences.get("country_code") or "AT").strip().upper() == "AT"
+                and selected_region_code == "vienna",
                 "step": "areas",
             },
             {
@@ -825,6 +844,7 @@ def app_section_payload(
                 for option in country_options
                 if str(option.get("value") or "").strip()
             },
+            "supports_all_of_vienna": True,
             "commercial": dict(property_state.get("commercial") or {}),
             "billing_checkout_enabled": bool(property_state.get("billing_checkout_enabled")),
             "billing_checkout_enabled_plans": list(property_state.get("billing_checkout_enabled_plans") or []),
@@ -1195,6 +1215,7 @@ def property_workspace_payload(
     tour_ready_total = sum(1 for candidate in shortlist_candidates if str(candidate.get("tour_url") or "").strip())
     run_status_label = str(run_payload.get("status") or "not started").replace("_", " ").strip().title() or "Not started"
     run_message = str(run_payload.get("message") or "").strip()
+    run_status_value = str(run_payload.get("status") or "").strip().lower()
 
     def _candidate_fact_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -1232,6 +1253,54 @@ def property_workspace_payload(
                 "secondary_action_href": str(candidate.get("tour_url") or candidate.get("review_url") or "").strip(),
                 "secondary_action_method": "get" if (candidate.get("tour_url") or candidate.get("review_url")) else "",
                 "secondary_action_label": "Open 360" if candidate.get("tour_url") else ("Hosted review" if candidate.get("review_url") else ""),
+            }
+        )
+
+    def _tour_status_line(candidate: dict[str, object]) -> str:
+        if str(candidate.get("tour_url") or "").strip():
+            return "Ready | Live now"
+        status = str(candidate.get("tour_status") or "").strip().lower()
+        eta_minutes = int(candidate.get("tour_eta_minutes") or 0) if str(candidate.get("tour_eta_minutes") or "").strip() else 0
+        if status in {"queued", "pending"}:
+            return f"Queued | ETA about {eta_minutes or 10} min"
+        if status in {"processing", "running", "in_progress", "started"}:
+            return f"Rendering | ETA about {eta_minutes or 5} min"
+        if status in {"created", "existing"}:
+            return "Ready"
+        blocked_reason = str(candidate.get("blocked_reason") or "").strip()
+        if blocked_reason:
+            return f"Blocked | {blocked_reason.replace('_', ' ')}"
+        return "Not ready"
+
+    results_table_rows = []
+    for candidate in shortlist_candidates:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        price_line = str(
+            facts.get("price_display")
+            or facts.get("rent_display")
+            or facts.get("price_eur")
+            or ""
+        ).strip() or "n/a"
+        layout_parts = [
+            f"{facts.get('rooms')} rooms" if facts.get("rooms") else "",
+            f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
+            str(facts.get("postal_name") or "").strip(),
+        ]
+        packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()
+        packet_label = "Review packet" if packet_url else "Pending"
+        results_table_rows.append(
+            {
+                "cells": [
+                    {"title": str(candidate.get("title") or "Candidate").strip() or "Candidate", "detail": str(candidate.get("source_label") or "").strip()},
+                    {"title": str(candidate.get("recommendation") or candidate.get("tag") or "Candidate").strip().replace("_", " ").title(), "detail": str(candidate.get("fit_summary") or "").strip()},
+                    {"title": price_line, "detail": ""},
+                    {"title": " | ".join(part for part in layout_parts if part) or "n/a", "detail": ""},
+                    {"title": _tour_status_line(candidate), "detail": "", "href": str(candidate.get("tour_url") or "").strip()},
+                    {"title": packet_label, "detail": packet_url or str(candidate.get("property_url") or "").strip(), "href": packet_url},
+                ],
+                "packet_url": packet_url,
+                "tour_url": str(candidate.get("tour_url") or "").strip(),
+                "source_url": str(candidate.get("property_url") or "").strip(),
             }
         )
 
@@ -1469,18 +1538,42 @@ def property_workspace_payload(
 
     sections: dict[str, dict[str, object]] = {
         "properties": {
-            "title": "Search Brief",
-            "summary": str(base.get("summary") or "Define the search brief, launch the run, and keep the crawl visible."),
-            "hero_kicker": "Search brief",
-            "hero_title": "Shape the next market sweep before the crawlers fan out.",
-            "hero_summary": "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs.",
-            "hero_actions": hero_actions["properties"],
-            "hero_highlights": hero_highlights["properties"],
-            "primary_cards": [search_posture_card, market_coverage_card],
-            "secondary_cards": [run_card, recent_matches_card],
+            "title": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else "Search Brief",
+            "summary": (
+                "Review the final ranked result table."
+                if run_status_value in {"processed", "completed"} and results_table_rows
+                else str(base.get("summary") or "Define the search brief, launch the run, and keep the crawl visible.")
+            ),
+            "hero_kicker": "Results" if run_status_value in {"processed", "completed"} and results_table_rows else "Search brief",
+            "hero_title": (
+                "Review the finished shortlist in one table."
+                if run_status_value in {"processed", "completed"} and results_table_rows
+                else "Shape the next market sweep before the crawlers fan out."
+            ),
+            "hero_summary": (
+                "Once the run is done, keep the result surface simple: one ranked table, packet links, and clear 360 status."
+                if run_status_value in {"processed", "completed"} and results_table_rows
+                else "Pick the market, region, buying posture, shortlist priorities, and provider set once so the run starts from an explicit brief instead of a stack of browser tabs."
+            ),
+            "hero_actions": hero_actions["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
+                {"href": f"/app/research{run_suffix}", "label": "Open research", "tone": "primary"},
+                {"href": f"/app/shortlist{run_suffix}", "label": "Open shortlist"},
+                {"href": f"/app/properties{run_suffix}", "label": "Refine search"},
+            ],
+            "hero_highlights": hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
+                {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
+                {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal review packets ready now."},
+                {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
+                {"label": "Run state", "value": run_status_label, "detail": run_message or "Latest run complete."},
+            ],
+            "primary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else [search_posture_card, market_coverage_card],
+            "secondary_cards": [run_card] if run_status_value in {"processed", "completed"} and results_table_rows else [run_card, recent_matches_card],
             "console_form": property_form,
-            "show_brief_form": True,
+            "show_brief_form": not (run_status_value in {"processed", "completed"} and results_table_rows),
             "show_shortlist_cards": False,
+            "show_results_table": run_status_value in {"processed", "completed"} and bool(results_table_rows),
+            "results_table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Review"],
+            "results_table_rows": results_table_rows,
         },
         "shortlist": {
             "title": "Shortlist",

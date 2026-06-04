@@ -152,17 +152,18 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     headers = {"host": "propertyquarry.com"}
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert search.status_code == 200
-    assert "Shape the next market sweep before the crawlers fan out." in search.text
-    assert "Open shortlist" in search.text
-    assert "Providers" in search.text
-    assert "Investment research" in search.text
+    assert "Review the finished shortlist in one table." in search.text
+    assert "Finished run" in search.text
+    assert "Candidate" in search.text
+    assert "Price" in search.text
+    assert "Layout" in search.text
+    assert "Open research" in search.text
     assert 'href="/app/shortlist"' in search.text
     assert 'href="/app/research"' in search.text
     assert 'href="/app/profile"' in search.text
     assert 'href="/app/alerts"' in search.text
     assert 'href="/app/billing"' in search.text
-    assert 'data-console-form-variant="property_search"' in search.text
-    assert "JavaScript is unavailable. The guided wizard is disabled" in search.text
+    assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
 
@@ -185,6 +186,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     packet = client.get(packet_match.group(1), params={"run_id": "run-42", "investment": 1}, headers=headers)
     assert packet.status_code == 200
     assert "Internal property dossier with fit reasoning" in packet.text
+    assert "OODA summary" in packet.text
+    assert "Why this was selected" in packet.text
     assert "Decision call" in packet.text
     assert "Why now" in packet.text
     assert "Missing-data severity" in packet.text
@@ -216,6 +219,32 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert billing.status_code == 200
     assert "Current commercial state" in billing.text
     assert "Plus checkout" in billing.text
+
+
+def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
+    principal_id = "pq-vienna-scope"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Vienna Scope Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "region_code": "vienna",
+            "all_of_vienna": True,
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
+    assert search.status_code == 200
+    assert 'name="all_of_vienna" value="true" checked' in search.text
+    assert "All of Vienna" in search.text
+    assert 'name="location_query"' in search.text
 
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:

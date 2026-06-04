@@ -238,45 +238,23 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     property_headers = {"host": "propertyquarry.com"}
     response = client.get("/app/properties", params={"run_id": "run-42"}, headers=property_headers)
     assert response.status_code == 200
-    assert "Shape the next market sweep before the crawlers fan out." in response.text
+    assert "Review the finished shortlist in one table." in response.text
+    assert "Finished run" in response.text
     assert 'href="/app/properties"' in response.text
     assert 'href="/app/shortlist"' in response.text
     assert 'href="/app/research"' in response.text
     assert 'href="/app/profile"' in response.text
     assert 'href="/app/alerts"' in response.text
     assert 'href="/app/billing"' in response.text
-    assert "Search posture" in response.text
-    assert "Areas and priorities" in response.text
-    assert "Providers and launch" in response.text
-    assert "State or metro area" in response.text
-    assert "Target areas" in response.text
-    assert "What matters" in response.text
-    assert "Country" in response.text
-    assert "Research language" in response.text
+    assert "Candidate" in response.text
+    assert "Price" in response.text
+    assert "Layout" in response.text
+    assert "Open research" in response.text
     assert "Berlin" in response.text
-    assert "What this search is optimizing for" in response.text
-    assert "Which providers this country unlocks" in response.text
     assert "Germany" in response.text
-    assert "Buy" in response.text
-    assert "Apartment" in response.text
-    assert "Investment research" in response.text
-    assert "Lower Austria" in response.text
-    assert "lift family balcony" in response.text
     assert "ImmoScout24 Germany" in response.text
-    assert "Immowelt" in response.text
-    assert "Portugal" in response.text
-    assert "Australia" in response.text
     assert "Property scouting run completed." in response.text
-    assert "Current crawl" in response.text
-    assert "Plus checkout" in response.text
-    assert 'data-console-form-variant="property_search"' in response.text
-    assert 'data-property-step-trigger="search"' in response.text
-    assert 'data-property-step-trigger="areas"' in response.text
-    assert 'data-property-step-trigger="providers"' in response.text
-    assert 'data-property-actions hidden' in response.text
-    assert 'data-property-step-panel="providers" hidden' in response.text
-    assert "JavaScript is unavailable. The guided wizard is disabled" in response.text
-    assert "Step 1 of 3" in response.text
+    assert "Ready | Live now" in response.text
     assert "Office signals ingested" not in response.text
     assert "Morning Memo" not in response.text
 

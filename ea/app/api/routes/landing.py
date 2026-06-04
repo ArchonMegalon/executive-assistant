@@ -1255,6 +1255,9 @@ def _render_console_object_detail(
     object_title: str,
     object_summary: str,
     object_meta: list[dict[str, str]],
+    object_ooda_title: str = "",
+    object_ooda_copy: str = "",
+    object_ooda_rows: list[dict[str, str]] | None = None,
     object_sidebar_title: str,
     object_sidebar_copy: str,
     object_sidebar_rows: list[dict[str, str]],
@@ -1281,6 +1284,9 @@ def _render_console_object_detail(
             "object_title": object_title,
             "object_summary": object_summary,
             "object_meta": object_meta,
+            "object_ooda_title": object_ooda_title,
+            "object_ooda_copy": object_ooda_copy,
+            "object_ooda_rows": object_ooda_rows or [],
             "object_sidebar_title": object_sidebar_title,
             "object_sidebar_copy": object_sidebar_copy,
             "object_sidebar_rows": object_sidebar_rows,
@@ -1913,6 +1919,21 @@ def property_research_packet(
         commercial=commercial,
         requested=bool(int(investment or 0)),
     )
+    ooda_summary_rows = [
+        _object_detail_row("Why this was selected", match_reasons[0], "Match")
+        if match_reasons
+        else _object_detail_row("Why this was selected", fit_summary or "This candidate survived the shortlist ranking.", "Match"),
+        _object_detail_row(
+            "Best reason to act",
+            str(decision_rows[0].get("detail") or fit_summary).strip()
+            or "The current packet sees enough signal to keep this candidate open.",
+            "OODA",
+        ),
+        _object_detail_row("Main concern", mismatch_reasons[0], "Risk")
+        if mismatch_reasons
+        else _object_detail_row("Main concern", "Some evidence is still missing, so this packet should be treated as a research view, not final diligence.", "Risk"),
+        _object_detail_row("Current recommendation", str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate", "Decision"),
+    ]
     investment_run_target = run_target + ("&investment=1" if "?" in run_target else "?investment=1")
     return _render_console_object_detail(
         request=request,
@@ -1931,6 +1952,9 @@ def property_research_packet(
             {"label": "Run", "value": str(run_id or "latest").strip() or "latest"},
             {"label": "Packet", "value": str(candidate_ref)},
         ],
+        object_ooda_title="OODA summary",
+        object_ooda_copy="Start here. Why this candidate was selected, what makes it compelling now, and what still argues against it.",
+        object_ooda_rows=ooda_summary_rows,
         object_sidebar_title="Packet actions",
         object_sidebar_copy="Open the internal packet first. Raw portals and hosted tours stay secondary to the actual research decision surface.",
         object_sidebar_rows=[

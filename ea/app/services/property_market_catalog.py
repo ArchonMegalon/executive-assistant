@@ -854,6 +854,43 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
 
 
 _COUNTRY_INDEX = {row.code: row for row in COUNTRIES}
+_COUNTRY_ALIAS_INDEX: dict[str, str] = {}
+
+
+def _country_alias_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+for _country in COUNTRIES:
+    _COUNTRY_ALIAS_INDEX[_country_alias_key(_country.code)] = _country.code
+    _COUNTRY_ALIAS_INDEX[_country_alias_key(_country.label)] = _country.code
+
+_COUNTRY_ALIAS_INDEX.update(
+    {
+        "austria": "AT",
+        "belgium": "BE",
+        "canada": "CA",
+        "germany": "DE",
+        "switzerland": "CH",
+        "ireland": "IE",
+        "unitedkingdom": "UK",
+        "greatbritain": "UK",
+        "britain": "UK",
+        "england": "UK",
+        "australia": "AU",
+        "spain": "ES",
+        "italy": "IT",
+        "france": "FR",
+        "netherlands": "NL",
+        "holland": "NL",
+        "portugal": "PT",
+        "poland": "PL",
+        "sweden": "SE",
+        "unitedstates": "US",
+        "unitedstatesofamerica": "US",
+        "usa": "US",
+    }
+)
 _PROVIDER_INDEX = {row.key: row for row in PROVIDERS}
 _LANGUAGE_INDEX = {code: label for code, label in LANGUAGES}
 
@@ -999,9 +1036,19 @@ def is_known_property_platform(value: object) -> bool:
     return normalize_property_platform(value) in _PROVIDER_INDEX
 
 
-def normalize_country_code(value: object, *, default: str = "AT") -> str:
+def resolve_country_code(value: object) -> str | None:
     code = str(value or "").strip().upper()
-    return code if code in _COUNTRY_INDEX else default
+    if code in _COUNTRY_INDEX:
+        return code
+    return _COUNTRY_ALIAS_INDEX.get(_country_alias_key(value))
+
+
+def is_supported_country_code(value: object) -> bool:
+    return resolve_country_code(value) is not None
+
+
+def normalize_country_code(value: object, *, default: str = "AT") -> str:
+    return resolve_country_code(value) or default
 
 
 def normalize_language_code(value: object, *, country_code: str = "AT") -> str:

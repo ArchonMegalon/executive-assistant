@@ -227,16 +227,18 @@ class OnboardingService(AssistantOnboardingService):
     ) -> dict[str, object]:
         state = self._ensure_state(principal_id)
         normalized_preferences = self._normalize_property_search_preferences(property_search_preferences_json)
+        raw_incoming_preferences = dict(property_search_preferences_json or {})
         existing_preferences = dict(state.property_search_preferences_json or {})
         existing_raw_preferences = dict(existing_preferences.get("raw_preferences") or {}) if isinstance(existing_preferences.get("raw_preferences"), dict) else {}
         incoming_commercial = dict(normalized_preferences.get("property_commercial") or {}) if isinstance(normalized_preferences.get("property_commercial"), dict) else {}
         existing_commercial = dict(existing_preferences.get("property_commercial") or {}) if isinstance(existing_preferences.get("property_commercial"), dict) else {}
-        if not incoming_commercial and existing_commercial:
+        incoming_has_explicit_commercial = isinstance(raw_incoming_preferences.get("property_commercial"), dict) and bool(raw_incoming_preferences.get("property_commercial"))
+        if not incoming_has_explicit_commercial and existing_commercial:
             normalized_preferences["property_commercial"] = existing_commercial
         raw_preferences = dict(normalized_preferences.get("raw_preferences") or {}) if isinstance(normalized_preferences.get("raw_preferences"), dict) else {}
         incoming_raw_commercial = dict(raw_preferences.get("property_commercial") or {}) if isinstance(raw_preferences.get("property_commercial"), dict) else {}
         existing_raw_commercial = dict(existing_raw_preferences.get("property_commercial") or {}) if isinstance(existing_raw_preferences.get("property_commercial"), dict) else {}
-        if not incoming_raw_commercial and existing_raw_commercial:
+        if not incoming_has_explicit_commercial and not incoming_raw_commercial and existing_raw_commercial:
             raw_preferences["property_commercial"] = existing_raw_commercial
             normalized_preferences["raw_preferences"] = raw_preferences
         saved = self._repo.upsert_state(

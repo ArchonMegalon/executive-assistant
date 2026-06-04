@@ -206,6 +206,24 @@
     <div class="object-kicker">{{ object_kind }}</div>
     <h1>{{ object_title }}</h1>
     <p class="object-copy">{{ object_summary }}</p>
+    {% if object_ooda_rows %}
+    <section class="object-section" style="margin-top:14px;">
+      <div class="object-kicker">OODA</div>
+      <h2>{{ object_ooda_title or 'OODA summary' }}</h2>
+      {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
+      <div class="object-list">
+        {% for item in object_ooda_rows %}
+        <div class="object-row">
+          <div>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.detail }}</small>
+          </div>
+          <span class="object-tag">{{ item.tag }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
     <div class="object-meta">
       {% for item in object_meta %}
       <div class="object-meta-card">

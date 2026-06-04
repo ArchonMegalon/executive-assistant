@@ -4,9 +4,11 @@ from app.services.property_market_catalog import (
     default_language_for_country,
     default_platforms_for_country,
     generated_source_specs,
+    is_supported_country_code,
     language_label,
     listing_mode_label,
     normalize_property_search_preferences,
+    normalize_country_code,
     property_type_label,
     provider_options,
     provider_listing_markers_for_host,
@@ -37,6 +39,14 @@ def test_normalize_property_search_preferences_defaults_country_and_language() -
     assert payload["property_type"] == "any"
     assert payload["alert_frequency"] == "daily"
     assert payload["alert_channels"] == ["telegram"]
+
+
+def test_country_normalization_understands_common_country_names() -> None:
+    assert normalize_country_code("Germany") == "DE"
+    assert normalize_country_code("Great Britain") == "UK"
+    assert normalize_country_code("United States") == "US"
+    assert is_supported_country_code("Spain") is True
+    assert is_supported_country_code("NO") is False
 
 
 def test_generated_source_specs_use_country_platform_defaults() -> None:
