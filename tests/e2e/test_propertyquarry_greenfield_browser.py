@@ -227,5 +227,16 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert "Shape the next market sweep before the crawlers fan out." in page.content()
         assert page.get_by_role("button", name="Next").is_visible()
         assert page.get_by_role("button", name="Next").is_enabled()
+        step_box = page.get_by_role("button", name="Step 1 Search posture").bounding_box()
+        assert step_box is not None and step_box["width"] <= 430
+
+        page.get_by_role("link", name="Research").click()
+        page.wait_for_load_state("networkidle")
+        page.get_by_role("link", name="Open packet").first.click()
+        page.wait_for_load_state("networkidle")
+        packet = page.content()
+        assert "Internal property dossier with fit reasoning" in packet
+        primary_action = page.get_by_role("link", name="Open source").first.bounding_box()
+        assert primary_action is not None and primary_action["width"] <= 430
     finally:
         context.close()

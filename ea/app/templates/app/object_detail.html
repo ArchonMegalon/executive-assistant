@@ -57,6 +57,9 @@
     padding-bottom: 10px;
     border-bottom: 1px solid rgba(49, 60, 77, 0.72);
   }
+  .object-row > :first-child {
+    min-width: 0;
+  }
   .object-row:last-child {
     border-bottom: 0;
     padding-bottom: 0;
@@ -125,6 +128,38 @@
   @media (max-width: 1080px) {
     .object-grid,
     .object-sections {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 760px) {
+    .object-panel,
+    .object-section,
+    .object-meta-card {
+      padding: 16px;
+    }
+    .object-meta {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .object-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .object-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    .object-actions .console-action,
+    .object-actions form,
+    .object-actions form button {
+      width: 100%;
+    }
+    .object-tag {
+      align-self: flex-start;
+    }
+  }
+  @media (max-width: 520px) {
+    .object-meta {
       grid-template-columns: 1fr;
     }
   }
