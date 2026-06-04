@@ -77,6 +77,22 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                                         "strategy": "provider_html_plus_geo",
                                     },
                                 },
+                            },
+                            {
+                                "title": "Family flat near Tiergarten",
+                                "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                                "fit_summary": "Personal fit 87/100 · shortlist · Larger layout and quieter block.",
+                                "recommendation": "shortlist",
+                                "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-2",
+                                "tour_url": "",
+                                "match_reasons": ["Larger layout and quieter block."],
+                                "mismatch_reasons": ["No 360 tour yet."],
+                                "property_facts": {
+                                    "price_display": "EUR 465,000",
+                                    "rooms": 4,
+                                    "area_m2": 92,
+                                    "postal_name": "Berlin Tiergarten",
+                                },
                             }
                         ],
                     }
@@ -145,6 +161,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Evidence and provenance" in packet.text
     assert "Open questions" in packet.text
     assert "Compare next" in packet.text
+    assert "Candidate" in packet.text
+    assert "Layout" in packet.text
+    assert "Family flat near Tiergarten" in packet.text
     assert "Researched" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text

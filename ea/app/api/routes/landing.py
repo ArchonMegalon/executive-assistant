@@ -1287,6 +1287,38 @@ def _property_candidate_ref(candidate: dict[str, object]) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def _property_shortlist_candidates_from_context(property_context: dict[str, object]) -> list[dict[str, object]]:
+    run_payload = dict(property_context.get("run") or {})
+    run_summary = dict(run_payload.get("summary") or {})
+    run_id = str(run_payload.get("run_id") or "").strip()
+    packet_candidates: list[dict[str, object]] = []
+    for source in list(run_summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
+        for candidate in list(source.get("top_candidates") or [])[:5]:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_row = dict(candidate)
+            candidate_row.setdefault("source_label", source_label)
+            candidate_row.setdefault("property_facts", dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {})
+            packet_ref = _property_candidate_ref(
+                {
+                    "title": str(candidate_row.get("title") or "").strip(),
+                    "property_url": str(candidate_row.get("property_url") or "").strip(),
+                    "review_url": str(candidate_row.get("review_url") or "").strip(),
+                    "tour_url": str(candidate_row.get("tour_url") or "").strip(),
+                    "source_label": source_label,
+                }
+            )
+            packet_url = f"/app/research/{packet_ref}"
+            if run_id:
+                packet_url = f"{packet_url}?run_id={urllib.parse.quote(run_id, safe='')}"
+            candidate_row.setdefault("packet_url", packet_url)
+            packet_candidates.append(candidate_row)
+    return packet_candidates
+
+
 def _property_lookup_candidate(
     *,
     property_context: dict[str, object],
@@ -1467,7 +1499,7 @@ def _property_packet_compare_rows(
     current_candidate_ref: str,
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    shortlist_candidates = list(dict(property_context.get("preferences_payload") or {}).get("meta", {}).get("shortlist_candidates") or [])
+    shortlist_candidates = _property_shortlist_candidates_from_context(property_context)
     for candidate in shortlist_candidates[:5]:
         if not isinstance(candidate, dict):
             continue
@@ -1501,6 +1533,60 @@ def _property_packet_compare_rows(
         if len(rows) >= 3:
             break
     return rows
+
+
+def _property_packet_compare_table(
+    *,
+    property_context: dict[str, object],
+    current_candidate: dict[str, object],
+    current_candidate_ref: str,
+) -> list[list[object]]:
+    def _row_for(candidate: dict[str, object], *, candidate_ref: str, current: bool) -> list[object]:
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+        fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip() or "No fit summary"
+        price_value = str(
+            facts.get("price_display")
+            or facts.get("rent_display")
+            or facts.get("price")
+            or facts.get("price_eur")
+            or "Unknown"
+        ).strip()
+        layout_value = " | ".join(
+            part for part in (
+                f"{facts.get('rooms')} rooms" if facts.get("rooms") else "",
+                f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
+            ) if part
+        ) or "Unknown"
+        tour_state = "Ready" if str(candidate.get("tour_url") or "").strip() else "Not ready"
+        return [
+            {
+                "title": (str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate") + (" (Current)" if current else ""),
+                "detail": str(candidate.get("source_label") or "").strip(),
+                "href": str(candidate.get("packet_url") or "").strip(),
+            },
+            fit_summary,
+            price_value,
+            layout_value,
+            tour_state,
+            {
+                "title": "Open packet",
+                "detail": "Inspect this dossier",
+                "href": str(candidate.get("packet_url") or "").strip(),
+            },
+        ]
+
+    table_rows: list[list[object]] = [_row_for(current_candidate, candidate_ref=current_candidate_ref, current=True)]
+    shortlist_candidates = _property_shortlist_candidates_from_context(property_context)
+    for candidate in shortlist_candidates[:5]:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_ref = _property_candidate_ref(candidate)
+        if candidate_ref == current_candidate_ref:
+            continue
+        table_rows.append(_row_for(candidate, candidate_ref=candidate_ref, current=False))
+        if len(table_rows) >= 4:
+            break
+    return table_rows
 
 
 @router.get("/app/research/{candidate_ref}", response_class=HTMLResponse)
@@ -1547,6 +1633,11 @@ def property_research_packet(
     provenance_rows = _property_packet_provenance_rows(facts)
     compare_rows = _property_packet_compare_rows(
         property_context=property_context,
+        current_candidate_ref=str(candidate_ref or "").strip(),
+    )
+    compare_table_rows = _property_packet_compare_table(
+        property_context=property_context,
+        current_candidate=candidate,
         current_candidate_ref=str(candidate_ref or "").strip(),
     )
     return _render_console_object_detail(
@@ -1649,6 +1740,8 @@ def property_research_packet(
             {
                 "eyebrow": "Compare next",
                 "title": "Keep the next-best shortlist candidates visible",
+                "table_headers": ["Candidate", "Fit", "Price", "Layout", "360", "Packet"],
+                "table_rows": compare_table_rows,
                 "items": compare_rows
                 or [_object_detail_row("No compare candidates yet", "Finish or widen the shortlist run to compare alternatives here.", "Waiting")],
             },
