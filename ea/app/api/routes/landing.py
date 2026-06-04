@@ -1643,6 +1643,72 @@ def _property_investment_risk_rows(facts: dict[str, object], snapshot: dict[str,
     return rows
 
 
+def _property_investment_context_rows(
+    facts: dict[str, object],
+    preferences: dict[str, object],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    rows: list[dict[str, str]] = []
+    risk_rows: list[dict[str, str]] = []
+    listing_mode = str(preferences.get("listing_mode") or "").strip().lower()
+    provider_group = str(facts.get("provider_group") or "").strip().lower()
+    provider_channel = str(facts.get("provider_channel") or "").strip()
+    marketing_type = str(facts.get("marketing_type") or "").strip()
+    availability_label = str(facts.get("availability_label") or facts.get("move_in") or "").strip()
+    court = str(facts.get("court") or "").strip()
+    court_file_reference = str(facts.get("court_file_reference") or "").strip()
+    valuation_display = str(facts.get("valuation_display") or "").strip()
+    reserve_display = str(facts.get("reserve_price_display") or "").strip()
+    occupancy = str(facts.get("occupancy_status") or "").strip()
+    registration_count = 0
+    try:
+        registration_count = int(float(facts.get("registration_count") or 0))
+    except Exception:
+        registration_count = 0
+
+    if provider_group == "genossenschaften_at":
+        provider_label = provider_channel.replace("_", " ").strip().title() if provider_channel else "Genossenschaften"
+        rows.append(_object_detail_row("Provider lane", f"{provider_label} cooperative supply lane.", "Source"))
+        if marketing_type:
+            rows.append(_object_detail_row("Offer posture", marketing_type, "Source"))
+            if listing_mode == "buy" and marketing_type.lower().startswith("miet"):
+                risk_rows.append(
+                    _object_detail_row(
+                        "Rental-led cooperative lane",
+                        "This candidate is coming through a rental/cooperative supply lane while the brief is in buy mode. Treat the underwriting output as weak until the acquisition path is confirmed.",
+                        "High",
+                    )
+                )
+        if availability_label:
+            rows.append(_object_detail_row("Delivery timing", availability_label, "Timing"))
+        if registration_count > 0:
+            rows.append(_object_detail_row("Applicant pressure", f"{registration_count:,} registrations or applicants were visible on the source lane.", "Demand"))
+            if registration_count >= 10000:
+                risk_rows.append(_object_detail_row("Extremely high applicant pressure", "Competition on this cooperative lane is already very high, so practical conversion odds may be weak even if the fit looks decent.", "High"))
+            elif registration_count >= 1000:
+                risk_rows.append(_object_detail_row("High applicant pressure", "Competition on this cooperative lane is already meaningful. Keep conversion risk in mind before overvaluing the headline fit.", "Medium"))
+
+    if court or court_file_reference or valuation_display or reserve_display:
+        if court:
+            rows.append(_object_detail_row("Court process", court, "Auction"))
+        if court_file_reference:
+            rows.append(_object_detail_row("Case reference", court_file_reference, "Auction"))
+        if valuation_display:
+            rows.append(_object_detail_row("Judicial valuation", valuation_display, "Auction"))
+        if reserve_display:
+            rows.append(_object_detail_row("Reserve or deposit", reserve_display, "Auction"))
+        risk_rows.append(
+            _object_detail_row(
+                "Judicial sale diligence",
+                "This candidate is coming from a judicial or foreclosure lane. Underwriting should explicitly verify occupancy, legal encumbrances, and auction terms before treating the apparent discount as real.",
+                "High",
+            )
+        )
+        if occupancy:
+            rows.append(_object_detail_row("Recorded occupancy", occupancy, "Auction"))
+
+    return rows, risk_rows
+
+
 def _property_investment_research_rows(
     *,
     property_url: str,
@@ -1662,17 +1728,18 @@ def _property_investment_research_rows(
                 "Locked",
             )
         ], []
+    context_rows, context_risk_rows = _property_investment_context_rows(facts, preferences)
     current_price_eur = _property_investment_price_eur(facts)
     current_area_sqm = _property_investment_area_sqm(facts)
     location_seed = _property_investment_location_seed(facts, preferences)
     if not isinstance(current_price_eur, float) or not isinstance(current_area_sqm, float) or not location_seed:
-        return [
+        return context_rows + [
             _object_detail_row(
                 "Investment research is waiting on core facts",
                 "The packet still needs a credible buy price, area, and location before comp and yield work can run.",
                 "Pending",
             )
-        ], []
+        ], context_risk_rows
     selected_platforms = ",".join(str(value or "").strip() for value in (preferences.get("selected_platforms") or []) if str(value or "").strip())
     snapshot = _property_investment_research_snapshot(
         property_url=property_url,
@@ -1684,14 +1751,14 @@ def _property_investment_research_rows(
         research_level=access_level,
     )
     if not snapshot:
-        return [
+        return context_rows + [
             _object_detail_row(
                 "Investment research could not build a benchmark yet",
                 "No usable market samples were recovered from the current provider set for this location.",
                 "Pending",
             )
-        ], []
-    rows: list[dict[str, str]] = [
+        ], context_risk_rows
+    rows: list[dict[str, str]] = context_rows + [
         _object_detail_row("Current underwriting base", f"EUR {current_price_eur:,.0f} over {current_area_sqm:.1f} m2 ({float(snapshot.get('current_price_per_sqm_eur') or 0.0):.2f} EUR/m2)", "Base"),
         _object_detail_row("Comparable buy samples", f"{int(snapshot.get('buy_sample_count') or 0)} listings", "Comps"),
         _object_detail_row("Comparable rent samples", f"{int(snapshot.get('rent_sample_count') or 0)} listings", "Comps"),
@@ -1715,8 +1782,8 @@ def _property_investment_research_rows(
         rows.append(_object_detail_row("Payback horizon", f"About {float(payback_years):.1f} years on gross rent assumptions.", "Yield"))
     if access_level == "preview":
         rows.append(_object_detail_row("Preview tier limit", "Plus only returns the benchmark headline. Agent unlocks the fuller risk and diligence pass.", "Upgrade"))
-        return rows, []
-    risk_rows = _property_investment_risk_rows(facts, snapshot)
+        return rows, context_risk_rows
+    risk_rows = context_risk_rows + _property_investment_risk_rows(facts, snapshot)
     if isinstance(snapshot.get("buy_samples"), list) and snapshot["buy_samples"]:
         top_buy = snapshot["buy_samples"][0]
         rows.append(_object_detail_row("Closest buy comp", f"{top_buy.get('title')} | {top_buy.get('per_sqm_eur')} EUR/m2 via {top_buy.get('source_label')}", "Comp"))

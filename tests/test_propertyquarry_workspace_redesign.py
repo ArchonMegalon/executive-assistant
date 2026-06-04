@@ -341,6 +341,175 @@ def test_propertyquarry_workspace_search_surface_keeps_internal_review_link(monk
     assert "Review shortlisted property packet" in response.text
 
 
+def test_propertyquarry_research_packet_shows_auction_investment_context_when_benchmark_is_pending(monkeypatch) -> None:
+    principal_id = "pq-redesign-auction-investment"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "investment_research_mode": "auto",
+            "location_query": "Wien",
+            "selected_platforms": ["justiz_edikte_at"],
+            "preference_person_id": "self",
+            "property_commercial": {
+                "status": "active",
+                "active_plan_key": "agent",
+                "active_until": "2099-12-31T23:59:59+00:00",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    auction_candidate = {
+        "title": "BG Innere Stadt Wien, 001 50 E 30/25a",
+        "summary": "",
+        "property_url": "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/example!OpenDocument",
+        "fit_score": 37.0,
+        "fit_summary": "",
+        "recommendation": "",
+        "review_url": "",
+        "tour_url": "",
+        "match_reasons": [],
+        "mismatch_reasons": [],
+        "property_facts": {
+            "court": "BG Innere Stadt Wien",
+            "court_file_reference": "001 50 E 30/25a",
+            "valuation_display": "EUR 310,000",
+            "reserve_price_display": "EUR 155,000",
+            "occupancy_status": "occupied",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Justiz Edikte Auctions | Austria | Buy | Wien",
+                        "listing_total": 1,
+                        "top_candidates": [auction_candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    headers = {"host": "propertyquarry.com"}
+    research = client.get("/app/research", params={"run_id": "run-auction"}, headers=headers)
+    packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-auction"', research.text)
+    assert packet_match is not None
+    packet = client.get(packet_match.group(1), params={"run_id": "run-auction", "investment": 1}, headers=headers)
+    assert packet.status_code == 200
+    assert "Court process" in packet.text
+    assert "Case reference" in packet.text
+    assert "Judicial valuation" in packet.text
+    assert "Reserve or deposit" in packet.text
+    assert "Judicial sale diligence" in packet.text
+
+
+def test_propertyquarry_research_packet_shows_cooperative_investment_context_when_benchmark_is_pending(monkeypatch) -> None:
+    principal_id = "pq-redesign-coop-investment"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "investment_research_mode": "auto",
+            "location_query": "Wien",
+            "selected_platforms": ["genossenschaften_at"],
+            "preference_person_id": "self",
+            "property_commercial": {
+                "status": "active",
+                "active_plan_key": "agent",
+                "active_until": "2099-12-31T23:59:59+00:00",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    coop_candidate = {
+        "title": "1210 Wien | Antonie-Lehr-Straße 18 / Leopoldauer Haide Gasse 12",
+        "summary": "Miete | 144 units | August 2026 | 37486 registrations",
+        "property_url": "https://angebote.sozialbau.at/sobitvX/htmlprospect/home.xhtml?pq_listing=1",
+        "fit_score": 52.0,
+        "fit_summary": "",
+        "recommendation": "",
+        "review_url": "",
+        "tour_url": "",
+        "match_reasons": [],
+        "mismatch_reasons": [],
+        "property_facts": {
+            "provider_group": "genossenschaften_at",
+            "provider_channel": "sozialbau",
+            "marketing_type": "Miete",
+            "availability_label": "August 2026",
+            "registration_count": 37486,
+            "postal_name": "1210 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Genossenschaften | Austria | Buy | Wien | Sozialbau Projekte in Bau",
+                        "listing_total": 1,
+                        "top_candidates": [coop_candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_routes, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    headers = {"host": "propertyquarry.com"}
+    research = client.get("/app/research", params={"run_id": "run-coop"}, headers=headers)
+    packet_match = re.search(r'href="(/app/research/[^"?]+)\?run_id=run-coop"', research.text)
+    assert packet_match is not None
+    packet = client.get(packet_match.group(1), params={"run_id": "run-coop", "investment": 1}, headers=headers)
+    assert packet.status_code == 200
+    assert "Provider lane" in packet.text
+    assert "Offer posture" in packet.text
+    assert "Applicant pressure" in packet.text
+    assert "Rental-led cooperative lane" in packet.text
+    assert "Extremely high applicant pressure" in packet.text
+
+
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     client = build_product_client(principal_id="pq-redesign-settings")
     start_workspace(client, mode="personal", workspace_name="Property Office")
