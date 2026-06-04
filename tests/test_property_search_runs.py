@@ -4,6 +4,7 @@ import time
 
 import app.product.service as product_service
 from app.product.service import ProductService
+from app.product.service import _property_candidate_matches_requested_location, _property_search_location_hints
 from app.services.property_billing import property_commercial_snapshot
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
 
@@ -27,6 +28,25 @@ def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() ->
     assert snapshot["research_depth"] == "deep"
     assert snapshot["max_platforms"] == 8
     assert snapshot["max_results_per_source"] == 2
+
+
+def test_property_search_location_matching_prefers_requested_districts() -> None:
+    hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
+
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/object?adId=1",
+        title="Wohnung in 1200 Wien mit Lift",
+        summary="Nahe U6 und familienfreundlich.",
+        property_facts={"postal_name": "1200 Wien"},
+    ) is True
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://www.willhaben.at/iad/object?adId=2",
+        title="Wohnung in 1130 Wien",
+        summary="Altbau",
+        property_facts={"postal_name": "1130 Wien"},
+    ) is False
 
 
 def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(monkeypatch) -> None:

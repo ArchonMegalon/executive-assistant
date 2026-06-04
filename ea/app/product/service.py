@@ -243,6 +243,29 @@ _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
 
 
+def _json_safe_product_payload(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return f"<bytes:{len(value)}>"
+    if isinstance(value, google_oauth_service.GoogleWorkspaceAttachment):
+        return {
+            "attachment_id": str(value.attachment_id or "").strip(),
+            "filename": str(value.filename or "").strip(),
+            "mime_type": str(value.mime_type or "").strip(),
+            "part_id": str(value.part_id or "").strip(),
+            "size_bytes": int(value.size_bytes or 0),
+            "content_bytes_present": bool(value.content_bytes),
+        }
+    if isinstance(value, dict):
+        return {str(key): _json_safe_product_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_product_payload(item) for item in value]
+    if hasattr(value, "__dict__"):
+        return {str(key): _json_safe_product_payload(item) for key, item in dict(vars(value)).items()}
+    return str(value)
+
+
 def _property_search_platform_aliases() -> tuple[str, ...]:
     return tuple(property_platform_keys())
 
@@ -1082,6 +1105,56 @@ def _property_scout_rank_score(
     if any(token in text for token in ("lift", "aufzug", "terrasse", "balkon")):
         heuristic += 4.0
     return max(0.0, min(100.0, heuristic))
+
+
+def _property_search_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
+    raw_value = str(dict(preferences or {}).get("location_query") or "").strip()
+    if not raw_value:
+        return ()
+    values = [str(item or "").strip() for item in raw_value.split(",")]
+    return tuple(value for value in values if value)
+
+
+def _property_candidate_matches_requested_location(
+    *,
+    location_hints: tuple[str, ...],
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    hints = tuple(str(item or "").strip() for item in location_hints if str(item or "").strip())
+    if not hints:
+        return True
+    facts = dict(property_facts or {})
+    address_lines = tuple(str(item or "").strip() for item in list(facts.get("address_lines") or []) if str(item or "").strip())
+    haystack_parts = [
+        str(property_url or "").strip(),
+        str(title or "").strip(),
+        str(summary or "").strip(),
+        str(facts.get("district") or "").strip(),
+        str(facts.get("postal_name") or "").strip(),
+        str(facts.get("location") or "").strip(),
+        str(facts.get("street_address") or "").strip(),
+        str(facts.get("exact_address") or "").strip(),
+        *address_lines,
+    ]
+    raw_text = " ".join(part for part in haystack_parts if part).lower()
+    normalized_text = re.sub(r"[^a-z0-9äöüß]+", "", raw_text)
+
+    for hint in hints:
+        lowered_hint = str(hint or "").strip().lower()
+        if not lowered_hint:
+            continue
+        if lowered_hint in raw_text:
+            return True
+        normalized_hint = re.sub(r"[^a-z0-9äöüß]+", "", lowered_hint)
+        if normalized_hint and normalized_hint in normalized_text:
+            return True
+        hint_tokens = tuple(token for token in _google_location_query_tokens(lowered_hint) if token not in {"vienna", "wien", "austria", "osterreich", "österreich"})
+        if hint_tokens and all(token in raw_text or token in normalized_text for token in hint_tokens):
+            return True
+    return False
 
 
 def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
@@ -7559,11 +7632,14 @@ class ProductService:
         source_id: str = "",
         dedupe_key: str = "",
     ) -> None:
+        safe_payload = _json_safe_product_payload(dict(payload or {}))
+        if not isinstance(safe_payload, dict):
+            safe_payload = {"value": safe_payload}
         event = self._container.channel_runtime.ingest_observation(
             principal_id=principal_id,
             channel="product",
             event_type=event_type,
-            payload=dict(payload or {}),
+            payload=safe_payload,
             source_id=source_id,
             dedupe_key=dedupe_key,
         )
@@ -7572,7 +7648,7 @@ class ProductService:
             self._queue_webhook_deliveries(
                 principal_id=principal_id,
                 matched_event_type=normalized_type,
-                payload=dict(payload or {}),
+                payload=safe_payload,
                 source_id=str(source_id or event.observation_id or "").strip(),
             )
 
@@ -13324,6 +13400,7 @@ class ProductService:
             or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
             or "self"
         ).strip() or "self"
+        location_hints = _property_search_location_hints(request_preferences)
 
         specs = [
             dict(spec)
@@ -13461,14 +13538,25 @@ class ProductService:
                         "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
                         "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         "assessment": {},
-                        "fit_score": _property_scout_rank_score(
-                            property_url=property_url,
-                            assessment=None,
-                            preview=preview,
-                            ordinal=ordinal,
-                        ),
+                        "fit_score": 0.0,
                         "ordinal": ordinal,
+                        "location_match": _property_candidate_matches_requested_location(
+                            location_hints=location_hints,
+                            property_url=property_url,
+                            title=str(preview.get("title") or property_url).strip(),
+                            summary=str(preview.get("summary") or "").strip(),
+                            property_facts=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                        ),
                     }
+                )
+                preliminary_rows[-1]["fit_score"] = max(
+                    0.0,
+                    _property_scout_rank_score(
+                        property_url=property_url,
+                        assessment=None,
+                        preview=preview,
+                        ordinal=ordinal,
+                    ) - (25.0 if location_hints and not bool(preliminary_rows[-1].get("location_match")) else 0.0)
                 )
                 if ordinal == 1 or ordinal == len(listing_urls) or ordinal % 3 == 0:
                     _report(
@@ -13520,13 +13608,24 @@ class ProductService:
                         "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
                         "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
-                        "fit_score": _property_scout_rank_score(
+                        "fit_score": 0.0,
+                        "location_match": _property_candidate_matches_requested_location(
+                            location_hints=location_hints,
                             property_url=property_url,
-                            assessment=assessment,
-                            preview=preview,
-                            ordinal=int(row.get("ordinal") or ordinal),
+                            title=str(preview.get("title") or property_url).strip(),
+                            summary=str(preview.get("summary") or "").strip(),
+                            property_facts=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
                         ),
                     }
+                )
+                ranked_rows[-1]["fit_score"] = max(
+                    0.0,
+                    _property_scout_rank_score(
+                        property_url=property_url,
+                        assessment=assessment,
+                        preview=preview,
+                        ordinal=int(row.get("ordinal") or ordinal),
+                    ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
                 if ordinal == 1 or ordinal == analysis_limit or ordinal % 2 == 0:
                     _report(
@@ -13537,6 +13636,10 @@ class ProductService:
                     )
 
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+            if location_hints:
+                matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
+                if matching_rows:
+                    ranked_rows = matching_rows
             ranked_rows = ranked_rows[:max_results]
             _report(
                 step="source_shortlist",
@@ -14227,14 +14330,20 @@ class ProductService:
             for account in google_accounts
             if str(account.google_email or "").strip()
         ]
+        primary_account_email = str(sync.get("google_account_email") or "").strip()
+        fallback_account = google_accounts[0] if google_accounts else None
+        resolved_account_email = primary_account_email or str(getattr(fallback_account, "google_email", "") or "").strip()
+        resolved_token_status = str(sync.get("google_token_status") or "").strip() or str(getattr(fallback_account, "token_status", "") or "missing").strip() or "missing"
+        resolved_last_refresh = str(sync.get("google_last_refresh_at") or "").strip() or str(getattr(fallback_account, "last_refresh_at", "") or "").strip()
+        resolved_reauth_reason = str(sync.get("google_reauth_required_reason") or "").strip() or str(getattr(fallback_account, "reauth_required_reason", "") or "").strip()
         return {
             "generated_at": _now_iso(),
-            "connected": bool(sync.get("google_connected")),
-            "account_email": str(sync.get("google_account_email") or "").strip(),
+            "connected": bool(sync.get("google_connected")) or bool(google_accounts),
+            "account_email": resolved_account_email,
             "account_emails": account_emails,
-            "token_status": str(sync.get("google_token_status") or "missing").strip() or "missing",
-            "last_refresh_at": str(sync.get("google_last_refresh_at") or "").strip(),
-            "reauth_required_reason": str(sync.get("google_reauth_required_reason") or "").strip(),
+            "token_status": resolved_token_status,
+            "last_refresh_at": resolved_last_refresh,
+            "reauth_required_reason": resolved_reauth_reason,
             "sync_completed": int(sync.get("google_sync_completed") or 0),
             "office_signal_ingested": int(sync.get("office_signal_ingested") or 0),
             "last_completed_at": str(sync.get("google_sync_last_completed_at") or "").strip(),
