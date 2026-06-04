@@ -661,6 +661,7 @@
       backdrop-filter: blur(14px);
     }
     .pqx-hidden { display: none !important; }
+    .pqx-shell [hidden] { display: none !important; }
     @media (max-width: 1180px) {
       .pqx-topbar {
         grid-template-columns: 1fr auto;
@@ -854,7 +855,7 @@
             {% endif %}
             <div class="pqx-form-body">
               {% for field in console_form.get('fields') or [] %}
-              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
+              <div class="pqx-field" data-property-field-step="{{ field.get('step') or 'search' }}" data-property-field-name="{{ field.name }}"{% if field.get('hidden') %} hidden{% endif %}>
                 {% if field.type == 'checkbox_group' %}
                 <div class="pqx-field-title">{{ field.label }}</div>
                 <div class="pqx-check-grid" data-pqx-check-grid="{{ field.name }}">
@@ -1158,6 +1159,29 @@
         return `<label class="pqx-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(optionValue)}" ${selected.has(optionValue) ? 'checked' : ''}><span><span>${escapeHtml(label)}</span>${detail ? `<small>${escapeHtml(detail)}</small>` : ''}</span></label>`;
       }).join('');
     };
+    const readableErrorDetail = (detail, fallback) => {
+      if (Array.isArray(detail)) {
+        return detail.map((item) => readableErrorDetail(item, '')).filter(Boolean).join(' ');
+      }
+      if (detail && typeof detail === 'object') {
+        const direct = detail.message || detail.msg || detail.code || detail.type || detail.error || '';
+        if (direct) return readableErrorDetail(direct, fallback);
+        try { return JSON.stringify(detail); } catch (_) { return fallback; }
+      }
+      const raw = String(detail || '').trim();
+      if (!raw) return fallback;
+      if (raw.startsWith('property_plan_upgrade_required:')) {
+        const plan = raw.split(':').pop() || 'paid';
+        return `Upgrade required for this run. Reduce the selected providers or max results, or switch to the ${plan} plan.`;
+      }
+      if (raw === 'invalid_property_search_platform') return 'One selected provider is not available for this country. Refresh the provider step and choose again.';
+      if (raw === 'principal_id_required') return 'You are not signed in cleanly. Sign in again before starting a search.';
+      return raw.replaceAll('_', ' ');
+    };
+    const responseErrorMessage = async (response, fallback) => {
+      const body = await response.json().catch(() => ({}));
+      return readableErrorDetail(body.detail || body.error || body.message || body, fallback);
+    };
     const collectPayload = (form) => {
       const selectedPlatforms = checkedValues(form, 'selected_platforms');
       const countryCode = fieldValue(form, 'country_code') || 'AT';
@@ -1230,6 +1254,7 @@
         current = Math.max(0, Math.min(steps.length - 1, index));
         const step = steps[current] || {};
         const stepKey = String(step.key || '').trim();
+        form.dataset.propertyActiveStep = stepKey;
         fieldNodes.forEach((node) => { node.hidden = String(node.getAttribute('data-property-field-step') || '') !== stepKey; });
         triggers.forEach((node) => { node.classList.toggle('active', String(node.getAttribute('data-property-step-trigger') || '') === stepKey); });
         if (progress) progress.textContent = `Step ${current + 1} of ${steps.length}`;
@@ -1240,6 +1265,7 @@
           next.textContent = current === steps.length - 2 ? 'Review launch' : 'Next';
         }
         if (actions) actions.hidden = current !== steps.length - 1;
+        form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));
       };
       triggers.forEach((node, index) => node.addEventListener('click', () => applyStep(index)));
       back?.addEventListener('click', () => applyStep(current - 1));
@@ -1251,13 +1277,24 @@
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');
       const allViennaField = form.querySelector('input[name="all_of_vienna"]');
-      const allViennaFieldWrap = allViennaField?.closest('[data-property-field-step]');
-      const locationFieldWrap = form.querySelector('input[name="location_query"]')?.closest('[data-property-field-step]');
+      const allViennaFieldWrap = form.querySelector('[data-property-field-name="all_of_vienna"]');
+      const locationFieldWrap = form.querySelector('[data-property-field-name="location_query"]');
       const syncViennaScopeControls = () => {
+        const activeStep = String(form.dataset.propertyActiveStep || '').trim();
+        const isAreasStep = !activeStep || activeStep === 'areas';
         const isViennaScope = String(countryField?.value || '').trim() === 'AT' && String(regionField?.value || '').trim() === 'vienna';
-        if (allViennaFieldWrap) allViennaFieldWrap.hidden = !isViennaScope;
+        const allViennaChecked = Boolean(allViennaField?.checked);
+        if (allViennaFieldWrap) {
+          allViennaFieldWrap.hidden = !isAreasStep || !isViennaScope;
+          allViennaFieldWrap.toggleAttribute('aria-hidden', allViennaFieldWrap.hidden);
+        }
         if (!isViennaScope && allViennaField) allViennaField.checked = false;
-        if (locationFieldWrap) locationFieldWrap.hidden = isViennaScope && Boolean(allViennaField?.checked);
+        if (locationFieldWrap) {
+          const shouldCollapseTargetAreas = isAreasStep && isViennaScope && allViennaChecked;
+          locationFieldWrap.hidden = !isAreasStep || shouldCollapseTargetAreas;
+          locationFieldWrap.toggleAttribute('aria-hidden', locationFieldWrap.hidden);
+          locationFieldWrap.dataset.propertyCollapsedBy = shouldCollapseTargetAreas ? 'all_of_vienna' : '';
+        }
       };
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
@@ -1292,6 +1329,7 @@
       });
       regionField?.addEventListener('change', refreshRegionAndLocationChoices);
       allViennaField?.addEventListener('change', syncViennaScopeControls);
+      form.addEventListener('propertyquarry:stepchange', syncViennaScopeControls);
       syncViennaScopeControls();
     }
     const savePreferences = async () => {
@@ -1307,7 +1345,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body.property_preferences),
       });
-      if (!response.ok) throw new Error('Could not save the brief.');
+      if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the brief.'));
       status.textContent = 'Saved.';
       return body;
     };
@@ -1326,8 +1364,12 @@
           body: JSON.stringify(body),
         });
         const runBody = await runResponse.json().catch(() => ({}));
-        if (!runResponse.ok) throw new Error(String(runBody.detail || 'Could not start property search.'));
+        if (!runResponse.ok) throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not start property search.'));
         renderRun(runBody);
+        if (runBody.bootstrap_required) {
+          status.textContent = readableErrorDetail(runBody.message || `Initialization required for ${runBody.bootstrap_country_label || runBody.bootstrap_country_code || 'this market'}.`, 'Market initialization is required before this search can run.');
+          return;
+        }
         pollRun(String(runBody.status_url || ''));
       } catch (err) {
         error.textContent = err.message || 'Could not start property search.';

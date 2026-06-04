@@ -324,7 +324,10 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     assert 'name="all_of_vienna" value="true" checked' in search.text
     assert "All of Vienna" in search.text
     assert 'name="location_query"' in search.text
-    assert re.search(r'data-property-field-step="areas" hidden>\s*<div class="pqx-field-title">Target areas</div>', search.text)
+    assert re.search(
+        r'data-property-field-step="areas" data-property-field-name="location_query" hidden>\s*<div class="pqx-field-title">Target areas</div>',
+        search.text,
+    )
 
 
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:

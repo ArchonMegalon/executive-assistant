@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
@@ -264,5 +265,64 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
 
         review_action = page.get_by_role("link", name="Review packet").first.bounding_box()
         assert review_action is not None and review_action["width"] <= 430
+    finally:
+        context.close()
+
+
+def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_vienna(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+        assert page.locator('[data-property-field-name="country_code"]').is_visible()
+        assert page.locator('[data-property-field-name="location_query"]').is_hidden()
+
+        page.select_option('select[name="country_code"]', "AT")
+        page.locator("[data-property-step-next]").click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
+        assert page.locator('[data-property-field-name="region_code"]').is_visible()
+        assert page.locator('[data-property-field-name="country_code"]').is_hidden()
+        assert page.locator('[data-property-field-name="location_query"]').is_visible()
+
+        page.locator('input[name="all_of_vienna"]').check()
+        assert page.locator('[data-property-field-name="location_query"]').is_hidden()
+        assert page.locator('[data-property-field-name="location_query"]').get_attribute("data-property-collapsed-by") == "all_of_vienna"
+
+        page.locator('input[name="all_of_vienna"]').uncheck()
+        assert page.locator('[data-property-field-name="location_query"]').is_visible()
+    finally:
+        context.close()
+
+
+def test_propertyquarry_start_failure_explains_backend_reason(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        page.route(
+            "**/app/api/signals/property/search/run",
+            lambda route: route.fulfill(
+                status=409,
+                content_type="application/json",
+                body=json.dumps({"detail": "property_plan_upgrade_required:plus"}),
+            ),
+        )
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.locator('[data-property-step-trigger="providers"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        page.locator("[data-property-start]").click()
+        page.wait_for_function("document.querySelector('[data-property-inline-error]')?.textContent.includes('Upgrade required for this run')")
+        assert page.locator("[data-property-inline-error]", has_text="Upgrade required for this run").is_visible()
+        assert page.locator("[data-property-inline-error]", has_text="plus plan").is_visible()
     finally:
         context.close()
