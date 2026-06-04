@@ -655,16 +655,18 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
         .replace("&amp;", "&")
     )
     raw_urls = list(_extract_urls_from_text(normalized_html))
-    raw_urls.extend(
-        urllib.parse.urljoin(source_url, match.group(1).strip())
-        for match in re.finditer(r"""href=["']([^"']+)["']""", normalized_html, re.IGNORECASE)
-    )
+    for match in re.finditer(r"""href=["']([^"']+)["']""", normalized_html, re.IGNORECASE):
+        try:
+            raw_urls.append(urllib.parse.urljoin(source_url, match.group(1).strip()))
+        except ValueError:
+            continue
     raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="data-href"))
     raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="data-url"))
-    raw_urls.extend(
-        urllib.parse.urljoin(source_url, match.group(1).strip())
-        for match in re.finditer(r"""location(?:\.href)?\s*=\s*["']([^"']+)["']""", normalized_html, re.IGNORECASE)
-    )
+    for match in re.finditer(r"""location(?:\.href)?\s*=\s*["']([^"']+)["']""", normalized_html, re.IGNORECASE):
+        try:
+            raw_urls.append(urllib.parse.urljoin(source_url, match.group(1).strip()))
+        except ValueError:
+            continue
     parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     path_markers = provider_listing_markers_for_host(parsed_source.netloc.lower())
     if path_markers:
@@ -676,10 +678,11 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
                 + r')[^"\'\s<>{}]*)',
                 re.IGNORECASE,
             )
-            raw_urls.extend(
-                urllib.parse.urljoin(source_url, str(match.group(1) or "").strip())
-                for match in path_pattern.finditer(normalized_html)
-            )
+            for match in path_pattern.finditer(normalized_html):
+                try:
+                    raw_urls.append(urllib.parse.urljoin(source_url, str(match.group(1) or "").strip()))
+                except ValueError:
+                    continue
     for raw_url in raw_urls:
         normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
         if not normalized or normalized in seen:
@@ -724,7 +727,10 @@ def _property_scout_extract_html_attr_urls(*, source_url: str, html: str, attr_n
         raw = str(match.group(1) or "").strip()
         if not raw:
             continue
-        normalized = urllib.parse.urljoin(source_url, raw)
+        try:
+            normalized = urllib.parse.urljoin(source_url, raw)
+        except ValueError:
+            continue
         parsed = urllib.parse.urlparse(normalized)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             continue
