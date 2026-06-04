@@ -154,6 +154,7 @@ def test_generated_source_specs_build_provider_specific_market_urls() -> None:
 def test_default_platforms_for_country_are_stable() -> None:
     assert default_platforms_for_country("UK") == ("rightmove", "zoopla", "onthemarket")
     assert default_platforms_for_country("PT") == ("idealista_pt", "imovirtual", "casa_sapo")
+    assert default_platforms_for_country("AT") == ("willhaben", "immmo", "immoscout_at", "kalandra", "genossenschaften_at")
     assert default_language_for_country("SE") == "sv"
 
 

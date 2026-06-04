@@ -29,7 +29,7 @@ class PropertyProviderSpec:
 
 
 COUNTRIES: tuple[PropertyCountrySpec, ...] = (
-    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "kalandra")),
+    PropertyCountrySpec("AT", "Austria", "de", "EUR", "EUR", "Vienna, Graz, Linz", ("willhaben", "immmo", "immoscout_at", "kalandra", "genossenschaften_at")),
     PropertyCountrySpec("BE", "Belgium", "nl", "EUR", "EUR", "Brussels, Antwerp, Ghent", ("immoweb", "zimmo")),
     PropertyCountrySpec("CA", "Canada", "en", "CAD", "CAD", "Toronto, Montreal, Vancouver", ("realtor_ca", "rew_ca", "rentals_ca")),
     PropertyCountrySpec("DE", "Germany", "de", "EUR", "EUR", "Berlin, Munich, Hamburg", ("immoscout_de", "immowelt", "immonet", "kleinanzeigen_immo")),
