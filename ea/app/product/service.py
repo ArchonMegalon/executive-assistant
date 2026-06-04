@@ -633,6 +633,7 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     parsed = urllib.parse.urlparse(normalized)
     host = parsed.netloc.lower()
     path = parsed.path.lower()
+    combined = f"{path}?{parsed.query.lower()}" if str(parsed.query or "").strip() else path
     if any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".css", ".js", ".json")):
         return False
     if _is_willhaben_property_url(normalized):
@@ -640,7 +641,7 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
         return "/iad/immobilien/d/" in path or (path == "/iad/object" and bool(query.get("adId") or query.get("adid")))
     if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
-    return any(marker in path for marker in provider_listing_markers_for_host(host))
+    return any(str(marker or "").lower() in combined for marker in provider_listing_markers_for_host(host))
 
 
 def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
@@ -656,6 +657,12 @@ def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple
     raw_urls.extend(
         urllib.parse.urljoin(source_url, match.group(1).strip())
         for match in re.finditer(r"""href=["']([^"']+)["']""", normalized_html, re.IGNORECASE)
+    )
+    raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="data-href"))
+    raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name="data-url"))
+    raw_urls.extend(
+        urllib.parse.urljoin(source_url, match.group(1).strip())
+        for match in re.finditer(r"""location(?:\.href)?\s*=\s*["']([^"']+)["']""", normalized_html, re.IGNORECASE)
     )
     parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     path_markers = provider_listing_markers_for_host(parsed_source.netloc.lower())

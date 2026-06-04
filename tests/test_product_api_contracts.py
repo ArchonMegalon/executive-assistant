@@ -977,6 +977,44 @@ def test_property_scout_extract_listing_urls_reads_script_paths_for_js_heavy_sea
     )
 
 
+def test_property_scout_extract_listing_urls_supports_query_based_auction_links() -> None:
+    html = """
+    <div data-href="/index.php?button=showzvg&zvg_id=123&land_abk=be"></div>
+    <script>
+      window.location='/index.php?button=showzvg&zvg_id=987&land_abk=be';
+    </script>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.zvg-portal.de/",
+        html=html,
+    )
+
+    assert urls == (
+        "https://www.zvg-portal.de/index.php?button=showzvg&zvg_id=123&land_abk=be",
+        "https://www.zvg-portal.de/index.php?button=showzvg&zvg_id=987&land_abk=be",
+    )
+
+
+def test_property_scout_extract_listing_urls_supports_boe_subasta_query_ids() -> None:
+    html = """
+    <a data-url="/subastas/detalleSubasta.php?idSub=SUB-JA-2026-99999">detalle</a>
+    <script type="application/json">
+      {"detailUrl":"https:\\/\\/subastas.boe.es\\/subastas\\/detalleSubasta.php?idSub=SUB-JA-2026-11111"}
+    </script>
+    """
+
+    urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://subastas.boe.es/subastas_ava.php?campo%5B0%5D=SUBASTA.INMUEBLES",
+        html=html,
+    )
+
+    assert set(urls) == {
+        "https://subastas.boe.es/subastas/detalleSubasta.php?idSub=SUB-JA-2026-99999",
+        "https://subastas.boe.es/subastas/detalleSubasta.php?idSub=SUB-JA-2026-11111",
+    }
+
+
 def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
     monkeypatch_json = json.dumps(
         [
