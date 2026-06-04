@@ -985,10 +985,12 @@
     panel.hidden = false;
     const summary = payload.summary || {};
     const progress = Math.max(0, Math.min(100, Number(payload.progress || 0)));
+    const statusValue = String(payload.status || '').trim();
+    const displayProgress = terminalStates.has(statusValue) ? progress : Math.min(progress, 95);
     statusNode.textContent = `Status: ${String(payload.status || 'queued').replaceAll('_', ' ')}`;
     messageNode.textContent = String(payload.message || 'Queued for execution.');
-    progressNode.style.width = `${progress}%`;
-    summaryNode.textContent = `${progress}% complete | ${Number(summary.sources_total || 0)} sources | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
+    progressNode.style.width = `${displayProgress}%`;
+    summaryNode.textContent = `${displayProgress}% complete | ${Number(summary.sources_total || 0)} sources | ${Number(summary.listing_total || 0)} listings | ${Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0)} hosted tours`;
 
     const sources = Array.isArray(summary.sources) ? summary.sources : [];
     sourceNode.innerHTML = sources.slice(0, 6).map((source) => {
