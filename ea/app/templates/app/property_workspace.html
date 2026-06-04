@@ -134,6 +134,17 @@
     display: grid;
     gap: 6px;
   }
+  .pq-hero-highlight-link {
+    text-decoration: none;
+    transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  }
+  .pq-hero-highlight-link:hover,
+  .pq-hero-highlight-link:focus-visible {
+    border-color: rgba(138, 164, 255, 0.34);
+    background: rgba(255,255,255,0.05);
+    transform: translateY(-1px);
+    outline: none;
+  }
   .pq-hero-highlight span {
     color: var(--text-dim);
     font-size: 12px;
@@ -542,11 +553,19 @@
     {% if hero_highlights %}
     <div class="pq-hero-highlights">
       {% for item in hero_highlights %}
+      {% if item.get('href') %}
+      <a class="pq-hero-highlight pq-hero-highlight-link" href="{{ item.get('href') }}">
+      {% else %}
       <div class="pq-hero-highlight">
+      {% endif %}
         <span>{{ item.label }}</span>
         <strong>{{ item.value }}</strong>
         {% if item.detail %}<small>{{ item.detail }}</small>{% endif %}
+      {% if item.get('href') %}
+      </a>
+      {% else %}
       </div>
+      {% endif %}
       {% endfor %}
     </div>
     {% endif %}

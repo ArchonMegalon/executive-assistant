@@ -613,6 +613,18 @@
       display: grid;
       gap: 8px;
     }
+    .pq-rail-workspace:hover,
+    .pq-rail-workspace:focus-visible,
+    .pq-rail-pulse-card:hover,
+    .pq-rail-pulse-card:focus-visible,
+    .pq-rail-foot-card:hover,
+    .pq-rail-foot-card:focus-visible {
+      border-color: rgba(138, 164, 255, 0.32);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)),
+        rgba(255,255,255,0.02);
+      outline: none;
+    }
     .pq-rail-workspace strong {
       font-size: 15px;
       display: block;
@@ -629,6 +641,7 @@
       background: rgba(255,255,255,0.02);
       display: grid;
       gap: 4px;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
     }
     .pq-rail-pulse-card span {
       color: var(--text-dim);
@@ -694,6 +707,17 @@
       background: rgba(255,255,255,0.02);
       color: var(--text-soft);
       font-size: 13px;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+    .pq-rail-workspace,
+    .pq-rail-pulse-card,
+    .pq-rail-foot-card {
+      text-decoration: none;
+    }
+    .pq-rail-workspace:hover,
+    .pq-rail-pulse-card:hover,
+    .pq-rail-foot-card:hover {
+      transform: translateY(-1px);
     }
     .pq-stage {
       min-width: 0;
@@ -945,6 +969,8 @@
   {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'shortlist', 'research', 'profile', 'alerts', 'billing', 'settings'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}
+  {% set run_query = request.url.query %}
+  {% set query_suffix = ('?' ~ run_query) if run_query else '' %}
   {% for group in nav_groups %}
     {% for item in group["items"] %}
       {% if mobile_nav.items|length < 5 %}
@@ -961,20 +987,20 @@
         </div>
         <div class="pq-rail-brand-copy">Property decision desk. Search, shortlist, research packet, and 360 review in one persistent shell.</div>
       </div>
-      <div class="pq-rail-workspace">
+      <a class="pq-rail-workspace" href="/app/settings{{ query_suffix }}">
         <div class="pq-rail-label">Workspace</div>
         <strong>{{ workspace_label }}</strong>
         <div>{{ access_email or brand.workspace_label }}</div>
-      </div>
+      </a>
       <div class="pq-rail-pulse" data-property-pulse-strip>
-        <div class="pq-rail-pulse-card">
+        <a class="pq-rail-pulse-card" href="{{ request.url.path }}{{ query_suffix }}">
           <span>Mode</span>
           <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-        </div>
-        <div class="pq-rail-pulse-card">
+        </a>
+        <a class="pq-rail-pulse-card" href="/app/research{{ query_suffix }}">
           <span>Surface</span>
           <strong>360 First</strong>
-        </div>
+        </a>
       </div>
       <div class="pq-rail-section">
         <div class="pq-rail-label">Navigate</div>
@@ -990,8 +1016,8 @@
         </nav>
       </div>
       <div class="pq-rail-foot">
-        <div class="pq-rail-foot-card">360 comes first. Dossier second. Raw portals last.</div>
-        <div class="pq-rail-foot-card">Keep runs visible while active. Replace the brief with the result table once the run is finished.</div>
+        <a class="pq-rail-foot-card" href="/app/research{{ query_suffix }}">360 comes first. Dossier second. Raw portals last.</a>
+        <a class="pq-rail-foot-card" href="/app/properties{{ query_suffix }}">Keep runs visible while active. Replace the brief with the result table once the run is finished.</a>
       </div>
     </aside>
     <main class="pq-stage" data-property-spa-shell>
