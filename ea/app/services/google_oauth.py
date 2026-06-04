@@ -574,8 +574,7 @@ def complete_google_oauth_callback(
     config = load_google_oauth_config()
     state_payload = _decode_signed_state(state, secret=config.state_secret)
     principal_id = str(state_payload.get("principal_id") or "").strip()
-    if not principal_id:
-        raise RuntimeError("google_oauth_principal_missing")
+    browser_source = str(state_payload.get("browser_source") or "").strip()
     scope_bundle = normalize_scope_bundle(str(state_payload.get("scope_bundle") or "identity"))
     redirect_uri = str(state_payload.get("redirect_uri") or config.redirect_uri).strip() or config.redirect_uri
     token_payload = _exchange_google_code_for_tokens(
@@ -589,6 +588,11 @@ def complete_google_oauth_callback(
     google_email = str(userinfo.get("email") or "").strip().lower()
     if not google_subject or not google_email:
         raise RuntimeError("google_oauth_userinfo_incomplete")
+    if not principal_id:
+        if browser_source == "sign_in":
+            principal_id = f"cf-email:{google_email}"
+        else:
+            raise RuntimeError("google_oauth_principal_missing")
 
     granted_scopes = tuple(
         sorted(

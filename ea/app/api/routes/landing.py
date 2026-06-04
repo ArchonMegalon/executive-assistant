@@ -160,10 +160,8 @@ def _public_app_base_url(request: Request) -> str:
     forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").strip() or request.url.scheme
     effective_host = forwarded or request_host
     if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
-        if forwarded:
-            forwarded_proto = _first_forwarded_https_or_first_token(forwarded_proto)
-            return f"{forwarded_proto}://{forwarded}"
-        return str(request.base_url).rstrip("/")
+        host = forwarded or request_host
+        return f"https://{host}"
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -897,25 +895,11 @@ async def sign_in_google(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> RedirectResponse:
-    form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    email = _form_value(form_data, "email", "").lower()
-    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
-        return RedirectResponse(
-            "/sign-in?"
-            + urllib.parse.urlencode(
-                {
-                    "google_error": "google_sign_in_email_invalid",
-                    "link_email": email,
-                }
-            ),
-            status_code=303,
-        )
-    from app.api.routes.onboarding import _registration_principal_id
     from app.services.google_oauth import build_google_oauth_start
 
     try:
         packet = build_google_oauth_start(
-            principal_id=_registration_principal_id(email),
+            principal_id="",
             scope_bundle="identity",
             redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
             return_to="/sign-in?google_connected=1",
@@ -927,7 +911,6 @@ async def sign_in_google(
             + urllib.parse.urlencode(
                 {
                     "google_error": str(exc or "google_oauth_not_ready"),
-                    "link_email": email,
                 }
             ),
             status_code=303,

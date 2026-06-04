@@ -70,10 +70,7 @@
       <a class="btn" href="/register">{{ brand.create_label }}</a>
     </div>
     <form class="access-form" method="post" action="/sign-in/google">
-      <div>
-        <label for="google_sign_in_email">Continue with Google</label>
-        <input id="google_sign_in_email" name="email" type="email" value="{{ sign_in_link_email or '' }}" placeholder="you@company.com" required>
-      </div>
+      <label>Continue with Google</label>
       <div class="cta-row">
         <button class="btn primary" type="submit">Continue with Google</button>
       </div>

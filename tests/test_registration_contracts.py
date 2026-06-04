@@ -182,7 +182,6 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
 
     sign_in_start = client.post(
         "/sign-in/google",
-        data={"email": "tibor.girschele@gmail.com"},
         follow_redirects=False,
     )
     assert sign_in_start.status_code == 303
@@ -225,6 +224,18 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
     assert opened.status_code == 303
     assert opened.headers["location"] == "/app/properties"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
+
+
+def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in")
+
+    assert response.status_code == 200
+    assert 'action="/sign-in/google"' in response.text
+    assert "Continue with Google" in response.text
+    assert 'id="google_sign_in_email"' not in response.text
+    assert 'placeholder="you@company.com"' not in response.text
 
 
 def test_register_verify_requires_matching_code(monkeypatch: pytest.MonkeyPatch) -> None:
