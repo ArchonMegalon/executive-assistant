@@ -1015,6 +1015,45 @@ def test_property_scout_extract_listing_urls_supports_boe_subasta_query_ids() ->
     }
 
 
+def test_property_scout_extract_listing_urls_supports_grouped_austria_cooperative_sources() -> None:
+    gesiba_html = """
+    <a href="/immobilien/wohnungen/objekt?objektnummer=01000103511">GESIBA detail</a>
+    <a href="/immobilien/wohnungen">Search root</a>
+    """
+    siedlungsunion_html = """
+    <a href="/wohnen/sofort/1100-wien-leibnizgasse-68-2-eg-3">Siedlungsunion detail</a>
+    """
+    wbv_html = """
+    <a href="https://www.wbv-gpa.at/wohnung/2700-wr-neustadt-groehrmuehlgasse-4-6-top-19/">WBV detail</a>
+    """
+    frieden_html = """
+    <a href="/immobiliensuche/59442?returnUrl=%2Fimmobiliensuche">Frieden detail</a>
+    <a href="/immobiliensuche?pg=2">Pagination</a>
+    """
+
+    gesiba_urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.gesiba.at/immobilien/wohnungen",
+        html=gesiba_html,
+    )
+    siedlungsunion_urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.siedlungsunion.at/wohnen/sofort",
+        html=siedlungsunion_html,
+    )
+    wbv_urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.wbv-gpa.at/wohnungen/",
+        html=wbv_html,
+    )
+    frieden_urls = product_service._property_scout_extract_listing_urls(
+        source_url="https://www.frieden.at/immobiliensuche",
+        html=frieden_html,
+    )
+
+    assert gesiba_urls == ("https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=01000103511",)
+    assert siedlungsunion_urls == ("https://www.siedlungsunion.at/wohnen/sofort/1100-wien-leibnizgasse-68-2-eg-3",)
+    assert wbv_urls == ("https://www.wbv-gpa.at/wohnung/2700-wr-neustadt-groehrmuehlgasse-4-6-top-19/",)
+    assert frieden_urls == ("https://www.frieden.at/immobiliensuche/59442?returnUrl=%2Fimmobiliensuche",)
+
+
 def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
     monkeypatch_json = json.dumps(
         [

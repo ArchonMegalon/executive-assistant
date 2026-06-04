@@ -144,7 +144,13 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         label="Genossenschaften",
         country_code="AT",
         host_markers=("gesiba.at", "siedlungsunion.at", "sozialbau.at", "angebote.sozialbau.at", "wbv-gpa.at", "frieden.at"),
-        listing_path_markers=("/immobilien/wohnungen", "/wohnen/sofort", "/htmlprospect/", "/wohnungen/", "/immobiliensuche"),
+        listing_path_markers=(
+            "/immobilien/wohnungen/objekt",
+            "/wohnen/sofort/",
+            "/sobitvx/htmlprospect/",
+            "/wohnung/",
+            "/immobiliensuche/",
+        ),
         search_urls={
             "rent": "https://www.gesiba.at/immobilien/wohnungen",
             "buy": "https://www.gesiba.at/immobilien/wohnungen",
