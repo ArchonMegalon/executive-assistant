@@ -25,7 +25,7 @@ def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() ->
 
     assert snapshot["current_plan_key"] == "free"
     assert snapshot["research_depth"] == "deep"
-    assert snapshot["max_platforms"] == 1
+    assert snapshot["max_platforms"] == 8
     assert snapshot["max_results_per_source"] == 2
 
 
@@ -109,7 +109,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     run_id = started_body["run_id"]
     assert run_id
     assert started_body["selected_platforms"] == ["willhaben"]
-    assert run_id in started_body["status_url"]
+    assert started_body["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
 
     status = _poll_property_search_run_status(client, run_id)
     assert status["status"] == "processed"

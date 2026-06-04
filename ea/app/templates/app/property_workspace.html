@@ -1019,6 +1019,7 @@
     if (errorNode) errorNode.textContent = '';
     const response = await fetch(String(meta.preferences_endpoint || ''), {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload.property_preferences),
     });
@@ -1036,6 +1037,7 @@
     if (errorNode) errorNode.textContent = '';
     const response = await fetch(String(meta.billing_order_endpoint || ''), {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ plan_key: planKey }),
     });
@@ -1049,7 +1051,10 @@
   const pollRun = async (root, statusUrl) => {
     if (!statusUrl) return;
     while (true) {
-      const response = await fetch(statusUrl, { headers: { accept: 'application/json' } });
+      const response = await fetch(statusUrl, {
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+      });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
       renderRun(root, body);
@@ -1226,6 +1231,7 @@
           if (errorNode) errorNode.textContent = '';
           const response = await fetch(String(meta.start_endpoint || ''), {
             method: 'POST',
+            credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(payload),
           });

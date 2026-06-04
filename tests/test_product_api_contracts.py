@@ -12037,6 +12037,42 @@ def test_property_payfunnels_checkout_and_webhook_activate_plus_plan(
     assert commercial["last_payer_email"] == "buyer@example.com"
 
 
+def test_property_paypal_checkout_uses_propertyquarry_base_url_on_property_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-paypal-propertyquarry-host"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="PropertyQuarry Office")
+
+    monkeypatch.setattr(product_api_delivery_routes, "paypal_configured", lambda: True)
+    observed: dict[str, object] = {}
+
+    def _fake_create_paypal_property_order(**kwargs):
+        observed.update(kwargs)
+        return {
+            "order_id": "ORDER-PQ-123",
+            "approve_url": "https://paypal.example/approve/ORDER-PQ-123",
+            "status": "created",
+            "plan_key": "plus",
+            "amount_eur": "29.00",
+        }
+
+    monkeypatch.setattr(
+        product_api_delivery_routes,
+        "create_paypal_property_order",
+        _fake_create_paypal_property_order,
+    )
+
+    created = client.post(
+        "/app/api/signals/property/billing/paypal/order",
+        json={"plan_key": "plus"},
+        headers={"host": "propertyquarry.com", "x-forwarded-host": "propertyquarry.com", "x-forwarded-proto": "https"},
+    )
+    assert created.status_code == 200, created.text
+    assert observed["return_url"].startswith("https://propertyquarry.com/")
+    assert observed["cancel_url"].startswith("https://propertyquarry.com/")
+
+
 def test_property_payfunnels_checkout_uses_api_created_link_when_api_key_is_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

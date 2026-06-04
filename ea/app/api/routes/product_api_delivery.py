@@ -111,6 +111,17 @@ def _payfunnels_field_value(payload: dict[str, object], label: str) -> str:
 
 
 def _public_base_url(request: Request) -> str:
+    forwarded_host = str(request.headers.get("x-forwarded-host") or "").strip().lower().rstrip(".")
+    request_host = str(request.url.hostname or "").strip().lower().rstrip(".")
+    effective_host = forwarded_host or request_host
+    if effective_host in {"propertyquarry.com", "www.propertyquarry.com"}:
+        explicit_property = (
+            str(os.environ.get("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+            or str(os.environ.get("EA_PROPERTY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        )
+        if explicit_property:
+            return explicit_property
+        return f"https://{effective_host}"
     explicit = str(os.environ.get("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
@@ -707,7 +718,7 @@ def start_property_search_run(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    payload["status_url"] = f"{_public_base_url(request=request)}/app/api/signals/property/search/run/{payload.get('run_id')}"
+    payload["status_url"] = f"/app/api/signals/property/search/run/{payload.get('run_id')}"
     return PropertySearchRunStartOut(**payload)
 
 
