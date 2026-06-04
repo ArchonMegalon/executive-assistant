@@ -3270,6 +3270,132 @@ def test_property_scout_page_preview_falls_back_to_fast_html_for_willhaben_when_
     assert preview["media_urls_json"] == ("https://images.example/listing.jpg",)
 
 
+def test_property_scout_page_preview_extracts_zvg_auction_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.zvg-portal.de/index.php?button=showzvg&zvg_id=123&land_abk=be"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Zwangsversteigerung Eigentumswohnung</title></head>
+              <body>
+                <table>
+                  <tr><th>Amtsgericht</th><td>Amtsgericht Berlin-Mitte</td></tr>
+                  <tr><th>Aktenzeichen</th><td>36 K 123/25</td></tr>
+                  <tr><th>Verkehrswert</th><td>325.000,00 EUR</td></tr>
+                  <tr><th>Geringstes Gebot</th><td>220.000,00 EUR</td></tr>
+                  <tr><th>Termin</th><td>14.10.2026 09:00 Uhr</td></tr>
+                  <tr><th>Lage</th><td>Musterstraße 14, 10115 Berlin</td></tr>
+                  <tr><th>Nutzung</th><td>vermietet</td></tr>
+                  <tr><th>Wohnfläche</th><td>82,5 m²</td></tr>
+                </table>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["distressed_sale"] is True
+    assert facts["provider_channel"] == "zvg_de"
+    assert facts["auction_reference"] == "123"
+    assert facts["court"] == "Amtsgericht Berlin-Mitte"
+    assert facts["court_file_reference"] == "36 K 123/25"
+    assert facts["valuation_eur"] == 325000.0
+    assert facts["reserve_price_eur"] == 220000.0
+    assert facts["auction_date"] == "14.10.2026 09:00"
+    assert facts["street_address"] == "Musterstraße 14"
+    assert facts["postal_name"] == "10115 Berlin"
+    assert facts["occupancy_status"] == "vermietet"
+    assert facts["area_sqm"] == 82.5
+    assert "Amtsgericht Berlin-Mitte" in preview["summary"]
+
+
+def test_property_scout_page_preview_extracts_justiz_edikte_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://edikte.justiz.gv.at/edikte/ex/exedi3.nsf/0/ABCDEF123456?OpenDocument&id=987"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Edikt: Eigentumswohnung Wien</title></head>
+              <body>
+                <dl>
+                  <dt>Bezirksgericht</dt><dd>Bezirksgericht Döbling</dd>
+                  <dt>Geschäftszahl</dt><dd>15 E 44/26p</dd>
+                  <dt>Schätzwert</dt><dd>EUR 410.000,00</dd>
+                  <dt>Geringstes Gebot</dt><dd>EUR 205.000,00</dd>
+                  <dt>Versteigerungstermin</dt><dd>21.11.2026 10:30</dd>
+                  <dt>Liegenschaft</dt><dd>Hameaustraße 34, 1190 Wien</dd>
+                  <dt>Nutzung</dt><dd>bewohnt</dd>
+                  <dt>Wohnfläche</dt><dd>97,4 m²</dd>
+                </dl>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["distressed_sale"] is True
+    assert facts["provider_channel"] == "justiz_edikte_at"
+    assert facts["auction_reference"] == "987"
+    assert facts["court"] == "Bezirksgericht Döbling"
+    assert facts["court_file_reference"] == "15 E 44/26p"
+    assert facts["valuation_eur"] == 410000.0
+    assert facts["reserve_price_eur"] == 205000.0
+    assert facts["auction_date"] == "21.11.2026 10:30"
+    assert facts["street_address"] == "Hameaustraße 34"
+    assert facts["postal_name"] == "1190 Wien"
+    assert facts["occupancy_status"] == "bewohnt"
+    assert facts["area_sqm"] == 97.4
+    assert "Bezirksgericht Döbling" in preview["summary"]
+
+
+def test_property_scout_page_preview_extracts_boe_subastas_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://subastas.boe.es/subastas/detalleSubasta.php?idSub=SUB-JA-2026-11111"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head><title>Subasta inmueble Madrid</title></head>
+              <body>
+                <table>
+                  <tr><th>Autoridad gestora</th><td>Juzgado de Primera Instancia n.º 18 de Madrid</td></tr>
+                  <tr><th>Valor de subasta</th><td>450.000,00 €</td></tr>
+                  <tr><th>Importe del depósito</th><td>22.500,00 €</td></tr>
+                  <tr><th>Cantidad reclamada</th><td>180.000,00 €</td></tr>
+                  <tr><th>Fecha de conclusión</th><td>2026-12-01 18:00</td></tr>
+                  <tr><th>Dirección</th><td>Calle de Alcalá 88, 28009 Madrid</td></tr>
+                  <tr><th>Situación posesoria</th><td>ocupado por tercero</td></tr>
+                  <tr><th>Superficie construida</th><td>112,0 m²</td></tr>
+                </table>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["distressed_sale"] is True
+    assert facts["provider_channel"] == "boe_subastas_es"
+    assert facts["auction_reference"] == "SUB-JA-2026-11111"
+    assert facts["court"] == "Juzgado de Primera Instancia n.º 18 de Madrid"
+    assert facts["valuation_eur"] == 450000.0
+    assert facts["deposit_amount_eur"] == 22500.0
+    assert facts["claimed_amount_eur"] == 180000.0
+    assert facts["auction_date"] == "2026-12-01 18:00"
+    assert facts["street_address"] == "Calle de Alcalá 88"
+    assert facts["postal_name"] == "28009 Madrid"
+    assert facts["occupancy_status"] == "ocupado por tercero"
+    assert facts["area_sqm"] == 112.0
+    assert "Juzgado de Primera Instancia" in preview["summary"]
+
+
 def test_generic_property_tour_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
