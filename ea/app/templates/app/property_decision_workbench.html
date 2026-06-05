@@ -358,6 +358,42 @@
       color: var(--pq-ink);
       background: #fffefa;
     }
+    .pqx-range-label {
+      display: grid;
+      gap: 8px;
+    }
+    .pqx-range-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .pqx-tooltip {
+      display: inline-grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid var(--pq-line-strong);
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1;
+      cursor: help;
+    }
+    .pqx-range-value {
+      color: var(--pq-ink);
+      font-size: 13px;
+      font-weight: 820;
+      white-space: nowrap;
+    }
+    .pqx-field input[type="range"] {
+      width: 100%;
+      min-height: 28px;
+      padding: 0;
+      accent-color: var(--pq-gold);
+      background: transparent;
+      border: 0;
+    }
     .pqx-check-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -894,6 +930,14 @@
                   <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
                   <span><span>{{ field.label }}</span></span>
                 </label>
+                {% elif field.type == 'range' %}
+                <label class="pqx-range-label">
+                  <span class="pqx-range-head">
+                    <span>{{ field.label }}{% if field.tooltip %} <span class="pqx-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}</span>
+                    <span class="pqx-range-value" data-range-value-for="{{ field.name }}">{{ field.value or field.min or '1' }}{{ field.suffix or '' }}</span>
+                  </span>
+                  <input type="range" name="{{ field.name }}" value="{{ field.value or field.min or '1' }}" {% if field.min %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %} {% if field.range_step %}step="{{ field.range_step }}"{% endif %} {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %} data-range-output="{{ field.name }}" data-range-suffix="{{ field.suffix or '' }}">
+                </label>
                 {% else %}
                 <label>{{ field.label }}
                   {% if field.type == 'select' %}
@@ -1225,10 +1269,23 @@
           min_rooms: integerValue(form, 'min_rooms'),
           min_area_m2: integerValue(form, 'min_area_m2'),
           max_results_per_source: integerValue(form, 'max_results_per_source'),
+          min_match_score: integerValue(form, 'min_match_score'),
         },
         force_refresh: Boolean(form.querySelector('input[name="force_refresh"]')?.checked),
         max_results_per_source: integerValue(form, 'max_results_per_source'),
       };
+    };
+    const bindRangeOutputs = (form) => {
+      form?.querySelectorAll('input[type="range"][data-range-output]').forEach((input) => {
+        const name = String(input.getAttribute('data-range-output') || input.name || '').trim();
+        const output = form.querySelector(`[data-range-value-for="${name}"]`);
+        const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
+        const sync = () => {
+          if (output) output.textContent = `${input.value}${suffix}`;
+        };
+        input.addEventListener('input', sync);
+        sync();
+      });
     };
     const runSummaryText = (runPayload) => {
       const summary = runPayload?.summary || {};
@@ -1328,6 +1385,7 @@
       applyStep(0);
     };
     if (form) {
+      bindRangeOutputs(form);
       initWizard(form);
       const countryField = form.querySelector('select[name="country_code"]');
       const regionField = form.querySelector('select[name="region_code"]');

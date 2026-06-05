@@ -680,10 +680,23 @@ def app_section_payload(
     except Exception:
         property_plan_max_results = 2
     try:
+        property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 45)))
+    except Exception:
+        property_plan_max_match_score = 45
+    try:
         property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
     except Exception:
         property_results_value = property_plan_max_results
     property_results_value = max(1, min(property_results_value, property_plan_max_results))
+    try:
+        property_min_match_score_value = int(property_preferences.get("min_match_score") or min(65, property_plan_max_match_score))
+    except Exception:
+        property_min_match_score_value = min(65, property_plan_max_match_score)
+    property_min_match_score_value = max(1, min(property_min_match_score_value, property_plan_max_match_score))
+    property_min_match_tooltip = (
+        "Minimum personal fit score a listing must beat before it can enter the shortlist. "
+        "Raising it usually improves precision, but can make searches much slower and increases backend crawl and scoring load."
+    )
     property_form = {
         "variant": "property_search",
         "title": "Run a premium market sweep",
@@ -813,6 +826,18 @@ def app_section_payload(
                 "value": str(property_results_value),
                 "min": "1",
                 "max": str(property_plan_max_results),
+                "step": "providers",
+            },
+            {
+                "type": "range",
+                "name": "min_match_score",
+                "label": "Match score",
+                "value": str(property_min_match_score_value),
+                "min": "1",
+                "max": str(property_plan_max_match_score),
+                "range_step": "1",
+                "suffix": "/100",
+                "tooltip": property_min_match_tooltip,
                 "step": "providers",
             },
             {

@@ -30,6 +30,7 @@ def test_free_property_plan_keeps_agent_depth_but_stays_capped_per_provider() ->
     assert snapshot["investment_research_level"] == "none"
     assert snapshot["max_platforms"] == 8
     assert snapshot["max_results_per_source"] == 2
+    assert snapshot["max_match_score"] == 45
 
 
 def test_property_plan_investment_research_levels_follow_tier() -> None:
@@ -41,7 +42,9 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     )
 
     assert plus["investment_research_level"] == "preview"
+    assert plus["max_match_score"] == 65
     assert agent["investment_research_level"] == "full"
+    assert agent["max_match_score"] == 80
 
 
 def test_property_search_location_matching_prefers_requested_districts() -> None:
@@ -251,7 +254,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
         "/app/api/signals/property/search/run",
         json={
             "selected_platforms": ["willhaben"],
-            "property_preferences": {"preference_person_id": "elisabeth"},
+            "property_preferences": {"preference_person_id": "elisabeth", "min_match_score": 80},
             "force_refresh": True,
             "max_results_per_source": 2,
         },
@@ -274,6 +277,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert observed["force_refresh"] is True
     assert observed["max_results_per_source"] == 2
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
+    assert observed["property_search_preferences"]["min_match_score"] == 45.0
 
 
 def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal_scope(monkeypatch) -> None:

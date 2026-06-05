@@ -363,6 +363,16 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
 
         page.locator('input[name="all_of_vienna"]').uncheck()
         assert page.locator('[data-property-field-name="location_query"]').is_visible()
+
+        page.locator('[data-property-step-trigger="providers"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        match_slider = page.locator('input[name="min_match_score"]')
+        assert match_slider.is_visible()
+        assert match_slider.get_attribute("max") == "45"
+        tooltip = match_slider.get_attribute("title") or ""
+        assert "backend" in tooltip.lower()
+        assert "slower" in tooltip.lower()
+        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/100"
     finally:
         context.close()
 
@@ -454,6 +464,9 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('input[name="all_of_vienna"]').check()
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        page.locator('input[name="min_match_score"]').evaluate(
+            "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
 
         with page.expect_response("**/app/api/signals/property/search/run") as start_response:
             page.locator("[data-property-start]").click()
@@ -473,5 +486,6 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["region_code"] == "vienna"
         assert preferences["all_of_vienna"] is True
         assert preferences["location_query"] == "Vienna"
+        assert preferences["min_match_score"] == 45
     finally:
         context.close()

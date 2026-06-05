@@ -45,7 +45,7 @@ except Exception:  # pragma: no cover - optional OCR fallback
 
 from app.domain.models import ApprovalRequest, Commitment, DecisionWindow, DeadlineWindow, FollowUp, HumanTask, IntentSpecV3, Stakeholder, TaskExecutionRequest, ToolInvocationRequest
 from app.product.commercial import workspace_commercial_snapshot, workspace_plan_for_mode
-from app.services.property_billing import enforce_property_plan_limits
+from app.services.property_billing import enforce_property_plan_limits, property_commercial_snapshot
 from app.product.extractors import extract_commitment_candidates
 from app.product.models import (
     BriefItem,
@@ -254,7 +254,7 @@ _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
-_PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE = 65.0
+_PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 
 
@@ -321,6 +321,26 @@ def _property_search_pref_value_missing(value: object) -> bool:
     return False
 
 
+def _property_search_match_score_cap(preferences: dict[str, object] | None) -> int:
+    try:
+        snapshot = property_commercial_snapshot(preferences)
+        return max(1, min(100, int(snapshot.get("max_match_score") or 45)))
+    except Exception:
+        return 45
+
+
+def _property_search_effective_min_match_score(preferences: dict[str, object] | None) -> float:
+    cap = _property_search_match_score_cap(preferences)
+    default_score = min(_PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE, float(cap))
+    try:
+        requested_score = float(str(dict(preferences or {}).get("min_match_score") or "").strip())
+    except Exception:
+        requested_score = 0.0
+    if requested_score <= 0.0:
+        requested_score = default_score
+    return float(max(1.0, min(requested_score, float(cap))))
+
+
 def _property_search_run_expired(at_iso: str, *, ttl_seconds: int = _PROPERTY_SEARCH_RUN_TTL_SECONDS) -> bool:
     parsed = _parse_utcish(at_iso)
     if parsed is None:
@@ -328,7 +348,8 @@ def _property_search_run_expired(at_iso: str, *, ttl_seconds: int = _PROPERTY_SE
     return (datetime.now(timezone.utc) - parsed).total_seconds() > float(ttl_seconds)
 
 
-def _property_search_run_default_summary() -> dict[str, object]:
+def _property_search_run_default_summary(property_preferences: dict[str, object] | None = None) -> dict[str, object]:
+    min_match_score = _property_search_effective_min_match_score(property_preferences)
     return {
         "generated_at": _now_iso(),
         "status": "queued",
@@ -343,7 +364,8 @@ def _property_search_run_default_summary() -> dict[str, object]:
         "tour_existing_total": 0,
         "high_fit_total": 0,
         "filtered_low_fit_total": 0,
-        "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+        "high_match_min_score": min_match_score,
+        "max_match_score": _property_search_match_score_cap(property_preferences),
         "watch_notified_total": 0,
         "top_fit_score": 0.0,
         "sources": [],
@@ -536,7 +558,7 @@ def _new_property_search_run_record(
         "message": "Queued for execution.",
         "stages_total": _PROPERTY_SEARCH_RUN_STAGES,
         "steps_completed": 0,
-        "summary": _property_search_run_default_summary(),
+        "summary": _property_search_run_default_summary(requested_preferences),
         "events": [
             {
                 "at": _now_iso(),
@@ -15501,6 +15523,8 @@ class ProductService:
         elif "max_results_per_source" in merged_preferences:
             merged_preferences.pop("max_results_per_source", None)
 
+        merged_preferences["min_match_score"] = _property_search_effective_min_match_score(merged_preferences)
+
         return normalized_platforms, merged_preferences, resolved_max_results
 
 
@@ -15804,6 +15828,9 @@ class ProductService:
         ).strip() or "self"
         location_hints = _property_search_location_hints(request_preferences)
         requested_property_type = normalize_property_type(request_preferences.get("property_type"))
+        min_match_score = _property_search_effective_min_match_score(request_preferences)
+        match_score_cap = _property_search_match_score_cap(request_preferences)
+        request_preferences["min_match_score"] = min_match_score
 
         specs = [
             dict(spec)
@@ -15823,7 +15850,11 @@ class ProductService:
             step="sources_resolved",
             message=f"Resolved {len(specs)} source(s) for scanning.",
             status="in_progress",
-            summary_updates={"sources_total": len(specs)},
+            summary_updates={
+                "sources_total": len(specs),
+                "high_match_min_score": min_match_score,
+                "max_match_score": match_score_cap,
+            },
             steps_delta=1,
             stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
         )
@@ -15844,7 +15875,8 @@ class ProductService:
                 "failed_total": 0,
                 "filtered_property_type_total": 0,
                 "filtered_low_fit_total": 0,
-                "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+                "high_match_min_score": min_match_score,
+                "max_match_score": match_score_cap,
                 "watch_notified_total": 0,
                 "sources": [],
             }
@@ -15926,7 +15958,7 @@ class ProductService:
                 message=(
                     f"Found {raw_listing_count} raw listing candidates for {source_label}; "
                     f"scanning {len(listing_urls)} for up to {max_results} match(es) above "
-                    f"{int(_PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE)}/100."
+                    f"{int(min_match_score)}/100."
                 ),
                 status="in_progress",
                 steps_delta=1,
@@ -15935,7 +15967,8 @@ class ProductService:
                     "raw_listing_total": raw_listing_count,
                     "scan_cap_per_source": scan_cap,
                     "scan_truncated": scan_truncated,
-                    "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+                    "high_match_min_score": min_match_score,
+                    "max_match_score": match_score_cap,
                 },
                 stages_total_override=2 + (len(specs) * max(8, (max(1, len(listing_urls)) * 2) + 6)),
             )
@@ -16098,14 +16131,14 @@ class ProductService:
                         ordinal=int(row.get("ordinal") or ordinal),
                     ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
-                if float(ranked_rows[-1].get("fit_score") or 0.0) <= _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE:
+                if float(ranked_rows[-1].get("fit_score") or 0.0) <= min_match_score:
                     filtered_low_fit_total += 1
                     filtered_low_fit_for_source += 1
                     ranked_rows.pop()
                     _report(
                         step="source_low_fit_filter",
                         message=(
-                            f"Skipped candidate below {int(_PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE)}/100 "
+                            f"Skipped candidate below {int(min_match_score)}/100 "
                             f"for {source_label}."
                         ),
                         status="in_progress",
@@ -16351,7 +16384,8 @@ class ProductService:
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
-                    "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+                    "high_match_min_score": min_match_score,
+                    "max_match_score": match_score_cap,
                     "raw_listing_total": raw_listing_count,
                     "scanned_listing_total": len(listing_urls),
                     "scan_truncated": scan_truncated,
@@ -16383,7 +16417,8 @@ class ProductService:
             "duplicate_listing_total": duplicate_listing_total,
             "filtered_property_type_total": filtered_property_type_total,
             "filtered_low_fit_total": filtered_low_fit_total,
-            "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+            "high_match_min_score": min_match_score,
+            "max_match_score": match_score_cap,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,

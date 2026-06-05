@@ -1375,7 +1375,15 @@ def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeyp
         principal_id=principal_id,
         actor="test",
         selected_platforms=("willhaben",),
-        property_search_preferences={"property_type": "apartment"},
+        property_search_preferences={
+            "property_type": "apartment",
+            "min_match_score": 65,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
         max_results_per_source=2,
         force_refresh=True,
     )
@@ -1385,10 +1393,87 @@ def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeyp
     assert result["sources"][0]["filtered_property_type_total"] == 1
     assert result["sources"][0]["filtered_low_fit_total"] == 1
     assert result["sources"][0]["high_match_min_score"] == 65.0
+    assert result["sources"][0]["max_match_score"] == 65
     assert "Garagenplatz" not in " ".join(titles)
     assert titles == ["Familienwohnung nahe Park", "Helle Wohnung mit Lift und Balkon"]
     assert "high-one" in assessed
     assert "high-two" in assessed
+
+
+def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatch) -> None:
+    principal_id = "cf-email:free-threshold@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Free Threshold Office")
+    candidate_urls = (
+        "https://www.willhaben.at/iad/object?adId=below-free",
+        "https://www.willhaben.at/iad/object?adId=above-free",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "below-free",
+            "title": "Apartment below free threshold",
+            "summary": "Residential apartment, but weak profile fit.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+        candidate_urls[1]: {
+            "listing_id": "above-free",
+            "title": "Apartment just above free threshold",
+            "summary": "Residential apartment with enough matching signals.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+
+    def _fake_assess_candidate(**kwargs):
+        object_id = str(kwargs.get("object_id") or "")
+        score = 42.0 if object_id.endswith("below-free") else 50.0
+        return {
+            "fit_score": score,
+            "confidence": 0.8,
+            "predicted_reaction": "consider",
+            "recommendation": "view_if_compelling",
+            "match_reasons_json": ["Above the free threshold."] if score > 45 else [],
+            "mismatch_reasons_json": [] if score > 45 else ["Below the free threshold."],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={"property_type": "apartment", "min_match_score": 80},
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    assert result["high_match_min_score"] == 45.0
+    assert result["max_match_score"] == 45
+    assert result["sources"][0]["filtered_low_fit_total"] == 1
+    assert result["sources"][0]["high_match_min_score"] == 45.0
+    assert result["sources"][0]["max_match_score"] == 45
+    assert result["sources"][0]["top_candidates"][0]["title"] == "Apartment just above free threshold"
 
 
 def test_property_scout_route_deduplicates_duplicate_listings_across_sources(monkeypatch) -> None:

@@ -1191,6 +1191,14 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             payload[numeric_key] = numeric_value
         else:
             payload.pop(numeric_key, None)
+    try:
+        min_match_score = int(float(str(payload.get("min_match_score") or "").strip()))
+    except Exception:
+        min_match_score = 0
+    if min_match_score > 0:
+        payload["min_match_score"] = max(1, min(100, min_match_score))
+    else:
+        payload.pop("min_match_score", None)
     return payload
 
 

@@ -1189,6 +1189,13 @@ class OnboardingService(AssistantOnboardingService):
                 normalized_max = None
         except Exception:
             normalized_max = None
+        min_match_score = raw.get("min_match_score")
+        try:
+            normalized_min_match_score = int(float(str(min_match_score or "").strip())) if min_match_score is not None else None
+            if normalized_min_match_score is not None:
+                normalized_min_match_score = max(1, min(100, normalized_min_match_score))
+        except Exception:
+            normalized_min_match_score = None
 
         preference_person_id = str(raw.get("preference_person_id") or "self").strip() or "self"
         property_commercial = normalize_property_commercial(
@@ -1199,6 +1206,7 @@ class OnboardingService(AssistantOnboardingService):
         return {
             "selected_platforms": selected_platforms,
             "max_results_per_source": normalized_max,
+            "min_match_score": normalized_min_match_score,
             "preference_person_id": preference_person_id,
             "property_commercial": property_commercial,
             "raw_preferences": dict(raw),
