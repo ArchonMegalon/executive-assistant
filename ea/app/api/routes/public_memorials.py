@@ -76,7 +76,9 @@ _TTS_MAX_TEXT_LEN = 3000
 _PERSONAL_MEMORY_ROOT = Path("/data/artifacts/memorial_user_memory")
 _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
-_MEMORIAL_PWA_VERSION = "20260605b"
+_VOICE_AB_AUTO_SWAP_MARGIN = 3
+_VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
+_MEMORIAL_PWA_VERSION = "20260605d"
 _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
 _MAX_REALTIME_TEXT_CHARS = 600
@@ -822,6 +824,10 @@ def _voice_ab_config_path(slug: str) -> Path:
     return (_VOICE_AB_ROOT / _safe_slug(slug) / "voice_ab.json").resolve()
 
 
+def _voice_ab_private_pool_path(slug: str) -> Path:
+    return (_VOICE_AB_ROOT / _safe_slug(slug) / "voice_ab_challengers.json").resolve()
+
+
 def _default_voice_ab_config(slug: str) -> dict[str, object]:
     base = _load_voice_config(slug)
     slug_key = _safe_slug(slug).upper()
@@ -897,6 +903,68 @@ def _load_voice_ab_config(slug: str) -> dict[str, object]:
     return merged
 
 
+def _save_voice_ab_config(slug: str, payload: dict[str, object]) -> None:
+    path = _voice_ab_config_path(slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json_atomic(path, payload)
+
+
+def _default_voice_ab_pool(slug: str) -> dict[str, object]:
+    base = _load_voice_config(slug)
+    champion_id = _text(base.get("tts_plugin_voice_id"), "")
+    if _safe_slug(slug) == "manfred":
+        challengers = [
+            {
+                "voice_id": "c381af52-a4de-4b0e-a974-99ebc1cfd0b3",
+                "label": "Stimme B · naeher an ihm",
+                "description": "Bisher bester identitaetsnaher Challenger",
+                "unmixr_speaking_rate": "low",
+                "unmixr_speaking_pitch": "medium",
+                "unmixr_speaking_volume": "high",
+            },
+            {
+                "voice_id": "26858715-06e2-4bd3-a100-e0c1c1676466",
+                "label": "Stimme B · V2 challenger",
+                "description": "Neuerer identitaetsnaher Clone mit weicherer Prosodie",
+                "unmixr_speaking_rate": "low",
+                "unmixr_speaking_pitch": "medium",
+                "unmixr_speaking_volume": "high",
+            },
+        ]
+    else:
+        challengers = []
+    return {
+        "slug": _safe_slug(slug),
+        "champion_voice_id": champion_id,
+        "current_index": 0,
+        "challengers": challengers,
+    }
+
+
+def _load_voice_ab_pool(slug: str) -> dict[str, object]:
+    path = _voice_ab_private_pool_path(slug)
+    if not path.is_file():
+        return _default_voice_ab_pool(slug)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    merged = _default_voice_ab_pool(slug)
+    merged.update({k: v for k, v in payload.items() if k != "challengers"})
+    challengers = payload.get("challengers")
+    if isinstance(challengers, list) and challengers:
+        merged["challengers"] = [dict(item) for item in challengers if isinstance(item, dict)]
+    return merged
+
+
+def _save_voice_ab_pool(slug: str, payload: dict[str, object]) -> None:
+    path = _voice_ab_private_pool_path(slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json_atomic(path, payload)
+
+
 def _voice_ab_variant_choice(
     *,
     slug: str,
@@ -940,7 +1008,7 @@ def _voice_ab_rating_path(slug: str) -> Path:
 def _load_voice_ab_ratings(slug: str) -> dict[str, object]:
     path = _voice_ab_rating_path(slug)
     if not path.is_file():
-        return {"slug": _safe_slug(slug), "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0}, "events": []}
+        return {"slug": _safe_slug(slug), "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0}, "effective_totals": {"a": 0, "b": 0, "equal": 0, "approved": 0}, "events": [], "round": 1, "rounds": []}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -948,6 +1016,8 @@ def _load_voice_ab_ratings(slug: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         payload = {}
     totals = dict(payload.get("totals") or {})
+    events = [dict(item) for item in payload.get("events", []) if isinstance(item, dict)][-40:]
+    effective_totals = _recompute_voice_ab_effective_totals(events)
     return {
         "slug": _safe_slug(slug),
         "totals": {
@@ -956,8 +1026,127 @@ def _load_voice_ab_ratings(slug: str) -> dict[str, object]:
             "equal": int(totals.get("equal", 0) or 0),
             "approved": int(totals.get("approved", 0) or 0),
         },
-        "events": [dict(item) for item in payload.get("events", []) if isinstance(item, dict)][-40:],
+        "effective_totals": effective_totals,
+        "events": events,
+        "round": int(payload.get("round", 1) or 1),
+        "rounds": [dict(item) for item in payload.get("rounds", []) if isinstance(item, dict)][-20:],
     }
+
+
+def _voice_ab_scope_key(event: dict[str, object]) -> str:
+    dedupe_key = _text(event.get("dedupe_key"), "").strip()
+    if dedupe_key:
+        return dedupe_key
+    scope = _text(event.get("scope"), "").strip()
+    if scope:
+        return scope
+    return f"anon:{_text(event.get('created_at'), '')}"
+
+
+def _recompute_voice_ab_effective_totals(events: list[dict[str, object]]) -> dict[str, int]:
+    latest_by_scope: dict[str, dict[str, object]] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        latest_by_scope[_voice_ab_scope_key(event)] = event
+    totals = {"a": 0, "b": 0, "equal": 0, "approved": 0}
+    for event in latest_by_scope.values():
+        choice = _text(event.get("choice"), "equal")
+        if choice not in {"a", "b", "equal"}:
+            choice = "equal"
+        totals[choice] += 1
+        if _text(event.get("approved_variant"), "") in {"a", "b"}:
+            totals["approved"] += 1
+    return totals
+
+
+def _voice_ab_next_challenger(slug: str, *, excluded_voice_ids: set[str]) -> dict[str, object] | None:
+    pool = _load_voice_ab_pool(slug)
+    challengers = [dict(item) for item in pool.get("challengers", []) if isinstance(item, dict)]
+    if not challengers:
+        return None
+    start_index = int(pool.get("current_index", 0) or 0)
+    total = len(challengers)
+    for offset in range(total):
+        index = (start_index + offset) % total
+        challenger = challengers[index]
+        voice_id = _text(challenger.get("voice_id"), "")
+        if not voice_id or voice_id in excluded_voice_ids:
+            continue
+        pool["current_index"] = (index + 1) % total
+        _save_voice_ab_pool(slug, pool)
+        return challenger
+    return None
+
+
+def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> dict[str, object]:
+    totals = dict(ratings.get("totals") or {})
+    effective = dict(ratings.get("effective_totals") or {})
+    raw_a = int(totals.get("a", 0) or 0)
+    raw_b = int(totals.get("b", 0) or 0)
+    eff_a = int(effective.get("a", 0) or 0)
+    eff_b = int(effective.get("b", 0) or 0)
+    effective_votes = eff_a + eff_b + int(effective.get("equal", 0) or 0)
+    lead_a = eff_a - eff_b
+    lead_b = eff_b - eff_a
+    if effective_votes < _VOICE_AB_AUTO_SWAP_MIN_TOTAL:
+        return ratings
+    winner = "a" if lead_a >= _VOICE_AB_AUTO_SWAP_MARGIN else ("b" if lead_b >= _VOICE_AB_AUTO_SWAP_MARGIN else "")
+    if not winner:
+        return ratings
+    config = _load_voice_ab_config(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
+    if len(variants) < 2:
+        return ratings
+    variant_a = next((item for item in variants if _text(item.get("id"), "") == "a"), variants[0])
+    variant_b = next((item for item in variants if _text(item.get("id"), "") == "b"), variants[-1])
+    current_a_id = _text(variant_a.get("tts_plugin_voice_id"), "")
+    current_b_id = _text(variant_b.get("tts_plugin_voice_id"), "")
+    if winner == "b":
+        promoted = dict(variant_b)
+        promoted["id"] = "a"
+        promoted["label"] = "Stimme A · klarer"
+        variant_a = promoted
+        current_a_id = _text(variant_a.get("tts_plugin_voice_id"), "")
+    challenger = _voice_ab_next_challenger(slug, excluded_voice_ids={current_a_id, current_b_id})
+    if not challenger:
+        return ratings
+    variant_b = {
+        "id": "b",
+        "label": _text(challenger.get("label"), "Stimme B · challenger"),
+        "tts_plugin": UNMIXR_TTS_PLUGIN_ID,
+        "tts_plugin_voice_id": _text(challenger.get("voice_id"), ""),
+        "unmixr_speaking_rate": _text(challenger.get("unmixr_speaking_rate"), "low"),
+        "unmixr_speaking_pitch": _text(challenger.get("unmixr_speaking_pitch"), "medium"),
+        "unmixr_speaking_volume": _text(challenger.get("unmixr_speaking_volume"), "high"),
+        "description": _text(challenger.get("description"), "Neuer Challenger"),
+    }
+    config["variants"] = [variant_a, variant_b]
+    config["updated_at"] = _utc_now_iso()
+    _save_voice_ab_config(slug, config)
+    rounds = [dict(item) for item in ratings.get("rounds", []) if isinstance(item, dict)][-19:]
+    rounds.append(
+        {
+            "round": int(ratings.get("round", 1) or 1),
+            "winner": winner,
+            "raw_totals": dict(totals),
+            "effective_totals": dict(effective),
+            "replaced_voice_id": current_b_id if winner == "a" else current_a_id,
+            "new_b_voice_id": _text(variant_b.get("tts_plugin_voice_id"), ""),
+            "created_at": _utc_now_iso(),
+        }
+    )
+    updated = {
+        "slug": _safe_slug(slug),
+        "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0},
+        "effective_totals": {"a": 0, "b": 0, "equal": 0, "approved": 0},
+        "events": [],
+        "round": int(ratings.get("round", 1) or 1) + 1,
+        "rounds": rounds,
+        "last_rotation_at": _utc_now_iso(),
+    }
+    _save_voice_ab_ratings(slug, updated)
+    return updated
 
 
 def _save_voice_ab_ratings(slug: str, payload: dict[str, object]) -> None:
@@ -973,6 +1162,7 @@ def _record_voice_ab_rating(
     choice: str,
     approved_variant: str = "",
     note: str = "",
+    dedupe_key: str = "",
 ) -> dict[str, object]:
     ratings = _load_voice_ab_ratings(slug)
     choice_key = choice if choice in {"a", "b", "equal"} else "equal"
@@ -983,6 +1173,7 @@ def _record_voice_ab_rating(
     ratings["events"].append(
         {
             "scope": _text(context.get("scope"), ""),
+            "dedupe_key": _text(dedupe_key, ""),
             "guest_mode": bool(context.get("guest_mode")),
             "choice": choice_key,
             "approved_variant": approved_variant,
@@ -990,6 +1181,7 @@ def _record_voice_ab_rating(
             "created_at": _utc_now_iso(),
         }
     )
+    ratings["effective_totals"] = _recompute_voice_ab_effective_totals(list(ratings["events"]))
     _save_voice_ab_ratings(slug, ratings)
     scope = _text(context.get("scope"), "")
     if scope and approved_variant in {"a", "b"}:
@@ -997,7 +1189,7 @@ def _record_voice_ab_rating(
         store["frozen"] = True
         store["approved_voice_choice"] = approved_variant
         _save_personal_memory_store(slug=slug, scope=scope, payload=store)
-    return ratings
+    return _maybe_rotate_voice_ab_challenger(slug, ratings)
 
 
 def _memorial_bundle(slug: str) -> Path:
@@ -6339,6 +6531,10 @@ def _memorial_html(
           voiceVariantOverride || pluginConfig.voice_ab_variant || activeVoiceVariant() || ""
         ).trim().toLowerCase();
         if (!pluginConfig.tts_plugin_enabled) {{
+          if ((selectedVoiceVariant === "a" || selectedVoiceVariant === "b") && !pluginOverride) {{
+            void previewVoiceVariant(selectedVoiceVariant, text, onDone);
+            return;
+          }}
           setSpeechStatus("Ausgewähltes TTS-Plugin ist nicht aktiviert.", "error", "TTS nicht aktiv");
           if (onDone) onDone();
           return;
@@ -6432,6 +6628,59 @@ def _memorial_html(
             speechObjectUrl = null;
           }}
           setSpeechStatus("Sprachausgabe fehlgeschlagen: " + String(error.message || error), "error", "TTS fehlgeschlagen");
+          if (onDone) onDone();
+        }}
+      }}
+      async function previewVoiceVariant(variantId, previewText = "", onDone = null) {{
+        const selectedVoiceVariant = String(variantId || "").trim().toLowerCase();
+        if (selectedVoiceVariant !== "a" && selectedVoiceVariant !== "b") {{
+          if (onDone) onDone();
+          return;
+        }}
+        const text = normalizeTranscriptText(String(previewText || voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss."));
+        if (!text || !speechAudio) {{
+          if (onDone) onDone();
+          return;
+        }}
+        stopSpeechPlayback();
+        setSpeechStatus("Lade Stimmvergleich ...", "working", "Audio wird erzeugt");
+        try {{
+          const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-synthesize", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+              text: text,
+              voice_ab_variant: selectedVoiceVariant,
+              personal_memory_enabled: personalMemoryEnabled(),
+            }}),
+          }}, 60000);
+          if (!response.ok) {{
+            const message = await parseSpeakError(response);
+            throw new Error(message || "speech_synthesis_failed");
+          }}
+          const blob = await response.blob();
+          if (!blob || !blob.size) throw new Error("speech_synthesis_empty_audio");
+          speechObjectUrl = URL.createObjectURL(blob);
+          speechAudio.src = speechObjectUrl;
+          speechAudio.onplaying = () => {{
+            setSpeechStatus(selectedVoiceVariant === "b" ? "Stimme B läuft." : "Stimme A läuft.", "speaking", "Antwort wird abgespielt");
+          }};
+          speechAudio.onended = () => {{
+            stopSpeechPlayback();
+            setSpeechStatus("Stimmvergleich bereit.", "idle", "Bereit.");
+            if (onDone) onDone();
+          }};
+          speechAudio.onerror = () => {{
+            stopSpeechPlayback();
+            setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
+            if (onDone) onDone();
+          }};
+          setSpeakingOverlayPreview(text);
+          setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
+          await speechAudio.play();
+        }} catch (error) {{
+          stopSpeechPlayback();
+          setSpeechStatus("Stimmvorschau fehlgeschlagen: " + String(error.message || error), "error", "Vorschau fehlgeschlagen");
           if (onDone) onDone();
         }}
       }}
@@ -7045,14 +7294,12 @@ def _memorial_html(
       }}
       if (voiceAbPreviewAButton) {{
         voiceAbPreviewAButton.addEventListener("click", () => {{
-          const text = String(voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.");
-          void speakText(text, null, null, "a");
+          void previewVoiceVariant("a");
         }});
       }}
       if (voiceAbPreviewBButton) {{
         voiceAbPreviewBButton.addEventListener("click", () => {{
-          const text = String(voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.");
-          void speakText(text, null, null, "b");
+          void previewVoiceVariant("b");
         }});
       }}
       if ("serviceWorker" in navigator) {{
@@ -7139,7 +7386,9 @@ async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
             "sample_text": _text(config.get("sample_text"), "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss."),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
             "selected_variant": _text(_load_personal_memory_store(slug=slug, scope=_text(context.get("scope"), "")).get("approved_voice_choice"), "") if _text(context.get("scope"), "") else "",
-            "totals": ratings.get("totals", {}),
+            "totals": ratings.get("effective_totals", ratings.get("totals", {})),
+            "raw_totals": ratings.get("totals", {}),
+            "round": int(ratings.get("round", 1) or 1),
         }
     )
 
@@ -7165,11 +7414,14 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
         choice=choice,
         approved_variant=approved_variant if approved_variant in {"a", "b"} else "",
         note=_text(body.get("note"), ""),
+        dedupe_key=_public_memorial_client_key(request=request, context=context),
     )
     return JSONResponse(
         {
             "status": "ok",
-            "totals": ratings.get("totals", {}),
+            "totals": ratings.get("effective_totals", ratings.get("totals", {})),
+            "raw_totals": ratings.get("totals", {}),
+            "round": int(ratings.get("round", 1) or 1),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
         }
     )

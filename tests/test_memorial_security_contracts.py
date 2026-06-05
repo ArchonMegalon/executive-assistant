@@ -180,6 +180,91 @@ def test_public_voice_ab_approval_requires_personal_memory_opt_in(
     assert response.json()["error"]["code"] == "personal_memory_required_for_voice_approval"
 
 
+def test_public_voice_ab_totals_are_scope_deduplicated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-voice-dedupe")
+    page = client.get(f"/memorials/{slug}")
+    assert page.status_code == 200
+
+    assert client.post(f"/memorials/{slug}/voice-ab/rate", json={"choice": "a"}).status_code == 200
+    assert client.post(f"/memorials/{slug}/voice-ab/rate", json={"choice": "b"}).status_code == 200
+
+    body = client.get(f"/memorials/{slug}/voice-ab").json()
+    assert body["totals"] == {"a": 0, "b": 1, "equal": 0, "approved": 0}
+    assert body["raw_totals"] == {"a": 1, "b": 1, "equal": 0, "approved": 0}
+    assert body["round"] == 1
+
+
+def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    voice_ab_root = tmp_path / "artifacts" / "memorial_voice_ab" / slug
+    voice_ab_root.mkdir(parents=True, exist_ok=True)
+    (voice_ab_root / "voice_ab.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "variants": [
+                    {
+                        "id": "a",
+                        "label": "Stimme A · klarer",
+                        "tts_plugin": "unmixr_clone",
+                        "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+                        "description": "Champion",
+                    },
+                    {
+                        "id": "b",
+                        "label": "Stimme B · challenger",
+                        "tts_plugin": "unmixr_clone",
+                        "tts_plugin_voice_id": "e8eced7f-35fa-4036-af46-ba2b748afd70",
+                        "description": "Old challenger",
+                    },
+                ],
+                "sample_text": "Test",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    for idx in range(4):
+        client = _client(principal_id=f"exec-memorial-voice-rotate-{idx}")
+        page = client.get(f"/memorials/{slug}")
+        assert page.status_code == 200
+        response = client.post(f"/memorials/{slug}/voice-ab/rate", json={"choice": "a"})
+        assert response.status_code == 200
+
+    client = _client(principal_id="exec-memorial-voice-rotate-check")
+    body = client.get(f"/memorials/{slug}/voice-ab").json()
+    assert body["totals"] == {"a": 0, "b": 0, "equal": 0, "approved": 0}
+    assert body["round"] == 2
+
+    stored_config = json.loads((voice_ab_root / "voice_ab.json").read_text(encoding="utf-8"))
+    variant_b = next(item for item in stored_config["variants"] if item["id"] == "b")
+    assert variant_b["tts_plugin_voice_id"] == "c381af52-a4de-4b0e-a974-99ebc1cfd0b3"
+
+    stored_ratings = json.loads((voice_ab_root / "ratings.json").read_text(encoding="utf-8"))
+    assert stored_ratings["round"] == 2
+    assert stored_ratings["rounds"][0]["winner"] == "a"
+
+
 def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -1,0 +1,23 @@
+{
+  "document_id": "manfred-voice-consent-public-note",
+  "title": "Stimmnutzung und Freigaben",
+  "audience": "reviewer",
+  "sensitivity": "VOICE-SENSITIVE",
+  "review_status": "approved",
+  "viewer_type": "smart_document",
+  "version": "2026-06-05",
+  "source_owner": "Manfred Memorial Archive",
+  "archive_section_title": "Review und Governance",
+  "fliplink_slug": "manfred-voice-consent-public-note",
+  "fliplink_url": "https://archive.myexternalbrain.com/manfred-voice-consent-public-note",
+  "approved": true,
+  "source_files": [
+    "source.md"
+  ],
+  "build_artifacts": {
+    "html_path": "/docker/EA/memorial_archive/manfred/review/manfred-voice-consent-public-note/build/index.html",
+    "pdf_path": "/docker/EA/memorial_archive/manfred/review/manfred-voice-consent-public-note/build/output.pdf"
+  },
+  "sha256": "6d9c471466cbacef8682ee433515254118b8a870e1458eb62ff4d640a26ebe0d",
+  "description": "Kurze Governance-Notiz fuer Review und spaetere Nachvollziehbarkeit."
+}

@@ -205,21 +205,21 @@ def _message_summary(message: Message, body_text: str) -> str:
 
 
 def _mail_memory_excerpt(*, row: MemoryItem, fact: dict[str, object]) -> str:
-    subject = _normalize_text(fact.get('subject'))
-    subject = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
-    if subject:
-        return f'Es ging damals im Kern um {subject}.'
+    excerpt = _normalize_text(fact.get('body_excerpt'))
+    if excerpt:
+        first_sentence = excerpt.split('.', 1)[0].strip()
+        if first_sentence:
+            return f'Inhaltlich erinnere ich mich daran, dass {first_sentence[:180].rstrip(" .,;:")}.'
     summary = _normalize_text(row.summary)
     summary = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', summary, flags=re.IGNORECASE).strip()
     if ':' in summary:
         summary = summary.split(':', 1)[0].strip()
     if summary:
-        return f'Es ging damals im Kern um {summary[:180].rstrip(" .,;:")}.'
-    excerpt = _normalize_text(fact.get('body_excerpt'))
-    if excerpt:
-        first_sentence = excerpt.split('.', 1)[0].strip()
-        if first_sentence:
-            return f'Inhaltlich ging es damals darum, dass {first_sentence[:180].rstrip(" .,;:")}.'
+        return f'Im Kern erinnere ich mich an eine Sache rund um {summary[:180].rstrip(" .,;:")}.'
+    subject = _normalize_text(fact.get('subject'))
+    subject = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
+    if subject:
+        return f'Im Kern erinnere ich mich an eine Sache rund um {subject[:180].rstrip(" .,;:")}.'
     return 'Inhaltlich erinnere ich mich an eine klare Sache mit praktischer Folgerung.'
 
 
@@ -671,9 +671,7 @@ def format_memorial_memory_context(rows: list[MemoryItem]) -> list[str]:
         source = _normalize_text(fact.get('from'))
         if memory_kind == 'mail_message':
             excerpt = _mail_memory_excerpt(row=row, fact=fact)
-            bits = [bit for bit in [subject] if bit]
-            if excerpt:
-                excerpt = f"Daran erinnere ich mich so: {excerpt}"
+            bits = []
         else:
             excerpt = _normalize_text(fact.get('body_excerpt'))[:360]
             if not excerpt:
