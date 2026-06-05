@@ -9414,6 +9414,9 @@ def test_property_market_bootstrap_ready_notification_sends_email(monkeypatch) -
     )
     assert started.status_code == 200, started.text
     handoff_ref = started.json()["bootstrap_handoff_ref"]
+    handoff = client.get(f"/app/api/handoffs/{handoff_ref}")
+    assert handoff.status_code == 200, handoff.text
+    assert handoff.json()["owner"] == "property-market-codex"
 
     sent: list[dict[str, object]] = []
 
@@ -9428,13 +9431,12 @@ def test_property_market_bootstrap_ready_notification_sends_email(monkeypatch) -
         lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
     )
 
-    service = ProductService(client.app.state.container)
-    task = service._container.orchestrator.fetch_human_task(
-        handoff_ref.split(":", 1)[1],
-        principal_id=principal_id,
+    completed = client.post(
+        f"/app/api/handoffs/{handoff_ref}/complete",
+        json={"operator_id": "property-market-codex", "resolution": "completed"},
     )
-    assert task is not None
-    service._notify_property_market_bootstrap_ready(principal_id=principal_id, task=task)
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] in {"completed", "returned"}
     assert sent
     assert sent[0]["recipient_email"] == "bootstrap.ready@example.com"
     assert sent[0]["country_label"] == "NO"

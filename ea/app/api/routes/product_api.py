@@ -913,7 +913,7 @@ def get_handoff_history(
     found = service.get_handoff(principal_id=context.principal_id, handoff_ref=handoff_ref)
     if found is None:
         raise HTTPException(status_code=404, detail="handoff_not_found")
-    human_task_id = handoff_ref.split(":", 1)[1] if handoff_ref.startswith("human_task:") else handoff_ref
+    human_task_id = found.id.split(":", 1)[1] if found.id.startswith("human_task:") else found.id
     rows = container.orchestrator.list_human_task_assignment_history(
         human_task_id,
         principal_id=context.principal_id,

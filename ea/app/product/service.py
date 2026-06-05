@@ -258,6 +258,7 @@ _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
 _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 _PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "failed", "cancelled", "noop"}
+_PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -11511,6 +11512,7 @@ class ProductService:
         operator_id: str,
         actor: str,
     ) -> HandoffNote | None:
+        handoff_ref = self._normalize_handoff_ref(handoff_ref)
         if not handoff_ref.startswith("human_task:"):
             return None
         task_id = handoff_ref.split(":", 1)[1]
@@ -11833,6 +11835,19 @@ class ProductService:
         if str(handoff.task_type or "").strip() == "property_alert_review" and not str(handoff.editor_url or "").strip():
             return replace(handoff, editor_url=f"/app/handoffs/{handoff.id}")
         return handoff
+
+    def _normalize_handoff_ref(self, handoff_ref: str) -> str:
+        normalized = urllib.parse.unquote(str(handoff_ref or "").strip()).strip()
+        normalized = normalized.lstrip("/")
+        for prefix in ("app/actions/handoffs/", "app/channel/handoffs/", "app/api/handoffs/", "app/handoffs/", "handoffs/"):
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+                break
+        for suffix in ("/assign", "/complete", "/retry-send", "/recreate", "/history"):
+            if normalized.endswith(suffix):
+                normalized = normalized[: -len(suffix)]
+                break
+        return normalized
 
     def _property_alert_review_access_url(
         self,
@@ -14875,6 +14890,7 @@ class ProductService:
         operator_id: str,
         actor: str,
     ) -> HandoffNote | None:
+        handoff_ref = self._normalize_handoff_ref(handoff_ref)
         if not str(handoff_ref or "").strip().startswith("human_task:"):
             return None
         task_id = handoff_ref.split(":", 1)[1]
@@ -15216,6 +15232,46 @@ class ProductService:
                 return task
         return None
 
+    def _ensure_property_market_bootstrap_operator(self, *, principal_id: str) -> str:
+        operator_id = _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID
+        try:
+            self._container.orchestrator.upsert_operator_profile(
+                principal_id=principal_id,
+                operator_id=operator_id,
+                display_name="PropertyQuarry Market Codex",
+                roles=("operator", "automation"),
+                trust_tier="trusted",
+                status="active",
+                notes="Owns unsupported-market initialization tasks for PropertyQuarry.",
+            )
+        except Exception:
+            pass
+        return operator_id
+
+    def _assign_property_market_bootstrap_task(
+        self,
+        *,
+        principal_id: str,
+        task: HumanTask,
+        actor: str,
+        operator_id: str,
+    ) -> HumanTask:
+        if str(task.assigned_operator_id or "").strip():
+            return task
+        try:
+            assigned = self._container.orchestrator.assign_human_task(
+                task.human_task_id,
+                principal_id=principal_id,
+                operator_id=operator_id,
+                assignment_source="automation",
+                assigned_by_actor_id=str(actor or operator_id).strip() or operator_id,
+            )
+            if assigned is not None:
+                return assigned
+        except Exception:
+            pass
+        return task
+
     def _open_property_market_bootstrap(
         self,
         *,
@@ -15243,6 +15299,7 @@ class ProductService:
             principal_id=principal_id,
             requested_country_code=requested_country_code,
         )
+        bootstrap_operator_id = self._ensure_property_market_bootstrap_operator(principal_id=principal_id)
         if existing is None:
             session_id = self._start_product_review_session(
                 principal_id=principal_id,
@@ -15270,6 +15327,7 @@ class ProductService:
                     "max_results_per_source": max_results_per_source,
                     "requested_by_actor": str(actor or "").strip(),
                     "recipient_email": _principal_email_hint(principal_id),
+                    "automation_operator_id": bootstrap_operator_id,
                 },
                 desired_output_json={
                     "resolution": "completed",
@@ -15277,8 +15335,20 @@ class ProductService:
                     "proof": "Market initialization completed and ready for user search.",
                 },
             )
+            task = self._assign_property_market_bootstrap_task(
+                principal_id=principal_id,
+                task=task,
+                actor=actor,
+                operator_id=bootstrap_operator_id,
+            )
             handoff_ref = f"human_task:{task.human_task_id}"
         else:
+            existing = self._assign_property_market_bootstrap_task(
+                principal_id=principal_id,
+                task=existing,
+                actor=actor,
+                operator_id=bootstrap_operator_id,
+            )
             handoff_ref = f"human_task:{existing.human_task_id}"
         message = (
             f"Initialization is required for {requested_country_label}. "
@@ -23496,6 +23566,7 @@ class ProductService:
         return tuple(rows[:limit])
 
     def get_handoff(self, *, principal_id: str, handoff_ref: str) -> HandoffNote | None:
+        handoff_ref = self._normalize_handoff_ref(handoff_ref)
         if not str(handoff_ref or "").startswith("human_task:"):
             return None
         found = self._container.orchestrator.fetch_human_task(handoff_ref.split(":", 1)[1], principal_id=principal_id)
@@ -23504,6 +23575,7 @@ class ProductService:
         return self._handoff_from_human_task(found)
 
     def assign_handoff(self, *, principal_id: str, handoff_ref: str, operator_id: str, actor: str) -> HandoffNote | None:
+        handoff_ref = self._normalize_handoff_ref(handoff_ref)
         if not handoff_ref.startswith("human_task:"):
             return None
         updated = self._container.orchestrator.assign_human_task(
@@ -23532,6 +23604,7 @@ class ProductService:
         actor: str,
         resolution: str,
     ) -> HandoffNote | None:
+        handoff_ref = self._normalize_handoff_ref(handoff_ref)
         if not handoff_ref.startswith("human_task:"):
             return None
         task_id = handoff_ref.split(":", 1)[1]
