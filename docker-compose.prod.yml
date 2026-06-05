@@ -22,6 +22,7 @@ services:
     environment:
       EA_RUNTIME_MODE: prod
       EA_STORAGE_BACKEND: postgres
+      EA_ENABLE_LEGACY_RUNTIME_SURFACES: ${EA_ENABLE_LEGACY_RUNTIME_SURFACES:-1}
       OPENVOICE_BASE_URL: ${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       EA_PUBLIC_MEMORIAL_DIR: ${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
       EA_PRIVATE_MEMORIAL_PROFILE_DIR: ${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
