@@ -4023,7 +4023,7 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_crezlo_pro
                     "area_sqm": "58",
                 },
                 "login_email": "the.girscheles@gmail.com",
-                "login_password": "rangersofB5",
+                "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
         )
@@ -4751,7 +4751,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
 
     def _fake_login(*, login_email: str, login_password: str, timeout_seconds: int = 120) -> str:
         assert login_email == "the.girscheles@gmail.com"
-        assert login_password == "rangersofB5"
+        assert login_password == "fixture-crezlo-password"
         return "crezlo-token-1"
 
     def _fake_create_tour(
@@ -4901,7 +4901,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
                     "https://assets.example/floorplan-1.jpg",
                 ],
                 "login_email": "the.girscheles@gmail.com",
-                "login_password": "rangersofB5",
+                "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
         )
@@ -5032,7 +5032,7 @@ def test_tool_execution_service_keeps_direct_crezlo_tour_when_followup_workflow_
                 "property_url": "https://www.willhaben.at/listing/wahring-layout-first",
                 "media_urls_json": ["https://assets.example/photo-1.jpg"],
                 "login_email": "the.girscheles@gmail.com",
-                "login_password": "rangersofB5",
+                "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
         )
@@ -5137,7 +5137,7 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_uplo
                 ],
                 "floorplan_urls_json": [],
                 "login_email": "the.girscheles@gmail.com",
-                "login_password": "rangersofB5",
+                "login_password": "fixture-crezlo-password",
             },
             context_json={"principal_id": "exec-1"},
         )

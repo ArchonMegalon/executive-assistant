@@ -817,6 +817,14 @@ def _scheduler_property_only_profile_enabled() -> bool:
     return _propertyquarry_scheduler_profile() in {"property_only", "property-only", "property"}
 
 
+def _propertyquarry_worker_profile() -> str:
+    return str(os.environ.get("PROPERTYQUARRY_WORKER_PROFILE") or "").strip().lower()
+
+
+def _worker_property_only_profile_enabled() -> bool:
+    return _propertyquarry_worker_profile() in {"property_only", "property-only", "property"}
+
+
 def _scheduler_property_scout_interval_seconds() -> float:
     try:
         return max(300.0, float(os.environ.get("EA_SCHEDULER_PROPERTY_SCOUT_INTERVAL_SECONDS") or 1800.0))
@@ -1385,6 +1393,7 @@ def _run_execution_worker(role: str) -> None:
     last_morning_memo_at = 0.0
     last_telegram_async_recovery_at = 0.0
     property_only_scheduler = role == "scheduler" and _scheduler_property_only_profile_enabled()
+    property_only_worker = role == "worker" and _worker_property_only_profile_enabled()
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
         if role == "scheduler":
@@ -1555,6 +1564,11 @@ def _run_execution_worker(role: str) -> None:
                 time.sleep(idle_backoff_seconds)
                 idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
                 continue
+        if property_only_worker:
+            log.debug("role=%s property-only worker skips inherited generic queue; sleeping %.1fs", role, idle_backoff_seconds)
+            time.sleep(idle_backoff_seconds)
+            idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
+            continue
         try:
             artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
         except Exception:

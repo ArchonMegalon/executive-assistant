@@ -332,13 +332,21 @@
   }
   .pq-range-label {
     display: grid;
-    gap: 8px;
+    gap: 9px;
+    padding: 10px;
+    border: 1px solid rgba(185, 173, 154, 0.72);
+    border-radius: 12px;
+    background: rgba(255, 253, 248, 0.74);
   }
   .pq-range-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+  }
+  .pq-range-head > span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .pq-tooltip {
     display: inline-grid;
@@ -353,17 +361,33 @@
     cursor: help;
   }
   .pq-range-value {
+    min-width: 112px;
+    padding: 5px 8px;
+    border: 1px solid rgba(185, 173, 154, 0.64);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.72);
     color: var(--text);
     font-size: 13px;
     font-weight: 800;
+    text-align: right;
     white-space: nowrap;
   }
   .pq-form input[type="range"] {
-    min-height: 28px;
+    min-height: 42px;
     padding: 0;
     accent-color: var(--accent);
     background: transparent;
     border: 0;
+    cursor: pointer;
+    touch-action: pan-y;
+  }
+  .pq-form input[type="range"]::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+  .pq-form input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
   }
   .pq-range-scale {
     display: flex;
@@ -373,6 +397,10 @@
     color: var(--text-soft);
     font-size: 12px;
     line-height: 1.3;
+  }
+  .pq-range-scale span {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .pq-range-scale [data-current-plan-cap] {
     color: var(--accent);
@@ -642,6 +670,18 @@
     .pq-choice {
       min-height: 0;
     }
+    .pq-range-head {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .pq-range-value {
+      width: 100%;
+      min-width: 0;
+      text-align: left;
+    }
+    .pq-form input[type="range"] {
+      min-height: 48px;
+    }
     .pq-hero-actions {
       display: grid;
       grid-template-columns: 1fr;
@@ -789,29 +829,42 @@
             {% set is_wide = field.type == 'checkbox_group' or field.name in ('location_query', 'keywords') %}
             <div class="pq-field{% if is_wide %} pq-field-wide{% endif %}" {% if is_wide %}data-wide="true"{% endif %} data-property-field-step="{{ field.get('step') or 'search' }}"{% if field.get('hidden') %} hidden{% endif %}>
               {% if field.type == 'range' %}
-              <label class="pq-range-label">
+              {% set range_value = field.get('value') if field.get('value') not in (none, '') else (field.get('min') or '1') %}
+              {% set range_display = field.get('display_value') or (field.get('empty_label') if (range_value|string == '0' and field.get('empty_label')) else (range_value ~ (field.get('suffix') or ''))) %}
+              {% set has_plan_cap = field.get('selectable_max') and field.get('visual_max') and (field.get('selectable_max')|string != field.get('visual_max')|string) %}
+              <label class="pq-range-label" data-range-control="{{ field.name }}">
                 <span class="pq-range-head">
                   <span>{{ field.label }}{% if field.tooltip %} <span class="pq-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}</span>
-                  <span class="pq-range-value" data-range-value-for="{{ field.name }}">{{ field.value or field.min or '1' }}{{ field.suffix or '' }}</span>
+                  <span class="pq-range-value" data-range-value-for="{{ field.name }}">{{ range_display }}</span>
                 </span>
                 <input
                   type="range"
                   name="{{ field.name }}"
-                  value="{{ field.value or field.min or '1' }}"
-                  {% if field.min %}min="{{ field.min }}"{% endif %}
+                  value="{{ range_value }}"
+                  {% if field.min is not none %}min="{{ field.min }}"{% endif %}
                   {% if field.max %}max="{{ field.max }}"{% endif %}
                   {% if field.range_step %}step="{{ field.range_step }}"{% endif %}
                   {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %}
                   data-range-output="{{ field.name }}"
                   data-range-suffix="{{ field.suffix or '' }}"
-                  data-range-selectable-max="{{ field.selectable_max or field.max or '' }}"
+                  data-range-selectable-max="{{ field.selectable_max or '' }}"
                   data-range-visual-max="{{ field.visual_max or field.max or '' }}"
+                  data-range-format="{{ field.get('format') or '' }}"
+                  data-range-empty-label="{{ field.get('empty_label') or '' }}"
+                  data-range-preset="{{ field.get('range_preset') or '' }}"
+                  {% if field.get('range_presets') %}data-range-presets='{{ field.get("range_presets")|tojson|safe }}'{% endif %}
                 >
                 {% if field.visual_max %}
                 <span class="pq-range-scale" aria-label="Selectable up to {{ field.selectable_max or field.max }} of {{ field.visual_max }}">
-                  <span>{{ field.min or '1' }}</span>
+                  <span data-range-scale-min>{{ field.get('scale_min_label') or field.min or '1' }}</span>
+                  {% if has_plan_cap %}
                   <span data-current-plan-cap>Plan cap {{ field.selectable_max or field.max }}</span>
-                  <span>{{ field.visual_max }}</span>
+                  {% elif field.get('scale_mid_label') %}
+                  <span>{{ field.get('scale_mid_label') }}</span>
+                  {% else %}
+                  <span aria-hidden="true"></span>
+                  {% endif %}
+                  <span data-range-scale-max>{{ field.get('scale_max_label') or field.visual_max }}</span>
                 </span>
                 {% endif %}
                 {% if field.upgrade_hint %}<span class="pq-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
@@ -1443,15 +1496,54 @@
     };
   };
   const bindRangeOutputs = (form) => {
+    const numberFormatter = new Intl.NumberFormat(document.documentElement.lang || 'en', { maximumFractionDigits: 0 });
+    const formattedRangeValue = (input, suffix) => {
+      const parsed = Number(input.value || 0);
+      const value = Number.isFinite(parsed) ? parsed : 0;
+      const emptyLabel = String(input.getAttribute('data-range-empty-label') || '').trim();
+      if (value <= 0 && emptyLabel) return emptyLabel;
+      const format = String(input.getAttribute('data-range-format') || '').trim();
+      if (format === 'currency_eur') return `EUR ${numberFormatter.format(Math.round(value))}`;
+      if (format === 'area_m2') return `${numberFormatter.format(Math.round(value))} m2+`;
+      if (format === 'rooms') return value === 1 ? '1+ room' : `${numberFormatter.format(Math.round(value))}+ rooms`;
+      if (format === 'count') return value === 1 ? '1 result' : `${numberFormatter.format(Math.round(value))} results`;
+      return `${numberFormatter.format(Math.round(value))}${suffix}`;
+    };
     form?.querySelectorAll('input[type="range"][data-range-output]').forEach((input) => {
       const name = String(input.getAttribute('data-range-output') || input.name || '').trim();
       const output = form.querySelector(`[data-range-value-for="${name}"]`);
+      const rangeShell = input.closest('[data-range-control]');
       const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
-      const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
-      const sync = () => {
-        if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
-        if (output) output.textContent = `${input.value}${suffix}`;
+      const presetKey = String(input.getAttribute('data-range-preset') || '').trim();
+      const presetPayload = String(input.getAttribute('data-range-presets') || '').trim();
+      let presets = {};
+      if (presetPayload) {
+        try { presets = JSON.parse(presetPayload); } catch (_) { presets = {}; }
+      }
+      const applyPreset = () => {
+        if (presetKey !== 'listing_mode_price') return;
+        const mode = String(form.querySelector('select[name="listing_mode"]')?.value || 'rent').trim().toLowerCase();
+        const preset = presets[mode] || presets.rent || {};
+        if (preset.max) {
+          input.max = String(preset.max);
+          input.setAttribute('data-range-visual-max', String(preset.max));
+        }
+        if (preset.step) input.step = String(preset.step);
+        const maxLabel = rangeShell?.querySelector('[data-range-scale-max]');
+        if (maxLabel && preset.scaleMaxLabel) maxLabel.textContent = String(preset.scaleMaxLabel);
       };
+      const sync = () => {
+        const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
+        const min = Number(input.min || 0);
+        if (Number.isFinite(min) && Number(input.value) < min) input.value = String(min);
+        if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
+        if (output) output.textContent = formattedRangeValue(input, suffix);
+      };
+      form.querySelector('select[name="listing_mode"]')?.addEventListener('change', () => {
+        applyPreset();
+        sync();
+      });
+      applyPreset();
       input.addEventListener('input', sync);
       sync();
     });

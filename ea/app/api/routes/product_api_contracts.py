@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.domain.models import ExecutionEvent
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DeadlineItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
@@ -757,28 +759,221 @@ class PersonCorrectionIn(BaseModel):
     remove_risk: str = ""
 
 
+_PROPERTY_PREFERENCE_DOMAINS = frozenset(
+    {
+        "willhaben",
+        "property",
+        "propertyquarry",
+        "immmo",
+        "derstandard",
+        "immoscout_de",
+        "immowelt",
+        "immobilienscout24",
+        "kleinanzeigen",
+        "rightmove",
+        "zoopla",
+        "idealista",
+        "fotocasa",
+        "justiz_auction",
+        "forced_auction",
+        "genossenschaften",
+        "cooperative_housing",
+    }
+)
+_GENERAL_PREFERENCE_DOMAINS = frozenset({"general"})
+_PREFERENCE_DOMAINS = _PROPERTY_PREFERENCE_DOMAINS | _GENERAL_PREFERENCE_DOMAINS
+_PREFERENCE_STRENGTHS = frozenset({"low", "medium", "high"})
+_PREFERENCE_SOURCE_MODES = frozenset(
+    {
+        "explicit",
+        "explicit_correction",
+        "explicit_feedback",
+        "manual",
+        "behavioral_inference",
+        "conversation_inference",
+    }
+)
+_PREFERENCE_STATUSES = frozenset({"active", "inactive"})
+_PREFERENCE_DECAY_POLICIES = frozenset({"manual_only", "reinforce_only", "decay_on_disconfirm", "none"})
+_PROPERTY_PREFERENCE_VALUE_SPECS = {
+    ("constraint", "max_total_rent_eur"): "positive_number",
+    ("constraint", "min_rooms"): "positive_number",
+    ("constraint", "min_area_sqm"): "positive_number",
+    ("constraint", "require_floorplan"): "bool",
+    ("constraint", "require_360"): "bool",
+    ("constraint", "require_lift"): "bool",
+    ("soft_preference", "preferred_districts"): "text_list",
+    ("soft_preference", "requires_floorplan_for_remote_review"): "bool",
+    ("soft_preference", "prefer_balcony"): "bool",
+    ("soft_preference", "prefer_outdoor_space"): "bool",
+    ("soft_preference", "prefer_lift"): "bool",
+    ("soft_preference", "prefer_360_for_remote_review"): "bool",
+    ("soft_preference", "prefer_subway_nearby"): "bool",
+    ("soft_preference", "prefer_supermarket_nearby"): "bool",
+    ("soft_preference", "prefer_pharmacy_nearby"): "bool",
+    ("soft_preference", "prefer_playgrounds_nearby"): "bool",
+    ("soft_preference", "prefer_bike_infrastructure"): "bool",
+    ("soft_preference", "prefer_running_green_space"): "bool",
+    ("soft_preference", "prefer_unlimited_lease"): "bool",
+    ("soft_preference", "prefer_lower_total_rent_eur"): "positive_number",
+    ("soft_preference", "min_area_sqm_preference"): "positive_number",
+    ("aversion", "avoid_heating_types"): "text_list",
+    ("aversion", "avoided_districts"): "text_list",
+}
+_GENERAL_PREFERENCE_VALUE_SPECS = {
+    ("decision_style", "needs_side_by_side_comparison"): "bool",
+    ("workflow_preference", "prefers_written_follow_up"): "bool",
+    ("workflow_preference", "prefers_concise_updates"): "bool",
+    ("workflow_preference", "prefers_direct_followups"): "bool",
+}
+
+
+def _preference_error(code: str) -> PydanticCustomError:
+    return PydanticCustomError(code, code)
+
+
+def _normalized_preference_text(value: object, *, max_length: int = 80) -> str:
+    text = " ".join(str(value or "").split()).strip().lower()
+    if len(text) > max_length:
+        raise _preference_error("preference_text_too_long")
+    return text
+
+
+def _normalize_preference_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "ja", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "nein", "off"}:
+            return False
+    raise _preference_error("preference_value_must_be_boolean")
+
+
+def _normalize_preference_positive_number(value: object) -> int | float:
+    if isinstance(value, bool):
+        raise _preference_error("preference_value_must_be_positive_number")
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value.strip().replace(",", "."))
+        except ValueError as exc:
+            raise _preference_error("preference_value_must_be_positive_number") from exc
+    else:
+        raise _preference_error("preference_value_must_be_positive_number")
+    if number <= 0 or number > 10_000_000:
+        raise _preference_error("preference_value_out_of_range")
+    return int(number) if number.is_integer() else number
+
+
+def _normalize_preference_text_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        raw_items: list[object] = value.split(",") if "," in value else [value]
+    elif isinstance(value, (list, tuple)):
+        raw_items = list(value)
+    else:
+        raise _preference_error("preference_value_must_be_text_list")
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        if isinstance(raw, (dict, list, tuple, set)):
+            raise _preference_error("preference_value_must_be_flat_text_list")
+        text = " ".join(str(raw or "").split()).strip()
+        if not text:
+            continue
+        if len(text) > 120:
+            raise _preference_error("preference_value_item_too_long")
+        marker = text.lower()
+        if marker in seen:
+            continue
+        seen.add(marker)
+        items.append(text)
+    if not items:
+        raise _preference_error("preference_value_must_not_be_empty")
+    if len(items) > 25:
+        raise _preference_error("preference_value_too_many_items")
+    return items
+
+
+def _preference_value_specs_for_domain(domain: str) -> dict[tuple[str, str], str]:
+    if domain in _GENERAL_PREFERENCE_DOMAINS:
+        return _GENERAL_PREFERENCE_VALUE_SPECS
+    return _PROPERTY_PREFERENCE_VALUE_SPECS
+
+
+def _normalize_preference_node_value(*, domain: str, category: str, key: str, value: object) -> object:
+    specs = _preference_value_specs_for_domain(domain)
+    value_kind = specs.get((category, key))
+    if value_kind is None:
+        raise _preference_error("unsupported_preference_node")
+    if value_kind == "bool":
+        return _normalize_preference_bool(value)
+    if value_kind == "positive_number":
+        return _normalize_preference_positive_number(value)
+    if value_kind == "text_list":
+        return _normalize_preference_text_list(value)
+    raise _preference_error("unsupported_preference_node")
+
+
+def _validate_preference_json_size(value: object) -> None:
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError as exc:
+        raise _preference_error("preference_value_must_be_json_serializable") from exc
+    if len(encoded.encode("utf-8")) > 4096:
+        raise _preference_error("preference_value_too_large")
+
+
 class PreferenceProfileUpsertIn(BaseModel):
-    display_name: str | None = None
-    profile_scope: str | None = None
-    consent_mode: str | None = None
+    display_name: str | None = Field(default=None, max_length=160)
+    profile_scope: str | None = Field(default=None, max_length=80)
+    consent_mode: str | None = Field(default=None, max_length=80)
     learning_enabled: bool | None = None
     high_stakes_domains_enabled: bool | None = None
 
 
 class PreferenceNodeUpsertIn(BaseModel):
-    domain: str = Field(min_length=1)
-    category: str = Field(min_length=1)
-    key: str = Field(min_length=1)
+    domain: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=80)
+    key: str = Field(min_length=1, max_length=120)
     value_json: object
     strength: str = "medium"
-    confidence: float = 0.5
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     source_mode: str = "explicit"
     status: str = "active"
     decay_policy: str = "reinforce_only"
 
+    @field_validator("domain", "category", "key", "strength", "source_mode", "status", "decay_policy", mode="before")
+    @classmethod
+    def _normalize_tokens(cls, value: object) -> str:
+        return _normalized_preference_text(value, max_length=120)
+
+    @model_validator(mode="after")
+    def _validate_preference_node(self) -> "PreferenceNodeUpsertIn":
+        if self.domain not in _PREFERENCE_DOMAINS:
+            raise _preference_error("unsupported_preference_domain")
+        if self.strength not in _PREFERENCE_STRENGTHS:
+            raise _preference_error("invalid_preference_strength")
+        if self.source_mode not in _PREFERENCE_SOURCE_MODES:
+            raise _preference_error("invalid_preference_source_mode")
+        if self.status not in _PREFERENCE_STATUSES:
+            raise _preference_error("invalid_preference_status")
+        if self.decay_policy not in _PREFERENCE_DECAY_POLICIES:
+            raise _preference_error("invalid_preference_decay_policy")
+        self.value_json = _normalize_preference_node_value(
+            domain=self.domain,
+            category=self.category,
+            key=self.key,
+            value=self.value_json,
+        )
+        _validate_preference_json_size(self.value_json)
+        return self
+
 
 class PreferenceNodeArchiveIn(BaseModel):
-    reason: str = ""
+    reason: str = Field(default="", max_length=500)
 
 
 class PreferenceEvidenceEventIn(BaseModel):
@@ -794,12 +989,32 @@ class PreferenceEvidenceEventIn(BaseModel):
 
 
 class PreferenceCorrectionApplyIn(BaseModel):
-    domain: str = Field(min_length=1)
-    category: str = Field(min_length=1)
-    key: str = Field(min_length=1)
+    domain: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=80)
+    key: str = Field(min_length=1, max_length=120)
     value_json: object
     strength: str = "high"
-    reason: str = ""
+    reason: str = Field(default="", max_length=500)
+
+    @field_validator("domain", "category", "key", "strength", mode="before")
+    @classmethod
+    def _normalize_tokens(cls, value: object) -> str:
+        return _normalized_preference_text(value, max_length=120)
+
+    @model_validator(mode="after")
+    def _validate_preference_correction(self) -> "PreferenceCorrectionApplyIn":
+        if self.domain not in _PREFERENCE_DOMAINS:
+            raise _preference_error("unsupported_preference_domain")
+        if self.strength not in _PREFERENCE_STRENGTHS:
+            raise _preference_error("invalid_preference_strength")
+        self.value_json = _normalize_preference_node_value(
+            domain=self.domain,
+            category=self.category,
+            key=self.key,
+            value=self.value_json,
+        )
+        _validate_preference_json_size(self.value_json)
+        return self
 
 
 class PreferenceDecisionAssessmentIn(BaseModel):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import tempfile
 import threading
 import uuid
 from collections.abc import Mapping
@@ -10,9 +11,16 @@ from functools import lru_cache
 from pathlib import Path
 
 
-_RATE_DB = Path("/data/artifacts/public_surface_rate_limits.sqlite3")
 _RATE_DB_LOCK = threading.Lock()
 _RATE_BACKEND_CACHE: str | None = None
+
+
+def public_surface_rate_db_path() -> Path:
+    explicit = str(os.getenv("EA_PUBLIC_SURFACE_RATE_DB") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    artifacts_dir = Path(str(os.getenv("EA_ARTIFACTS_DIR") or "/data/artifacts")).expanduser()
+    return artifacts_dir / "public_surface_rate_limits.sqlite3"
 
 
 def _safe_scope_token(value: object, fallback: str = "anon") -> str:
@@ -73,9 +81,14 @@ def enforce_public_surface_rate_limit(*, bucket: str, client_key: str, limit: in
     backend = public_surface_rate_backend()
     if backend == "redis" and _enforce_public_surface_rate_limit_redis(bucket_key=bucket_key, now=now, cutoff=cutoff, limit=limit, window_seconds=window_seconds):
         return
-    _RATE_DB.parent.mkdir(parents=True, exist_ok=True)
+    rate_db = public_surface_rate_db_path()
+    try:
+        rate_db.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        rate_db = Path(tempfile.gettempdir()) / "ea-public-surface-rate-limits.sqlite3"
+        rate_db.parent.mkdir(parents=True, exist_ok=True)
     with _RATE_DB_LOCK:
-        connection = sqlite3.connect(str(_RATE_DB), timeout=5)
+        connection = sqlite3.connect(str(rate_db), timeout=5)
         try:
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS public_surface_rate_events (bucket_key TEXT NOT NULL, created_at REAL NOT NULL)"

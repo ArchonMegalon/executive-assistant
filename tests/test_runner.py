@@ -553,6 +553,22 @@ def test_scheduler_property_only_profile_helper_accepts_property_aliases(
     assert runner._scheduler_property_only_profile_enabled() is False
 
 
+def test_worker_property_only_profile_helper_accepts_property_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    monkeypatch.delenv("PROPERTYQUARRY_WORKER_PROFILE", raising=False)
+    assert runner._worker_property_only_profile_enabled() is False
+
+    for value in ("property_only", "property-only", "property"):
+        monkeypatch.setenv("PROPERTYQUARRY_WORKER_PROFILE", value)
+        assert runner._worker_property_only_profile_enabled() is True
+
+    monkeypatch.setenv("PROPERTYQUARRY_WORKER_PROFILE", "full")
+    assert runner._worker_property_only_profile_enabled() is False
+
+
 def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
 

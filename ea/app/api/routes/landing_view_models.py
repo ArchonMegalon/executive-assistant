@@ -718,6 +718,34 @@ def app_section_payload(
     except Exception:
         property_plan_max_match_score = 45
     property_visible_max_match_score = 80
+    property_visible_max_results_per_source = 10
+    selected_listing_mode = str(property_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
+
+    def _positive_int(value: object, *, default: int = 0) -> int:
+        try:
+            parsed = int(float(str(value or "").strip()))
+        except Exception:
+            return default
+        return max(0, parsed)
+
+    def _eur_short(value: int) -> str:
+        if value >= 1_000_000:
+            return f"EUR {value // 1_000_000}M"
+        if value >= 1_000:
+            return f"EUR {value // 1_000}k"
+        return f"EUR {value}"
+
+    property_price_value = _positive_int(property_preferences.get("max_price_eur"))
+    property_price_range_presets = {
+        "rent": {"max": 6000, "step": 100, "scaleMaxLabel": "EUR 6k"},
+        "buy": {"max": 2_000_000, "step": 25_000, "scaleMaxLabel": "EUR 2M"},
+        "any": {"max": 2_000_000, "step": 25_000, "scaleMaxLabel": "EUR 2M"},
+    }
+    property_price_preset = property_price_range_presets.get(selected_listing_mode) or property_price_range_presets["rent"]
+    property_price_slider_max = max(int(property_price_preset["max"]), property_price_value)
+    property_price_slider_step = int(property_price_preset["step"])
+    property_min_rooms_value = min(8, _positive_int(property_preferences.get("min_rooms")))
+    property_min_area_value = min(250, _positive_int(property_preferences.get("min_area_m2")))
     try:
         property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
     except Exception:
@@ -765,7 +793,7 @@ def app_section_payload(
                 "type": "select",
                 "name": "listing_mode",
                 "label": "Search mode",
-                "value": str(property_preferences.get("listing_mode") or "rent"),
+                "value": selected_listing_mode,
                 "options": listing_mode_options,
                 "step": "search",
             },
@@ -849,36 +877,73 @@ def app_section_payload(
                 "step": "areas",
             },
             {
-                "type": "number",
+                "type": "range",
                 "name": "max_price_eur",
                 "label": "Max budget",
-                "value": str(property_preferences.get("max_price_eur") or ""),
-                "min": "1",
+                "value": str(property_price_value),
+                "min": "0",
+                "max": str(property_price_slider_max),
+                "visual_max": str(property_price_slider_max),
+                "range_step": str(property_price_slider_step),
+                "format": "currency_eur",
+                "empty_label": "Any budget",
+                "scale_min_label": "No max",
+                "scale_max_label": _eur_short(property_price_slider_max),
+                "tooltip": "Set a hard budget ceiling. Leave it at Any budget when you want PropertyQuarry to rank first and filter price later.",
+                "range_preset": "listing_mode_price",
+                "range_presets": property_price_range_presets,
                 "step": "search",
             },
             {
-                "type": "number",
+                "type": "range",
                 "name": "min_rooms",
                 "label": "Min rooms",
-                "value": str(property_preferences.get("min_rooms") or ""),
-                "min": "1",
+                "value": str(property_min_rooms_value),
+                "min": "0",
+                "max": "8",
+                "visual_max": "8",
+                "range_step": "1",
+                "format": "rooms",
+                "empty_label": "Any rooms",
+                "scale_min_label": "Any",
+                "scale_max_label": "8+ rooms",
+                "tooltip": "Minimum room count. Keep this open when layout quality matters more than the advertised room number.",
                 "step": "search",
             },
             {
-                "type": "number",
+                "type": "range",
                 "name": "min_area_m2",
-                "label": "Min area m2",
-                "value": str(property_preferences.get("min_area_m2") or ""),
-                "min": "1",
+                "label": "Min area",
+                "value": str(property_min_area_value),
+                "min": "0",
+                "max": "250",
+                "visual_max": "250",
+                "range_step": "5",
+                "format": "area_m2",
+                "empty_label": "Any size",
+                "scale_min_label": "Any",
+                "scale_max_label": "250+ m2",
+                "tooltip": "Minimum usable area. Larger minimums reduce weak matches but can make the crawl skip sparse auction or cooperative listings.",
                 "step": "search",
             },
             {
-                "type": "number",
+                "type": "range",
                 "name": "max_results_per_source",
                 "label": "Max results per source",
                 "value": str(property_results_value),
                 "min": "1",
-                "max": str(property_plan_max_results),
+                "max": str(property_visible_max_results_per_source),
+                "selectable_max": str(property_plan_max_results),
+                "visual_max": str(property_visible_max_results_per_source),
+                "range_step": "1",
+                "format": "count",
+                "suffix": "",
+                "upgrade_hint": (
+                    f"Current plan cap {property_plan_max_results}; Agent unlocks {property_visible_max_results_per_source}."
+                    if property_plan_max_results < property_visible_max_results_per_source
+                    else ""
+                ),
+                "tooltip": "How many strong matches each provider may return. Higher values increase review depth and processing work.",
                 "step": "providers",
             },
             {

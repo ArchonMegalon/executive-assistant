@@ -32,7 +32,7 @@ known_issues_label: Known issues and install help
 known_issues_href: /help#install-update
 install_help_label: Need install help?
 install_help_href: /help#install-update
-update_posture_summary: The release page is the source of truth for the current preview channel, the public download currently available for each platform, and whether setup is straightforward or still manual.
+update_posture_summary: The release page is the source of truth for the current public-stable channel, the public download currently available for each platform, and any bounded setup caveats that still matter.
 public_concierge_summary: Public concierge widgets may appear only as bounded preview overlays on low-risk public surfaces; the fixed release route, visible fallback path, and recovery guidance remain first-party and must still work when the widget is disabled.
 flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
@@ -76,7 +76,7 @@ signed_in_dispatch_heading: Keep this install linked from the first launch
 signed_in_dispatch_summary: Start the same published download from the signed-in handoff page and follow the platform-specific guided install path that keeps the install linked to your account from the first successful launch.
 signed_in_dispatch_steps:
   - Start from the signed-in handoff page for the platform you are installing.
-  - Follow the platform-specific guided install path; when macOS is on the unsigned-preview lane, that path begins with a short-lived Terminal install command.
+  - Follow the platform-specific guided install path; when macOS needs the setup lane, that path begins with a short-lived Terminal install command.
   - The happy path must apply the install claim automatically on first successful launch instead of depending on a manual claim-code ritual.
   - If Chummer reports missing rule packs or amend packages during restore, follow the explicit recovery guidance before trusting the restored result.
   - Reopen Devices and access later only for recovery, relinking, or support follow-through.
@@ -90,7 +90,7 @@ account_required_install_steps:
   - Create your Chummer account first.
   - Start the published download from the signed-in handoff page.
   - Finish setup for that package and launch Chummer.
-  - Follow the platform-specific guided install path where one exists; macOS unsigned preview begins with a Terminal command that streams the setup assistant.
+  - Follow the platform-specific guided install path where one exists; macOS setup continuity begins with a Terminal command only when that guided setup lane is the active route.
   - Resolve any shown rule-environment or package mismatch before trusting the restored workspace.
   - Let the happy path attach the install automatically; use claim/recovery details only when Chummer explicitly falls back to recovery mode.
 windows_requirements:
@@ -99,11 +99,11 @@ windows_requirements:
   - A normal user install path; no custom runtime selection needed for the recommended build.
   - Portable `.exe` handoff is a bounded fallback, not the primary public CTA.
 linux_requirements:
-  - 64-bit Linux with the currently published preview package support.
+  - 64-bit Linux with the currently published package support.
   - Use the current public package when available; use manual packages only for advanced or support-directed setup.
-  - Linux preview is secondary to Windows and should not promise more than the currently published package lane can support.
+  - Linux remains a secondary support lane and should not promise more than the currently published package lane can support.
 macos_requirements:
-  - The public downloads page may expose a macOS install-command preview before notarized promotion, but that lane must stay account-gated and clearly labeled as an unsigned preview.
+  - The public downloads page may expose a macOS guided setup lane when needed, but the promoted shelf route is the signed, notarized DMG installer.
   - The Mac default action is a Terminal command, not a downloaded unsigned `.command` file and not the raw DMG. The command must stream a guided setup assistant that downloads the current DMGs, removes quarantine, lets the user choose which supported desktop heads to install, lets the user choose `/Applications` versus `~/Applications`, and offers to open the selected apps when setup finishes.
   - The guided setup assistant must apply the baked install claim codes automatically on first launch instead of asking the user to copy codes by hand.
-  - A guest-visible raw macOS `.dmg` stays off the shelf until a signed, notarized, startup-smoke-proven promotion lands.
+  - Guest-visible macOS downloads should stay tied to the promoted signed and notarized installer truth, not a preview-coded lane.

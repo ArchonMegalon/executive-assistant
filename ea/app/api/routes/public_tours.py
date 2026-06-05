@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from functools import lru_cache
+import fcntl
 import hashlib
 import html
+import ipaddress
 import json
+import logging
 import mimetypes
 import os
 from pathlib import Path
@@ -26,15 +30,17 @@ from app.services.public_surface_limits import enforce_public_surface_rate_limit
 router = APIRouter(tags=["public-tours"])
 
 _PUBLIC_TOUR_ACTIONS = frozenset({"request-details", "feedback", "filters"})
-_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT: dict[str, tuple[float, int]] = {}
+_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT: OrderedDict[str, tuple[float, int]] = OrderedDict()
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS = 60.0
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX = 12
+_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS = 2048
 _PUBLIC_TOUR_ROUTE_LIMITS = {
     "json": (24, 60),
     "file": (40, 60),
     "page": (24, 60),
     "feedback": (12, 60),
 }
+log = logging.getLogger(__name__)
 
 
 def _fact_value_is_weak(value: object) -> bool:
@@ -405,22 +411,153 @@ def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
     return False
 
 
-def _public_tour_feedback_rate_limit_key(*, request: Request, slug: str) -> str:
-    forwarded_for = str(request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
-    client_host = forwarded_for or str(getattr(getattr(request, "client", None), "host", "") or "").strip()
-    return f"{slug}:{client_host or 'unknown'}"
+def _public_tour_rate_limit_dir() -> Path | None:
+    raw = (
+        os.environ.get("PROPERTYQUARRY_PUBLIC_RATE_LIMIT_DIR")
+        or os.environ.get("EA_PUBLIC_RATE_LIMIT_DIR")
+        or ""
+    ).strip()
+    if raw:
+        return Path(raw).expanduser()
+    ledger_dir = str(os.environ.get("EA_RESPONSES_PROVIDER_LEDGER_DIR") or "").strip()
+    if ledger_dir:
+        return Path(ledger_dir).expanduser() / "public-tour-rate-limits"
+    return None
 
 
-def _enforce_public_tour_feedback_rate_limit(*, request: Request, slug: str) -> None:
+def _safe_public_tour_ip(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("[") and "]" in raw:
+        raw = raw[1 : raw.find("]")]
+    elif raw.count(":") == 1 and "." in raw:
+        raw = raw.rsplit(":", 1)[0]
     try:
-        enforce_public_surface_rate_limit(
-            bucket=f"public-tours:{slug}:feedback",
-            client_key=public_surface_client_key(headers=request.headers, client_host=request.client.host if request.client else ""),
-            limit=_PUBLIC_TOUR_ROUTE_LIMITS["feedback"][0],
-            window_seconds=_PUBLIC_TOUR_ROUTE_LIMITS["feedback"][1],
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=429, detail="public_tour_feedback_rate_limited") from exc
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        return ""
+
+
+def _public_tour_trust_x_forwarded_for() -> bool:
+    raw = str(os.environ.get("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on", "y"}
+
+
+def _public_tour_client_identity(request: Request) -> str:
+    cf_ip = _safe_public_tour_ip(request.headers.get("cf-connecting-ip"))
+    if cf_ip and str(request.headers.get("cf-ray") or "").strip():
+        return f"cf:{cf_ip}"
+    if _public_tour_trust_x_forwarded_for():
+        for part in str(request.headers.get("x-forwarded-for") or "").split(","):
+            forwarded_ip = _safe_public_tour_ip(part)
+            if forwarded_ip:
+                return f"xff:{forwarded_ip}"
+    client_ip = _safe_public_tour_ip(getattr(getattr(request, "client", None), "host", "") or "")
+    return f"client:{client_ip or 'unknown'}"
+
+
+def _public_tour_feedback_rate_limit_key(*, request: Request, slug: str, principal_id: str) -> str:
+    identity = _public_tour_client_identity(request)
+    identity_hash = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    principal_hash = hashlib.sha256(str(principal_id or "").encode("utf-8")).hexdigest()[:16]
+    slug_hash = hashlib.sha256(str(slug or "").encode("utf-8")).hexdigest()[:16]
+    return f"{slug_hash}:{principal_hash}:{identity_hash}"
+
+
+def _prune_public_tour_feedback_memory_rate_limit(now: float) -> None:
+    expired = [
+        key
+        for key, (window_started, _count) in _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.items()
+        if now - float(window_started) > _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS
+    ]
+    for key in expired:
+        _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.pop(key, None)
+    while len(_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT) > _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS:
+        _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.popitem(last=False)
+
+
+def _enforce_public_tour_feedback_memory_rate_limit(*, key: str, now: float) -> None:
+    _prune_public_tour_feedback_memory_rate_limit(now)
+    window_started, count = _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.get(key, (now, 0))
+    if now - float(window_started) > _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS:
+        _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT[key] = (now, 1)
+        return
+    if int(count) >= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="public_tour_feedback_rate_limited")
+    _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT[key] = (float(window_started), int(count) + 1)
+    _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.move_to_end(key)
+
+
+def _prune_public_tour_feedback_file_rate_limit(rate_dir: Path, *, now: float) -> None:
+    try:
+        files = sorted(rate_dir.glob("*.json"), key=lambda item: item.stat().st_mtime)
+    except Exception:
+        return
+    stale_before = now - (_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS * 4)
+    for path in files:
+        try:
+            if path.stat().st_mtime < stale_before:
+                path.unlink(missing_ok=True)
+        except Exception:
+            continue
+    if len(files) <= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS:
+        return
+    for path in files[: max(0, len(files) - _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS)]:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            continue
+
+
+def _enforce_public_tour_feedback_file_rate_limit(*, key: str, now: float) -> bool:
+    rate_dir = _public_tour_rate_limit_dir()
+    if rate_dir is None:
+        return False
+    try:
+        rate_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = rate_dir / ".feedback-rate-limit.lock"
+        state_path = rate_dir / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+            except Exception:
+                state = {}
+            try:
+                window_started = float(state.get("window_started") or now)
+            except Exception:
+                window_started = now
+            try:
+                count = int(state.get("count") or 0)
+            except Exception:
+                count = 0
+            if now - window_started > _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS:
+                window_started = now
+                count = 0
+            if count >= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX:
+                raise HTTPException(status_code=429, detail="public_tour_feedback_rate_limited")
+            tmp_path = state_path.with_suffix(".json.tmp")
+            tmp_path.write_text(
+                json.dumps({"window_started": window_started, "count": count + 1}, sort_keys=True),
+                encoding="utf-8",
+            )
+            tmp_path.replace(state_path)
+            _prune_public_tour_feedback_file_rate_limit(rate_dir, now=now)
+        return True
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("public tour feedback durable rate limit failed")
+        return False
+
+
+def _enforce_public_tour_feedback_rate_limit(*, request: Request, slug: str, principal_id: str) -> None:
+    now = time.time()
+    key = _public_tour_feedback_rate_limit_key(request=request, slug=slug, principal_id=principal_id)
+    if _enforce_public_tour_feedback_file_rate_limit(key=key, now=now):
+        return
+    _enforce_public_tour_feedback_memory_rate_limit(key=key, now=now)
 
 
 def _enforce_public_tour_route_rate_limit(*, request: Request, slug: str, bucket: str) -> None:
@@ -2432,7 +2569,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
               }}),
             }});
             const payload = await response.json();
-            if (!response.ok) throw new Error((payload.error && payload.error.code) || "feedback_failed");
+            if (!response.ok) {{
+              feedbackStatus.textContent = payload.status === "not_captured"
+                ? "Feedback could not be saved. Please retry from the signed-in workspace."
+                : "Could not save feedback right now.";
+              return;
+            }}
             feedbackStatus.textContent = payload.status === "captured_external"
               ? "Feedback captured as an external review signal. Sign in to make it part of your ranking profile."
               : "Feedback captured.";
@@ -3208,7 +3350,7 @@ async def public_tour_feedback(
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
-    _enforce_public_tour_feedback_rate_limit(request=request, slug=slug)
+    _enforce_public_tour_feedback_rate_limit(request=request, slug=slug, principal_id=principal_id)
     reaction = str(body.get("reaction") or "").strip().lower()
     if reaction not in {"like", "dislike", "maybe", "hide"}:
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_reaction")
@@ -3243,7 +3385,22 @@ async def public_tour_feedback(
             dedupe_key="",
         )
     except Exception:
-        pass
+        log.exception(
+            "public tour feedback persistence failed slug=%s principal_hash=%s reaction=%s",
+            slug,
+            hashlib.sha256(principal_id.encode("utf-8")).hexdigest()[:16],
+            reaction,
+        )
+        return JSONResponse(
+            {
+                "status": "not_captured",
+                "trust": "untrusted_external",
+                "message": "Feedback could not be saved right now. Please retry from the signed-in workspace.",
+                "retryable": True,
+                "error": "public_tour_feedback_persistence_failed",
+            },
+            status_code=503,
+        )
     return JSONResponse(
         {
             "status": "captured_external",

@@ -5007,6 +5007,99 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert partial.json()["high_stakes_domains_enabled"] is True
 
 
+def test_preference_profile_node_api_rejects_unsupported_or_malformed_nodes() -> None:
+    client = build_product_client(principal_id="pref-node-api-validation")
+    created = client.post(
+        "/app/api/people/self/preference-profile",
+        json={"display_name": "Tibor", "consent_mode": "behavioral_learning", "learning_enabled": True},
+    )
+    assert created.status_code == 200
+
+    single_district = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": "Waehring",
+            "confidence": 1.0,
+        },
+    )
+    assert single_district.status_code == 200, single_district.text
+    assert single_district.json()["value_json"] == ["Waehring"]
+
+    numeric_constraint = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "constraint",
+            "key": "max_total_rent_eur",
+            "value_json": "2200",
+            "confidence": 1.0,
+            "decay_policy": "manual_only",
+        },
+    )
+    assert numeric_constraint.status_code == 200, numeric_constraint.text
+    assert numeric_constraint.json()["value_json"] == 2200
+
+    unsupported_domain = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "arbitrary_crm",
+            "category": "soft_preference",
+            "key": "preferred_districts",
+            "value_json": ["Waehring"],
+        },
+    )
+    assert unsupported_domain.status_code == 422
+
+    unsupported_key = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "run_shell_command",
+            "value_json": True,
+        },
+    )
+    assert unsupported_key.status_code == 422
+
+    malformed_bool = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "prefer_lift",
+            "value_json": {"enabled": True},
+        },
+    )
+    assert malformed_bool.status_code == 422
+
+    invalid_metadata = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "prefer_lift",
+            "value_json": True,
+            "source_mode": "browser_supplied_system_override",
+        },
+    )
+    assert invalid_metadata.status_code == 422
+
+    invalid_correction = client.post(
+        "/app/api/people/self/preference-profile/corrections",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "prefer_lift",
+            "value_json": {"enabled": True},
+            "reason": "Malformed correction should not reach persistence.",
+        },
+    )
+    assert invalid_correction.status_code == 422
+
+
 def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile_exists(monkeypatch) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt

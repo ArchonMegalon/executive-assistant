@@ -200,6 +200,20 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     )
 
     headers = {"host": "propertyquarry.com"}
+    setup = client.get("/app/properties", headers=headers)
+    assert setup.status_code == 200
+    assert 'data-range-control="max_price_eur"' in setup.text
+    assert 'data-range-control="min_rooms"' in setup.text
+    assert 'data-range-control="min_area_m2"' in setup.text
+    assert 'data-range-control="max_results_per_source"' in setup.text
+    assert 'data-range-control="min_match_score"' in setup.text
+    assert 'data-range-format="currency_eur"' in setup.text
+    assert 'data-range-format="area_m2"' in setup.text
+    assert 'data-range-empty-label="Any budget"' in setup.text
+    assert 'data-range-preset="listing_mode_price"' in setup.text
+    assert "Max budget" in setup.text
+    assert "Min area" in setup.text
+
     search = client.get("/app/properties", params={"run_id": "run-42"}, headers=headers)
     assert search.status_code == 200
     assert 'data-property-app-shell' in search.text

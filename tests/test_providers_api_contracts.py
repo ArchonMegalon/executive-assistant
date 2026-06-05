@@ -7555,6 +7555,106 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     assert "Gasheizung conflicts with your heating preferences." not in second_page.text
 
 
+def test_public_tour_feedback_reports_persistence_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_RATE_LIMIT_DIR", str(tmp_path / "rates"))
+    slug = "pioche-lecombe-feedback-persistence-failure"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Feedback Persistence Guard",
+                "display_title": "Feedback Persistence Guard",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {"postal_name": "Waehring", "has_floorplan": True},
+                "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-feedback-fails")
+
+    def _fail_ingest(**_kwargs):
+        raise RuntimeError("observation_store_unavailable")
+
+    client.app.state.container.channel_runtime.ingest_observation = _fail_ingest
+    response = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com"},
+        json={"reaction": "maybe", "reason_keys": [], "note": "Save should be honest."},
+    )
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_captured"
+    assert body["retryable"] is True
+    assert body["error"] == "public_tour_feedback_persistence_failed"
+
+
+def test_public_tour_feedback_rate_limit_ignores_untrusted_x_forwarded_for(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_TRUST_X_FORWARDED_FOR", "0")
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_RATE_LIMIT_DIR", str(tmp_path / "rates"))
+    slug = "pioche-lecombe-feedback-rate-limit"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Feedback Rate Limit Guard",
+                "display_title": "Feedback Rate Limit Guard",
+                "listing_url": "https://www.kalandra.at/objekt/14997053",
+                "property_url": "https://www.kalandra.at/objekt/14997053",
+                "hosted_url": f"https://ea.example/tours/{slug}",
+                "scene_strategy": "pure_360_cube",
+                "scene_count": 1,
+                "principal_id": "cf-email:tibor.girschele@gmail.com",
+                "source_virtual_tour_origin": "https://360.kalandra.at/view/portal/id/VZ8P1",
+                "facts": {"postal_name": "Waehring", "has_floorplan": True},
+                "scenes": [{"name": "Living room", "role": "pure_360", "asset_relpath": "scene.jpg", "cube_faces": {"f": "scene.jpg"}}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    client = _client(principal_id="exec-public-tour-feedback-rate-limit")
+
+    for index in range(12):
+        response = client.post(
+            f"/tours/{slug}/feedback",
+            headers={"host": "myexternalbrain.com", "x-forwarded-for": f"198.51.100.{index + 1}"},
+            json={"reaction": "maybe", "reason_keys": [], "note": f"Feedback {index}"},
+        )
+        assert response.status_code == 200, response.text
+
+    limited = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com", "x-forwarded-for": "203.0.113.250"},
+        json={"reaction": "maybe", "reason_keys": [], "note": "Spoofed IP should not bypass."},
+    )
+    assert limited.status_code == 429
+    assert limited.json()["error"]["code"] == "public_tour_feedback_rate_limited"
+
+
 def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -499,6 +499,56 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         context.close()
 
 
+def test_propertyquarry_setup_wizard_numeric_sliders_are_mobile_friendly(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'search'")
+
+        expected_search_sliders = {
+            "max_price_eur": "Any budget",
+            "min_rooms": "Any rooms",
+            "min_area_m2": "Any size",
+        }
+        for name, empty_label in expected_search_sliders.items():
+            shell = page.locator(f'[data-range-control="{name}"]')
+            slider = shell.locator('input[type="range"]')
+            assert shell.is_visible()
+            assert slider.is_visible()
+            assert slider.get_attribute("data-range-empty-label") == empty_label
+            shell_box = shell.bounding_box()
+            slider_box = slider.bounding_box()
+            assert shell_box is not None and shell_box["width"] <= 430
+            assert slider_box is not None and slider_box["height"] >= 42
+
+        price_slider = page.locator('input[name="max_price_eur"]')
+        assert price_slider.get_attribute("max") == "6000"
+        assert page.locator('[data-range-value-for="max_price_eur"]').inner_text().strip() == "Any budget"
+        page.select_option('select[name="listing_mode"]', "buy")
+        assert price_slider.get_attribute("max") == "2000000"
+        assert page.locator('[data-range-control="max_price_eur"] [data-range-scale-max]').inner_text().strip() == "EUR 2M"
+
+        page.locator('[data-property-step-trigger="providers"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+        for name in ("max_results_per_source", "min_match_score"):
+            slider = page.locator(f'input[name="{name}"]')
+            assert slider.is_visible()
+            slider_box = slider.bounding_box()
+            assert slider_box is not None and slider_box["height"] >= 42
+            assert slider.get_attribute("max") in {"10", "80"}
+        assert page.locator('input[name="max_results_per_source"]').get_attribute("data-range-selectable-max") == "2"
+        assert page.locator('input[name="min_match_score"]').get_attribute("data-range-selectable-max") == "45"
+        _assert_property_shell_visual_gates(page, max_appbar_height=130)
+    finally:
+        context.close()
+
+
 def test_propertyquarry_start_failure_explains_backend_reason(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
