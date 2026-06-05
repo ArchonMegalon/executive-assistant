@@ -335,9 +335,47 @@ def ensure_prod_signing_secret_configured(settings: Settings) -> None:
     raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_SIGNING_SECRET")
 
 
+def ensure_prod_loopback_no_auth_disabled(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    if not bool(getattr(settings.auth, "allow_loopback_no_auth", False)):
+        return
+    raise RuntimeError("EA_RUNTIME_MODE=prod forbids EA_ALLOW_LOOPBACK_NO_AUTH=1")
+
+
+def _email_sender_domain(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if "<" in normalized and ">" in normalized:
+        normalized = normalized.split("<", 1)[1].split(">", 1)[0].strip()
+    if "@" not in normalized:
+        return ""
+    return normalized.rsplit("@", 1)[1].strip().strip(".")
+
+
+def _propertyquarry_sender_domain_allowed(value: str) -> bool:
+    domain = _email_sender_domain(value)
+    return domain == "propertyquarry.com" or domain.endswith(".propertyquarry.com")
+
+
+def ensure_prod_registration_email_sender_domain(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    if _env_truthy(os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER")):
+        return
+    for key in ("EA_REGISTRATION_EMAIL_FROM", "EA_EMAIL_DEFAULT_FROM", "EA_REGISTRATION_EMAIL_FROM_FALLBACK"):
+        value = str(os.environ.get(key) or "").strip()
+        if value and not _propertyquarry_sender_domain_allowed(value):
+            raise RuntimeError(
+                "EA_RUNTIME_MODE=prod requires PropertyQuarry email sender domains "
+                "or EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER=1"
+            )
+
+
 def validate_startup_settings(settings: Settings) -> RuntimeProfile:
     ensure_prod_api_token_configured(settings)
     ensure_prod_signing_secret_configured(settings)
+    ensure_prod_loopback_no_auth_disabled(settings)
+    ensure_prod_registration_email_sender_domain(settings)
     profile = resolve_runtime_profile(settings)
     if is_prod_mode(settings.runtime.mode):
         if profile.storage_backend != "postgres":

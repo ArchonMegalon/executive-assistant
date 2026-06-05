@@ -39,6 +39,17 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     return client
 
 
+def _public_tour_action_token(slug: str, action: str, *, expires_at: int | None = None) -> str:
+    from app.api.routes import public_tours
+
+    return public_tours._public_tour_action_token(
+        slug=slug,
+        action=action,
+        payload=public_tours._load_tour(slug),
+        expires_at=expires_at,
+    )
+
+
 def _assert_no_product_drift(text: str) -> None:
     lower = text.lower()
     assert "chummer" not in lower
@@ -7402,7 +7413,25 @@ def test_public_tour_request_details_opens_followup(
 
     monkeypatch.setattr(public_tours, "build_product_service", lambda container: _FakeService())
     client = _client(principal_id="exec-public-tour-request-details")
-    response = client.post(f"/tours/{slug}/request-details", headers={"host": "myexternalbrain.com"})
+    unsigned = client.post(f"/tours/{slug}/request-details", headers={"host": "myexternalbrain.com"}, json={})
+    assert unsigned.status_code == 403
+    assert unsigned.json()["error"]["code"] == "invalid_public_tour_action_token"
+    assert captured == {}
+
+    expired = client.post(
+        f"/tours/{slug}/request-details",
+        headers={"host": "myexternalbrain.com"},
+        json={"action_token": _public_tour_action_token(slug, "request-details", expires_at=int(time.time()) - 1)},
+    )
+    assert expired.status_code == 403
+    assert expired.json()["error"]["code"] == "invalid_public_tour_action_token"
+    assert captured == {}
+
+    response = client.post(
+        f"/tours/{slug}/request-details",
+        headers={"host": "myexternalbrain.com"},
+        json={"action_token": _public_tour_action_token(slug, "request-details")},
+    )
 
     assert response.status_code == 200
     assert response.json()["status"] == "requested"
@@ -7470,11 +7499,25 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     assert first_page.status_code == 200
     assert "Teach the system what to rank higher or lower" in first_page.text
     assert "Save feedback" in first_page.text
+    assert '"feedback":' in first_page.text
+
+    unsigned = client.post(
+        f"/tours/{slug}/feedback",
+        headers={"host": "myexternalbrain.com"},
+        json={"reaction": "dislike", "reason_keys": ["gas_heating", "no_lift"], "note": "This is exactly what I do not want."},
+    )
+    assert unsigned.status_code == 403
+    assert unsigned.json()["error"]["code"] == "invalid_public_tour_action_token"
 
     feedback = client.post(
         f"/tours/{slug}/feedback",
         headers={"host": "myexternalbrain.com"},
-        json={"reaction": "dislike", "reason_keys": ["gas_heating", "no_lift"], "note": "This is exactly what I do not want."},
+        json={
+            "reaction": "dislike",
+            "reason_keys": ["gas_heating", "no_lift"],
+            "note": "This is exactly what I do not want.",
+            "action_token": _public_tour_action_token(slug, "feedback"),
+        },
     )
     assert feedback.status_code == 200
     body = feedback.json()
@@ -7549,7 +7592,12 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
     invalid = client.post(
         f"/tours/{slug}/feedback",
         headers={"host": "myexternalbrain.com"},
-        json={"reaction": "dislike", "reason_keys": "gas_heating", "note": "invalid payload"},
+        json={
+            "reaction": "dislike",
+            "reason_keys": "gas_heating",
+            "note": "invalid payload",
+            "action_token": _public_tour_action_token(slug, "feedback"),
+        },
     )
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "invalid_tour_feedback_reason_keys"
@@ -7557,7 +7605,12 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
     unknown_reason = client.post(
         f"/tours/{slug}/feedback",
         headers={"host": "myexternalbrain.com"},
-        json={"reaction": "dislike", "reason_keys": ["not_a_reason"], "note": "unknown reason"},
+        json={
+            "reaction": "dislike",
+            "reason_keys": ["not_a_reason"],
+            "note": "unknown reason",
+            "action_token": _public_tour_action_token(slug, "feedback"),
+        },
     )
     assert unknown_reason.status_code == 422
     assert unknown_reason.json()["error"]["code"] == "invalid_tour_feedback_reason_key"
@@ -7565,7 +7618,12 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
     invalid_reaction = client.post(
         f"/tours/{slug}/feedback",
         headers={"host": "myexternalbrain.com"},
-        json={"reaction": "nah", "reason_keys": ["gas_heating"], "note": "invalid reaction"},
+        json={
+            "reaction": "nah",
+            "reason_keys": ["gas_heating"],
+            "note": "invalid reaction",
+            "action_token": _public_tour_action_token(slug, "feedback"),
+        },
     )
     assert invalid_reaction.status_code == 422
     assert invalid_reaction.json()["error"]["code"] == "invalid_tour_feedback_reaction"
@@ -7630,11 +7688,24 @@ def test_public_tour_filter_update_changes_preference_filters(
     assert first_page.status_code == 200
     assert "Search Filters" in first_page.text
     assert "Prefer 1190 Wien" in first_page.text
+    assert '"filters":' in first_page.text
+
+    unsigned = client.post(
+        f"/tours/{slug}/filters",
+        headers={"host": "myexternalbrain.com"},
+        json={"filter_key": "avoid_gas_heating", "enabled": True},
+    )
+    assert unsigned.status_code == 403
+    assert unsigned.json()["error"]["code"] == "invalid_public_tour_action_token"
 
     enabled = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
-        json={"filter_key": "avoid_gas_heating", "enabled": True},
+        json={
+            "filter_key": "avoid_gas_heating",
+            "enabled": True,
+            "action_token": _public_tour_action_token(slug, "filters"),
+        },
     )
     assert enabled.status_code == 200
     assert enabled.json()["status"] == "updated"
@@ -7706,7 +7777,7 @@ def test_public_tour_filter_update_rejects_invalid_payload(
     missing_filter = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
-        json={"filter_key": "", "enabled": True},
+        json={"filter_key": "", "enabled": True, "action_token": _public_tour_action_token(slug, "filters")},
     )
     assert missing_filter.status_code == 422
     assert missing_filter.json()["error"]["code"] == "invalid_tour_filter_key"
@@ -7714,7 +7785,11 @@ def test_public_tour_filter_update_rejects_invalid_payload(
     invalid_filter = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
-        json={"filter_key": "does_not_exist", "enabled": True},
+        json={
+            "filter_key": "does_not_exist",
+            "enabled": True,
+            "action_token": _public_tour_action_token(slug, "filters"),
+        },
     )
     assert invalid_filter.status_code == 422
     assert invalid_filter.json()["error"]["code"] == "invalid_tour_filter_key"
@@ -7722,7 +7797,11 @@ def test_public_tour_filter_update_rejects_invalid_payload(
     invalid_enabled = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
-        json={"filter_key": "prefer_subway_nearby", "enabled": "maybe"},
+        json={
+            "filter_key": "prefer_subway_nearby",
+            "enabled": "maybe",
+            "action_token": _public_tour_action_token(slug, "filters"),
+        },
     )
     assert invalid_enabled.status_code == 422
     assert invalid_enabled.json()["error"]["code"] == "invalid_tour_filter_enabled"
@@ -7730,7 +7809,11 @@ def test_public_tour_filter_update_rejects_invalid_payload(
     string_false = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
-        json={"filter_key": "prefer_subway_nearby", "enabled": "false"},
+        json={
+            "filter_key": "prefer_subway_nearby",
+            "enabled": "false",
+            "action_token": _public_tour_action_token(slug, "filters"),
+        },
     )
     assert string_false.status_code == 200
     assert string_false.json()["enabled"] is False

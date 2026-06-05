@@ -32,6 +32,10 @@ def _clear_env() -> None:
         "EA_SIGNING_SECRET",
         "EA_DEFAULT_PRINCIPAL_ID",
         "EA_ALLOW_LOOPBACK_NO_AUTH",
+        "EA_REGISTRATION_EMAIL_FROM",
+        "EA_REGISTRATION_EMAIL_FROM_FALLBACK",
+        "EA_EMAIL_DEFAULT_FROM",
+        "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER",
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
         "EA_CF_ACCESS_TEAM_DOMAIN",
         "EA_CF_ACCESS_AUD",
@@ -52,6 +56,10 @@ def _isolated_env() -> None:
         "EA_SIGNING_SECRET": os.environ.get("EA_SIGNING_SECRET"),
         "EA_DEFAULT_PRINCIPAL_ID": os.environ.get("EA_DEFAULT_PRINCIPAL_ID"),
         "EA_ALLOW_LOOPBACK_NO_AUTH": os.environ.get("EA_ALLOW_LOOPBACK_NO_AUTH"),
+        "EA_REGISTRATION_EMAIL_FROM": os.environ.get("EA_REGISTRATION_EMAIL_FROM"),
+        "EA_REGISTRATION_EMAIL_FROM_FALLBACK": os.environ.get("EA_REGISTRATION_EMAIL_FROM_FALLBACK"),
+        "EA_EMAIL_DEFAULT_FROM": os.environ.get("EA_EMAIL_DEFAULT_FROM"),
+        "EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER": os.environ.get("EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"),
         "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER": os.environ.get("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"),
         "EA_CF_ACCESS_TEAM_DOMAIN": os.environ.get("EA_CF_ACCESS_TEAM_DOMAIN"),
         "EA_CF_ACCESS_AUD": os.environ.get("EA_CF_ACCESS_AUD"),
@@ -147,6 +155,40 @@ def test_prod_requires_explicit_signing_secret() -> None:
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     with pytest.raises(RuntimeError, match="EA_SIGNING_SECRET"):
         validate_startup_settings(get_settings())
+
+
+def test_prod_forbids_loopback_no_auth() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
+    with pytest.raises(RuntimeError, match="EA_ALLOW_LOOPBACK_NO_AUTH"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_rejects_inherited_registration_sender_domains() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
+    with pytest.raises(RuntimeError, match="PropertyQuarry email sender"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_allows_registration_sender_domain_override() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "secret-token"
+    os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
+    os.environ["EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"] = "1"
+    profile = validate_startup_settings(get_settings())
+    assert profile.storage_backend == "postgres"
 
 
 def test_prod_runtime_profile_requires_authenticated_header_principal() -> None:

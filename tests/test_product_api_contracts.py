@@ -4807,6 +4807,46 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert any(item["key"] == "prefer_lift" for item in feedback_body["evidence"]["applied_nodes"])
     assert feedback_body["updated_assessment"]["domain"] == "willhaben"
 
+    invalid_reaction = client.post(
+        "/app/api/people/self/preference-profile/property-feedback",
+        json={
+            "property_slug": "waehring-flat-1",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1",
+            "property_title": "Waehring Flat 1",
+            "property_facts": {"postal_name": "Waehring"},
+            "reaction": "nah",
+            "reason_keys": ["gas_heating"],
+        },
+    )
+    assert invalid_reaction.status_code == 422
+
+    unknown_reason = client.post(
+        "/app/api/people/self/preference-profile/property-feedback",
+        json={
+            "property_slug": "waehring-flat-1",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1",
+            "property_title": "Waehring Flat 1",
+            "property_facts": {"postal_name": "Waehring"},
+            "reaction": "dislike",
+            "reason_keys": ["not_a_reason"],
+        },
+    )
+    assert unknown_reason.status_code == 422
+    assert unknown_reason.json()["error"]["code"] == "invalid_property_feedback_reason_key"
+
+    too_many_reasons = client.post(
+        "/app/api/people/self/preference-profile/property-feedback",
+        json={
+            "property_slug": "waehring-flat-1",
+            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1180-waehring/waehring-flat-1",
+            "property_title": "Waehring Flat 1",
+            "property_facts": {"postal_name": "Waehring"},
+            "reaction": "dislike",
+            "reason_keys": ["gas_heating"] * 13,
+        },
+    )
+    assert too_many_reasons.status_code == 422
+
     learning = client.get("/app/api/people/self/preference-profile/learning-summary")
     assert learning.status_code == 200
     learning_body = learning.json()

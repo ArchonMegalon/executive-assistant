@@ -88,7 +88,7 @@ from app.api.routes.product_api_contracts import (
     thread_out,
 )
 from app.container import AppContainer
-from app.product.service import build_product_service
+from app.product.service import _property_feedback_reason_map, build_product_service
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 
@@ -842,6 +842,19 @@ def record_property_feedback(
 ) -> PropertyFeedbackRecordOut:
     service = build_product_service(container)
     actor = str(body.actor or context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    allowed_reason_keys = set(_property_feedback_reason_map().keys())
+    normalized_reason_keys = [
+        str(item or "").strip().lower()
+        for item in list(body.reason_keys or [])
+        if str(item or "").strip()
+    ]
+    invalid_reason_keys = [
+        key
+        for key in normalized_reason_keys
+        if len(key) > 80 or key not in allowed_reason_keys
+    ]
+    if invalid_reason_keys:
+        raise HTTPException(status_code=422, detail="invalid_property_feedback_reason_key")
     result = service.record_property_feedback(
         principal_id=context.principal_id,
         person_id=person_id,
@@ -850,7 +863,7 @@ def record_property_feedback(
         property_title=body.property_title,
         property_facts=dict(body.property_facts or {}),
         reaction=body.reaction,
-        reason_keys=list(body.reason_keys or []),
+        reason_keys=normalized_reason_keys,
         note=body.note,
         actor=actor,
     )

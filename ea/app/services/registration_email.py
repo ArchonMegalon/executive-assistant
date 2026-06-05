@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 
 EMAILIT_API_BASE = "https://api.emailit.com/v2/emails"
-DEFAULT_SENDER_EMAIL = "property@propertyquery.com"
+DEFAULT_SENDER_EMAIL = "property@propertyquarry.com"
 DEFAULT_SENDER_NAME = "PropertyQuarry"
 
 

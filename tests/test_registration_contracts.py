@@ -420,11 +420,11 @@ def test_register_verify_reports_google_oauth_configuration_hint_when_missing(mo
     assert "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET." in google_start["detail"]
 
 
-def test_registration_email_payload_stays_english_and_uses_propertyquery_sender(
+def test_registration_email_payload_stays_english_and_uses_propertyquarry_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
-    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquery.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
 
     from app.services import registration_email as service
@@ -456,7 +456,7 @@ def test_registration_email_payload_stays_english_and_uses_propertyquery_sender(
     )
 
     payload = dict(captured["payload"])
-    assert payload["from"] == "PropertyQuarry <property@propertyquery.com>"
+    assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert payload["subject"] == "Verify your email for PropertyQuarry"
     assert "Use this verification code to create your PropertyQuarry workspace" in payload["text"]
     assert "Google is connected after sign-up as an identity and optional workspace data source for PropertyQuarry." in payload["text"]
@@ -468,7 +468,7 @@ def test_registration_email_falls_back_to_verified_sender_when_domain_is_not_ver
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
-    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquery.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", "concierge@chummer.run")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME_FALLBACK", "PropertyQuarry")
@@ -519,10 +519,10 @@ def test_registration_email_falls_back_to_verified_sender_when_domain_is_not_ver
     )
 
     assert call_count["value"] == 2
-    assert observed_payloads[0]["from"] == "PropertyQuarry <property@propertyquery.com>"
+    assert observed_payloads[0]["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert observed_payloads[1]["from"] == "PropertyQuarry <concierge@chummer.run>"
     assert observed_payloads[1]["meta"]["sender_fallback_used"] is True
-    assert observed_payloads[1]["meta"]["preferred_sender_email"] == "property@propertyquery.com"
+    assert observed_payloads[1]["meta"]["preferred_sender_email"] == "property@propertyquarry.com"
     assert observed_payloads[1]["meta"]["fallback_sender_email"] == "concierge@chummer.run"
     assert receipt.message_id == "emailit-live-fallback-1"
 
@@ -532,7 +532,7 @@ def test_registration_email_can_force_verified_sender_without_primary_attempt(
 ) -> None:
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_FORCE_FALLBACK", "1")
-    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquery.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM_FALLBACK", "concierge@chummer.run")
     monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME_FALLBACK", "PropertyQuarry")

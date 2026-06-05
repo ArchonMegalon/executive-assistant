@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import hashlib
 import html
+import hmac
 import json
 import mimetypes
 import os
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -21,6 +24,9 @@ from app.product.service import _property_feedback_reason_map, build_product_ser
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 
 router = APIRouter(tags=["public-tours"])
+
+_PUBLIC_TOUR_ACTIONS = frozenset({"request-details", "feedback", "filters"})
+_PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
 def _fact_value_is_weak(value: object) -> bool:
@@ -389,6 +395,124 @@ def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
     if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
         return True
     return False
+
+
+def _public_tour_action_secret() -> str:
+    explicit = (
+        str(os.getenv("EA_PUBLIC_TOUR_ACTION_SECRET") or "").strip()
+        or str(os.getenv("EA_SIGNING_SECRET") or "").strip()
+    )
+    if explicit:
+        return explicit
+    if str(os.getenv("EA_RUNTIME_MODE") or "").strip().lower() == "prod":
+        raise HTTPException(status_code=503, detail="public_tour_action_secret_required")
+    return str(os.getenv("EA_API_TOKEN") or "").strip() or "dev-public-tour-action-secret"
+
+
+def _public_tour_action_message(
+    *,
+    slug: str,
+    action: str,
+    payload: dict[str, object],
+    expires_at: int,
+) -> str:
+    property_ref = str(payload.get("property_url") or payload.get("listing_url") or "").strip()
+    source_ref = str(payload.get("source_ref") or payload.get("external_id") or "").strip()
+    principal_id = str(payload.get("principal_id") or "").strip()
+    return "\n".join(
+        (
+            "public-tour-action:v1",
+            str(slug or "").strip(),
+            str(action or "").strip(),
+            principal_id,
+            property_ref,
+            source_ref,
+            str(int(expires_at)),
+        )
+    )
+
+
+def _public_tour_action_token(
+    *,
+    slug: str,
+    action: str,
+    payload: dict[str, object],
+    expires_at: int | None = None,
+) -> str:
+    normalized_action = str(action or "").strip()
+    if normalized_action not in _PUBLIC_TOUR_ACTIONS:
+        raise ValueError("unknown public tour action")
+    try:
+        configured_ttl_seconds = int(os.getenv("EA_PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS") or _PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS)
+    except ValueError:
+        configured_ttl_seconds = _PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS
+    ttl_seconds = max(60, configured_ttl_seconds)
+    resolved_expires_at = int(expires_at if expires_at is not None else time.time() + ttl_seconds)
+    message = _public_tour_action_message(
+        slug=slug,
+        action=normalized_action,
+        payload=payload,
+        expires_at=resolved_expires_at,
+    )
+    signature = hmac.new(
+        _public_tour_action_secret().encode("utf-8"),
+        message.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"v1.{resolved_expires_at}.{signature}"
+
+
+def _public_tour_action_tokens(*, slug: str, payload: dict[str, object]) -> dict[str, str]:
+    return {
+        "request_details": _public_tour_action_token(slug=slug, action="request-details", payload=payload),
+        "feedback": _public_tour_action_token(slug=slug, action="feedback", payload=payload),
+        "filters": _public_tour_action_token(slug=slug, action="filters", payload=payload),
+    }
+
+
+def _public_tour_action_token_is_valid(
+    *,
+    slug: str,
+    action: str,
+    payload: dict[str, object],
+    token: str,
+) -> bool:
+    normalized_token = str(token or "").strip()
+    if not normalized_token or len(normalized_token) > 256:
+        return False
+    parts = normalized_token.split(".", 2)
+    if len(parts) != 3 or parts[0] != "v1":
+        return False
+    try:
+        expires_at = int(parts[1])
+    except ValueError:
+        return False
+    if expires_at < int(time.time()):
+        return False
+    expected = _public_tour_action_token(
+        slug=slug,
+        action=action,
+        payload=payload,
+        expires_at=expires_at,
+    )
+    return hmac.compare_digest(normalized_token, expected)
+
+
+def _require_public_tour_action_token(
+    *,
+    slug: str,
+    action: str,
+    payload: dict[str, object],
+    body: dict[str, object],
+) -> None:
+    token = str(body.get("action_token") or "").strip() if isinstance(body, dict) else ""
+    if not _public_tour_action_token_is_valid(
+        slug=slug,
+        action=action,
+        payload=payload,
+        token=token,
+    ):
+        raise HTTPException(status_code=403, detail="invalid_public_tour_action_token")
 
 
 def _feedback_reason_label(reason_key: object) -> str:
@@ -1069,6 +1193,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
     hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
+    action_tokens = (
+        _public_tour_action_tokens(slug=slug, payload=payload)
+        if slug and str(payload.get("principal_id") or "").strip()
+        else {}
+    )
+    action_tokens_json = json.dumps(action_tokens, ensure_ascii=False).replace("</", "<\\/")
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
     video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
@@ -2366,7 +2496,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </div>
       </div>
     </div>
+    <script id="tour-action-tokens" type="application/json">{action_tokens_json}</script>
     <script>
+      const tourActionTokens = JSON.parse(document.getElementById("tour-action-tokens").textContent || "{{}}");
       const requestButton = document.getElementById("request-details-btn");
       const requestStatus = document.getElementById("request-details-status");
       let selectedReaction = "";
@@ -2413,6 +2545,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 reaction: selectedReaction,
                 reason_keys: [...selectedReasons],
                 note: feedbackNote ? feedbackNote.value : "",
+                action_token: String(tourActionTokens.feedback || ""),
               }}),
             }});
             const payload = await response.json();
@@ -2436,7 +2569,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             const response = await fetch(window.location.pathname + "/filters", {{
               method: "POST",
               headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{ filter_key: filterKey, enabled }}),
+              body: JSON.stringify({{ filter_key: filterKey, enabled, action_token: String(tourActionTokens.filters || "") }}),
             }});
             const payload = await response.json();
             if (!response.ok) throw new Error((payload.error && payload.error.code) || "filter_update_failed");
@@ -2456,7 +2589,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             const response = await fetch(window.location.pathname + "/request-details", {{
               method: "POST",
               headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{}}),
+              body: JSON.stringify({{ action_token: String(tourActionTokens.request_details || "") }}),
             }});
             const payload = await response.json();
             if (!response.ok) throw new Error((payload.error && payload.error.code) || "request_failed");
@@ -3149,7 +3282,7 @@ def public_tour_file(slug: str, asset_path: str) -> FileResponse:
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)
-def public_tour_request_details(
+async def public_tour_request_details(
     slug: str,
     request: Request,
     container: AppContainer = Depends(get_container),
@@ -3161,6 +3294,18 @@ def public_tour_request_details(
     property_url = str(payload.get("property_url") or payload.get("listing_url") or "").strip()
     if not principal_id or not property_url:
         raise HTTPException(status_code=409, detail="tour_detail_request_unavailable")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    _require_public_tour_action_token(
+        slug=slug,
+        action="request-details",
+        payload=payload,
+        body=body,
+    )
     result = build_product_service(container).request_property_tour_detail_refresh(
         principal_id=principal_id,
         property_url=property_url,
@@ -3192,6 +3337,12 @@ async def public_tour_feedback(
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
+    _require_public_tour_action_token(
+        slug=slug,
+        action="feedback",
+        payload=payload,
+        body=body,
+    )
     reaction = str(body.get("reaction") or "").strip().lower()
     if reaction not in {"like", "dislike", "maybe", "hide"}:
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_reaction")
@@ -3228,10 +3379,16 @@ async def public_tour_filter_update(
     principal_id = str(payload.get("principal_id") or "").strip()
     if not principal_id:
         raise HTTPException(status_code=409, detail="tour_filter_update_unavailable")
-    live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
-    facts = dict(live_context.get("facts") or payload.get("facts") or {})
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="invalid_tour_filter_payload")
+    _require_public_tour_action_token(
+        slug=slug,
+        action="filters",
+        payload=payload,
+        body=body,
+    )
+    live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
+    facts = dict(live_context.get("facts") or payload.get("facts") or {})
     filter_key = str(body.get("filter_key") or "").strip()
     if not filter_key:
         raise HTTPException(status_code=422, detail="invalid_tour_filter_key")

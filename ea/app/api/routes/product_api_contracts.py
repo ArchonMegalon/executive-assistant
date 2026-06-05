@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -814,14 +815,14 @@ class PropertyFeedbackSuggestionRequestIn(BaseModel):
 
 
 class PropertyFeedbackRecordIn(BaseModel):
-    property_slug: str = ""
-    property_url: str = ""
-    property_title: str = ""
+    property_slug: str = Field(default="", max_length=200)
+    property_url: str = Field(default="", max_length=2048)
+    property_title: str = Field(default="", max_length=500)
     property_facts: dict[str, object] = Field(default_factory=dict)
-    reaction: str = Field(min_length=1)
-    reason_keys: list[str] = Field(default_factory=list)
-    note: str = ""
-    actor: str = ""
+    reaction: Literal["like", "dislike", "maybe", "hide"]
+    reason_keys: list[str] = Field(default_factory=list, max_length=12)
+    note: str = Field(default="", max_length=2000)
+    actor: str = Field(default="", max_length=200)
 
 
 class PreferenceProfileSummaryOut(BaseModel):
