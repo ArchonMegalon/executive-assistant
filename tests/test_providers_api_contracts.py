@@ -8469,6 +8469,8 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "readJsonResponse" in page.text
     assert "Gespräch läuft. Ich transkribiere fortlaufend." in page.text
     assert "recorder.start(900)" in page.text
+    assert "x-memorial-visitor-id" not in page.text
+    assert "visitor_id:" not in page.text
 
     voice = client.get(f"/memorials/{slug}/voice-config")
     assert voice.status_code == 200
@@ -8497,26 +8499,36 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert discipline.status_code == 200
     discipline_body = discipline.json()
     assert discipline_body["private_context_used"] is True
-    assert "Ein Kind muss lernen" in discipline_body["answer"]
-    assert "nicht so tun" in discipline_body["answer"]
+    assert discipline_body["fallback_reason"] == "difficult_memory_guardrail"
+    assert "keine Ich-Form-Rekonstruktion" in discipline_body["answer"]
 
     household = client.post(f"/memorials/{slug}/chat", json={"question": "Was war seine Haltung zu Haushalt, Hemden und Kindererziehung?"})
     assert household.status_code == 200
     household_body = household.json()
-    assert "Ich habe meinen Teil getan" in household_body["answer"]
-    assert "Aufgabe der Frau" in household_body["answer"]
+    assert household_body["fallback_reason"] == "difficult_memory_guardrail"
+    assert "keine Ich-Form-Rekonstruktion" in household_body["answer"]
 
     politics = client.post(f"/memorials/{slug}/chat", json={"question": "Warum war er bei MFG und gegen Auslaender?"})
     assert politics.status_code == 200
     politics_body = politics.json()
-    assert "nicht gern von oben" in politics_body["answer"]
-    assert "Bei Zuwanderung war ich hart" in politics_body["answer"]
+    assert politics_body["fallback_reason"] == "difficult_memory_guardrail"
+    assert "keine Ich-Form-Rekonstruktion" in politics_body["answer"]
 
     covid = client.post(f"/memorials/{slug}/chat", json={"question": "Warum wollte er keine Covid Impfung und was dachte er ueber Aerzte und Pharma?"})
     assert covid.status_code == 200
     covid_body = covid.json()
-    assert "Aerzten und Pharmafirmen" in covid_body["answer"]
-    assert "ich sehe da klarer" in covid_body["answer"]
+    assert covid_body["fallback_reason"] == "difficult_memory_guardrail"
+    assert "keine Ich-Form-Rekonstruktion" in covid_body["answer"]
+
+    difficult_opt_in = client.post(
+        f"/memorials/{slug}/chat?difficult_memory_mode=1",
+        json={"question": "Was dachte er ueber Kinder schlagen?"},
+    )
+    assert difficult_opt_in.status_code == 200
+    difficult_opt_in_body = difficult_opt_in.json()
+    assert difficult_opt_in_body["difficult_memory_mode"] is True
+    assert "Ein Kind muss lernen" in difficult_opt_in_body["answer"]
+    assert "nicht so tun" in difficult_opt_in_body["answer"]
 
 
 def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(
@@ -8715,6 +8727,28 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
     )
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    write_token = "memorial-write-token"
+    (private_root / slug).mkdir(parents=True, exist_ok=True)
+    (private_root / slug / "tts_voice.json").write_text(
+        json.dumps(
+            {
+                "tts_mode": "browser_speech_synthesis",
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["profile_build", "clone", "synthesize", "conversation_turn", "realtime"],
+                    "authorized_by": "test-family",
+                    "authorized_at": "2026-06-05T16:25:00Z",
+                    "source_assets_reviewed": True,
+                    "revoked": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    payload = json.loads((bundle_dir / "memorial.json").read_text(encoding="utf-8"))
+    payload["write_token"] = write_token
+    (bundle_dir / "memorial.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     from app.api.routes import public_memorials
     from app.services import memorial_voice_profile
@@ -8757,6 +8791,7 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
 
     saved = client.post(
         f"/memorials/{slug}/voice-config",
+        headers={"x-memorial-write-token": write_token},
         json={
             "voice_label": "Archiv Stimme",
             "lang": "de-DE",
@@ -8784,6 +8819,7 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
 
     build = client.post(
         f"/memorials/{slug}/voice-profile/build",
+        headers={"x-memorial-write-token": write_token},
         json={
             "youtube_query": "Manfred Hoza interview",
             "youtube_urls": "https://www.youtube.com/watch?v=abc\nhttps://www.youtube.com/watch?v=xyz",
@@ -8793,6 +8829,88 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
     assert build.status_code == 200
     build_body = build.json()
     assert build_body["voice_profile_slug"] == slug
+
+
+def test_public_memorial_manifest_file_route_blocks_raw_manifest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "audio").mkdir()
+    (bundle_dir / "audio" / "clip.mp3").write_bytes(b"clip")
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "person_name": "Manfred Hoza",
+                "write_token": "must-not-leak",
+                "audio_clips": [{"asset_relpath": "audio/clip.mp3"}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    client = _client(principal_id="exec-public-memorial-file-block")
+
+    raw = client.get(f"/memorials/files/{slug}/memorial.json")
+    assert raw.status_code == 404
+
+    sanitized = client.get(f"/memorials/{slug}.json")
+    assert sanitized.status_code == 200
+    assert "write_token" not in sanitized.json()
+
+
+def test_public_memorial_speech_synthesize_rejects_voice_override_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    bundle_dir = public_root / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False), encoding="utf-8")
+    (private_root / slug).mkdir(parents=True, exist_ok=True)
+    (private_root / slug / "tts_voice.json").write_text(
+        json.dumps(
+            {
+                "tts_plugin": "browser_speech_synthesis",
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "authorized_by": "test-family",
+                    "authorized_at": "2026-06-05T16:25:00Z",
+                    "source_assets_reviewed": True,
+                    "revoked": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    client = _client(principal_id="exec-public-memorial-tts-override")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-synthesize",
+        json={"text": "Test", "tts_plugin": "unmixr_clone", "tts_plugin_voice_id": "evil"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "unsupported_public_tts_fields"
+
+
+def test_public_memorial_voice_ab_rate_requires_opt_in_for_approval(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+    client = _client(principal_id="exec-public-memorial-voice-ab")
+
+    denied = client.post(f"/memorials/{slug}/voice-ab/rate", json={"choice": "a", "approved_variant": "a"})
+    assert denied.status_code == 400
+    assert denied.json()["detail"] == "personal_memory_required_for_voice_approval"
     assert build_body["voice_profile_ready"] is True
     assert build_body["voice_profile_sources"]["public_clips"] >= 1
     assert build_body["voice_profile_sources"]["youtube_downloads"] >= 1
