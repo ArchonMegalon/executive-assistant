@@ -74,6 +74,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
         "recommendation": "shortlist",
         "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-2",
         "tour_url": "",
+        "tour_status": "skipped",
         "match_reasons": ["Larger layout and quieter block."],
         "mismatch_reasons": ["No 360 tour yet."],
         "property_facts": {
@@ -82,6 +83,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "rooms": 4,
             "area_m2": 92,
             "postal_name": "Berlin Tiergarten",
+            "has_floorplan": False,
+            "floorplan_count": 0,
         },
     }
     def _fake_run_status(self, *, principal_id: str, run_id: str):
@@ -174,7 +177,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Altbau near U6" in search.text
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
-    assert "360 not ready" in search.text
+    assert "360 unavailable" in search.text
+    assert "Floorplan missing" in search.text
+    assert "not scheduled yet" not in search.text
+    assert "360 not ready" not in search.text
     assert "360" in search.text
     assert "Candidate" in search.text
     assert "Price" in search.text
@@ -241,6 +247,9 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-object-feedback-reaction="like"' in packet.text
     assert 'data-object-feedback-save' in packet.text
     assert "Manage preferences" in packet.text
+    assert "rgba(18, 23, 34" not in packet.text
+    assert "rgba(15, 19, 26" not in packet.text
+    assert "background: var(--panel);" in packet.text
 
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=headers)
     assert profile.status_code == 200
@@ -619,6 +628,7 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
         "recommendation": "",
         "review_url": "",
         "tour_url": "",
+        "tour_status": "skipped",
         "match_reasons": [],
         "mismatch_reasons": [],
         "property_facts": {
@@ -628,6 +638,8 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
             "availability_label": "August 2026",
             "registration_count": 37486,
             "postal_name": "1210 Wien",
+            "has_floorplan": False,
+            "floorplan_count": 0,
         },
     }
 
@@ -669,6 +681,9 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
     assert "Applicant pressure" in packet.text
     assert "Rental-led cooperative lane" in packet.text
     assert "Extremely high applicant pressure" in packet.text
+    assert "360 unavailable" in packet.text
+    assert "Floorplan missing" in packet.text
+    assert "not scheduled yet" not in packet.text
 
 
 def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:

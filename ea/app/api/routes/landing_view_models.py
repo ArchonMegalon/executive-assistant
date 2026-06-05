@@ -1307,6 +1307,37 @@ def property_workspace_payload(
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     run_in_progress = bool(run_id and run_status_value and run_status_value not in {"processed", "completed", "failed", "noop", "cancelled", "not started"})
 
+    def _tour_source_gap_detail(candidate: dict[str, object]) -> str:
+        blocked_reason = str(candidate.get("blocked_reason") or "").strip()
+        if blocked_reason:
+            reason_map = {
+                "listing_360_media_missing": "Floorplan or source 360 media missing: the listing does not expose usable tour material yet.",
+                "pure_360_assets_unavailable": "Source 360 assets are not accessible enough to rebuild a hosted PropertyQuarry tour.",
+                "property_tour_fallback_disabled": "Generated fallback tours are disabled until source floorplan or 360 material is available.",
+            }
+            return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
+        facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+
+        def _false_flag(value: object) -> bool:
+            return str(value or "").strip().lower() in {"0", "false", "no", "none", "null"}
+
+        def _zero_count(*keys: str) -> bool:
+            for key in keys:
+                raw_value = facts.get(key)
+                if raw_value in (None, ""):
+                    continue
+                try:
+                    return float(str(raw_value).strip()) <= 0.0
+                except Exception:
+                    continue
+            return False
+
+        if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
+            return "Floorplan missing: this listing exposes no floorplan or source 360 media, so PropertyQuarry cannot generate a hosted tour yet."
+        if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
+            return "Tour source media missing: the source did not expose a 360, floorplan, or usable room media."
+        return "Floorplan or source 360 media missing, so PropertyQuarry cannot generate a hosted tour yet."
+
     def _candidate_fact_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         parts: list[str] = []
@@ -1357,10 +1388,12 @@ def property_workspace_payload(
             return f"Rendering | ETA about {eta_minutes or 5} min"
         if status in {"created", "existing"}:
             return "Ready"
+        if status in {"blocked", "failed", "skipped", "not_applicable"}:
+            return f"Blocked | {_tour_source_gap_detail(candidate)}"
         blocked_reason = str(candidate.get("blocked_reason") or "").strip()
         if blocked_reason:
             return f"Blocked | {blocked_reason.replace('_', ' ')}"
-        return "Not ready"
+        return f"Unavailable | {_tour_source_gap_detail(candidate)}"
 
     def _distance_line(candidate: dict[str, object]) -> str:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
@@ -1401,7 +1434,11 @@ def property_workspace_payload(
         mismatch = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
         missing: list[str] = []
         if not str(candidate.get("tour_url") or "").strip():
-            missing.append("360 pending")
+            tour_status = str(candidate.get("tour_status") or "").strip().lower()
+            if tour_status in {"blocked", "failed", "skipped", "not_applicable"}:
+                missing.append("floorplan/360 source media")
+            else:
+                missing.append("360 pending")
         if not (facts.get("street_address") or facts.get("address")):
             missing.append("address")
         if not (facts.get("heating") or facts.get("heating_type")):
@@ -1458,9 +1495,9 @@ def property_workspace_payload(
             return {"status": "queued", "label": "360 queued", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '10'} min"}
         if status in {"processing", "running", "in_progress", "started"}:
             return {"status": "processing", "label": "360 rendering", "url": "", "embed_url": "", "eta_label": f"about {eta_minutes or '5'} min"}
-        if status in {"blocked", "failed"}:
-            return {"status": "blocked", "label": "360 blocked", "url": "", "embed_url": "", "eta_label": ""}
-        return {"status": "missing", "label": "360 not ready", "url": "", "embed_url": "", "eta_label": "not scheduled yet"}
+        if status in {"blocked", "failed", "skipped", "not_applicable"}:
+            return {"status": "blocked", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
+        return {"status": "missing", "label": "360 unavailable", "url": "", "embed_url": "", "eta_label": _tour_source_gap_detail(candidate)}
 
     for candidate in shortlist_candidates:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}

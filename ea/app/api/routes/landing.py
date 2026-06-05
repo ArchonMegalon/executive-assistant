@@ -1542,12 +1542,43 @@ def _property_distance_ooda_rows(facts: dict[str, object]) -> list[dict[str, str
     return rows
 
 
+def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
+    blocked_reason = str(candidate.get("blocked_reason") or "").strip()
+    if blocked_reason:
+        reason_map = {
+            "listing_360_media_missing": "Floorplan or source 360 media missing: the listing does not expose usable tour material yet.",
+            "pure_360_assets_unavailable": "Source 360 assets are not accessible enough to rebuild a hosted PropertyQuarry tour.",
+            "property_tour_fallback_disabled": "Generated fallback tours are disabled until source floorplan or 360 material is available.",
+        }
+        return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+
+    def _false_flag(value: object) -> bool:
+        return str(value or "").strip().lower() in {"0", "false", "no", "none", "null"}
+
+    def _zero_count(*keys: str) -> bool:
+        for key in keys:
+            raw_value = facts.get(key)
+            if raw_value in (None, ""):
+                continue
+            try:
+                return float(str(raw_value).strip()) <= 0.0
+            except Exception:
+                continue
+        return False
+
+    if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
+        return "Floorplan missing: this listing exposes no floorplan or source 360 media, so PropertyQuarry cannot generate a hosted tour yet."
+    if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
+        return "Tour source media missing: the source did not expose a 360, floorplan, or usable room media."
+    return "Floorplan or source 360 media missing, so PropertyQuarry cannot generate a hosted tour yet."
+
+
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
     tour_url = str(candidate.get("tour_url") or "").strip()
     vendor_tour_url = str(candidate.get("vendor_tour_url") or "").strip()
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()
-    blocked_reason = str(candidate.get("blocked_reason") or "").strip()
     eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
     eta_minutes = 0
     if eta_raw:
@@ -1565,15 +1596,15 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     elif status in {"processing", "running", "in_progress", "started"}:
         status_label = "360 rendering"
         status_detail = f"Tour generation is running. ETA about {eta_minutes or 5} min."
-    elif status in {"blocked", "failed", "skipped"}:
-        status_label = "360 blocked"
-        status_detail = blocked_reason or "This candidate does not currently have enough tour-capable source material."
+    elif status in {"blocked", "failed", "skipped", "not_applicable"}:
+        status_label = "360 unavailable"
+        status_detail = _property_tour_source_gap_detail(candidate)
     elif vendor_tour_url:
         status_label = "External 360 available"
         status_detail = "A vendor-hosted 360 exists even if the internal hosted page is not ready yet."
     else:
-        status_label = "360 pending"
-        status_detail = "No 360 is ready yet. Keep the packet visible while the tour lane catches up."
+        status_label = "360 unavailable"
+        status_detail = _property_tour_source_gap_detail(candidate)
     return {
         "eyebrow": "360 review first",
         "title": "Open the space before you read the rest",
@@ -1962,6 +1993,19 @@ def _property_packet_compare_table(
     current_candidate: dict[str, object],
     current_candidate_ref: str,
 ) -> list[list[object]]:
+    def _tour_state_for(candidate: dict[str, object]) -> str:
+        if str(candidate.get("tour_url") or "").strip():
+            return "Ready"
+        status = str(candidate.get("tour_status") or "").strip().lower()
+        eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
+        if status in {"queued", "pending"}:
+            return f"Queued | ETA about {eta_raw or '10'} min"
+        if status in {"processing", "running", "in_progress", "started"}:
+            return f"Rendering | ETA about {eta_raw or '5'} min"
+        if status in {"blocked", "failed", "skipped", "not_applicable"}:
+            return "Unavailable | " + _property_tour_source_gap_detail(candidate)
+        return "Unavailable | " + _property_tour_source_gap_detail(candidate)
+
     def _row_for(candidate: dict[str, object], *, candidate_ref: str, current: bool) -> list[object]:
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         fit_summary = str(candidate.get("fit_summary") or candidate.get("detail") or "").strip() or "No fit summary"
@@ -1978,7 +2022,7 @@ def _property_packet_compare_table(
                 f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
             ) if part
         ) or "Unknown"
-        tour_state = "Ready" if str(candidate.get("tour_url") or "").strip() else "Not ready"
+        tour_state = _tour_state_for(candidate)
         return [
             {
                 "title": (str(candidate.get("title") or "Shortlist candidate").strip() or "Shortlist candidate") + (" (Current)" if current else ""),
@@ -2141,7 +2185,7 @@ def property_research_packet(
             ),
             _object_detail_row(
                 "Hosted 360",
-                tour_url or "No hosted 360 tour exists for this candidate yet.",
+                tour_url or _property_tour_source_gap_detail(candidate),
                 "Tour",
                 href=tour_url,
                 secondary_action_href=tour_url,

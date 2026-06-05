@@ -1242,7 +1242,7 @@
               <iframe src="{{ selected.get('tour', {}).get('embed_url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
               {% else %}
               <div class="pqx-theater-placeholder">
-                <strong>{{ selected.get('tour', {}).get('label') or '360 not ready' }}</strong>
+                <strong>{{ selected.get('tour', {}).get('label') or '360 unavailable' }}</strong>
                 <span>{% if selected.get('tour', {}).get('url') %}The tour is available as a separate review page. It is not embedded here because the host is not PropertyQuarry-branded.{% else %}{{ selected.get('tour', {}).get('eta_label') or 'The tour queue is tracked here while the property can still be reviewed.' }}{% endif %}</span>
               </div>
               {% endif %}
@@ -1458,7 +1458,7 @@
         const tourMessage = tour.url
           ? 'The tour is available as a separate review page. It is not embedded here because the host is not PropertyQuarry-branded.'
           : (tour.eta_label || 'The tour queue is tracked here while the property can still be reviewed.');
-        tourNode.innerHTML = `<div class="pqx-theater-placeholder"><strong>${escapeHtml(tour.label || '360 not ready')}</strong><span>${escapeHtml(tourMessage)}</span></div>`;
+        tourNode.innerHTML = `<div class="pqx-theater-placeholder"><strong>${escapeHtml(tour.label || '360 unavailable')}</strong><span>${escapeHtml(tourMessage)}</span></div>`;
       }
       const ooda = root.querySelector('[data-pw-ooda]');
       if (ooda) ooda.innerHTML = renderOoda(candidate.ooda?.rows);

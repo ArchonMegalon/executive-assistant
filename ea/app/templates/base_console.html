@@ -571,10 +571,7 @@
       min-height: 100vh;
       display: grid;
       grid-template-columns: 300px minmax(0, 1fr);
-      background:
-        radial-gradient(circle at top right, rgba(214, 166, 63, 0.08), transparent 24rem),
-        radial-gradient(circle at bottom left, rgba(189, 139, 47, 0.09), transparent 28rem),
-        linear-gradient(180deg, #070a10 0%, #0a0d14 100%);
+      background: var(--bg);
     }
     .pq-rail {
       position: sticky;
@@ -584,10 +581,8 @@
       grid-template-rows: auto auto auto 1fr auto;
       gap: 18px;
       padding: 20px 18px 18px;
-      border-right: 1px solid rgba(49, 60, 77, 0.72);
-      background:
-        linear-gradient(180deg, rgba(9, 12, 18, 0.98), rgba(7, 10, 15, 0.98)),
-        rgba(7, 10, 15, 0.98);
+      border-right: 1px solid var(--line);
+      background: rgba(255, 253, 248, 0.96);
       backdrop-filter: blur(18px);
     }
     .pq-rail-brand {
@@ -605,11 +600,9 @@
     }
     .pq-rail-workspace {
       padding: 16px;
-      border: 1px solid rgba(49, 60, 77, 0.72);
+      border: 1px solid var(--line);
       border-radius: 18px;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015)),
-        rgba(255,255,255,0.01);
+      background: var(--panel);
       display: grid;
       gap: 8px;
     }
@@ -620,9 +613,7 @@
     .pq-rail-foot-card:hover,
     .pq-rail-foot-card:focus-visible {
       border-color: rgba(189, 139, 47, 0.32);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)),
-        rgba(255,255,255,0.02);
+      background: var(--panel-2);
       outline: none;
     }
     .pq-rail-workspace strong {
@@ -636,9 +627,9 @@
     }
     .pq-rail-pulse-card {
       padding: 12px 13px;
-      border: 1px solid rgba(49, 60, 77, 0.72);
+      border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255,255,255,0.02);
+      background: var(--panel);
       display: grid;
       gap: 4px;
       transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
@@ -689,8 +680,8 @@
       font-weight: 620;
     }
     .pq-rail-link.active {
-      border-color: rgba(214, 166, 63, 0.28);
-      background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(189, 139, 47, 0.05));
+      border-color: rgba(189, 139, 47, 0.28);
+      background: var(--accent-soft);
       color: var(--text);
     }
     .pq-rail-link.active span {
@@ -702,9 +693,9 @@
     }
     .pq-rail-foot-card {
       padding: 14px;
-      border: 1px solid rgba(49, 60, 77, 0.72);
+      border: 1px solid var(--line);
       border-radius: 14px;
-      background: rgba(255,255,255,0.02);
+      background: var(--panel);
       color: var(--text-soft);
       font-size: 13px;
       transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
@@ -733,13 +724,11 @@
       display: grid;
       gap: 6px;
       padding: 10px 12px;
-      border: 1px solid rgba(49, 60, 77, 0.72);
+      border: 1px solid var(--line);
       border-radius: 16px;
-      background:
-        linear-gradient(180deg, rgba(12, 15, 22, 0.92), rgba(10, 13, 19, 0.88)),
-        rgba(10, 13, 19, 0.88);
+      background: rgba(255, 253, 248, 0.94);
       backdrop-filter: blur(18px);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+      box-shadow: var(--shadow);
     }
     .pq-appbar-row {
       display: flex;
@@ -818,8 +807,8 @@
       gap: 6px;
       padding: 0 10px;
       border-radius: 999px;
-      border: 1px solid rgba(49, 60, 77, 0.72);
-      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line);
+      background: var(--panel);
       color: var(--text-soft);
       font-size: 12px;
       font-weight: 600;
@@ -833,12 +822,10 @@
     }
     .pq-stage-window {
       min-width: 0;
-      border: 1px solid rgba(49, 60, 77, 0.72);
+      border: 1px solid var(--line);
       border-radius: 24px;
-      background:
-        linear-gradient(180deg, rgba(13, 17, 24, 0.94), rgba(10, 13, 19, 0.98)),
-        rgba(10, 13, 19, 0.96);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.26);
+      background: var(--panel);
+      box-shadow: var(--shadow);
       overflow: hidden;
     }
     .pq-stage-window-bar {
@@ -847,8 +834,8 @@
       justify-content: space-between;
       gap: 12px;
       padding: 14px 18px;
-      border-bottom: 1px solid rgba(49, 60, 77, 0.72);
-      background: rgba(255,255,255,0.015);
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-2);
     }
     .pq-stage-window-title {
       display: grid;
@@ -874,8 +861,8 @@
       gap: 8px;
       padding: 0 12px;
       border-radius: 999px;
-      border: 1px solid rgba(49, 60, 77, 0.72);
-      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line);
+      background: var(--panel);
       color: var(--text-soft);
       font-size: 13px;
     }
@@ -926,11 +913,11 @@
         grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 8px;
         padding: 10px;
-        border: 1px solid rgba(49, 60, 77, 0.72);
+        border: 1px solid var(--line);
         border-radius: 18px;
-        background: rgba(10, 13, 19, 0.92);
+        background: rgba(255, 253, 248, 0.94);
         backdrop-filter: blur(16px);
-        box-shadow: 0 14px 44px rgba(0, 0, 0, 0.32);
+        box-shadow: 0 14px 44px rgba(38, 32, 22, 0.16);
       }
       .pq-mobile-nav a {
         min-width: 0;
@@ -948,7 +935,7 @@
         font-weight: 620;
       }
       .pq-mobile-nav a.active {
-        background: linear-gradient(180deg, rgba(214, 166, 63, 0.16), rgba(189, 139, 47, 0.08));
+        background: var(--accent-soft);
         color: var(--text);
       }
     }
@@ -989,6 +976,72 @@
       .pq-rail-pulse {
         grid-template-columns: 1fr;
       }
+    }
+    body {
+      background: var(--bg);
+    }
+    .pq-shell {
+      background: var(--bg);
+      color: var(--text);
+    }
+    .pq-rail {
+      border-right: 1px solid var(--line);
+      background: rgba(255, 253, 248, 0.96);
+      box-shadow: 12px 0 36px rgba(38, 32, 22, 0.06);
+    }
+    .pq-rail-workspace,
+    .pq-rail-pulse-card,
+    .pq-rail-foot-card,
+    .pq-appbar,
+    .pq-stage-window,
+    .pq-stage-window-bar,
+    .pq-mobile-nav,
+    .pq-meta-pill,
+    .pq-stat {
+      border-color: var(--line);
+      background: var(--panel);
+      color: var(--text-soft);
+    }
+    .pq-rail-workspace:hover,
+    .pq-rail-workspace:focus-visible,
+    .pq-rail-pulse-card:hover,
+    .pq-rail-pulse-card:focus-visible,
+    .pq-rail-foot-card:hover,
+    .pq-rail-foot-card:focus-visible {
+      border-color: var(--accent);
+      background: var(--panel-2);
+    }
+    .pq-rail-link {
+      border-radius: 10px;
+      color: var(--text-soft);
+    }
+    .pq-rail-link.active,
+    .pq-mobile-nav a.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--text);
+    }
+    .pq-appbar {
+      background: rgba(255, 253, 248, 0.94);
+      box-shadow: var(--shadow);
+    }
+    .pq-stage-window {
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .pq-stage-window-bar {
+      border-bottom-color: var(--line);
+      background: var(--panel-2);
+    }
+    .pq-stat strong,
+    .pq-rail-pulse-card strong,
+    .pq-stage-window-title strong {
+      color: var(--text);
+    }
+    .pq-mobile-nav {
+      background: rgba(255, 253, 248, 0.94);
+      box-shadow: 0 14px 44px rgba(38, 32, 22, 0.16);
     }
 </style>
 </head>
