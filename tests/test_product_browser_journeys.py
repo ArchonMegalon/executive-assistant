@@ -284,7 +284,12 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
 
     packet = client.get(packet_match.group(1), params={"run_id": "run-42", "investment": 1}, headers=property_headers)
     assert packet.status_code == 200
-    assert "Internal property dossier with fit reasoning" in packet.text
+    assert "Internal property dossier with fit reasoning" not in packet.text
+    assert "Open the space before you read the rest" not in packet.text
+    assert "360 review first" not in packet.text
+    assert 'data-object-media-stage' in packet.text
+    assert 'title="Property 360 review"' in packet.text
+    assert packet.text.index("data-object-media-stage") < packet.text.index("Investment research")
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
     assert "Investment research" in packet.text

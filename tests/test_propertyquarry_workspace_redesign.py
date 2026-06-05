@@ -257,8 +257,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
     packet = client.get(packet_match.group(1), params={"run_id": "run-42", "investment": 1}, headers=headers)
     assert packet.status_code == 200
-    assert "Internal property dossier with fit reasoning" in packet.text
-    assert "Open the space before you read the rest" in packet.text
+    assert "Internal property dossier with fit reasoning" not in packet.text
+    assert "Open the space before you read the rest" not in packet.text
+    assert "360 review first" not in packet.text
+    assert 'data-object-media-stage' in packet.text
+    assert 'title="Property 360 review"' in packet.text
+    assert packet.text.index("data-object-media-stage") < packet.text.index("OODA summary")
     assert "Live 360 ready" in packet.text
     assert "OODA summary" in packet.text
     assert "Why this was selected" in packet.text

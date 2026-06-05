@@ -1620,9 +1620,6 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         status_label = "360 unavailable"
         status_detail = _property_tour_source_gap_detail(candidate)
     return {
-        "eyebrow": "360 review first",
-        "title": "Open the space before you read the rest",
-        "copy": "The review surface should lead with the tour and only then the dossier. If the 360 is still rendering, the status must stay explicit here.",
         "status_label": status_label,
         "status_detail": status_detail,
         "embed_href": embed_href,
@@ -2163,8 +2160,8 @@ def property_research_packet(
         workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
         page_title=f"PropertyQuarry {title}",
         current_nav="research",
-        console_title=title,
-        console_summary="Internal property dossier with fit reasoning, supporting facts, and next research actions.",
+        console_title="Review",
+        console_summary="",
         object_kind="Research packet",
         object_title=title,
         object_summary=f"{fit_summary} · {source_label}",

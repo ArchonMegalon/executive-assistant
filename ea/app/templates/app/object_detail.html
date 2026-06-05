@@ -16,8 +16,8 @@
     grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
   }
   .object-media-grid {
-    grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
-    margin-bottom: 14px;
+    grid-template-columns: 1fr;
+    margin-bottom: 18px;
   }
   .object-panel,
   .object-section,
@@ -44,15 +44,17 @@
     overflow-wrap: anywhere;
   }
   .object-media-frame {
+    position: relative;
     overflow: hidden;
     padding: 0;
   }
   .object-media-frame-inner {
+    position: relative;
     box-sizing: border-box;
     max-width: 100%;
     min-width: 0;
     aspect-ratio: 16 / 9;
-    min-height: 320px;
+    min-height: clamp(420px, 58vh, 720px);
     border-radius: calc(var(--radius) - 2px);
     overflow: hidden;
     background: linear-gradient(180deg, var(--panel-2), var(--panel-3));
@@ -101,9 +103,26 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
-  .object-media-side {
-    display: grid;
-    gap: 14px;
+  .object-media-toolbar {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    right: 14px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px;
+    border: 1px solid rgba(222, 214, 200, 0.78);
+    border-radius: 14px;
+    background: rgba(255, 253, 248, 0.9);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 14px 32px rgba(38, 32, 22, 0.12);
+  }
+  .object-media-toolbar .object-actions {
+    margin-top: 0;
+    justify-content: flex-end;
   }
   .object-media-highlights {
     display: grid;
@@ -302,7 +321,6 @@
     font: inherit;
   }
   @media (max-width: 1080px) {
-    .object-media-grid,
     .object-grid,
     .object-sections {
       grid-template-columns: 1fr;
@@ -331,6 +349,18 @@
     .object-actions form button {
       width: 100%;
     }
+    .object-media-toolbar {
+      position: static;
+      border-width: 0 0 1px 0;
+      border-radius: 0;
+      box-shadow: none;
+      background: var(--panel);
+      align-items: stretch;
+      flex-direction: column;
+    }
+    .object-media-toolbar .object-actions {
+      justify-content: stretch;
+    }
     .object-tag {
       align-self: flex-start;
     }
@@ -340,59 +370,39 @@
       grid-template-columns: 1fr;
     }
     .object-media-frame-inner {
-      min-height: 260px;
+      min-height: 320px;
     }
   }
 </style>
 
 {% if object_media %}
-<section class="object-media-grid">
+<section class="object-media-grid" data-object-media-stage>
   <section class="object-panel object-media-frame">
     <div class="object-media-frame-inner">
       {% if object_media.get('embed_href') %}
-      <iframe src="{{ object_media.get('embed_href') }}" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <iframe src="{{ object_media.get('embed_href') }}" title="Property 360 review" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="object-media-toolbar" aria-label="360 tour status and actions">
+        <div class="object-media-status">{{ object_media.get('status_label') or '360 ready' }}</div>
+        <div class="object-actions">
+          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 360' }}</a>{% endif %}
+          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open hosted review' }}</a>{% endif %}
+          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
+        </div>
+      </div>
       {% else %}
       <div class="object-media-placeholder">
         <div class="object-media-status">{{ object_media.get('status_label') or '360 pending' }}</div>
-        <h2>{{ object_media.get('title') or '360 review first' }}</h2>
-        <p class="object-copy">{{ object_media.get('status_detail') or object_media.get('copy') or 'The tour lane is still catching up.' }}</p>
+        <h2>{{ object_media.get('status_label') or '360 pending' }}</h2>
+        <p class="object-copy">{{ object_media.get('status_detail') or 'The tour lane is still catching up.' }}</p>
+        <div class="object-actions">
+          {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open packet' }}</a>{% endif %}
+          {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open hosted review' }}</a>{% endif %}
+          {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
+        </div>
       </div>
       {% endif %}
     </div>
   </section>
-  <aside class="object-media-side">
-    <section class="object-panel">
-      <div class="object-kicker">{{ object_media.get('eyebrow') or '360 review first' }}</div>
-      <h2>{{ object_media.get('title') or 'Open the space before you read the rest' }}</h2>
-      <p class="object-copy">{{ object_media.get('copy') or 'Lead with the tour and keep its status explicit.' }}</p>
-      <div class="object-media-status">{{ object_media.get('status_label') or '360 pending' }}</div>
-      {% if object_media.get('status_detail') %}<p class="object-copy">{{ object_media.get('status_detail') }}</p>{% endif %}
-      <div class="object-actions">
-        {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open 360' }}</a>{% endif %}
-        {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open hosted review' }}</a>{% endif %}
-        {% if object_media.get('tertiary_href') %}<a class="console-action" href="{{ object_media.get('tertiary_href') }}">{{ object_media.get('tertiary_label') or 'Open source' }}</a>{% endif %}
-      </div>
-    </section>
-    {% if object_ooda_rows %}
-    <section class="object-panel object-media-highlights">
-      {% for item in object_ooda_rows[:4] %}
-      {% set href = item.get('href') or '' %}
-      {% set secondary_action_href = item.get('secondary_action_href') or '' %}
-      {% set secondary_action_label = item.get('secondary_action_label') or '' %}
-      <div class="object-media-highlight">
-        <span>{{ item.tag }}</span>
-        <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
-        <div class="object-copy">{{ item.detail }}</div>
-        {% if secondary_action_href %}
-        <div class="object-actions">
-          <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label or 'Open' }}</a>
-        </div>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </section>
-    {% endif %}
-  </aside>
 </section>
 {% endif %}
 

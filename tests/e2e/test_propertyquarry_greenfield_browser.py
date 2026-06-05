@@ -294,6 +294,19 @@ def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -
     assert offenders == []
 
 
+def _assert_research_packet_360_first(page: Page, *, min_stage_height: int) -> None:
+    media = page.locator("[data-object-media-stage]").first
+    ooda = page.get_by_text("OODA summary").first
+    assert media.is_visible()
+    assert ooda.is_visible()
+    media_box = media.bounding_box()
+    ooda_box = ooda.bounding_box()
+    assert media_box is not None
+    assert ooda_box is not None
+    assert media_box["y"] < ooda_box["y"]
+    assert media_box["height"] >= min_stage_height
+
+
 def test_propertyquarry_greenfield_workspace_in_real_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -321,8 +334,12 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "OODA" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
-        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
+        page.locator("[data-workbench-row]", has_text="Altbau near U6").click()
         page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), timeout=5000)
+        packet_content = page.content()
+        assert "Open the space before you read the rest" not in packet_content
+        assert "360 review first" not in packet_content
+        _assert_research_packet_360_first(page, min_stage_height=420)
         assert page.locator("body", has_text="OODA summary").is_visible()
         assert page.locator("body", has_text="Preference feedback").is_visible()
         assert page.get_by_role("button", name="Save feedback").is_visible()
@@ -424,6 +441,8 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
         response = page.goto(packet_url, wait_until="networkidle")
         assert response is not None and response.ok
         assert page.locator(".object-media-frame").is_visible()
+        assert "Open the space before you read the rest" not in page.content()
+        _assert_research_packet_360_first(page, min_stage_height=420)
         assert page.get_by_text("OODA summary").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
