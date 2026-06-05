@@ -1225,6 +1225,7 @@
         min_area_m2: integerValue(form, 'min_area_m2'),
         max_results_per_source: parsedMaxResults,
         min_match_score: integerValue(form, 'min_match_score'),
+        require_floorplan: checkedValue(form, 'require_floorplan'),
       },
       force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
       max_results_per_source: parsedMaxResults,

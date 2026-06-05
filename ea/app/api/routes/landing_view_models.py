@@ -511,6 +511,9 @@ def app_section_payload(
                 for part in (
                     f"{int(source.get('listing_total') or 0)} listings",
                     f"{int(source.get('high_fit_total') or 0)} high-fit",
+                    f"{int(source.get('filtered_floorplan_total') or 0)} without floor plan"
+                    if int(source.get('filtered_floorplan_total') or 0)
+                    else "",
                     f"{int(source.get('tour_created_total') or 0)} hosted tours",
                     f"{int(source.get('notified_total') or 0)} client alerts",
                     f"{int(source.get('email_notified_total') or 0)} email" if int(source.get('email_notified_total') or 0) else "",
@@ -847,6 +850,14 @@ def app_section_payload(
                 "suffix": f"/{property_visible_max_match_score}",
                 "upgrade_hint": property_min_match_upgrade_hint,
                 "tooltip": property_min_match_tooltip,
+                "step": "providers",
+            },
+            {
+                "type": "checkbox",
+                "name": "require_floorplan",
+                "label": "Serious listings only - floor plan required",
+                "value": "true",
+                "checked": bool(property_preferences.get("require_floorplan")),
                 "step": "providers",
             },
             {

@@ -10,6 +10,8 @@ from app.api.routes.landing import (
     _console_shell_context,
     _evidence_detail_rows,
     _object_detail_row,
+    _property_distance_ooda_rows,
+    _property_tour_media_payload,
     _render_console_object_detail,
     _render_public_template,
     app_shell,
@@ -528,6 +530,63 @@ def handoff_detail(
             for item in list(input_json.get("candidate_properties") or [])
             if isinstance(item, dict)
         ]
+        primary_candidate = dict(candidate_properties[0]) if candidate_properties else {}
+        property_facts = (
+            dict(input_json.get("property_facts_json") or {})
+            if isinstance(input_json.get("property_facts_json"), dict)
+            else {}
+        )
+        if isinstance(primary_candidate.get("property_facts"), dict):
+            property_facts = {**dict(primary_candidate.get("property_facts") or {}), **property_facts}
+        review_path = f"/app/handoffs/{handoff_ref}"
+        primary_tour_url = (
+            str(handoff.tour_url or "").strip()
+            or str(input_json.get("tour_url") or "").strip()
+            or str(primary_candidate.get("tour_url") or "").strip()
+        )
+        property_url = str(handoff.property_url or input_json.get("property_url") or primary_candidate.get("property_url") or "").strip()
+        media_candidate = {
+            **primary_candidate,
+            "title": str(input_json.get("title") or handoff.summary or primary_candidate.get("title") or "").strip(),
+            "review_url": review_path,
+            "tour_url": primary_tour_url,
+            "vendor_tour_url": str(input_json.get("vendor_tour_url") or primary_candidate.get("vendor_tour_url") or "").strip(),
+            "tour_status": str(input_json.get("tour_status") or primary_candidate.get("tour_status") or "").strip(),
+            "blocked_reason": str(input_json.get("blocked_reason") or primary_candidate.get("blocked_reason") or "").strip(),
+        }
+        match_reasons = [str(item).strip() for item in list(assessment.get("match_reasons_json") or []) if str(item).strip()]
+        mismatch_reasons = [str(item).strip() for item in list(assessment.get("mismatch_reasons_json") or []) if str(item).strip()]
+        ooda_rows = [
+            _object_detail_row(
+                "Why this was selected",
+                match_reasons[0]
+                if match_reasons
+                else str(input_json.get("summary") or handoff.summary or "This property survived the ranking pass.").strip(),
+                "Match",
+            ),
+            _object_detail_row(
+                "Best next action",
+                "Review the 360 first, then check the strongest fit and risk evidence below.",
+                "OODA",
+                href=primary_tour_url or review_path,
+                secondary_action_href=primary_tour_url or "",
+                secondary_action_label="Open 360" if primary_tour_url else "",
+                secondary_action_method="get" if primary_tour_url else "",
+            ),
+            _object_detail_row(
+                "Main concern",
+                mismatch_reasons[0]
+                if mismatch_reasons
+                else "No explicit blocker was projected yet; verify missing facts before committing.",
+                "Risk",
+            ),
+            _object_detail_row(
+                "Current recommendation",
+                str(assessment.get("recommendation") or primary_candidate.get("recommendation") or "Candidate").replace("_", " "),
+                "Decision",
+            ),
+        ]
+        ooda_rows.extend(_property_distance_ooda_rows(property_facts))
         fit_details = [
             _object_detail_row("Fit score", _property_fit_label(assessment), "Fit"),
             _object_detail_row(
@@ -585,12 +644,13 @@ def handoff_detail(
             context=context,
             workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             page_title=f"PropertyQuarry {handoff.summary}",
-            current_nav="settings",
+            current_nav="research",
             console_title=input_json.get("title") or handoff.summary,
-            console_summary="Property research, fit reasoning, and review actions for this alert.",
+            console_summary="Property review packet with 360-first inspection, OODA reasoning, and next actions.",
             object_kind="Property review",
             object_title=str(input_json.get("title") or handoff.summary or "Property review"),
             object_summary=f"{_property_fit_label(assessment)} · {str(input_json.get('counterparty') or handoff.owner or 'Property scout').strip()}",
+            object_media=_property_tour_media_payload(media_candidate),
             object_meta=[
                 {"label": "Fit", "value": _property_fit_label(assessment)},
                 {"label": "Source", "value": str(input_json.get('counterparty') or "Property scout").strip() or "Property scout"},
@@ -598,27 +658,30 @@ def handoff_detail(
                 {"label": "Candidates", "value": str(len(candidate_properties))},
                 {"label": "Status", "value": str(handoff.status or "pending").replace("_", " ").title()},
             ],
+            object_ooda_title="OODA summary",
+            object_ooda_copy="Start with the tour, then use the OODA rows to decide whether this property deserves deeper action.",
+            object_ooda_rows=ooda_rows,
             object_sidebar_title="Review actions",
-            object_sidebar_copy="This page is the actual property review packet. It should answer why the alert matched and where to open the useful surfaces.",
+            object_sidebar_copy="This page is the primary property review packet. Raw portals and external tours stay secondary to the decision view.",
             object_sidebar_rows=[
                 _object_detail_row("Research summary", str(input_json.get("summary") or handoff.summary or "No research summary was captured.").strip(), "Summary"),
                 _object_detail_row(
                     "Hosted tour",
-                    handoff.tour_url or str(input_json.get("tour_url") or "").strip() or "No hosted tour exists yet.",
+                    primary_tour_url or "No hosted tour exists yet.",
                     "Tour",
-                    href=handoff.tour_url or str(input_json.get("tour_url") or "").strip(),
-                    secondary_action_href=handoff.tour_url or str(input_json.get("tour_url") or "").strip(),
-                    secondary_action_label="Open hosted page" if (handoff.tour_url or str(input_json.get("tour_url") or "").strip()) else "",
-                    secondary_action_method="get" if (handoff.tour_url or str(input_json.get("tour_url") or "").strip()) else "",
+                    href=primary_tour_url,
+                    secondary_action_href=primary_tour_url,
+                    secondary_action_label="Open 360" if primary_tour_url else "",
+                    secondary_action_method="get" if primary_tour_url else "",
                 ),
                 _object_detail_row(
                     "Original listing",
-                    handoff.property_url or str(input_json.get("property_url") or "").strip() or "No source listing URL was stored.",
+                    property_url or "No source listing URL was stored.",
                     "Listing",
-                    href=handoff.property_url or str(input_json.get("property_url") or "").strip(),
-                    secondary_action_href=handoff.property_url or str(input_json.get("property_url") or "").strip(),
-                    secondary_action_label="Open source" if (handoff.property_url or str(input_json.get("property_url") or "").strip()) else "",
-                    secondary_action_method="get" if (handoff.property_url or str(input_json.get("property_url") or "").strip()) else "",
+                    href=property_url,
+                    secondary_action_href=property_url,
+                    secondary_action_label="Open source" if property_url else "",
+                    secondary_action_method="get" if property_url else "",
                 ),
                 _object_detail_row("Recommendation", str(assessment.get("recommendation") or "No recommendation projected.").replace("_", " "), "Decision"),
                 _object_detail_row("Account", str(input_json.get("account_email") or "No account email stored.").strip(), "Inbox"),

@@ -470,6 +470,9 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         assert "slower" in tooltip.lower()
         assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/80"
         assert page.locator('[data-current-plan-cap]').filter(has_text="Plan cap 45").count() >= 1
+        floorplan_filter = page.locator('input[name="require_floorplan"]')
+        assert floorplan_filter.is_visible()
+        assert page.locator('label', has_text="Serious listings only").count() >= 1
         match_slider.evaluate("(node) => { node.value = '80'; node.dispatchEvent(new Event('input', { bubbles: true })); }")
         assert match_slider.input_value() == "45"
         assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/80"
@@ -567,6 +570,7 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('input[name="min_match_score"]').evaluate(
             "(node) => { node.value = '45'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
         )
+        page.locator('input[name="require_floorplan"]').check()
 
         with page.expect_response("**/app/api/signals/property/search/run") as start_response:
             page.locator("[data-property-start]").click()
@@ -587,5 +591,6 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["all_of_vienna"] is True
         assert preferences["location_query"] == "Vienna"
         assert preferences["min_match_score"] == 45
+        assert preferences["require_floorplan"] is True
     finally:
         context.close()

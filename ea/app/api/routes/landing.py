@@ -1458,23 +1458,83 @@ def _property_bike_minutes_label(meters: int) -> str:
     return f"about {minutes} min by bike"
 
 
+def _property_maps_directions_href(
+    facts: dict[str, object],
+    *,
+    label: str,
+    metric_key: str,
+    travelmode: str = "walking",
+) -> str:
+    origin = ""
+    try:
+        lat = float(facts.get("map_lat"))
+        lng = float(facts.get("map_lng"))
+        origin = f"{lat:.7f},{lng:.7f}"
+    except Exception:
+        origin = str(
+            facts.get("exact_address")
+            or facts.get("street_address")
+            or facts.get("address")
+            or ""
+        ).strip()
+    prefix = metric_key[:-2] if metric_key.endswith("_m") else metric_key
+    destination = ""
+    try:
+        destination_lat = float(facts.get(f"{prefix}_lat"))
+        destination_lng = float(facts.get(f"{prefix}_lng"))
+        destination = f"{destination_lat:.7f},{destination_lng:.7f}"
+    except Exception:
+        name = str(facts.get(f"{prefix}_name") or "").strip()
+        if name and origin:
+            destination = f"{name} near {origin}"
+        elif origin:
+            destination = f"{label} near {origin}"
+    if not origin or not destination:
+        return ""
+    return "https://www.google.com/maps/dir/?" + urllib.parse.urlencode(
+        {
+            "api": "1",
+            "origin": origin,
+            "destination": destination,
+            "travelmode": str(travelmode or "walking").strip().lower() or "walking",
+        }
+    )
+
+
 def _property_distance_ooda_rows(facts: dict[str, object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     distance_specs = (
-        ("Playground", ("distance_playground_m", "nearest_playground_m"), "Neighbourhood"),
-        ("Pharmacy", ("distance_pharmacy_m", "nearest_pharmacy_m"), "Errands"),
-        ("Supermarket", ("distance_supermarket_m", "nearest_supermarket_m"), "Errands"),
-        ("Underground", ("distance_underground_m", "nearest_subway_m"), "Transit"),
+        ("Playground", ("distance_playground_m", "nearest_playground_m"), "Neighbourhood", "walking"),
+        ("Pharmacy", ("distance_pharmacy_m", "nearest_pharmacy_m"), "Errands", "walking"),
+        ("Supermarket", ("distance_supermarket_m", "nearest_supermarket_m"), "Errands", "walking"),
+        ("Underground", ("distance_underground_m", "nearest_subway_m"), "Transit", "bicycling"),
     )
-    for label, keys, tag in distance_specs:
+    for label, keys, tag, travelmode in distance_specs:
         meters = _property_distance_metric(facts, *keys)
         if meters is None:
             continue
+        available_keys = [key for key in keys if _property_distance_metric(facts, key) is not None]
+        primary_metric_key = available_keys[0] if available_keys else keys[-1]
+        for key in available_keys:
+            prefix = key[:-2] if key.endswith("_m") else key
+            if facts.get(f"{prefix}_lat") or facts.get(f"{prefix}_name"):
+                primary_metric_key = key
+                break
+        maps_href = _property_maps_directions_href(
+            facts,
+            label=label,
+            metric_key=primary_metric_key,
+            travelmode=travelmode,
+        )
         rows.append(
             _object_detail_row(
                 f"Nearest {label.lower()}",
                 f"{meters:,} m away | {_property_bike_minutes_label(meters)}".replace(",", " "),
                 tag,
+                href=maps_href,
+                secondary_action_href=maps_href,
+                secondary_action_label="Open navigation" if maps_href else "",
+                secondary_action_method="get" if maps_href else "",
             )
         )
     return rows

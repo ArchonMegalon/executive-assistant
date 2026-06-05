@@ -587,9 +587,11 @@ def send_property_search_results_ready_email(
     results_url: str,
     result_total: int,
     hosted_tour_total: int,
+    top_properties: list[dict[str, object]] | None = None,
     sender_email: str = "",
     sender_name: str = "",
 ) -> RegistrationEmailReceipt:
+    property_rows = [dict(item) for item in list(top_properties or []) if isinstance(item, dict)]
     body = [
         "Hello,",
         "",
@@ -598,6 +600,22 @@ def send_property_search_results_ready_email(
         f"Ranked results: {max(int(result_total), 0)}",
         f"Hosted tours ready: {max(int(hosted_tour_total), 0)}",
     ]
+    if property_rows:
+        body.extend(["", "Best matches:"])
+        for index, row in enumerate(property_rows[:5], start=1):
+            title = str(row.get("title") or "Property match").strip() or "Property match"
+            source = str(row.get("source_label") or "").strip()
+            fit_summary = str(row.get("fit_summary") or "").strip()
+            review_url = str(row.get("review_url") or "").strip()
+            tour_status = str(row.get("tour_status") or "").strip().replace("_", " ") or (
+                "ready" if str(row.get("tour_url") or "").strip() else "pending"
+            )
+            body.append(f"{index}. {title}")
+            details = [part for part in (fit_summary, source, f"360: {tour_status}") if part]
+            if details:
+                body.append(f"   {' | '.join(details)}")
+            if review_url:
+                body.append(f"   Review packet: {review_url}")
     if str(results_url or "").strip():
         body.extend(["", f"Open the results page: {results_url}"])
     return _send_emailit_email(
@@ -605,7 +623,13 @@ def send_property_search_results_ready_email(
         subject="PropertyQuarry results ready"[:220],
         text="\n".join(body).strip() + "\n",
         kind="ea_property_search_results_ready_delivery",
-        meta={"results_ref": _meta_ref(results_url)},
+        meta={
+            "results_ref": _meta_ref(results_url),
+            "top_property_refs": [
+                _meta_ref(row.get("review_url") or row.get("tour_url") or row.get("property_url"))
+                for row in property_rows[:5]
+            ],
+        },
         sender_email=sender_email,
         sender_name=sender_name,
     )

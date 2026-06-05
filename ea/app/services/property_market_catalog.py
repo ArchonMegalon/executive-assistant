@@ -1158,6 +1158,11 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["investment_research_mode"] = investment_mode
     payload["location_query"] = str(payload.get("location_query") or "").strip()
     payload["keywords"] = str(payload.get("keywords") or "").strip()
+    raw_require_floorplan = payload.get("require_floorplan")
+    payload["require_floorplan"] = (
+        raw_require_floorplan is True
+        or str(raw_require_floorplan or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+    )
     normalized_alert_frequency = str(payload.get("alert_frequency") or "").strip().lower() or "daily"
     if normalized_alert_frequency not in ALERT_FREQUENCY_LABELS:
         normalized_alert_frequency = "daily"

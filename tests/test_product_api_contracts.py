@@ -1400,6 +1400,161 @@ def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeyp
     assert "high-two" in assessed
 
 
+def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds_tour(monkeypatch) -> None:
+    principal_id = "cf-email:floorplan.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Floorplan Office")
+    candidate_urls = (
+        "https://www.willhaben.at/iad/object?adId=no-plan",
+        "https://www.willhaben.at/iad/object?adId=with-plan",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "no-plan",
+            "title": "Wohnung ohne Planmaterial",
+            "summary": "Wohnung mit Balkon, aber kein Planmaterial.",
+            "property_facts_json": {"property_type": "apartment", "has_floorplan": False},
+        },
+        candidate_urls[1]: {
+            "listing_id": "with-plan",
+            "title": "Wohnung mit Grundriss und Balkon",
+            "summary": "Serioeses Expose mit Grundriss, Lift und guter Lage.",
+            "floorplan_urls_json": ["https://example.test/floorplan.png"],
+            "property_facts_json": {
+                "property_type": "apartment",
+                "has_floorplan": True,
+                "floorplan_urls_json": ["https://example.test/floorplan.png"],
+            },
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+    assessed: list[str] = []
+
+    def _fake_assess_candidate(**kwargs):
+        assessed.append(str(kwargs.get("object_id") or ""))
+        return {
+            "fit_score": 72.0,
+            "confidence": 0.9,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Has a floor plan and clears the threshold."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    tour_calls: list[dict[str, object]] = []
+
+    def _fake_tour(self, **kwargs):
+        tour_calls.append(dict(kwargs))
+        return {"status": "created", "tour_url": "https://propertyquarry.com/tours/with-plan", "blocked_reason": ""}
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    monkeypatch.setattr(ProductService, "_maybe_auto_create_property_scout_tour", _fake_tour)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "require_floorplan": True,
+            "min_match_score": 65,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["require_floorplan"] is True
+    assert result["listing_total"] == 1
+    assert result["filtered_floorplan_total"] == 1
+    assert result["sources"][0]["filtered_floorplan_total"] == 1
+    assert result["sources"][0]["top_candidates"][0]["title"] == "Wohnung mit Grundriss und Balkon"
+    assert result["sources"][0]["top_candidates"][0]["tour_url"] == "https://propertyquarry.com/tours/with-plan"
+    assert assessed == ["with-plan"]
+    assert len(tour_calls) == 1
+    assert tour_calls[0]["allow_below_threshold"] is True
+
+
+def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(monkeypatch) -> None:
+    principal_id = "cf-email:floorplan-tour@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Floorplan Tour Office")
+    listing_url = "https://www.kalandra.at/objekt/floorplan-only"
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "1")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "floorplan-only",
+            "title": "Floorplan-only apartment",
+            "summary": "Apartment with a floor plan but no live 360.",
+            "media_urls_json": ["https://example.test/photo.jpg"],
+            "floorplan_urls_json": ["https://example.test/floorplan.png"],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "",
+            "property_facts_json": {"property_type": "apartment", "has_floorplan": True},
+        },
+    )
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        lambda **kwargs: {
+            "fit_score": 72.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Has a usable floor plan."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    legacy_blocked = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=listing_url,
+        source_ref="property:floorplan-only:legacy",
+        external_id=listing_url,
+        actor="test",
+        allow_floorplan_only=False,
+    )
+    floorplan_allowed = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=listing_url,
+        source_ref="property:floorplan-only:allowed",
+        external_id=listing_url,
+        actor="test",
+        allow_floorplan_only=True,
+    )
+
+    assert legacy_blocked["blocked_reason"] == "listing_360_media_missing"
+    assert floorplan_allowed["blocked_reason"] != "listing_360_media_missing"
+    assert floorplan_allowed["blocked_reason"] == "browseract_connector_unconfigured"
+
+
 def test_property_scout_clamps_requested_match_score_to_free_plan_cap(monkeypatch) -> None:
     principal_id = "cf-email:free-threshold@example.test"
     client = build_product_client(principal_id=principal_id)

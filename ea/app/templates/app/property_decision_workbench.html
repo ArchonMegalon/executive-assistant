@@ -565,7 +565,7 @@
     }
     .pqx-source-metrics {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
     }
     .pqx-source-metrics span {
@@ -821,6 +821,9 @@
       }
     }
     @media (max-width: 760px) {
+      .pqx-source-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
       .pqx-topbar {
         position: static;
         grid-template-columns: 1fr;
@@ -1101,7 +1104,7 @@
           <div class="pqx-section-head">
             <div>
               <h2>Source scan result</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources · {{ run_summary.get('listing_total') or 0 }} listings · {{ run_summary.get('filtered_low_fit_total') or 0 }} below threshold</div>
+              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources · {{ run_summary.get('listing_total') or 0 }} listings · {{ run_summary.get('filtered_low_fit_total') or 0 }} below threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} without floor plan</div>
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -1115,6 +1118,7 @@
                 <span>Scanned <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
                 <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
                 <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
+                <span>No plan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
               </div>
               {% if source.get('message') or source.get('error') %}
               <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>
@@ -1505,6 +1509,7 @@
           min_area_m2: integerValue(form, 'min_area_m2'),
           max_results_per_source: integerValue(form, 'max_results_per_source'),
           min_match_score: integerValue(form, 'min_match_score'),
+          require_floorplan: Boolean(form.querySelector('input[name="require_floorplan"]')?.checked),
         },
         force_refresh: Boolean(form.querySelector('input[name="force_refresh"]')?.checked),
         max_results_per_source: integerValue(form, 'max_results_per_source'),
@@ -1529,7 +1534,8 @@
       const sources = Number(summary.sources_total || 0);
       const listings = Number(summary.listing_total || 0);
       const tours = Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0);
-      return `${sources} sources · ${listings} listings · ${tours} tours`;
+      const noPlan = Number(summary.filtered_floorplan_total || 0);
+      return `${sources} sources · ${listings} listings · ${tours} tours · ${noPlan} without floor plan`;
     };
     const renderRunEvents = (events) => {
       const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];

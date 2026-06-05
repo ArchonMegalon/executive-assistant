@@ -48,7 +48,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "area_m2": 78,
             "postal_name": "Berlin Mitte",
             "street_address": "Invalidenstrasse 14",
+            "map_lat": 52.531,
+            "map_lng": 13.384,
             "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "Demo Supermarket",
+            "nearest_supermarket_lat": 52.532,
+            "nearest_supermarket_lng": 13.385,
             "nearest_pharmacy_m": 410,
             "nearest_playground_m": 520,
             "nearest_subway_m": 1200,
@@ -211,6 +216,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "OODA summary" in packet.text
     assert "Why this was selected" in packet.text
     assert "Nearest supermarket" in packet.text
+    assert "https://www.google.com/maps/dir/" in packet.text
+    assert "Open navigation" in packet.text
     assert "Nearest underground" in packet.text
     assert "Decision call" in packet.text
     assert "Why now" in packet.text

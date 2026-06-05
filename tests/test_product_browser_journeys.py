@@ -128,6 +128,12 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
             "area_m2": 78,
             "address": "Berlin Altbau quarter",
             "postal_name": "Berlin",
+            "map_lat": 52.5201,
+            "map_lng": 13.4051,
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "Demo Supermarket",
+            "nearest_supermarket_lat": 52.5211,
+            "nearest_supermarket_lng": 13.4061,
         },
     }
     def _fake_run_status(self, *, principal_id: str, run_id: str):
@@ -284,6 +290,9 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Investment research" in packet.text
     assert "Gross yield" in packet.text
     assert "Expected monthly rent" in packet.text
+    assert "Nearest supermarket" in packet.text
+    assert "https://www.google.com/maps/dir/" in packet.text
+    assert "Open navigation" in packet.text
 
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=property_headers)
     assert profile.status_code == 200
@@ -315,6 +324,7 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
             "location_query": "Vienna",
             "selected_platforms": ["willhaben"],
             "min_match_score": 80,
+            "require_floorplan": True,
         },
     )
     assert stored.status_code == 200, stored.text
@@ -333,6 +343,9 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     assert "Minimum personal fit score" in response.text
     assert "backend crawl and scoring load" in response.text
     assert "min_match_score: integerValue(form, 'min_match_score')" in response.text
+    assert 'name="require_floorplan"' in response.text
+    assert "Serious listings only - floor plan required" in response.text
+    assert "require_floorplan" in response.text
 
 
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:

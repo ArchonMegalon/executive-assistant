@@ -386,6 +386,7 @@ def _property_search_run_default_summary(property_preferences: dict[str, object]
         "tour_created_total": 0,
         "tour_existing_total": 0,
         "high_fit_total": 0,
+        "filtered_floorplan_total": 0,
         "filtered_low_fit_total": 0,
         "high_match_min_score": min_match_score,
         "max_match_score": _property_search_match_score_cap(property_preferences),
@@ -393,6 +394,49 @@ def _property_search_run_default_summary(property_preferences: dict[str, object]
         "top_fit_score": 0.0,
         "sources": [],
     }
+
+
+def _property_truthy_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value) != 0.0
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "available"}
+
+
+def _property_nonempty_sequence(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    text = str(value or "").strip()
+    if text.lower() in {"[]", "{}", "null", "none", "false"}:
+        return []
+    return [text] if text else []
+
+
+def _property_facts_have_floorplan(
+    facts: dict[str, object] | None,
+    *,
+    preview: dict[str, object] | None = None,
+) -> bool:
+    fact_payload = dict(facts or {})
+    preview_payload = dict(preview or {})
+    if _property_truthy_flag(
+        fact_payload.get("has_floorplan")
+        or fact_payload.get("floorplan_available")
+        or preview_payload.get("has_floorplan")
+        or preview_payload.get("floorplan_available")
+    ):
+        return True
+    for key in ("floorplan_count", "floorplans_count"):
+        try:
+            if float(str(fact_payload.get(key) or preview_payload.get(key) or "0").strip()) > 0.0:
+                return True
+        except Exception:
+            pass
+    for key in ("floorplan_urls_json", "floorplan_urls", "floorplans", "layout_urls_json", "layout_urls"):
+        if _property_nonempty_sequence(fact_payload.get(key)) or _property_nonempty_sequence(preview_payload.get(key)):
+            return True
+    return False
 
 
 def _property_search_scan_cap_per_source() -> int:
@@ -408,7 +452,11 @@ def _property_search_scan_cap_per_source() -> int:
 
 def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    return bool(facts.get("has_360") or str(facts.get("source_virtual_tour_url") or "").strip())
+    return bool(
+        facts.get("has_360")
+        or str(facts.get("source_virtual_tour_url") or "").strip()
+        or _property_facts_have_floorplan(facts)
+    )
 
 
 def _property_tour_status_is_pending(value: object) -> bool:
@@ -2084,7 +2132,7 @@ out center tags;
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
         return {}
     elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
-    closest: dict[str, tuple[int, str]] = {}
+    closest: dict[str, tuple[int, str, float, float]] = {}
     for row in elements:
         if not isinstance(row, dict):
             continue
@@ -2110,14 +2158,14 @@ out center tags;
             continue
         current = closest.get(metric_key)
         if current is None or distance_m < current[0]:
-            closest[metric_key] = (distance_m, str(tags.get("name") or "").strip())
-            closest[name_key] = (distance_m, str(tags.get("name") or "").strip())
+            closest[metric_key] = (distance_m, str(tags.get("name") or "").strip(), float(point_lat), float(point_lon))
     result: dict[str, object] = {}
     for key, value in closest.items():
-        if key.endswith("_name"):
-            result[key] = value[1]
-        else:
-            result[key] = value[0]
+        result[key] = value[0]
+        prefix = key[:-2] if key.endswith("_m") else key
+        result[f"{prefix}_name"] = value[1]
+        result[f"{prefix}_lat"] = value[2]
+        result[f"{prefix}_lng"] = value[3]
     return result
 
 
@@ -2298,7 +2346,15 @@ def _property_scout_candidate_payload_from_preview(*, property_url: str, preview
     if "has_360" not in property_facts:
         property_facts["has_360"] = any(token in text for token in ("360", "panorama", "photosphere", "rundgang"))
     if "has_floorplan" not in property_facts:
-        property_facts["has_floorplan"] = any(token in text for token in ("grundriss", "floorplan", "lageplan"))
+        property_facts["has_floorplan"] = _property_facts_have_floorplan(property_facts, preview=preview) or any(
+            token in text for token in ("grundriss", "floor plan", "floorplan", "lageplan", "raumskizze", "plan_top")
+        )
+    if "floorplan_urls_json" not in property_facts:
+        floorplan_urls = _property_nonempty_sequence(preview.get("floorplan_urls_json")) or _property_nonempty_sequence(
+            preview.get("floorplan_urls")
+        )
+        if floorplan_urls:
+            property_facts["floorplan_urls_json"] = floorplan_urls
     if "lift" not in property_facts:
         property_facts["lift"] = any(token in text for token in ("lift", "aufzug"))
     if "heating_type" not in property_facts:
@@ -2741,6 +2797,55 @@ def _property_candidate_text(
         )
         if str(part or "").strip()
     ).strip().lower()
+
+
+def _property_candidate_has_floorplan(
+    *,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+    preview: dict[str, object] | None = None,
+) -> bool:
+    facts = dict(property_facts or {})
+    preview_payload = dict(preview or {})
+    if _property_facts_have_floorplan(facts, preview=preview_payload):
+        return True
+    preview_facts = (
+        dict(preview_payload.get("property_facts_json") or {})
+        if isinstance(preview_payload.get("property_facts_json"), dict)
+        else {}
+    )
+    if preview_facts and _property_facts_have_floorplan(preview_facts, preview=preview_payload):
+        return True
+    text = " ".join(
+        part
+        for part in (
+            _property_candidate_text(
+                property_url=property_url,
+                title=title,
+                summary=summary,
+                property_facts={**preview_facts, **facts},
+            ),
+            str(preview_payload.get("title") or "").lower(),
+            str(preview_payload.get("summary") or "").lower(),
+            str(preview_payload.get("listing_id") or "").lower(),
+        )
+        if str(part or "").strip()
+    )
+    compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", text)
+    markers = (
+        "grundriss",
+        "floor plan",
+        "floorplan",
+        "floor-plan",
+        "lageplan",
+        "raumskizze",
+        "plan_top",
+        "plantop",
+        "layout plan",
+    )
+    return any(marker in text or marker.replace(" ", "").replace("-", "") in compact_text_value for marker in markers)
 
 
 def _property_candidate_matches_requested_property_type(
@@ -11757,7 +11862,7 @@ class ProductService:
             return ""
         absolute_access_url = urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
         separator = "&" if "?" in absolute_access_url else "?"
-        return f"{absolute_access_url}{separator}return_to={urllib.parse.quote(target_path, safe='/?:=&')}"
+        return f"{absolute_access_url}{separator}return_to={urllib.parse.quote(target_path, safe='/')}"
 
     def _provider_summary(self, registry: dict[str, object]) -> dict[str, object]:
         provider_rows = [dict(row) for row in (registry.get("providers") or []) if isinstance(row, dict)]
@@ -12455,6 +12560,7 @@ class ProductService:
             external_id=external_id,
             property_url=property_url,
         )
+        normalized_tour_url = str(tour_url or "").strip()
         if existing is not None:
             existing_input = dict(getattr(existing, "input_json", {}) or {})
             payload = {
@@ -12468,6 +12574,7 @@ class ProductService:
                 "recommended_task_key": projected_task_key("Crezlo Tours", "create_property_tour"),
                 "willhaben_fit_score": float(existing_input.get("willhaben_fit_score") or 0.0),
                 "personal_fit_rank": str(existing_input.get("personal_fit_rank") or "").strip(),
+                "tour_url": normalized_tour_url or str(existing_input.get("tour_url") or "").strip(),
             }
             review_url = self._property_alert_review_access_url(
                 principal_id=principal_id,
@@ -12476,7 +12583,6 @@ class ProductService:
             if review_url:
                 payload["editor_url"] = review_url
             return payload
-        normalized_tour_url = str(tour_url or "").strip()
         session_id = self._start_product_review_session(
             principal_id=principal_id,
             goal=f"Review apartment alert for {title or counterparty or 'Willhaben'}",
@@ -13649,6 +13755,7 @@ class ProductService:
         google_account_email: str = "",
         auto_deliver: bool = True,
         actor: str = "",
+        allow_floorplan_only: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not _is_willhaben_property_url(normalized_url):
@@ -13663,6 +13770,7 @@ class ProductService:
                 google_account_email=google_account_email,
                 auto_deliver=auto_deliver,
                 actor=actor,
+                allow_floorplan_only=allow_floorplan_only,
             )
         packet = _load_willhaben_property_packet(normalized_url)
         variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
@@ -13677,6 +13785,7 @@ class ProductService:
         source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
         source_media_urls = list(packet.get("media_urls_json") or [])
         source_floorplan_urls = list(packet.get("floorplan_urls_json") or [])
+        has_floorplan_material = bool(source_floorplan_urls or property_facts_json.get("has_floorplan"))
         request_media_urls = list(panorama_media_urls or source_media_urls)
         request_floorplan_urls = list(source_floorplan_urls)
         scene_strategy = str(variant.get("scene_strategy") or "layout_first").strip()
@@ -13688,6 +13797,7 @@ class ProductService:
                 "panorama_candidate_count": len(panorama_media_urls),
                 "source_virtual_tour_url": source_virtual_tour_url,
                 "panorama_source": panorama_source,
+                "has_floorplan": bool(property_facts_json.get("has_floorplan") or source_floorplan_urls),
             }
         )
         property_facts_json = _merge_property_facts_with_source_research(
@@ -13730,7 +13840,7 @@ class ProductService:
             resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
-        if _willhaben_property_tour_require_360() and not has_live_360:
+        if _willhaben_property_tour_require_360() and not has_live_360 and not (allow_floorplan_only and has_floorplan_material):
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,
@@ -14392,6 +14502,7 @@ class ProductService:
         google_account_email: str = "",
         auto_deliver: bool = False,
         actor: str = "",
+        allow_floorplan_only: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
@@ -14409,6 +14520,7 @@ class ProductService:
         )
         panorama_source = _first_non_empty_text(preview.get("panorama_source"), property_facts_json.get("panorama_source"))
         has_live_360 = bool(panorama_media_urls or source_virtual_tour_url)
+        has_floorplan_material = bool(source_floorplan_urls or property_facts_json.get("has_floorplan"))
         tour_media_mode = "panorama_360" if has_live_360 else "flat_images"
         source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
         property_facts_json.update(
@@ -14418,6 +14530,7 @@ class ProductService:
                 "panorama_candidate_count": len(panorama_media_urls),
                 "source_virtual_tour_url": source_virtual_tour_url,
                 "panorama_source": panorama_source,
+                "has_floorplan": bool(property_facts_json.get("has_floorplan") or source_floorplan_urls),
             }
         )
         property_facts_json = _merge_property_facts_with_source_research(
@@ -14453,7 +14566,7 @@ class ProductService:
             resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
-        if _willhaben_property_tour_require_360() and not has_live_360:
+        if _willhaben_property_tour_require_360() and not has_live_360 and not (allow_floorplan_only and has_floorplan_material):
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,
@@ -15254,6 +15367,59 @@ class ProductService:
             dedupe_key=f"{principal_id}|{task.human_task_id}|property-market-bootstrap-ready-email",
         )
 
+    def _property_absolute_app_url(self, value: object) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parsed = urllib.parse.urlparse(raw)
+        if parsed.scheme and parsed.netloc:
+            return raw
+        if raw.startswith("/"):
+            return urllib.parse.urljoin(f"{_property_public_app_base_url()}/", raw.lstrip("/"))
+        return ""
+
+    def _property_search_results_email_top_properties(self, *, result: dict[str, object]) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for source in list(dict(result or {}).get("sources") or []):
+            if not isinstance(source, dict):
+                continue
+            source_label = str(source.get("source_label") or source.get("platform") or "Property scout").strip() or "Property scout"
+            for candidate in list(source.get("top_candidates") or []):
+                if not isinstance(candidate, dict):
+                    continue
+                review_url = self._property_absolute_app_url(candidate.get("review_url"))
+                tour_url = self._property_absolute_app_url(candidate.get("tour_url"))
+                property_url = self._property_absolute_app_url(candidate.get("property_url")) or str(candidate.get("property_url") or "").strip()
+                click_url = review_url or tour_url or property_url
+                if not click_url:
+                    continue
+                try:
+                    fit_score = float(candidate.get("fit_score") or 0.0)
+                except Exception:
+                    fit_score = 0.0
+                rows.append(
+                    {
+                        "title": compact_text(
+                            str(candidate.get("title") or candidate.get("property_url") or "Property match").strip(),
+                            fallback="Property match",
+                            limit=120,
+                        ),
+                        "source_label": source_label,
+                        "fit_score": fit_score,
+                        "fit_summary": compact_text(
+                            str(candidate.get("fit_summary") or "").strip(),
+                            fallback=f"Personal fit {fit_score:.0f}/100" if fit_score else "",
+                            limit=160,
+                        ),
+                        "review_url": review_url or click_url,
+                        "tour_url": tour_url,
+                        "property_url": property_url,
+                        "tour_status": str(candidate.get("tour_status") or ("ready" if tour_url else "pending")).strip(),
+                    }
+                )
+        rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
+        return rows[:5]
+
     def _notify_property_search_results_ready(
         self,
         *,
@@ -15274,24 +15440,26 @@ class ProductService:
             default_target=f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}",
         )
         access_url = str(access_session.get("access_url") or "").strip()
+        results_target = f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
         absolute_access_url = (
             urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
             if access_url
-            else f"{_property_public_app_base_url()}/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
+            else f"{_property_public_app_base_url()}{results_target}"
         )
-        results_target = f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
         separator = "&" if "?" in absolute_access_url else "?"
-        results_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote(results_target, safe='/?:=&')}"
+        results_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote(results_target, safe='/')}"
         hosted_tour_total = max(
             int(result.get("hosted_tour_total") or 0),
             int(result.get("ready_tour_total") or 0),
             int(result.get("tour_created_total") or 0) + int(result.get("tour_existing_total") or 0),
         )
+        top_properties = self._property_search_results_email_top_properties(result=result)
         receipt = send_property_search_results_ready_email(
             recipient_email=recipient_email,
             results_url=results_url,
             result_total=int(result.get("listing_total") or 0),
             hosted_tour_total=hosted_tour_total,
+            top_properties=top_properties,
         )
         self._record_product_event(
             principal_id=principal_id,
@@ -15300,6 +15468,7 @@ class ProductService:
                 "run_id": run_id,
                 "recipient_email": recipient_email,
                 "results_url": results_url,
+                "top_properties": top_properties,
                 "listing_total": int(result.get("listing_total") or 0),
                 "hosted_tour_total": hosted_tour_total,
                 "provider": receipt.provider,
@@ -15934,7 +16103,9 @@ class ProductService:
         requested_property_type = normalize_property_type(request_preferences.get("property_type"))
         min_match_score = _property_search_effective_min_match_score(request_preferences)
         match_score_cap = _property_search_match_score_cap(request_preferences)
+        require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
         request_preferences["min_match_score"] = min_match_score
+        request_preferences["require_floorplan"] = require_floorplan
 
         specs = [
             dict(spec)
@@ -15958,6 +16129,7 @@ class ProductService:
                 "sources_total": len(specs),
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
+                "require_floorplan": require_floorplan,
             },
             steps_delta=1,
             stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
@@ -15978,9 +16150,11 @@ class ProductService:
                 "high_fit_total": 0,
                 "failed_total": 0,
                 "filtered_property_type_total": 0,
+                "filtered_floorplan_total": 0,
                 "filtered_low_fit_total": 0,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
+                "require_floorplan": require_floorplan,
                 "watch_notified_total": 0,
                 "sources": [],
             }
@@ -15996,6 +16170,7 @@ class ProductService:
         high_fit_total = 0
         failed_total = 0
         filtered_property_type_total = 0
+        filtered_floorplan_total = 0
         filtered_low_fit_total = 0
         watch_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
@@ -16013,6 +16188,7 @@ class ProductService:
             if effective_force_refresh:
                 source_preference_person_id = preference_person_id
             filtered_property_type_for_source = 0
+            filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
 
             _report(
@@ -16114,6 +16290,46 @@ class ProductService:
                         summary_updates={"filtered_property_type_total": filtered_property_type_total},
                     )
                     continue
+                if require_floorplan and not _property_candidate_has_floorplan(
+                    property_url=property_url,
+                    title=preview_title,
+                    summary=preview_summary,
+                    property_facts=preview_facts,
+                    preview=preview,
+                ):
+                    try:
+                        detailed_floorplan_preview = _property_scout_page_preview(property_url)
+                        if isinstance(detailed_floorplan_preview, dict) and detailed_floorplan_preview:
+                            preview = detailed_floorplan_preview
+                            preview_facts = (
+                                dict(preview.get("property_facts_json") or {})
+                                if isinstance(preview.get("property_facts_json"), dict)
+                                else {}
+                            )
+                            preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
+                            preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                    except Exception:
+                        pass
+                if require_floorplan and not _property_candidate_has_floorplan(
+                    property_url=property_url,
+                    title=preview_title,
+                    summary=preview_summary,
+                    property_facts=preview_facts,
+                    preview=preview,
+                ):
+                    filtered_floorplan_total += 1
+                    filtered_floorplan_for_source += 1
+                    _report(
+                        step="source_floorplan_filter",
+                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} without a floor plan for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_floorplan_total": filtered_floorplan_total,
+                            "require_floorplan": True,
+                        },
+                    )
+                    continue
                 preliminary_rows.append(
                     {
                         "property_url": property_url,
@@ -16198,6 +16414,26 @@ class ProductService:
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                    )
+                    continue
+                if require_floorplan and not _property_candidate_has_floorplan(
+                    property_url=property_url,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
+                    preview=preview,
+                ):
+                    filtered_floorplan_total += 1
+                    filtered_floorplan_for_source += 1
+                    _report(
+                        step="source_floorplan_filter",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} without a floor plan for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_floorplan_total": filtered_floorplan_total,
+                            "require_floorplan": True,
+                        },
                     )
                     continue
                 assessment = _property_alert_personal_fit_from_facts(
@@ -16293,6 +16529,8 @@ class ProductService:
                     "recommendation": str(dict(row.get("assessment") or {}).get("recommendation") or "").strip(),
                     "fit_summary": _property_alert_fit_summary(dict(row.get("assessment") or {})),
                     "assessment": dict(row.get("assessment") or {}),
+                    "property_facts": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
+                    "source_label": source_label,
                 }
                 for row in ranked_rows[:3]
             )
@@ -16331,6 +16569,27 @@ class ProductService:
                         "fit_score": fit_score,
                     }
 
+                tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
+                should_prebuild_tour = _property_candidate_supports_live_tour(row) and (
+                    row_index <= _PROPERTY_TOUR_PREBUILD_LIMIT or require_floorplan
+                )
+                if is_good_fit or should_prebuild_tour:
+                    tour_result = self._maybe_auto_create_property_scout_tour(
+                        principal_id=principal_id,
+                        actor=actor,
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        assessment=assessment,
+                        policy=policy,
+                        allow_below_threshold=should_prebuild_tour,
+                    )
+                    if str(tour_result.get("status") or "").strip() == "created":
+                        tour_created_for_source += 1
+                        tour_created_total += 1
+                    elif str(tour_result.get("status") or "").strip() == "existing":
+                        tour_existing_for_source += 1
+                        tour_existing_total += 1
+
                 opened = self._open_property_alert_review(
                     principal_id=principal_id,
                     title=title,
@@ -16345,6 +16604,7 @@ class ProductService:
                     candidate_properties=candidate_properties,
                     personal_fit_assessment=assessment,
                     preference_person_id=source_preference_person_id,
+                    tour_url=str(tour_result.get("tour_url") or "").strip(),
                 )
                 _report(
                     step="source_review_packet",
@@ -16360,24 +16620,6 @@ class ProductService:
                     review_existing_total += 1
                 if top_watch_candidate is not None and str(top_watch_candidate.get("source_ref") or "").strip() == source_ref:
                     top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
-
-                tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
-                should_prebuild_tour = row_index <= _PROPERTY_TOUR_PREBUILD_LIMIT and _property_candidate_supports_live_tour(row)
-                if is_good_fit or should_prebuild_tour:
-                    tour_result = self._maybe_auto_create_property_scout_tour(
-                        principal_id=principal_id,
-                        actor=actor,
-                        property_url=property_url,
-                        source_ref=source_ref,
-                        assessment=assessment,
-                        policy=policy,
-                    )
-                    if str(tour_result.get("status") or "").strip() == "created":
-                        tour_created_for_source += 1
-                        tour_created_total += 1
-                    elif str(tour_result.get("status") or "").strip() == "existing":
-                        tour_existing_for_source += 1
-                        tour_existing_total += 1
 
                 if notify_telegram and is_good_fit:
                     _report(
@@ -16487,9 +16729,11 @@ class ProductService:
                     "listing_total": len(ranked_rows),
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
+                    "filtered_floorplan_total": filtered_floorplan_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
+                    "require_floorplan": require_floorplan,
                     "raw_listing_total": raw_listing_count,
                     "scanned_listing_total": len(listing_urls),
                     "scan_truncated": scan_truncated,
@@ -16520,9 +16764,11 @@ class ProductService:
             "listing_total": listing_total,
             "duplicate_listing_total": duplicate_listing_total,
             "filtered_property_type_total": filtered_property_type_total,
+            "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
+            "require_floorplan": require_floorplan,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,
@@ -18549,6 +18795,7 @@ class ProductService:
         source_ref: str,
         assessment: dict[str, object] | None,
         policy: dict[str, object] | None = None,
+        allow_below_threshold: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_url:
@@ -18556,7 +18803,10 @@ class ProductService:
         normalized_policy = _normalize_property_alert_policy(policy)
         if not bool(normalized_policy.get("auto_generate_tour_for_good_fit")):
             return {"status": "skipped", "reason": "policy_disabled"}
-        if not _property_alert_is_good_fit(dict(assessment or {}) if isinstance(assessment, dict) else None, policy=normalized_policy):
+        if not allow_below_threshold and not _property_alert_is_good_fit(
+            dict(assessment or {}) if isinstance(assessment, dict) else None,
+            policy=normalized_policy,
+        ):
             return {"status": "skipped", "reason": "fit_below_threshold"}
         existing_event = self._latest_property_tour_event(
             principal_id=principal_id,
@@ -18594,6 +18844,7 @@ class ProductService:
                 external_id=normalized_url,
                 auto_deliver=False,
                 actor=actor,
+                allow_floorplan_only=True,
             )
         except Exception as exc:
             return {

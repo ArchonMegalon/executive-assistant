@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -255,7 +256,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
         "/app/api/signals/property/search/run",
         json={
             "selected_platforms": ["willhaben"],
-            "property_preferences": {"preference_person_id": "elisabeth", "min_match_score": 80},
+            "property_preferences": {"preference_person_id": "elisabeth", "min_match_score": 80, "require_floorplan": True},
             "force_refresh": True,
             "max_results_per_source": 2,
         },
@@ -279,6 +280,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
     assert observed["max_results_per_source"] == 2
     assert observed["property_search_preferences"]["preference_person_id"] == "elisabeth"
     assert observed["property_search_preferences"]["min_match_score"] == 45.0
+    assert observed["property_search_preferences"]["require_floorplan"] is True
 
 
 def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal_scope(monkeypatch) -> None:
@@ -437,7 +439,21 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
             "tour_existing_total": 1,
             "high_fit_total": 0,
             "watch_notified_total": 0,
-            "sources": [],
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "top_candidates": [
+                        {
+                            "title": "Best floorplan flat",
+                            "fit_score": 88.0,
+                            "fit_summary": "Personal fit 88/100",
+                            "review_url": "https://propertyquarry.com/workspace-access/review-token?return_to=%2Fapp%2Fhandoffs%2Fhuman_task%3Areview-1",
+                            "tour_url": "https://propertyquarry.com/tours/best-floorplan-flat",
+                            "tour_status": "created",
+                        }
+                    ],
+                }
+            ],
         }
 
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
@@ -454,7 +470,9 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
     assert sent[0]["recipient_email"] == "results.ready@example.com"
     assert sent[0]["result_total"] == 3
     assert sent[0]["hosted_tour_total"] == 2
-    assert f"run_id={run_id}" in str(sent[0]["results_url"])
+    assert urllib.parse.quote(f"/app/properties?run_id={run_id}", safe="/") in str(sent[0]["results_url"])
+    assert sent[0]["top_properties"][0]["title"] == "Best floorplan flat"
+    assert sent[0]["top_properties"][0]["review_url"].startswith("https://propertyquarry.com/workspace-access/")
 
 
 def test_property_search_results_ready_email_waits_for_tour_completion(monkeypatch) -> None:

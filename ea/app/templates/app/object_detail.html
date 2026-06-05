@@ -106,6 +106,13 @@
     color: var(--text);
     margin-bottom: 4px;
   }
+  .object-media-highlight a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .object-media-highlight a:hover {
+    text-decoration: underline;
+  }
   .object-meta {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
@@ -309,10 +316,18 @@
     {% if object_ooda_rows %}
     <section class="object-panel object-media-highlights">
       {% for item in object_ooda_rows[:4] %}
+      {% set href = item.get('href') or '' %}
+      {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+      {% set secondary_action_label = item.get('secondary_action_label') or '' %}
       <div class="object-media-highlight">
         <span>{{ item.tag }}</span>
-        <strong>{{ item.title }}</strong>
+        <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
         <div class="object-copy">{{ item.detail }}</div>
+        {% if secondary_action_href %}
+        <div class="object-actions">
+          <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label or 'Open' }}</a>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </section>
@@ -333,10 +348,18 @@
       {% if object_ooda_copy %}<p class="object-copy">{{ object_ooda_copy }}</p>{% endif %}
       <div class="object-list">
         {% for item in object_ooda_rows %}
+        {% set href = item.get('href') or '' %}
+        {% set secondary_action_href = item.get('secondary_action_href') or '' %}
+        {% set secondary_action_label = item.get('secondary_action_label') or '' %}
         <div class="object-row">
           <div>
-            <strong>{{ item.title }}</strong>
+            <strong>{% if href %}<a href="{{ href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</strong>
             <small>{{ item.detail }}</small>
+            {% if secondary_action_href %}
+            <div class="object-actions">
+              <a class="console-action" href="{{ secondary_action_href }}">{{ secondary_action_label or 'Open' }}</a>
+            </div>
+            {% endif %}
           </div>
           <span class="object-tag">{{ item.tag }}</span>
         </div>
