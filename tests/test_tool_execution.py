@@ -5158,6 +5158,47 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_uplo
     assert workflow_output["tour_detail_json"]["scenes"][0]["file"]["meta"]["source_url"] == "https://assets.example/photo-1.jpg"
 
 
+def test_crezlo_property_tour_env_credentials_populate_inputs_and_worker_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_CREZLO_LOGIN_EMAIL", "env-crezlo@example.com")
+    monkeypatch.setenv("EA_CREZLO_LOGIN_PASSWORD", "env-crezlo-password")
+
+    payload = {
+        "tour_title": "Env Credential Tour",
+        "property_url": "https://www.willhaben.at/listing/env-credential-tour",
+        "media_urls_json": ["https://assets.example/photo-1.jpg"],
+        "floorplan_urls_json": ["https://assets.example/floorplan-1.jpg"],
+    }
+    binding_metadata: dict[str, object] = {}
+
+    inputs = BrowserActToolAdapter._build_crezlo_property_tour_inputs(
+        payload=payload,
+        binding_metadata=binding_metadata,
+    )
+    assert inputs["login_email"] == "env-crezlo@example.com"
+    assert inputs["crezlo_login_email"] == "env-crezlo@example.com"
+    assert inputs["browseract_username"] == "env-crezlo@example.com"
+    assert inputs["login_password"] == "env-crezlo-password"
+    assert inputs["crezlo_login_password"] == "env-crezlo-password"
+    assert inputs["browseract_password"] == "env-crezlo-password"
+
+    packet = BrowserActToolAdapter._build_crezlo_property_tour_worker_packet(
+        payload=payload,
+        binding_metadata=binding_metadata,
+        requested_inputs=inputs,
+        workspace={
+            "workspace_id": "workspace-crezlo-env-1",
+            "workspace_domain": "ea-property-tours-20260320.crezlotours.com",
+            "workspace_base_url": "https://ea-property-tours-20260320.crezlotours.com",
+            "workspace_tours_url": "https://ea-property-tours-20260320.crezlotours.com/admin/tours",
+        },
+        timeout_seconds=120,
+    )
+    assert packet["login_email"] == "env-crezlo@example.com"
+    assert packet["login_password"] == "env-crezlo-password"
+
+
 def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

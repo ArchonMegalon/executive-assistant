@@ -2497,6 +2497,28 @@ class BrowserActToolAdapter:
             return ""
         return " ".join(part.upper() if len(part) <= 2 else (part[:1].upper() + part[1:]) for part in parts)
 
+    @staticmethod
+    def _crezlo_login_email(payload: dict[str, object], *, binding_metadata: dict[str, object]) -> str:
+        return str(
+            payload.get("login_email")
+            or payload.get("crezlo_login_email")
+            or binding_metadata.get("crezlo_login_email")
+            or binding_metadata.get("login_email")
+            or os.getenv("EA_CREZLO_LOGIN_EMAIL")
+            or ""
+        ).strip()
+
+    @staticmethod
+    def _crezlo_login_password(payload: dict[str, object], *, binding_metadata: dict[str, object]) -> str:
+        return str(
+            payload.get("login_password")
+            or payload.get("crezlo_login_password")
+            or binding_metadata.get("crezlo_login_password")
+            or binding_metadata.get("login_password")
+            or os.getenv("EA_CREZLO_LOGIN_PASSWORD")
+            or ""
+        ).strip()
+
     @classmethod
     def _build_crezlo_property_tour_worker_packet(
         cls,
@@ -2519,20 +2541,8 @@ class BrowserActToolAdapter:
             if text and text not in workspace_label_candidates:
                 workspace_label_candidates.append(text)
         return {
-            "login_email": str(
-                payload.get("login_email")
-                or payload.get("crezlo_login_email")
-                or binding_metadata.get("crezlo_login_email")
-                or binding_metadata.get("login_email")
-                or ""
-            ).strip(),
-            "login_password": str(
-                payload.get("login_password")
-                or payload.get("crezlo_login_password")
-                or binding_metadata.get("crezlo_login_password")
-                or binding_metadata.get("login_password")
-                or ""
-            ).strip(),
+            "login_email": cls._crezlo_login_email(payload, binding_metadata=binding_metadata),
+            "login_password": cls._crezlo_login_password(payload, binding_metadata=binding_metadata),
             "tour_title": str(requested_inputs.get("tour_title") or payload.get("tour_title") or "").strip(),
             "workspace_id": str(workspace.get("workspace_id") or "").strip(),
             "workspace_domain": str(workspace.get("workspace_domain") or "").strip(),
@@ -3761,22 +3771,8 @@ class BrowserActToolAdapter:
         timeout_seconds: int,
     ) -> dict[str, object]:
         workspace = cls._resolve_crezlo_workspace(payload=payload, binding_metadata=binding_metadata)
-        login_email = str(
-            payload.get("login_email")
-            or payload.get("crezlo_login_email")
-            or binding_metadata.get("crezlo_login_email")
-            or binding_metadata.get("login_email")
-            or os.getenv("EA_CREZLO_LOGIN_EMAIL")
-            or ""
-        ).strip()
-        login_password = str(
-            payload.get("login_password")
-            or payload.get("crezlo_login_password")
-            or binding_metadata.get("crezlo_login_password")
-            or binding_metadata.get("login_password")
-            or os.getenv("EA_CREZLO_LOGIN_PASSWORD")
-            or ""
-        ).strip()
+        login_email = cls._crezlo_login_email(payload, binding_metadata=binding_metadata)
+        login_password = cls._crezlo_login_password(payload, binding_metadata=binding_metadata)
         remote_media_urls = cls._crezlo_normalize_url_list(payload.get("media_urls_json"))
         remote_floorplan_urls = cls._crezlo_normalize_url_list(payload.get("floorplan_urls_json"))
         scene_strategy = str(payload.get("scene_strategy") or "compact").strip().lower() or "compact"
@@ -3943,20 +3939,8 @@ class BrowserActToolAdapter:
         payload: dict[str, object],
         binding_metadata: dict[str, object],
     ) -> dict[str, object]:
-        login_email = str(
-            payload.get("login_email")
-            or payload.get("crezlo_login_email")
-            or binding_metadata.get("crezlo_login_email")
-            or binding_metadata.get("login_email")
-            or ""
-        ).strip()
-        login_password = str(
-            payload.get("login_password")
-            or payload.get("crezlo_login_password")
-            or binding_metadata.get("crezlo_login_password")
-            or binding_metadata.get("login_password")
-            or ""
-        ).strip()
+        login_email = cls._crezlo_login_email(payload, binding_metadata=binding_metadata)
+        login_password = cls._crezlo_login_password(payload, binding_metadata=binding_metadata)
         property_facts_json = dict(payload.get("property_facts_json") or {})
         media_urls = [str(value or "").strip() for value in (payload.get("media_urls_json") or []) if str(value or "").strip()]
         floorplan_urls = [
