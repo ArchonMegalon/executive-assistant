@@ -471,6 +471,69 @@
     }
     .pqx-inline-status { color: var(--pq-green); font-size: 12px; }
     .pqx-inline-error { color: var(--pq-red); font-size: 12px; }
+    .pqx-pref-manager {
+      display: grid;
+      gap: 12px;
+      padding-top: 14px;
+      border-top: 1px solid var(--pq-line);
+    }
+    .pqx-pref-list {
+      display: grid;
+      gap: 8px;
+      max-height: 220px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .pqx-pref-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 10px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+    }
+    .pqx-pref-row.is-removing {
+      opacity: 0.62;
+    }
+    .pqx-pref-row strong,
+    .pqx-pref-row small {
+      display: block;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-pref-row small {
+      color: var(--pq-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .pqx-pref-form {
+      display: grid;
+      gap: 10px;
+    }
+    .pqx-pref-form-grid {
+      display: grid;
+      grid-template-columns: minmax(120px, 0.52fr) minmax(170px, 1fr) minmax(170px, 1fr) minmax(110px, 0.48fr);
+      gap: 8px;
+    }
+    .pqx-pref-form label {
+      display: grid;
+      gap: 5px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+    .pqx-pref-form input,
+    .pqx-pref-form select {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 8px;
+      background: #fffefa;
+      color: var(--pq-ink);
+      padding: 0 10px;
+    }
     .pqx-running {
       min-height: calc(100vh - 172px);
       display: grid;
@@ -931,7 +994,9 @@
       .pqx-check-grid,
       .pqx-fact-grid,
       .pqx-source-grid,
-      .pqx-ooda-grid {
+      .pqx-ooda-grid,
+      .pqx-pref-form-grid,
+      .pqx-pref-row {
         grid-template-columns: minmax(0, 1fr);
       }
       .pqx-result {
@@ -1134,6 +1199,95 @@
             <div class="pqx-inline-status" data-property-inline-status></div>
             <div class="pqx-inline-error" data-property-inline-error></div>
           </form>
+          {% set preference_manager = preference_manager or {} %}
+          <section
+            class="pqx-pref-manager"
+            data-property-preference-manager
+            data-preference-person-id="{{ preference_manager.get('person_id') or 'self' }}"
+            data-preference-node-endpoint="{{ preference_manager.get('node_endpoint') or '/app/api/people/self/preference-profile/nodes' }}"
+            data-preference-archive-endpoint-template="{{ preference_manager.get('archive_endpoint_template') or '/app/api/people/self/preference-profile/nodes/__NODE_ID__/archive' }}"
+          >
+            <div class="pqx-section-head">
+              <div>
+                <h2>Search profile</h2>
+                <div class="pqx-note">These rules are used when "Use stored feedback preferences" is enabled.</div>
+              </div>
+              <span class="pqx-pill">{{ (preference_manager.get('active_nodes') or [])|length }} active</span>
+            </div>
+            <div class="pqx-pref-list" data-preference-node-list>
+              {% for node in preference_manager.get('active_nodes') or [] %}
+              <div
+                class="pqx-pref-row"
+                data-preference-node
+                data-node-id="{{ node.get('node_id') }}"
+                data-node-domain="{{ node.get('domain') }}"
+                data-node-category="{{ node.get('category') }}"
+                data-node-key="{{ node.get('key') }}"
+                data-node-value='{{ node.get("value_json")|tojson|safe }}'
+                data-node-strength="{{ node.get('strength') }}"
+              >
+                <div>
+                  <strong>{{ node.get('label') }}</strong>
+                  <small>{{ node.get('value_label') }} · {{ node.get('strength') }} strength · {{ node.get('source_mode') or 'manual' }}</small>
+                </div>
+                <button class="pqx-button subtle" type="button" data-preference-remove>Remove</button>
+              </div>
+              {% else %}
+              <div class="pqx-empty" data-preference-empty>
+                <strong>No active learned preferences yet</strong>
+                <span class="pqx-note">Add explicit profile rules here or save feedback on review packets.</span>
+              </div>
+              {% endfor %}
+            </div>
+            <form class="pqx-pref-form" data-preference-add-form>
+              <div class="pqx-pref-form-grid">
+                <label>
+                  Category
+                  <select name="category">
+                    <option value="soft_preference">Preference</option>
+                    <option value="constraint">Hard rule</option>
+                    <option value="aversion">Avoid</option>
+                  </select>
+                </label>
+                <label>
+                  Key
+                  <input name="key" list="pqx-preference-key-options" placeholder="prefer_balcony" autocomplete="off">
+                  <datalist id="pqx-preference-key-options">
+                    <option value="prefer_balcony"></option>
+                    <option value="prefer_lift"></option>
+                    <option value="require_lift"></option>
+                    <option value="require_floorplan"></option>
+                    <option value="prefer_outdoor_space"></option>
+                    <option value="prefer_subway_nearby"></option>
+                    <option value="prefer_supermarket_nearby"></option>
+                    <option value="prefer_pharmacy_nearby"></option>
+                    <option value="prefer_playgrounds_nearby"></option>
+                    <option value="preferred_districts"></option>
+                    <option value="avoided_districts"></option>
+                    <option value="min_area_sqm_preference"></option>
+                    <option value="max_total_rent_eur"></option>
+                  </datalist>
+                </label>
+                <label>
+                  Value
+                  <input name="value" placeholder="true, 70, or 1020 Wien, 1200 Wien" autocomplete="off">
+                </label>
+                <label>
+                  Strength
+                  <select name="strength">
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
+              </div>
+              <div class="pqx-actions">
+                <button class="pqx-button" type="submit">Add preference</button>
+                <span class="pqx-inline-status" data-preference-status></span>
+                <span class="pqx-inline-error" data-preference-error></span>
+              </div>
+            </form>
+          </section>
           {% else %}
           <div class="pqx-empty">The search brief is not editable while this run is active or completed.</div>
           {% endif %}
@@ -1561,6 +1715,158 @@
       if (raw === 'principal_id_required') return 'You are not signed in cleanly. Sign in again before starting a search.';
       return raw.replaceAll('_', ' ');
     };
+    const titleCase = (value) => String(value || '')
+      .replaceAll('_', ' ')
+      .trim()
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+    const preferenceLabel = (key, category) => {
+      const readableKey = titleCase(key || 'Preference');
+      const readableCategory = titleCase(category || '');
+      return readableCategory ? `${readableKey} (${readableCategory})` : readableKey;
+    };
+    const preferenceValueLabel = (value) => {
+      if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean).join(', ') || 'empty list';
+      if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}: ${item}`).join(', ') || 'empty object';
+      if (typeof value === 'boolean') return value ? 'yes' : 'no';
+      return String(value ?? '').trim() || 'empty';
+    };
+    const parsePreferenceValue = (rawValue, key) => {
+      const raw = String(rawValue || '').trim();
+      const normalizedKey = String(key || '').trim().toLowerCase();
+      if (!raw && /^(prefer_|require_|requires_)/.test(normalizedKey)) return true;
+      if (!raw) return '';
+      const lowered = raw.toLowerCase();
+      if (['true', 'yes', 'ja', '1'].includes(lowered)) return true;
+      if (['false', 'no', 'nein', '0'].includes(lowered)) return false;
+      if (raw.includes(',')) return raw.split(',').map((item) => item.trim()).filter(Boolean);
+      const numeric = Number(raw.replace(',', '.'));
+      if (Number.isFinite(numeric) && /^-?\d+(?:[,.]\d+)?$/.test(raw)) return numeric;
+      return raw;
+    };
+    const renderPreferenceNodeRow = (node) => {
+      const nodeId = String(node?.node_id || '').trim();
+      const category = String(node?.category || 'soft_preference').trim();
+      const key = String(node?.key || '').trim();
+      const value = node?.value_json;
+      const strength = String(node?.strength || 'medium').trim();
+      const sourceMode = String(node?.source_mode || 'manual').trim();
+      return `
+        <div class="pqx-pref-row" data-preference-node data-node-id="${escapeHtml(nodeId)}" data-node-domain="${escapeHtml(node?.domain || 'willhaben')}" data-node-category="${escapeHtml(category)}" data-node-key="${escapeHtml(key)}" data-node-value="${escapeHtml(JSON.stringify(value))}" data-node-strength="${escapeHtml(strength)}">
+          <div>
+            <strong>${escapeHtml(preferenceLabel(key, category))}</strong>
+            <small>${escapeHtml(preferenceValueLabel(value))} · ${escapeHtml(strength)} strength · ${escapeHtml(sourceMode || 'manual')}</small>
+          </div>
+          <button class="pqx-button subtle" type="button" data-preference-remove>Remove</button>
+        </div>`;
+    };
+    const initPreferenceManager = () => {
+      const manager = root.querySelector('[data-property-preference-manager]');
+      if (!manager) return;
+      const listNode = manager.querySelector('[data-preference-node-list]');
+      const formNode = manager.querySelector('[data-preference-add-form]');
+      const statusNode = manager.querySelector('[data-preference-status]');
+      const errorNode = manager.querySelector('[data-preference-error]');
+      const countNode = manager.querySelector('.pqx-pill');
+      const nodeEndpoint = String(manager.getAttribute('data-preference-node-endpoint') || '').trim();
+      const archiveEndpointTemplate = String(manager.getAttribute('data-preference-archive-endpoint-template') || '').trim();
+      const setStatus = (message, isError = false) => {
+        if (statusNode) statusNode.textContent = isError ? '' : message;
+        if (errorNode) errorNode.textContent = isError ? message : '';
+      };
+      const syncCount = () => {
+        if (!countNode || !listNode) return;
+        const activeCount = listNode.querySelectorAll('[data-preference-node]').length;
+        countNode.textContent = `${activeCount} active`;
+      };
+      const ensureEmptyState = () => {
+        if (!listNode) return;
+        if (listNode.querySelector('[data-preference-node]')) {
+          listNode.querySelector('[data-preference-empty]')?.remove();
+          syncCount();
+          return;
+        }
+        listNode.innerHTML = '<div class="pqx-empty" data-preference-empty><strong>No active learned preferences yet</strong><span class="pqx-note">Add explicit profile rules here or save feedback on review packets.</span></div>';
+        syncCount();
+      };
+      const bindRemoveButtons = () => {
+        manager.querySelectorAll('[data-preference-remove]').forEach((button) => {
+          if (button.getAttribute('data-bound') === 'true') return;
+          button.setAttribute('data-bound', 'true');
+          button.addEventListener('click', async () => {
+            const row = button.closest('[data-preference-node]');
+            const nodeId = String(row?.getAttribute('data-node-id') || '').trim();
+            if (!row || !nodeId || !archiveEndpointTemplate) return;
+            row.classList.add('is-removing');
+            button.disabled = true;
+            setStatus('Removing preference...');
+            try {
+              const response = await fetch(archiveEndpointTemplate.replace('__NODE_ID__', encodeURIComponent(nodeId)), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ reason: 'Removed from the PropertyQuarry search profile manager.' }),
+              });
+              const responseBody = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(readableErrorDetail(responseBody.detail || responseBody.error || responseBody, 'Could not remove preference.'));
+              row.remove();
+              ensureEmptyState();
+              setStatus('Preference removed from active ranking.');
+            } catch (error) {
+              row.classList.remove('is-removing');
+              button.disabled = false;
+              setStatus(error instanceof Error ? error.message : 'Could not remove preference.', true);
+            }
+          });
+        });
+      };
+      formNode?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!nodeEndpoint || !listNode) return;
+        const category = String(formNode.querySelector('[name="category"]')?.value || 'soft_preference').trim();
+        const key = String(formNode.querySelector('[name="key"]')?.value || '').trim().toLowerCase();
+        const valueInput = formNode.querySelector('[name="value"]');
+        const strength = String(formNode.querySelector('[name="strength"]')?.value || 'medium').trim();
+        if (!key) {
+          setStatus('Add a preference key first.', true);
+          return;
+        }
+        setStatus('Adding preference...');
+        try {
+          const response = await fetch(nodeEndpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              domain: 'willhaben',
+              category,
+              key,
+              value_json: parsePreferenceValue(valueInput?.value || '', key),
+              strength,
+              confidence: 1,
+              source_mode: 'explicit',
+              status: 'active',
+              decay_policy: 'manual_only',
+            }),
+          });
+          const responseBody = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(readableErrorDetail(responseBody.detail || responseBody.error || responseBody, 'Could not add preference.'));
+          listNode.querySelector('[data-preference-empty]')?.remove();
+          const responseNodeId = String(responseBody?.node_id || '').trim();
+          if (responseNodeId && window.CSS?.escape) {
+            listNode.querySelector(`[data-node-id="${CSS.escape(responseNodeId)}"]`)?.remove();
+          }
+          listNode.insertAdjacentHTML('afterbegin', renderPreferenceNodeRow(responseBody));
+          bindRemoveButtons();
+          syncCount();
+          formNode.reset();
+          setStatus('Preference added to active ranking.');
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Could not add preference.', true);
+        }
+      });
+      bindRemoveButtons();
+      ensureEmptyState();
+    };
     const responseErrorMessage = async (response, fallback) => {
       const body = await response.json().catch(() => ({}));
       return readableErrorDetail(body.detail || body.error || body.message || body, fallback);
@@ -1852,6 +2158,7 @@
         pollRun(statusUrl);
       }
     }
+    initPreferenceManager();
   })();
   </script>
 </body>

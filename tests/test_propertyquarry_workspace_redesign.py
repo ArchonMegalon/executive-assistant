@@ -399,10 +399,28 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
         },
     )
     assert stored.status_code == 200, stored.text
+    profile_node = client.post(
+        "/app/api/people/self/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "prefer_outdoor_space",
+            "value_json": True,
+            "strength": "high",
+            "confidence": 1.0,
+        },
+    )
+    assert profile_node.status_code == 200, profile_node.text
 
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
     assert 'data-workbench-brief-drawer' in search.text
+    assert 'data-property-preference-manager' in search.text
+    assert "Search profile" in search.text
+    assert "Prefer Outdoor Space (Soft Preference)" in search.text
+    assert 'data-preference-remove' in search.text
+    assert 'data-preference-add-form' in search.text
+    assert 'name="key" list="pqx-preference-key-options"' in search.text
     assert 'name="all_of_vienna" value="true" checked' in search.text
     assert 'name="use_stored_feedback_preferences" value="true" checked' in search.text
     assert "Use stored feedback preferences" in search.text
