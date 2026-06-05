@@ -45,7 +45,6 @@ That does not mean:
 
 ## Required inputs
 
-* EA product canon in `.codex-design/ea/*`
 * mirrored `.codex-design/product/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
@@ -57,7 +56,6 @@ That does not mean:
 
 ## Boundary rules
 
-* EA product surface canon under `.codex-design/ea/*` stays the release-facing oracle for EA UI, workflow, and copy claims.
 * If mirrored canon is missing a seam, emit a petition packet instead of inventing local truth.
 * EA may summarize support, release, participation, or horizon signals, but Hub, Fleet, and design remain the owning truth planes.
 * Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.

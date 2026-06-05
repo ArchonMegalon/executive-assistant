@@ -41,7 +41,28 @@ Bounded summary and recap tooling may help with derivative outputs, but canonica
 * not hidden state that bypasses canonical campaign truth
 * not a flashy control room built on unreliable session continuity
 
-## Why it is not ready yet
+## What is ready now
 
-GM indispensability only works if prep, live control, and recovery are already boringly reliable.
-Until Chummer can prove those foundations at release level, RUN CONTROL remains a future flagship lane rather than live scope.
+RUN CONTROL is now a shipped first-party GM operations lane.
+
+The public rail exposes a named control receipt plus public-safe session-board and continuity packets:
+
+* `/run-control`
+* `/run-control/receipts/control-network.json`
+* `/run-control/packets/session_board.md`
+* `/run-control/packets/session_board.json`
+* `/run-control/packets/continuity_board.md`
+* `/run-control/packets/continuity_board.json`
+
+The signed-in rail is no longer implied through generic work routes alone; it now has named control aliases:
+
+* `/account/run-control`
+* `/account/run-control/open`
+* `/account/run-control/{runId}`
+
+Typed GM-control APIs are first-class too:
+
+* `/api/v1/campaign-spine/me/run-control/dashboard`
+* `/api/v1/campaign-spine/me/run-control/runs/{runId}`
+
+This shipped slice keeps session board, active-scene continuity, reconnect-safe follow-through, and recap return attached to the same first-party campaign spine.

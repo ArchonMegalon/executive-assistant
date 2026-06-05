@@ -40,7 +40,29 @@ Assistive drafting tools may help with primer copy or example narration, but rec
 * not advice that outruns canonical rules truth
 * not tutorial theater that collapses under non-happy-path builds
 
-## Why it is not ready yet
+## What is ready now
 
-Guided mastery only helps if it is both trustworthy and calm under real user mistakes.
-Until Chummer can prove stronger explain, starter-flow, and recovery posture, ONRAMP remains a future lane instead of a release promise.
+ONRAMP is now a shipped first-party starter and recovery lane.
+
+The public rail exposes a named starter receipt plus public-safe starter and recovery packets:
+
+* `/onramp`
+* `/onramp/receipts/guided-starter.json`
+* `/onramp/packets/starter_lane.md`
+* `/onramp/packets/starter_lane.json`
+* `/onramp/packets/recovery_lane.md`
+* `/onramp/packets/recovery_lane.json`
+
+The signed-in rail now has named starter aliases instead of relying on generic setup surfaces alone:
+
+* `/account/onramp`
+* `/account/onramp/open`
+* `/account/onramp/starter`
+
+Typed starter and recovery APIs are first-class too:
+
+* `/api/v1/campaign-spine/me/onramp/dashboard`
+* `/api/v1/campaign-spine/me/onramp/starter`
+* `/api/v1/campaign-spine/me/onramp/recovery`
+
+This shipped slice keeps guided starter workspace, first playable follow-through, and restore posture attached to the same first-party campaign spine without turning ONRAMP into an auto-build black box.

@@ -31,14 +31,20 @@ RUNSITE is for briefing, planning, and spatial understanding before things go lo
 * preview and embed receipts
 * reliable map and render adapters
 
-## Current proof posture
+## What is ready now
 
-RUNSITE is still a horizon, but it already has first-party preview proof in the public artifact registry through runsite-pack framing and route-oriented artifact language.
-The spatial lane should now read as an inspectable preview path, not a blank future tease.
-Route overlays, pack inspection, and explorable tours remain the first-party truth surfaces; host clips stay secondary orientation siblings rather than tactical authority.
-The signed-in command lane is already live at `https://chummer.run/runsites`.
-That lane currently carries first-party runsite packs on real markdown and JSON routes without pretending the whole spatial roadmap is done.
+RUNSITE is now a shipped first-party prep lane.
+The public rail exposes real runsite packs on markdown and JSON routes plus a named receipt at `/runsites/receipts/prep-network.json`.
+The signed-in rail is no longer generic workspace spillover; it has a named bench at `/account/runsites`, a named redirect lane at `/account/runsites/open`, and workspace detail routes at `/account/runsites/{workspaceId}`.
+Typed prep and run APIs are first-class too:
 
-## Why it is not ready yet
+* `/api/v1/campaign-spine/me/workspace-digests`
+* `/api/v1/campaign-spine/me/workspaces/{workspaceId}`
+* `/api/v1/campaign-spine/me/workspaces/{workspaceId}/prep-library`
+* `/api/v1/campaign-spine/me/runs`
+* `/api/v1/campaign-spine/me/runs/{runId}`
 
-The new vendor path makes this more plausible, but Chummer still needs a reliable permission model and clear evidence links before it should present RUNSITE as a real feature.
+## Boundary
+
+RUNSITE is a prep and orientation lane.
+It does not claim tactical authority, live-map truth, or VTT replacement status. Route overlays, tours, and host clips stay subordinate to first-party workspace and run truth.

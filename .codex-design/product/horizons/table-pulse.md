@@ -61,9 +61,11 @@ or moderation truth system.
 
 ## What is live now
 
-The whole coaching and observer stack is not universally shipped.
+The whole coaching and observer stack is not universally shipped, but Table Pulse is no longer just one live rail plus a future page.
 
-What is live today is Table Pulse Live on the signed-in command lane:
+What is live today is:
+
+* Table Pulse Live on the signed-in command lane:
 
 * a Table Pulse packet on the Black Ledger notifications route
 * bounded remote reaction mini-games
@@ -72,9 +74,15 @@ What is live today is Table Pulse Live on the signed-in command lane:
 * Living Newsroom watch framing
 * governed aftermath return loops
 
-So the command-to-fallout loop is real now, while Table Pulse Aftermath and the broader coaching,
-transcript, and narrated-summary stack remain future-facing, consent-bounded, and explicitly
-non-authoritative.
+* Table Pulse Aftermath on the signed-in aftermath rail:
+
+* workspace aftermath recap package generation
+* downtime aftermath and campaign-memory follow-through
+* receipt-backed return-lane packets that keep recap, carry-forward, and next-session cues together
+
+So the live rail and the GM-private aftermath rail are both real now, while the broader coaching,
+transcript, narrated-summary, and observer-analysis stack remain future-facing, consent-bounded,
+and explicitly non-authoritative.
 
 ## What players and remote users would actually see
 
@@ -211,7 +219,7 @@ See also: `HEDY_AI_TABLE_PULSE_DESIGN.md`
 * not discipline automation
 * not canonical session truth
 
-## Why it is not ready yet
+## Current boundary
 
 This only works if the two rails stay separate:
 
@@ -219,6 +227,5 @@ This only works if the two rails stay separate:
 * Table Pulse Aftermath must remain private, consent-bounded, and clearly separate from moderation
   or rules truth
 
-Until Chummer can prove those guardrails end to end, TABLE PULSE remains a split horizon page with
-one live rail and one future-facing rail rather than a claim that the full coaching, transcript,
-remote-user, and mini-game stack is already universally shipped.
+That separation is now part of the shipped contract. What is still not universally shipped is the
+broader coaching, transcript, narrated-summary, and observer-analysis expansion around those rails.

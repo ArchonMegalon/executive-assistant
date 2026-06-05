@@ -122,12 +122,12 @@ cards:
     bucket: choose_your_lane
     title: Creator
     summary: Publish primers, briefing reels, and artifact bundles with provenance.
-    href: /artifacts
-    badge: Preview lane
+    href: /creator
+    badge: Shipped MVP
     audience: public
     image_family: prop_cluster
     asset_slot: lane_creator
-    action_label: See creator outputs
+    action_label: Open Creator OS
   - id: real_rules_truth
     bucket: whats_real_now
     title: Deterministic rules truth
@@ -164,7 +164,7 @@ cards:
     title: Mobile projection
     summary: Inspect the mobile and PWA projection lane without treating it as a replacement for desktop rules truth.
     href: /mobile
-    badge: Preview lane
+    badge: Live now
     audience: public
     image_family: streetfront
     action_label: Open mobile projection
@@ -190,31 +190,33 @@ cards:
     bucket: coming_next
     title: NEXUS-PAN
     summary: Shared state survives device churn without the table losing trust.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
-    badge: Preparing
+    href: /play/continuity
+    badge: Shipped MVP
     audience: public
     image_family: streetfront
-    detail_route: /roadmap/nexus-pan
-    render_mode: external_explainer
-    action_label: Compare with current continuity proof
-    detail_primary_href: /now#real-mobile-prep
-    detail_primary_label: Compare with current continuity proof
+    detail_route: /play/continuity
+    render_mode: first_party_continuity_lane
+    action_label: Open NEXUS-PAN continuity
+    detail_primary_href: /play/continuity
+    detail_primary_label: Open the continuity lane
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/nexus-pan.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: My devices drift and the table loses confidence.
     payoff: Shared state survives device churn without the GM rebuilding the run from memory.
+    proof_note: "Proof: NEXUS-PAN now lives on the first-party continuity route instead of reading like a future-only explainer."
+    microproof: Continuity route|Shared state recovery|Offline honesty
   - id: horizon_alice
     bucket: coming_next
     title: ALICE
     summary: Builders get grounded what-if analysis without trusting fuzzy assistants.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
-    badge: Research
+    href: /alice
+    badge: Shipped MVP
     audience: public
     image_family: simulation_bench
-    detail_route: /roadmap/alice
+    detail_route: /alice
     render_mode: external_explainer
-    action_label: Compare with the live proof trail
+    action_label: Open the ALICE compare bench
     detail_primary_href: /now#real-rules-truth
     detail_primary_label: Compare with the live proof trail
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
@@ -222,174 +224,324 @@ cards:
     external_ok: true
     pain: We only discover weak builds after they explode in public.
     payoff: Compare grounded tradeoffs with receipts instead of guesswork.
+  - id: horizon_table_pulse
+    bucket: coming_next
+    title: TABLE PULSE
+    summary: Keep live table heat visible without turning aftermath into surveillance.
+    href: /table-pulse
+    badge: Shipped MVP
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /table-pulse
+    render_mode: external_explainer
+    action_label: Open the live and aftermath split
+    detail_primary_href: /table-pulse
+    detail_primary_label: See the public split first
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/table-pulse.md
+    fallback_label: Read the horizon brief
+    external_ok: true
+    pain: Session pressure is hard to steer when live heat and after-action recovery collapse into one noisy lane.
+    payoff: Heat packets stay in the live GM rail while private aftermath packages remain receipt-backed.
   - id: horizon_knowledge_fabric
     bucket: coming_next
     title: KNOWLEDGE FABRIC
     summary: Ask a rules question and get a grounded answer with citations and receipts.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    badge: Research
+    href: /rules
+    badge: Shipped MVP
     audience: public
     image_family: archive_stair
-    detail_route: /roadmap/knowledge-fabric
-    render_mode: external_explainer
-    action_label: Compare with the live proof trail
+    detail_route: /rules
+    render_mode: first_party_rules_projection
+    action_label: Open the rules surface
     detail_primary_href: /now#real-rules-truth
-    detail_primary_label: Compare with the live proof trail
-    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
+    detail_primary_label: Inspect the live proof trail
+    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/knowledge-fabric.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Rules answers are expensive, repetitive, and still easy to hallucinate.
     payoff: Derived projections stay grounded instead of becoming assistant folklore.
+    proof_note: "Proof: KNOWLEDGE FABRIC now anchors to the first-party rules surface and live proof trail instead of only research framing."
+    microproof: Rules surface|Live proof trail|Derived non-authoritative projections
   - id: horizon_karma_forge
     bucket: coming_next
     title: KARMA FORGE
     summary: Governed rules evolution without unreadable fork chaos.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
-    badge: Research
+    href: /participate/karma-forge
+    badge: Shipped MVP
     audience: public
     image_family: boulevard_of_futures
-    detail_route: /roadmap/karma-forge
-    render_mode: external_explainer
-    action_label: Start KARMA FORGE discovery
+    detail_route: /participate/karma-forge
+    render_mode: first_party_governed_rules_lane
+    action_label: Open KARMA FORGE
     detail_primary_href: /participate/karma-forge
-    detail_primary_label: Start KARMA FORGE discovery
+    detail_primary_label: Open the governed rules lane
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/karma-forge.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: I want house rules without forking trust.
     payoff: Rule-pack changes carry approvals, compatibility, and rollback posture.
+    proof_note: "Proof: KARMA FORGE now has a first-party public lane instead of only research wording."
+    microproof: Governed rules lane|Compatibility posture|Rollback-safe change path
   - id: horizon_jackpoint
     bucket: coming_next
     title: JACKPOINT
     summary: Dossiers, recaps, and briefings that feel finished without severing provenance.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
-    badge: Preview lane
+    href: /jackpoint
+    badge: Shipped MVP
     audience: public
     image_family: dossier_desk
-    detail_route: /roadmap/jackpoint
-    render_mode: external_explainer
-    action_label: See the related artifact preview
-    detail_primary_href: /artifacts/dossier-brief
-    detail_primary_label: See the related artifact preview
+    detail_route: /jackpoint
+    render_mode: first_party_packet_lane
+    action_label: Open JACKPOINT
+    detail_primary_href: /jackpoint/receipts/briefing-network.json
+    detail_primary_label: Open the briefing receipt
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/jackpoint.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: I want mission packets that do not feel like a copy-paste graveyard.
     payoff: Grounded artifacts can feel polished without becoming fictional truth.
-    proof_note: "Proof: JACKPOINT already points at first-party dossier and mission-brief artifact previews instead of reading like an empty teaser."
-    microproof: Dossier preview|Mission-brief lane|First-party detail page
+    proof_note: "Proof: JACKPOINT now has a named briefing receipt, public-safe packet rails, and a signed-in publication desk instead of reading like an export teaser."
+    microproof: Briefing receipt|Named signed-in desk|Typed publication lane
   - id: horizon_runsite
     bucket: coming_next
     title: RUNSITE
     summary: Walk the job before the team walks into it.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
-    badge: Preview lane
+    href: /runsites
+    badge: Shipped MVP
     audience: public
     image_family: facility_exterior
-    detail_route: /roadmap/runsite
-    render_mode: external_explainer
-    action_label: See the related artifact preview
-    detail_primary_href: /artifacts/runsite-pack
-    detail_primary_label: See the related artifact preview
+    detail_route: /runsites
+    render_mode: first_party_prep_lane
+    action_label: Open RUNSITE
+    detail_primary_href: /runsites/receipts/prep-network.json
+    detail_primary_label: Open the prep receipt
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runsite.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Spatial prep is tedious and scattered.
     payoff: The venue becomes a visible, inspectable run surface.
-    proof_note: "Proof: RUNSITE already has a named horizon, a first-party detail page, and a concrete user payoff instead of a vague teaser."
-    microproof: Named horizon|First-party detail|Inspectable venue prep
+    proof_note: "Proof: RUNSITE now has a named prep receipt, public pack rails, and a signed-in prep bench instead of staying a static artifact tease."
+    microproof: Prep receipt|Named prep bench|Typed workspace and run lane
+  - id: horizon_run_control
+    bucket: coming_next
+    title: RUN CONTROL
+    summary: GM operations, active-scene continuity, and recap return on one first-party rail.
+    href: /run-control
+    badge: Shipped MVP
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /run-control
+    render_mode: external_explainer
+    action_label: Open RUN CONTROL
+    detail_primary_href: /run-control/receipts/control-network.json
+    detail_primary_label: Open the control receipt
+    fallback_route: /run-control
+    fallback_label: Open the public route
+    external_ok: true
+    pain: GMs still stitch session control together from notes, memory, and chat when the ops lane is not first-party.
+    payoff: The current run, continuity, and next safe action stay visible without leaving Chummer-owned truth.
+    proof_note: "Proof: RUN CONTROL now has a named public route, public-safe session and continuity packets, a signed-in control desk, and typed GM-control APIs instead of only future horizon copy."
+    microproof: Control receipt|Signed-in desk|Typed GM-control APIs
+  - id: horizon_onramp
+    bucket: coming_next
+    title: ONRAMP
+    summary: Starter workspace, recovery posture, and first-session follow-through without fake automation.
+    href: /onramp
+    badge: Shipped MVP
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /onramp
+    render_mode: external_explainer
+    action_label: Open ONRAMP
+    detail_primary_href: /onramp/receipts/guided-starter.json
+    detail_primary_label: Inspect the starter receipt
+    fallback_route: /onramp
+    fallback_label: Open the public route
+    external_ok: true
+    pain: New or rusty users still bounce off jargon, legality, and account recovery before they reach a playable first session.
+    payoff: The first safe route into Chummer stays calm and guided without turning tutorial copy into rules authority.
+    proof_note: "Proof: ONRAMP now has a named public route, starter and recovery packet rails, a signed-in starter desk, and typed starter/recovery APIs instead of only future horizon copy."
+    microproof: Starter receipt|Signed-in starter desk|Typed starter and recovery APIs
+  - id: horizon_edition_studio
+    bucket: coming_next
+    title: EDITION STUDIO
+    summary: Distinct SR4, SR5, and SR6 ruleset heads without splitting the product into disconnected apps.
+    href: /edition-studio
+    badge: Shipped MVP
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /edition-studio
+    render_mode: external_explainer
+    action_label: Open EDITION STUDIO
+    detail_primary_href: /edition-studio/receipts/ruleset-heads.json
+    detail_primary_label: Inspect the ruleset-head receipt
+    fallback_route: /edition-studio
+    fallback_label: Open the public route
+    external_ok: true
+    pain: Multiple rulesets can share one shell while still losing the mental-model differences that make them understandable.
+    payoff: SR4, SR5, and SR6 keep authored posture on one first-party lane instead of flattening into generic chrome.
+    proof_note: "Proof: EDITION STUDIO now has a named public route, SR4/SR5/SR6 head packet rails, a signed-in edition desk, and typed edition-head APIs instead of only future flagship copy."
+    microproof: Ruleset-head receipt|Signed-in edition desk|Typed edition-head APIs
   - id: horizon_runbook_press
     bucket: coming_next
     title: RUNBOOK PRESS
     summary: Bring new players in without the two-hour lecture.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
-    badge: Preview lane
+    href: /runbook
+    badge: Shipped MVP
     audience: public
     image_family: prop_cluster
-    detail_route: /roadmap/runbook-press
-    render_mode: external_explainer
-    action_label: See the related artifact preview
+    detail_route: /runbook
+    render_mode: first_party_publication_lane
+    action_label: Open RUNBOOK PRESS
     detail_primary_href: /artifacts/campaign-primer
-    detail_primary_label: See the related artifact preview
+    detail_primary_label: Inspect the campaign primer
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/runbook-press.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Table onboarding still depends on heroic patience.
     payoff: Grounded primers become first-class artifacts instead of random PDFs.
-    proof_note: "Proof: RUNBOOK PRESS already points at first-party primer packet and primer-video previews instead of only future-facing copy."
-    microproof: Primer packet|Primer-video lane|First-party detail page
+    proof_note: "Proof: RUNBOOK PRESS now has a first-party public lane backed by the primer packet and primer-video surfaces instead of only preview framing."
+    microproof: Public lane|Primer packet|Primer-video lane
   - id: horizon_community_hub
     bucket: coming_next
     title: COMMUNITY HUB
     summary: Find a run, see the rules, get scheduled cleanly, and let the world remember the outcome.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
-    badge: Research
+    href: /community
+    badge: Shipped MVP
     audience: public
     image_family: boulevard_of_futures
-    detail_route: /roadmap/community-hub
+    detail_route: /community
     render_mode: external_explainer
-    action_label: Read the network horizon
-    detail_primary_href: /roadmap/black-ledger
-    detail_primary_label: See the world-state foundation
+    action_label: Open Community Hub
+    detail_primary_href: /community/receipts/open-run-network.json
+    detail_primary_label: Inspect the open-run network receipt
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/community-hub.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Finding a table still means juggling community rules, approvals, chats, calendars, and follow-up by hand.
     payoff: Chummer becomes the structured layer above community chats, calendars, and play surfaces instead of another disconnected app.
+    proof_note: "Proof: COMMUNITY HUB now has a named public route, a signed-in board route, and first-party open-run orchestration APIs instead of only roadmap copy."
+    microproof: Public board packet|Signed-in board|Typed open-run APIs
+  - id: horizon_runner_passport
+    bucket: coming_next
+    title: RUNNER PASSPORT
+    summary: Let runners move between tables with bounded trust, not organizer archaeology.
+    href: /passport
+    badge: Shipped MVP
+    audience: public
+    image_family: streetfront
+    detail_route: /passport
+    render_mode: external_explainer
+    action_label: Open Runner Passport
+    detail_primary_href: /passport/receipts/identity-network.json
+    detail_primary_label: Inspect the continuity receipt
+    fallback_route: /passport
+    fallback_label: Open the public route
+    external_ok: true
+    pain: Cross-table trust collapses when every organizer has to reconstruct runner history by hand.
+    payoff: Public-safe continuity stays visible while the signed-in return rails keep command and aftermath attached.
+    proof_note: "Proof: RUNNER PASSPORT now has a named public route, a named signed-in continuity bench, and first-party trust receipts instead of generic preview copy."
+    microproof: Public trust receipts|Signed-in continuity bench|Table Pulse return rail
+  - id: horizon_quicksilver
+    bucket: coming_next
+    title: QUICKSILVER
+    summary: Expert-speed jumps across builds, rules, prep, and publication desks without leaving first-party truth.
+    href: /quicksilver
+    badge: Shipped MVP
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /quicksilver
+    render_mode: external_explainer
+    action_label: Open Quicksilver
+    detail_primary_href: /quicksilver/receipts/command-network.json
+    detail_primary_label: Inspect the command receipt
+    fallback_route: /quicksilver
+    fallback_label: Open the public route
+    external_ok: true
+    pain: Expert users still lose tempo when trusted lanes are real but too many clicks apart.
+    payoff: The next safe jump stays fast without flattening legality, explainability, or ownership.
+    proof_note: "Proof: QUICKSILVER now has a named public route, packet rails, a signed-in command deck, and typed jump-target APIs instead of future-only speed copy."
+    microproof: Command receipt|Signed-in speed deck|Typed jump APIs
+  - id: horizon_anarchy
+    bucket: coming_next
+    title: ANARCHY
+    summary: A first-party rules-light lane for mobile play, dispatches, and Black Ledger consequence.
+    href: /anarchy
+    badge: Shipped MVP
+    audience: public
+    image_family: boulevard_of_futures
+    detail_route: /anarchy
+    render_mode: external_explainer
+    action_label: Open the Anarchy lane
+    detail_primary_href: /anarchy/receipts/runtime.json
+    detail_primary_label: Inspect the runtime receipt
+    fallback_route: /anarchy
+    fallback_label: Open the public route
+    external_ok: true
+    pain: Rules-light tables still need a first-party lane instead of being flattened into an SR5 or SR6 skin.
+    payoff: Anarchy stays dedicated, dispatch-backed, mobile-friendly, and explainable without pretending to be dense-book completeness.
+    proof_note: "Proof: ANARCHY now has a named public route, a play shell, a ledger lane, and receipt-backed export/explain surfaces instead of only preview language."
+    microproof: Public ruleset lane|Play shell|Receipt-backed export
   - id: horizon_black_ledger
     bucket: coming_next
     title: BLACK LEDGER
     summary: Keep city pressure, faction motion, and mission-market drift visible between runs.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
-    badge: Research
+    href: /ledger
+    badge: Shipped MVP
     audience: public
     image_family: boulevard_of_futures
-    detail_route: /roadmap/black-ledger
-    render_mode: external_explainer
-    action_label: See the related artifact preview
-    detail_primary_href: /artifacts/replay-after-action
-    detail_primary_label: See the related artifact preview
+    detail_route: /ledger
+    render_mode: first_party_world_pressure_lane
+    action_label: Open BLACK LEDGER
+    detail_primary_href: /ledger/factions
+    detail_primary_label: Inspect the live faction board
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: World pressure vanishes when campaigns cannot project consequences beyond the last scene.
     payoff: Consequence, faction posture, and mission pressure remain inspectable instead of turning into GM-only folklore.
+    proof_note: "Proof: BLACK LEDGER now has a first-party public lane, live faction promo receipts, and world-pressure surfaces instead of only research framing."
+    microproof: Public ledger lane|Faction promo receipts|World-pressure surface
   - id: horizon_ghostwire
     bucket: coming_next
     title: GHOSTWIRE
     summary: Replay and after-action truth that survives memory drift.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    badge: Research
+    href: /ghostwire
+    badge: Shipped MVP
     audience: public
     image_family: boulevard_of_futures
-    detail_route: /roadmap/ghostwire
+    detail_route: /ghostwire
     render_mode: external_explainer
-    action_label: See the related artifact preview
-    detail_primary_href: /artifacts/replay-after-action
-    detail_primary_label: See the related artifact preview
-    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    fallback_label: Read the horizon brief
+    action_label: Open GHOSTWIRE
+    detail_primary_href: /ghostwire/receipts/replay-network.json
+    detail_primary_label: Inspect the replay receipt
+    fallback_route: /ghostwire
+    fallback_label: Open the public route
     external_ok: true
     pain: People remember the drama and forget the sequence.
     payoff: After-action review can point at the event trail instead of table folklore.
+    proof_note: "Proof: GHOSTWIRE now has a named public route, replay and after-action packet rails, and a first-party aggregate receipt instead of only roadmap framing."
+    microproof: Replay timeline|After-action packet|Consequence chain
   - id: horizon_local_co_processor
-    bucket: coming_next
+    bucket: working_now
     title: LOCAL CO-PROCESSOR
     summary: Optional local acceleration without turning the product into a black box.
-    href: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    badge: Research
+    href: /local-co-processor
+    badge: Shipped MVP
     audience: public
     image_family: solo_operator
-    detail_route: /roadmap/local-co-processor
-    render_mode: external_explainer
-    action_label: Open the horizon page
-    detail_primary_href: /downloads
-    detail_primary_label: Install the current preview
-    fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/README.md
-    fallback_label: Read the horizon brief
-    external_ok: true
+    detail_route: /local-co-processor
+    render_mode: first_party
+    action_label: Open the optional-acceleration lane
+    detail_primary_href: /local-co-processor
+    detail_primary_label: Open LOCAL CO-PROCESSOR
+    fallback_route: /local-co-processor/receipts/optional-acceleration.json
+    fallback_label: Open the acceleration receipt
+    external_ok: false
     pain: Some heavy local workflows still need more muscle.
     payoff: Local acceleration stays optional and bounded instead of becoming a mystery dependency.
+    proof_note: "Proof: LOCAL CO-PROCESSOR now has a named public route, capability and policy packet rails, signed-in profile routes, and typed capability/policy APIs."
+    microproof: Capability matrix|Policy boundary|Hosted-first fallback
   - id: artifact_preview_build
     bucket: featured_artifacts
     title: Current preview build

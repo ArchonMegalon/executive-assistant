@@ -35,14 +35,17 @@ It is the short-to-medium-form publishing studio, not a replacement for full boo
 * source classification
 * reliable publication workflows
 
-## Current proof posture
+## What is ready now
 
-JACKPOINT is still a horizon, but it is no longer only prose.
-The public artifact registry already carries first-party preview shapes for dossier briefs and mission-brief video lanes so the publication move stays inspectable before the full studio is promoted.
-The signed-in command lane is already live at `https://chummer.run/jackpoint`.
-That lane currently carries first-party briefing packets on real markdown and JSON routes without pretending the whole long-form publishing roadmap is done.
+JACKPOINT is now a shipped first-party briefing lane.
+The public rail exposes real dossier and mission-brief packets on markdown and JSON routes plus a named receipt at `/jackpoint/receipts/briefing-network.json`.
+The signed-in rail is no longer generic account spillover; it has a named desk at `/account/jackpoint`, a named redirect lane at `/account/jackpoint/open`, and publication detail routes at `/account/jackpoint/{publicationId}`.
+Typed publication APIs are first-class too:
 
-## Why it is not ready yet
+* `/api/v1/campaign-spine/me/publications`
+* `/api/v1/campaign-spine/me/publications/{publicationId}`
 
-These outputs only matter if the evidence path survives writing, narration, preview generation, and publication.
-Until that chain is reliable, Chummer should not sell the studio as ready.
+## Boundary
+
+JACKPOINT is a publication-safe briefing and dossier lane.
+It does not claim GM-private spoiler authority on the public rail, and it does not hand publication truth to external narration or asset hosts.

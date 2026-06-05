@@ -4,9 +4,9 @@
 
 GMs, creators, and publishers need consistent long-form books such as primers, campaign books, district guides, and convention modules, but current workflows are slow and hard to standardize.
 
-## What it would do
+## What it does now
 
-Chummer would help teams turn approved material into primers, handbooks, district guides, campaign books, and convention modules without forcing creators to juggle a pile of third-party dashboards.
+Chummer helps teams turn approved material into primers, handbooks, district guides, campaign books, and convention modules without forcing creators to juggle a pile of third-party dashboards.
 It complements JACKPOINT instead of duplicating it.
 
 ## Likely owners
@@ -32,11 +32,12 @@ It complements JACKPOINT instead of duplicating it.
 * format and render adapters
 * editorial approval flows
 
-## Current proof posture
+## Current shipped posture
 
-RUNBOOK PRESS is still a horizon, but it already has first-party preview proof in the public artifact registry through campaign-primer packet and campaign-primer video lanes.
-The publication move should now read as a staged artifact factory, not only as long-range aspiration.
+RUNBOOK PRESS is now a shipped first-party long-form publishing lane.
+The public route and proof lane are live, and the publication move should read as a staged artifact factory with real campaign-primer packet and companion video rails rather than as long-range aspiration only.
 
-## Why it is not ready yet
+## Current boundary
 
 Long-form output only matters if the draft, edit trail, and final package stay consistent from first draft to release.
+The shipped contract is the bounded first-party primer and campaign-book lane; deeper editorial and operator flows still need flagship-depth hardening.

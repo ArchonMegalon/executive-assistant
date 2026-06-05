@@ -4,7 +4,7 @@ purpose: Canonical machine-readable horizon registry for downstream guide genera
 rules:
 - Downstream generators must source horizon existence, order, and public eligibility from this file.
 - Horizon docs in `products/chummer/horizons/*.md` remain the long-form human-readable canon.
-- A horizon listed here is a future-capability lane, not a shipment promise.
+- A horizon listed here may be a future-capability lane or a shipped-mvp lane; shipment claims still require executable proof and aligned closure artifacts.
 - A horizon must define an eventual build path before it is treated as more than public storytelling.
 - A horizon does not count as flagship or near-term release scope until its build path advances beyond `horizon`, its owner handoff gate is materially satisfied, and owning repos can cite executable proof instead of public-guide ambition.
 - Open flagship blockers and lived-system release blockers outrank horizon storytelling; horizons must not dilute or outrun current release truth.
@@ -27,7 +27,7 @@ optional_fields:
 horizons:
 - id: nexus-pan
   title: NEXUS-PAN
-  status: horizon
+  status: shipped_mvp
   family: session_continuity
   canon_doc: products/chummer/horizons/nexus-pan.md
   public_guide:
@@ -38,7 +38,7 @@ horizons:
   table_scene: A player reconnects in the middle of a session and gets back in step without the GM rebuilding everything by memory.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
+    current_state: shipped_mvp
     next_state: bounded_coaching_expansion
   owning_repos:
   - chummer6-core
@@ -63,7 +63,7 @@ horizons:
   owner_handoff_gate: Session continuity proof must exist across core, mobile, and hub without second semantic families.
 - id: alice
   title: ALICE
-  status: horizon
+  status: shipped_mvp
   family: build_simulation
   canon_doc: products/chummer/horizons/alice.md
   public_guide:
@@ -74,7 +74,7 @@ horizons:
   table_scene: A player compares two builds and sees the tradeoffs, the math, and the likely trouble spots before the session starts.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
+    current_state: shipped_mvp
     next_state: bounded_coaching_expansion
   owning_repos:
   - chummer6-core
@@ -102,7 +102,7 @@ horizons:
   owner_handoff_gate: Simulation and comparison output must consume core-owned truth rather than assistant-side heuristics.
 - id: karma-forge
   title: KARMA FORGE
-  status: horizon
+  status: shipped_mvp
   family: governed_rules_evolution
   canon_doc: products/chummer/horizons/karma-forge.md
   public_guide:
@@ -113,7 +113,7 @@ horizons:
   table_scene: A GM promotes a house-rule pack with visible impact, approval history, and reversible publication state.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
+    current_state: shipped_mvp
     next_state: bounded_coaching_expansion
   owning_repos:
   - chummer6-core
@@ -160,7 +160,7 @@ horizons:
   owner_handoff_gate: Rule evolution must route through governed packages, approvals, and compatibility metadata before promotion.
 - id: knowledge-fabric
   title: KNOWLEDGE FABRIC
-  status: horizon
+  status: shipped_mvp
   family: knowledge_fabric_explainability
   canon_doc: products/chummer/horizons/knowledge-fabric.md
   public_guide:
@@ -171,7 +171,7 @@ horizons:
   table_scene: A GM asks a tricky rules question and receives a cited answer built from prepared projections rather than raw rulebook dumping.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
+    current_state: shipped_mvp
     next_state: bounded_coaching_expansion
   owning_repos:
   - chummer6-core
@@ -203,7 +203,7 @@ horizons:
   owner_handoff_gate: Knowledge projections must be visibly derived, cited, and non-authoritative before promotion out of horizon.
 - id: jackpoint
   title: JACKPOINT
-  status: horizon
+  status: shipped_mvp
   family: artifact_studio
   canon_doc: products/chummer/horizons/jackpoint.md
   public_guide:
@@ -214,8 +214,8 @@ horizons:
   table_scene: After a run, the GM exports a dossier-plus-recap packet with narration, evidence rooms, and share-safe previews.
   build_path:
     intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
   owning_repos:
   - chummer6-hub
   - chummer6-hub-registry
@@ -225,7 +225,7 @@ horizons:
   - artifact_dossier_preview
   - narrated_briefing_preview
   proof_gate: jackpoint packets must carry registry manifests, media receipts, source provenance, audience scope, and revocation posture before any public claim widens.
-  public_claim_posture: Public copy may describe JACKPOINT as a bounded horizon and preview lane only; it must not claim autonomous dossier truth or complete publishing authority.
+  public_claim_posture: Public copy may describe JACKPOINT as a shipped first-party briefing and publication-safe lane; it must not claim autonomous dossier truth, GM-private spoiler authority, or complete long-form publishing authority.
   stop_condition: Stop promotion if provenance, revocation, source anchors, or audience-safe preview receipts are missing or stale.
   milestone_family: H3
   release_blocking: false
@@ -263,7 +263,7 @@ horizons:
   owner_handoff_gate: Registry manifests and media receipts must survive format changes before the studio is promoted beyond horizon.
 - id: black-ledger
   title: BLACK LEDGER
-  status: horizon
+  status: shipped_mvp
   family: campaign_world_state
   canon_doc: products/chummer/horizons/black-ledger.md
   public_guide:
@@ -274,7 +274,7 @@ horizons:
   table_scene: A GM opens Seattle, sees which districts are hot, picks a job with grounded opposition and consequences, runs it, and later watches the map remember the fallout.
   build_path:
     intent: eventual_product_lane
-    current_state: signed_in_command_lane_live
+    current_state: shipped_mvp
     next_state: bounded_coaching_expansion
   owning_repos:
   - chummer6-hub
@@ -338,7 +338,7 @@ horizons:
   owner_handoff_gate: Keep campaign truth and world truth separate; GM or organizer authority must be explicit before shared-city scale features are promoted.
 - id: community-hub
   title: COMMUNITY HUB
-  status: horizon
+  status: shipped_mvp
   family: campaign_world_state
   canon_doc: products/chummer/horizons/community-hub.md
   public_guide:
@@ -349,8 +349,8 @@ horizons:
   table_scene: A player finds a beginner-friendly run, applies with a legal runner or quickstart decker, gets scheduled, and the finished session changes the city.
   build_path:
     intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
   owning_repos:
   - chummer6-hub
   - chummer6-ui
@@ -364,7 +364,7 @@ horizons:
   - meeting_handoff_projection
   - organizer_closeout_preview
   proof_gate: Community Hub packets must prove Chummer-owned roster, meeting handoff, observer consent, closeout, and moderation receipts before any network claim widens.
-  public_claim_posture: Public copy may describe Community Hub as a bounded horizon and curated preview only; third-party scheduling or meeting tools remain projection helpers.
+  public_claim_posture: Public copy may describe Community Hub as a shipped first-party open-run lane; third-party scheduling or meeting tools remain projection helpers rather than source-of-truth systems.
   stop_condition: Stop promotion if accepted-roster truth, consent truth, moderation receipts, or meeting-handoff ownership drift away from Chummer-owned services.
   milestone_family: H3
   release_blocking: false
@@ -413,7 +413,7 @@ horizons:
   owner_handoff_gate: Open-run listing, accepted roster, meeting handoff, observer consent, and reputation events must stay Chummer-owned even when third-party meeting or analysis tools are in the loop.
 - id: runsite
   title: RUNSITE
-  status: horizon
+  status: shipped_mvp
   family: spatial_exploration
   canon_doc: products/chummer/horizons/runsite.md
   public_guide:
@@ -424,8 +424,8 @@ horizons:
   table_scene: A GM sends an explorable safehouse pack with hotspots, floor plans, route overlays, and optional narration before the session.
   build_path:
     intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
   owning_repos:
   - chummer6-hub
   - chummer6-media-factory
@@ -434,7 +434,7 @@ horizons:
   - route_overlay_preview
   - orientation_host_clip
   proof_gate: Runsite packets must prove approved pack truth, route-summary siblings, inspection links, permissions, and media provenance before any explorable surface widens.
-  public_claim_posture: Public copy may show runsite as a preview artifact lane only; it must not claim live map, combat, or tactical authority.
+  public_claim_posture: Public copy may describe RUNSITE as a shipped first-party prep lane; it must not claim live map, combat, VTT replacement, or tactical authority.
   stop_condition: Stop promotion if media becomes the only inspectable route surface or if route, tour, and approved pack truth are not visible before playback.
   milestone_family: H3
   release_blocking: false
@@ -463,7 +463,7 @@ horizons:
   owner_handoff_gate: Spatial artifacts must remain clearly outside live mechanics and combat truth before any promotion.
 - id: runbook-press
   title: RUNBOOK PRESS
-  status: horizon
+  status: shipped_mvp
   family: creator_press
   canon_doc: products/chummer/horizons/runbook-press.md
   public_guide:
@@ -474,8 +474,8 @@ horizons:
   table_scene: A creator turns approved Chummer material into a district guide or campaign book without juggling a pile of unrelated publishing tools.
   build_path:
     intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
   owning_repos:
   - chummer6-hub
   - chummer6-hub-registry
@@ -485,7 +485,7 @@ horizons:
   - long_form_source_pack
   - publication_manifest_preview
   proof_gate: Runbook Press packets must prove source-pack approval, editorial review, compatibility metadata, publication manifests, and revocation before any publishing claim widens.
-  public_claim_posture: Public copy may describe Runbook Press as a bounded horizon for long-form publishing support only; it must not claim finished marketplace or license authority.
+  public_claim_posture: Public copy may describe RUNBOOK PRESS as a shipped first-party primer and campaign-book lane; it must not claim finished marketplace or license authority beyond Chummer-owned publication truth.
   stop_condition: Stop promotion if source packs, compatibility metadata, editorial approval, or publication manifests are missing or stale.
   milestone_family: H3
   release_blocking: false
@@ -519,19 +519,19 @@ horizons:
   owner_handoff_gate: Publication and compatibility metadata must remain registry-owned before this lane becomes research-ready.
 - id: ghostwire
   title: GHOSTWIRE
-  status: horizon
+  status: shipped_mvp
   family: replay_forensics
   canon_doc: products/chummer/horizons/ghostwire.md
   public_guide:
-    enabled: false
+    enabled: true
     order: 70
   pain_label: We know something went wrong, but we cannot reconstruct what actually happened.
   wow_promise: Tables can replay, inspect, and compare what happened without forking canonical session truth.
   table_scene: A GM replays a contested combat turn, sees receipts over time, and generates a grounded after-action recap.
   build_path:
     intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
   owning_repos:
   - chummer6-core
   - chummer6-mobile
@@ -542,7 +542,7 @@ horizons:
   - after_action_receipt_packet
   - forensics_report_preview
   proof_gate: Ghostwire packets must prove append-only ledger inputs, reducer-safe reconstruction, receipt anchors, and non-mutating replay output before any replay claim widens.
-  public_claim_posture: Public copy may describe Ghostwire as a receipt-backed replay and forensics horizon only; it must not claim canonical session mutation or retrospective rule authority.
+  public_claim_posture: Public copy may describe Ghostwire as a shipped first-party replay and after-action lane; it must not claim canonical session mutation or retrospective rule authority.
   stop_condition: Stop promotion if replay output can mutate canonical state, lacks receipt anchors, or reconstructs facts not present in approved session truth.
   milestone_family: H3
   release_blocking: false
@@ -567,11 +567,11 @@ horizons:
   - after-action report
   - what-if comparison
   - forensics receipt packet
-  public_signal_eligible: false
+  public_signal_eligible: true
   owner_handoff_gate: Replay must prove reducer-safe, receipt-backed reconstruction before it can leave horizon status.
 - id: table-pulse
   title: TABLE PULSE
-  status: horizon
+  status: shipped_mvp
   family: live_heat_and_private_aftermath
   canon_doc: products/chummer/horizons/table-pulse.md
   public_signal_eligible: true
@@ -583,8 +583,8 @@ horizons:
   table_scene: During a run, heat crosses a threshold and the GM receives a governed reaction packet; after the run, the GM can later open a private aftermath packet for pacing, spotlight, and confusion follow-through.
   build_path:
     intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    current_state: shipped_mvp
+    next_state: bounded_coaching_expansion
   owning_repos:
   - chummer6-hub
   - chummer6-media-factory
@@ -593,7 +593,7 @@ horizons:
   - remote_reaction_receipt
   - private_aftermath_coaching_packet
   proof_gate: Table Pulse packets must prove live/aftermath separation, GM authority, opt-out handling, privacy posture, suppression receipts, and non-authoritative media output before any coaching claim widens.
-  public_claim_posture: Public copy may describe Table Pulse as a bounded GM-governed live heat and private aftermath horizon only; it must not claim surveillance, player scoring, or automatic world mutation.
+  public_claim_posture: Public copy may describe Table Pulse as a shipped GM-governed live heat and private aftermath lane; it must not claim surveillance, player scoring, or automatic world mutation.
   stop_condition: Stop promotion if live pressure and aftermath coaching blur together, opt-out is bypassed, or media/provider output becomes authority over GM or campaign truth.
   milestone_family: H5
   release_blocking: false
@@ -621,25 +621,173 @@ horizons:
   - pacing diagnostic
   - narrated coaching summary
   owner_handoff_gate: Table Pulse Live and Table Pulse Aftermath must stay explicitly separate, with live pressure GM-governed and aftermath analysis privacy-bounded, before the broader product moves beyond horizon.
+- id: run-control
+  title: RUN CONTROL
+  status: shipped_mvp
+  family: gm_operations_control
+  canon_doc: products/chummer/horizons/run-control.md
+  public_signal_eligible: true
+  public_guide:
+    enabled: true
+    order: 78
+  pain_label: GM session control still falls back to notes, chats, and memory even when the rest of the product is strong.
+  wow_promise: Session board, active-scene continuity, reconnect posture, and recap return stay on one first-party control rail.
+  table_scene: A GM opens the current run, sees the active scene, the next safe action, continuity state, and recap follow-through without stitching together five tools.
+  build_path:
+    intent: eventual_product_lane
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
+  owning_repos:
+  - chummer6-hub
+  - chummer6-mobile
+  - chummer6-core
+  - chummer6-media-factory
+  allowed_surfaces:
+  - session_board_packet
+  - run_continuity_packet
+  - signed_in_control_desk
+  proof_gate: Run Control must prove session board, active-scene continuity, reconnect-safe follow-through, and recap return stay attached to first-party campaign truth before any broader command-room claim widens.
+  public_claim_posture: Public copy may describe Run Control as a shipped first-party GM operations lane; it must not claim generic collaboration authority, hidden state ownership, or truth outside the campaign spine.
+  stop_condition: Stop promotion if session control outruns campaign truth, reconnect posture is not receipt-backed, or the lane collapses into generic collaboration theater.
+  milestone_family: H5
+  release_blocking: false
+  foundations:
+  - D1
+  - D2
+  - B0
+  tool_posture:
+    promoted: []
+    bounded:
+    - MarkupGo
+    - Soundmadeseen
+    - PeekShot
+  success_signals:
+  - Session board and active-scene continuity stay readable on first-party rails.
+  - Reconnect and recovery posture remain attached to the same campaign spine as live control.
+  - Recap return and next-safe-action cues do not require external notebooks to remain trustworthy.
+  artifact_types:
+  - control-network receipt
+  - session board packet
+  - continuity packet
+  owner_handoff_gate: GM control must stay grounded in campaign, run, and continuity truth before the lane can claim broader flagship depth.
+- id: onramp
+  title: ONRAMP
+  status: shipped_mvp
+  family: guided_mastery
+  canon_doc: products/chummer/horizons/onramp.md
+  public_signal_eligible: true
+  public_guide:
+    enabled: true
+    order: 79
+  pain_label: New or rusty users still hit jargon, legality, and recovery friction before they reach a playable first session.
+  wow_promise: The first safe route into Chummer stays calm, guided, and receipt-backed instead of feeling like setup theater.
+  table_scene: A new player signs in, lands on a starter workspace, sees the next safe action, and can recover the lane without losing trust when a device or session goes wrong.
+  build_path:
+    intent: eventual_product_lane
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
+  owning_repos:
+  - chummer6-hub
+  - chummer6-ui
+  - chummer6-core
+  allowed_surfaces:
+  - starter_lane_packet
+  - recovery_lane_packet
+  - signed_in_onramp_desk
+  proof_gate: ONRAMP packets must carry starter-workspace, restore, and signed-in follow-through receipts before any public claim widens beyond the bounded starter lane.
+  public_claim_posture: Public copy may describe ONRAMP as a shipped first-party starter and recovery lane; it must not claim autonomous character creation, hidden build authority, or tutorial certainty beyond signed-in receipts.
+  stop_condition: Stop promotion if starter workspace, restore posture, or signed-in onramp route proof is missing or stale.
+  milestone_family: H5
+  release_blocking: false
+  foundations:
+  - D0
+  - D2
+  - E0
+  tool_posture:
+    promoted: []
+    bounded: []
+  success_signals:
+  - Starter workspace and restore posture stay visible on one first-party lane.
+  - Guided-mastery copy remains tied to starter and recovery receipts instead of inventing legality or advice authority.
+  artifact_types:
+  - starter lane packet
+  - recovery lane packet
+  - starter receipt
+  owner_handoff_gate: Guided starter and recovery posture must stay attached to first-party starter workspace and restore receipts before promotion.
+- id: edition-studio
+  title: EDITION STUDIO
+  status: shipped_mvp
+  family: edition_expression
+  canon_doc: products/chummer/horizons/edition-studio.md
+  public_signal_eligible: true
+  public_guide:
+    enabled: true
+    order: 80
+  pain_label: A generic shell can technically support SR4, SR5, and SR6 while still flattening the differences players actually need.
+  wow_promise: SR4, SR5, and SR6 keep authored head posture without splitting the product into disconnected apps.
+  table_scene: A veteran player opens the ruleset-head receipt and sees why SR4, SR5, and SR6 keep different emphasis, density, and terminology on the same first-party lane.
+  build_path:
+    intent: eventual_product_lane
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
+  owning_repos:
+  - chummer6-ui
+  - chummer6-core
+  - chummer6-hub
+  allowed_surfaces:
+  - sr4_head_packet
+  - sr5_head_packet
+  - sr6_head_packet
+  - signed_in_edition_desk
+  proof_gate: Edition Studio must prove distinct SR4, SR5, and SR6 head packets, signed-in focus routes, and typed edition-head APIs before any broader authored-ruleset claim widens.
+  public_claim_posture: Public copy may describe Edition Studio as a shipped first-party ruleset-head lane; it must not claim styling as rules truth, app-fork authority, or visual flavor as semantics ownership.
+  stop_condition: Stop promotion if ruleset-head posture collapses into generic theming, or if the named focus routes and receipts go stale.
+  milestone_family: H5
+  release_blocking: false
+  foundations:
+  - D0
+  - D2
+  - E0
+  tool_posture:
+    promoted: []
+    bounded: []
+  success_signals:
+  - SR4, SR5, and SR6 keep distinct authored head posture on one first-party lane.
+  - Edition expression stays visibly downstream of core semantics and receipts.
+  artifact_types:
+  - ruleset-head receipt
+  - sr4 head packet
+  - sr5 head packet
+  - sr6 head packet
+  owner_handoff_gate: Authored edition posture must remain visibly downstream of core semantics before the lane can claim broader flagship depth.
 - id: local-co-processor
   title: LOCAL CO-PROCESSOR
-  status: horizon
+  status: shipped_mvp
   family: optional_local_acceleration
   canon_doc: products/chummer/horizons/local-co-processor.md
   public_guide:
-    enabled: false
+    enabled: true
     order: 80
   pain_label: Some tasks would be cheaper or faster locally, but the product cannot assume local compute exists.
   wow_promise: Local acceleration improves privacy and responsiveness where available without becoming mandatory infrastructure.
   table_scene: A creator with a strong local machine opts into accelerated explain or media assistance while the same workflow still works hosted-only for everyone else.
   build_path:
-    intent: eventual_product_lane
-    current_state: horizon
-    next_state: bounded_research
+    intent: active_product_lane
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
   owning_repos:
+  - chummer6-hub
   - chummer6-core
   - chummer6-ui
   - chummer6-mobile
+  allowed_surfaces:
+  - public_capability_packet
+  - public_policy_boundary_packet
+  - signed_in_profile_desk
+  - typed_capability_and_policy_api
+  proof_gate: local-co-processor must keep its public packets, signed-in profile routes, and typed policy lanes aligned before it can claim optional local acceleration as shipped posture.
+  public_claim_posture: Public copy may describe LOCAL CO-PROCESSOR as a shipped first-party optional-acceleration lane; it must not claim mandatory local runtime, local truth ownership, or provider-bound prerequisites.
+  stop_condition: Stop promotion if hosted-first parity breaks, local runtime becomes required, or policy and capability receipts drift apart.
   milestone_family: H3
   release_blocking: false
   foundations:
@@ -655,8 +803,57 @@ horizons:
   success_signals:
   - Optional local execution never becomes a required runtime hop.
   - Portable engine hosts and local acceleration can be turned off without breaking product flows.
+  - The signed-in profile desk and typed policy lane keep hosted-first fallback explicit.
   artifact_types:
   - local acceleration receipt
-  - portable host compatibility report
-  public_signal_eligible: false
-  owner_handoff_gate: Hosted-first parity must hold before any local acceleration lane is treated as more than optional research.
+  - capability matrix packet
+  - policy boundary packet
+  public_signal_eligible: true
+  access_posture: booster_first
+  owner_handoff_gate: Hosted-first parity must remain explicit before any deeper acceleration feature claims broader flagship authority.
+- id: quicksilver
+  title: QUICKSILVER
+  status: shipped_mvp
+  family: speed_and_command_surface
+  canon_doc: products/chummer/horizons/quicksilver.md
+  public_guide:
+    enabled: true
+    order: 85
+  pain_label: Expert users still lose flow when trusted lanes are real but too many clicks apart.
+  wow_promise: The same first-party truth becomes meaningfully faster without becoming less explainable.
+  table_scene: A veteran GM jumps from build compare to rules answer to prep bench to publication desk without dropping context or trusting a fake launcher.
+  build_path:
+    intent: active_product_lane
+    current_state: shipped_mvp
+    next_state: flagship_depth_hardening
+  owning_repos:
+  - chummer6-hub
+  - chummer6-ui
+  - chummer6-core
+  allowed_surfaces:
+  - public_command_deck_preview
+  - signed_in_command_deck
+  - typed_jump_target_api
+  proof_gate: quicksilver must keep named public packet routes, signed-in focus routes, and typed jump targets aligned before it can claim expert-speed authority.
+  public_claim_posture: Public copy may describe QUICKSILVER as a shipped first-party speed and command deck lane; it must not claim hidden automation authority, legality shortcuts, or cache-based rules truth.
+  stop_condition: Stop promotion if focus routes break, typed jump targets drift, or the speed lane starts outranking explicit first-party truth.
+  milestone_family: H3
+  release_blocking: false
+  foundations:
+  - C0
+  - C1
+  - D2
+  tool_posture:
+    promoted: []
+    bounded: []
+  success_signals:
+  - Expert users can move between build, rules, prep, and publication desks through named first-party routes.
+  - Speed posture stays explainable and never outranks legality or signed-in truth.
+  artifact_types:
+  - command deck packet
+  - jump target packet
+  - typed command receipt
+  public_signal_eligible: true
+  access_posture: booster_first
+  resource_burden: medium
+  booster_nudge: Quicksilver deepening still burns UX polish and runtime parity effort, but the named command deck lane is already shipped and first-party.

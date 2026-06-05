@@ -40,7 +40,30 @@ Rules truth remains downstream of core semantics, never of styling.
 * not decorative theming without semantic payoff
 * not ruleset flavor that contradicts engine truth
 
-## Why it is not ready yet
+## What is ready now
 
-Distinct ruleset heads only work when the shared shell and semantics are already stable.
-Until the current product can prove strong authored SR4, SR5, and SR6 seams, EDITION STUDIO stays a future flagship multiplier rather than live scope.
+EDITION STUDIO is now a shipped first-party ruleset-head lane.
+
+The public rail exposes a named ruleset-head receipt plus SR4, SR5, and SR6 head packets:
+
+* `/edition-studio`
+* `/edition-studio/receipts/ruleset-heads.json`
+* `/edition-studio/packets/sr4_head.md`
+* `/edition-studio/packets/sr4_head.json`
+* `/edition-studio/packets/sr5_head.md`
+* `/edition-studio/packets/sr5_head.json`
+* `/edition-studio/packets/sr6_head.md`
+* `/edition-studio/packets/sr6_head.json`
+
+The signed-in rail now has named edition-focus aliases:
+
+* `/account/edition-studio`
+* `/account/edition-studio/open`
+* `/account/edition-studio/{edition}`
+
+Typed edition-head APIs are first-class too:
+
+* `/api/v1/campaign-spine/me/edition-studio/heads`
+* `/api/v1/campaign-spine/me/edition-studio/heads/{edition}`
+
+This shipped slice keeps authored SR4, SR5, and SR6 posture readable without turning styling into truth authority or splitting the product into disconnected apps.

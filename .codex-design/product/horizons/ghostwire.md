@@ -1,39 +1,34 @@
 # GHOSTWIRE
 
-## The problem
+## What is ready now
 
-We know something went wrong, but we cannot reconstruct what actually happened once the moment has passed.
+GHOSTWIRE now ships a bounded first-party after-action lane.
 
-## What it would do
+Replay timelines, after-action reports, and consequence-chain packets are public-safe, receipt-backed, and exposed on named Chummer routes.
 
-Chummer would support replay, after-action review, and forensics packets built from receipts over time.
-This lane is about what happened mechanically, what can be reconstructed safely, and how to compare or explain it after the fact without mutating canonical session truth.
-It also gives premium recovery a memory: when something goes wrong, the product should be able to show what happened, what is still trustworthy, and what the next safe move is.
+## Live routes
 
-## Likely owners
+* `/ghostwire`
+* `/ghostwire/receipts/replay-network.json`
+* `/ghostwire/after-action/replay_timeline.md`
+* `/ghostwire/after-action/replay_timeline.json`
+* `/ghostwire/after-action/after_action_report.md`
+* `/ghostwire/after-action/after_action_report.json`
+* `/ghostwire/after-action/consequence_chain.md`
+* `/ghostwire/after-action/consequence_chain.json`
 
-* `chummer6-core`
-* `chummer6-mobile`
-* `chummer6-hub`
-* `chummer6-media-factory`
+## What it does
 
-## Key tool posture
+* reconstructs public-safe consequence order from first-party aftermath packets
+* keeps after-action recap, next safe move, and consequence carry-forward visible
+* preserves bounded replay truth without widening into transcript publication
 
-* `PeekShot` - preview/share-safe replay surfaces
-* `Soundmadeseen` - narrated after-action recap support
-* `MarkupGo` - bounded report rendering
-* `Mootion` - bounded replay/video experiments
-* `Paperguide` - cited reconstruction helper
+## Boundary
 
-## What has to be true first
+GHOSTWIRE does not claim:
 
-* append-only reducer-safe ledger truth
-* explain provenance canon
-* runtime bundle receipts
-* media-side receipt capture for after-action outputs
-* degraded-state receipts that survive crash, reconnect, and restore paths
+* private transcript truth
+* retrospective fiction generation
+* canonical session mutation after the fact
 
-## Why it is not ready yet
-
-Replay is only safe when reconstruction is receipt-backed and reducer-safe.
-Until Chummer can prove that after-action views stay grounded in canonical truth rather than retrospective invention, GHOSTWIRE remains a horizon instead of product truth.
+It is a shipped replay and after-action lane, but it stays receipt-backed and bounded on purpose.

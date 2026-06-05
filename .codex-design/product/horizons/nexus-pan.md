@@ -4,11 +4,11 @@
 
 When phones, tablets, or laptops drift apart during play, the whole table stops trusting what is on screen.
 
-## What it would do
+## What it does now
 
-Chummer would keep reconnects and shared session state steady enough that players can jump back in without the GM rebuilding context by hand.
-It would build on the existing session record instead of creating a separate version of events.
-It would also handle bad signals and device handoffs honestly: clear offline status, safe local continuity, and visible conflict recovery when reconnecting goes wrong.
+Chummer keeps reconnects and shared session state steady enough that players can jump back in without the GM rebuilding context by hand.
+It builds on the existing session record instead of creating a separate version of events.
+It also handles bad signals and device handoffs honestly: clear offline status, safe local continuity, and visible conflict recovery when reconnecting goes wrong.
 
 ## Likely owners
 
@@ -30,7 +30,11 @@ If projections or operator aids appear later, they remain downstream helpers onl
 * offline-capable local state
 * explicit stale, pending, and conflicted state
 
-## Why it is not ready yet
+## Current shipped posture
 
-The live release still needs boringly reliable session continuity.
-Until reconnects and shared-state handoffs stay solid under stress, a richer PAN layer would add confusion instead of removing it.
+NEXUS-PAN is shipped as the first-party continuity lane for reconnects, shared state, and device handoff recovery.
+
+## Current boundary
+
+This lane only stays shipped-grade while session continuity remains boringly reliable under stress.
+Richer PAN behaviors can grow from that base, but they cannot outrun continuity, offline honesty, or visible conflict recovery.

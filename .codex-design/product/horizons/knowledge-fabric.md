@@ -4,9 +4,9 @@
 
 Rules answers are expensive, repetitive, and still too easy to hallucinate when every help or assistant lane has to reconstruct understanding from raw materials on demand.
 
-## What it would do
+## What it does now
 
-Chummer would build knowledge projections from core-owned source packs and engine truth.
+Chummer builds knowledge projections from core-owned source packs and engine truth.
 Those projections may include chunks, embeddings, graph edges, searchable receipts, citations, and explain helpers, but they remain derived artifacts rather than a second source of truth.
 
 ## Likely owners
@@ -31,7 +31,12 @@ Those projections may include chunks, embeddings, graph edges, searchable receip
 * explicit "AI never computes mechanics" rule
 * derived-projection storage and publication rules
 
-## Why it is not ready yet
+## Current shipped posture
 
-This lane is only safe when the projections are visibly derived, cited, and non-authoritative.
-Until Chummer can prove that help and assistant flows stay grounded in core-owned truth, knowledge fabric remains a horizon rather than a product promise.
+This lane is shipped as a derived, cited, non-authoritative knowledge projection layer.
+Help and assistant flows are required to stay grounded in core-owned truth rather than treating the projection store as a second rules source.
+
+## Current boundary
+
+Knowledge Fabric remains safe only while the projections stay visibly derived, cited, and non-authoritative.
+Future assistant depth can expand, but it does not change the rule that engine truth and source-pack truth stay upstream of every projection.

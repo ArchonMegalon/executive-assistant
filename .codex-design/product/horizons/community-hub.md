@@ -30,8 +30,9 @@ The public fantasy is:
 
 COMMUNITY HUB is the product name for that lane.
 
-The signed-in command lane is already live at `https://chummer.run/community`.
-That lane currently carries governed open-run packets, venue handoff, and community closeout without pretending the whole long-range community roadmap is done.
+The public route is live at `https://chummer.run/community`.
+The named signed-in command lane now ships at `https://chummer.run/account/community`.
+Those lanes currently carry governed open-run board posture, venue handoff, join review, scheduling, and community closeout without pretending the whole long-range community roadmap is done.
 
 ## Likely owners
 
@@ -67,13 +68,13 @@ Meeting tools and observer tools stay projection or assistance lanes only.
 * not pay-to-win ranking
 * not Table Pulse or GOD deciding world truth or moderation truth
 
-## Why it is not ready yet
+## What is ready now
 
-This only works if Chummer can prove four things at once:
+Chummer can now prove the core Community Hub loop:
 
-1. open-run listings, roster truth, and meeting handoff stay in one trustworthy system,
-2. community-rule environments, quickstarts, and preflight make it easier to join instead of adding another review maze,
-3. third-party scheduling, meeting, and play surfaces never outrank Chummer-owned receipts,
-4. observer and debrief assistance never slips into hidden surveillance, and seasonal honors stay motivating without turning into a toxic ranking game.
+1. the public board, signed-in board, and typed open-run APIs all point at the same governed open-run spine,
+2. join review, scheduling, meeting handoff, and closeout stay on first-party rails,
+3. public venue posture can be shown without leaking private room truth,
+4. meeting tools remain projection-only and do not outrank Chummer-owned receipts.
 
-Until those seams are strong enough, COMMUNITY HUB should remain a horizon rather than a shipped community promise.
+The broader organizer/community roadmap is still larger than this shipped slice, but the open-run network itself is no longer only a horizon claim.
