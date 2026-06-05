@@ -4201,6 +4201,57 @@ def test_property_scout_page_preview_extracts_justiz_edikte_facts(monkeypatch: p
     assert "Bezirksgericht Döbling" in preview["summary"]
 
 
+def test_property_scout_page_preview_enriches_justiz_kurzgutachten_area_and_langgutachten_pdf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/ABC123!OpenDocument"
+    short_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/0/KURZ123"
+    pdf_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/0/LANG123/$file/Gutachten%201030%20Wien.pdf"
+
+    def _fake_fetch(url, *, timeout_seconds=60.0):
+        if str(url) == short_url:
+            return """
+                <html>
+                  <head><title>Kurzgutachten</title></head>
+                  <body>
+                    <dl>
+                      <dt>Adresse</dt><dd>Drorygasse 20, 1030 Wien</dd>
+                      <dt>Kategorie(n)</dt><dd>Wohnungseigentumsobjekt</dd>
+                      <dt>Objektgröße</dt><dd>78,3 m&#178;</dd>
+                      <dt>Schätzwert</dt><dd>315.000,00 EUR</dd>
+                      <dt>Nutzung</dt><dd>vermietet</dd>
+                    </dl>
+                  </body>
+                </html>
+            """
+        return f"""
+            <html>
+              <head><title>BG Innere Stadt Wien, 001 74 E 108/25y</title></head>
+              <body>
+                <dl>
+                  <dt>Aktenzeichen</dt><dd>74 E 108/25y</dd>
+                  <dt>Versteigerungstermin</dt><dd>am 10.6.2026 um 11:30 Uhr</dd>
+                </dl>
+                <a href="{short_url}" title="Kurzgutachten Wohnung Top 12">Kurzgutachten Wohnung Top 12</a>
+                <a href="{pdf_url}" title="Langgutachten (2672 KB)">Langgutachten (2672 KB)</a>
+                <p><strong>Grundriss(e):</strong> nicht verfuegbar</p>
+              </body>
+            </html>
+        """
+
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", _fake_fetch)
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "justiz_edikte_at"
+    assert facts["area_sqm"] == 78.3
+    assert facts["valuation_eur"] == 315000.0
+    assert facts["occupancy_status"] == "vermietet"
+    assert facts["has_floorplan"] is True
+    assert preview["floorplan_urls_json"] == (pdf_url,)
+
+
 def test_property_scout_page_preview_extracts_cooperative_media_and_floorplans(monkeypatch: pytest.MonkeyPatch) -> None:
     listing_url = "https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=01000103511"
     monkeypatch.setattr(

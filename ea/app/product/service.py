@@ -1228,6 +1228,48 @@ def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> 
     return tuple(media_urls)
 
 
+def _property_scout_extract_context_links(
+    *,
+    source_url: str,
+    html: str,
+    markers: tuple[str, ...],
+    limit: int = 4,
+) -> tuple[str, ...]:
+    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
+    normalized_markers = tuple(str(marker or "").strip().lower() for marker in markers if str(marker or "").strip())
+    if not normalized_markers:
+        return ()
+    urls: list[str] = []
+    seen: set[str] = set()
+    attr_pattern = re.compile(r"""href=["']([^"']+)["']""", re.IGNORECASE)
+    for match in attr_pattern.finditer(normalized_html):
+        raw_url = str(match.group(1) or "").strip()
+        tag_start = normalized_html.rfind("<", 0, match.start())
+        tag_end = normalized_html.find(">", match.end())
+        if tag_start < 0:
+            tag_start = max(0, match.start() - 120)
+        if tag_end < 0:
+            tag_end = min(len(normalized_html), match.end() + 120)
+        context = normalized_html[tag_start : tag_end + 1].lower()
+        close = normalized_html.find("</a>", tag_end)
+        if close >= 0 and close - tag_end < 420:
+            context += normalized_html[tag_end + 1 : close + 4].lower()
+        if not any(marker in context for marker in normalized_markers):
+            continue
+        try:
+            normalized = urllib.parse.urljoin(source_url, raw_url)
+        except ValueError:
+            continue
+        normalized = urllib.parse.urldefrag(normalized)[0]
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        urls.append(normalized)
+        if len(urls) >= max(1, int(limit)):
+            break
+    return tuple(urls)
+
+
 def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolve_archives: bool = False) -> tuple[str, ...]:
     normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
     floorplan_urls: list[str] = []
@@ -1285,7 +1327,8 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
         if not normalized or normalized in seen:
             continue
         lowered_url = urllib.parse.unquote(normalized).lower()
-        if resolve_archives and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
+        is_direct_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS)
+        if resolve_archives and not is_direct_floorplan_asset and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
             if normalized not in seen_archives:
                 seen_archives.add(normalized)
                 for archived_floorplan_url in _property_scout_extract_floorplan_urls_from_archive(
@@ -1297,9 +1340,23 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
                         seen.add(archived_floorplan_url)
                         floorplan_urls.append(archived_floorplan_url)
             continue
-        if not _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS):
+        if not is_direct_floorplan_asset:
             continue
-        if not any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+        is_edikte_valuation_pdf = (
+            lowered_url.endswith(".pdf")
+            and any(marker in urllib.parse.urlparse(normalized).netloc.lower() for marker in ("edikte.justiz.gv.at", "edikte2.justiz.gv.at"))
+            and any(
+                marker in context
+                for marker in (
+                    "langgutachten",
+                    "kurzgutachten",
+                    "schätzungsgutachten",
+                    "schaetzungsgutachten",
+                    "gutachten",
+                )
+            )
+        )
+        if not is_edikte_valuation_pdf and not any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
             continue
         seen.add(normalized)
         floorplan_urls.append(normalized)
@@ -1568,7 +1625,24 @@ def _property_justiz_edikte_facts(source_url: str, source_html: str, plain_text:
     if reserve is not None:
         facts["reserve_price_eur"] = reserve
         facts["reserve_price_display"] = compact_text(reserve_raw, fallback=f"{reserve:.0f} EUR", limit=120)
-    area = _property_extract_area_value(" ".join((_property_extract_fact_from_labels(labels, "fläche", "wohnfläche"), plain_text)))
+    area = _property_extract_area_value(
+        " ".join(
+            (
+                _property_extract_fact_from_labels(
+                    labels,
+                    "fläche",
+                    "wohnfläche",
+                    "nutzfläche",
+                    "nutzflaeche",
+                    "objektgröße",
+                    "objektgroesse",
+                    "objekt größe",
+                    "objekt groesse",
+                ),
+                plain_text,
+            )
+        )
+    )
     if area is not None:
         facts["area_sqm"] = area
     occupancy_text = _property_extract_fact_from_labels(labels, "nutzung", "sonstige informationen")
@@ -2161,7 +2235,7 @@ def _property_distressed_sale_preview_facts(source_url: str, source_html: str) -
     plain_text = _property_html_fragment_text(source_html)
     if "zvg-portal.de" in host:
         return _property_zvg_auction_facts(normalized, source_html, plain_text)
-    if "edikte.justiz" in host:
+    if "edikte.justiz" in host or "edikte2.justiz" in host:
         return _property_justiz_edikte_facts(normalized, source_html, plain_text)
     if "subastas.boe.es" in host:
         return _property_boe_subastas_facts(normalized, source_html, plain_text)
@@ -2258,6 +2332,24 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     floorplan_urls = _property_scout_extract_floorplan_urls(source_url=normalized, html=html, resolve_archives=not prefer_fast)
     source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url(source_url=normalized, html=html)
     property_facts = _property_distressed_sale_preview_facts(normalized, html)
+    if not prefer_fast and str(property_facts.get("provider_channel") or "").strip() == "justiz_edikte_at":
+        for detail_url in _property_scout_extract_context_links(
+            source_url=normalized,
+            html=html,
+            markers=("kurzgutachten", "schätzungsgutachten", "schaetzungsgutachten"),
+            limit=2,
+        ):
+            try:
+                detail_html = _property_scout_fetch_html(detail_url, timeout_seconds=4.0)
+            except Exception:
+                continue
+            detail_text = _property_html_fragment_text(detail_html)
+            detail_facts = _property_justiz_edikte_facts(detail_url, detail_html, detail_text)
+            for key, value in dict(detail_facts or {}).items():
+                if value not in (None, "", (), []):
+                    property_facts[key] = value
+            if property_facts.get("area_sqm"):
+                break
     cooperative_facts = _property_cooperative_housing_facts(normalized, html, _property_html_fragment_text(html))
     if cooperative_facts:
         property_facts.update(cooperative_facts)
