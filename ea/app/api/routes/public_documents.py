@@ -7,13 +7,15 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app.settings import get_settings, resolve_signing_secret
+from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 
 
 router = APIRouter(tags=["public-documents"])
+_PUBLIC_DOCUMENT_LIMIT = (20, 60)
 
 
 def _attachment_root() -> Path:
@@ -57,6 +59,15 @@ def _document_file(token: str) -> tuple[Path, str]:
 
 
 @router.get("/documents/onedrive-mail/{token}")
-def public_onedrive_mail_document(token: str) -> FileResponse:
+def public_onedrive_mail_document(token: str, request: Request) -> FileResponse:
+    try:
+        enforce_public_surface_rate_limit(
+            bucket="public-documents:onedrive-mail",
+            client_key=public_surface_client_key(headers=request.headers, client_host=request.client.host if request.client else "", scope_hint=token[:24]),
+            limit=_PUBLIC_DOCUMENT_LIMIT[0],
+            window_seconds=_PUBLIC_DOCUMENT_LIMIT[1],
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail="public_document_rate_limited") from exc
     path, media_type = _document_file(token)
-    return FileResponse(path, media_type=media_type, filename=path.name)
+    return FileResponse(path, media_type=media_type, filename=path.name, headers={"Cache-Control": "no-store"})

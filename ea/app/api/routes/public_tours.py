@@ -21,6 +21,7 @@ from app.container import AppContainer
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 
 router = APIRouter(tags=["public-tours"])
 
@@ -28,6 +29,12 @@ _PUBLIC_TOUR_ACTIONS = frozenset({"request-details", "feedback", "filters"})
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT: dict[str, tuple[float, int]] = {}
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS = 60.0
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX = 12
+_PUBLIC_TOUR_ROUTE_LIMITS = {
+    "json": (24, 60),
+    "file": (40, 60),
+    "page": (24, 60),
+    "feedback": (12, 60),
+}
 
 
 def _fact_value_is_weak(value: object) -> bool:
@@ -405,15 +412,28 @@ def _public_tour_feedback_rate_limit_key(*, request: Request, slug: str) -> str:
 
 
 def _enforce_public_tour_feedback_rate_limit(*, request: Request, slug: str) -> None:
-    now = time.time()
-    key = _public_tour_feedback_rate_limit_key(request=request, slug=slug)
-    window_started, count = _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.get(key, (now, 0))
-    if now - float(window_started) > _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS:
-        _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT[key] = (now, 1)
-        return
-    if int(count) >= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX:
-        raise HTTPException(status_code=429, detail="public_tour_feedback_rate_limited")
-    _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT[key] = (float(window_started), int(count) + 1)
+    try:
+        enforce_public_surface_rate_limit(
+            bucket=f"public-tours:{slug}:feedback",
+            client_key=public_surface_client_key(headers=request.headers, client_host=request.client.host if request.client else ""),
+            limit=_PUBLIC_TOUR_ROUTE_LIMITS["feedback"][0],
+            window_seconds=_PUBLIC_TOUR_ROUTE_LIMITS["feedback"][1],
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail="public_tour_feedback_rate_limited") from exc
+
+
+def _enforce_public_tour_route_rate_limit(*, request: Request, slug: str, bucket: str) -> None:
+    limit, window_seconds = _PUBLIC_TOUR_ROUTE_LIMITS[bucket]
+    try:
+        enforce_public_surface_rate_limit(
+            bucket=f"public-tours:{slug}:{bucket}",
+            client_key=public_surface_client_key(headers=request.headers, client_host=request.client.host if request.client else ""),
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail="public_tour_rate_limited") from exc
 
 
 def _public_tour_authenticated_action_required(action: str) -> HTTPException:
@@ -3132,18 +3152,20 @@ def _render_tour_unavailable_page(
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
-def public_tour_payload(slug: str) -> JSONResponse:
+def public_tour_payload(slug: str, request: Request) -> JSONResponse:
+    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="json")
     payload = _load_tour(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-    return JSONResponse(payload)
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
-def public_tour_file(slug: str, asset_path: str) -> FileResponse:
+def public_tour_file(slug: str, asset_path: str, request: Request) -> FileResponse:
+    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="file")
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-    return FileResponse(file_path, media_type=media_type)
+    return FileResponse(file_path, media_type=media_type, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)
@@ -3256,6 +3278,7 @@ def public_tour_page(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse:
+    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="page")
     hostname = request_hostname(request)
     try:
         payload = _load_tour(slug)

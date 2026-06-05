@@ -10,9 +10,28 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 
 
 router = APIRouter(tags=["public-results"])
+_PUBLIC_RESULT_RATE_LIMITS = {
+    "json": (24, 60),
+    "file": (40, 60),
+    "page": (24, 60),
+}
+
+
+def _enforce_public_result_rate_limit(request: Request, *, bucket: str, slug: str) -> None:
+    limit, window_seconds = _PUBLIC_RESULT_RATE_LIMITS[bucket]
+    try:
+        enforce_public_surface_rate_limit(
+            bucket=f"public-results:{slug}:{bucket}",
+            client_key=public_surface_client_key(headers=request.headers, client_host=request.client.host if request.client else ""),
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail="public_result_rate_limited") from exc
 
 
 def _result_dir() -> Path:
@@ -217,19 +236,22 @@ def _result_html(payload: dict[str, object], *, hostname: str = "") -> str:
 
 
 @router.get("/results/{slug}.json", response_class=JSONResponse)
-def public_result_json(slug: str) -> JSONResponse:
-    return JSONResponse(_load_manifest(slug))
+def public_result_json(slug: str, request: Request) -> JSONResponse:
+    _enforce_public_result_rate_limit(request, bucket="json", slug=slug)
+    return JSONResponse(_load_manifest(slug), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/results/files/{slug}/{asset_path:path}")
-def public_result_file(slug: str, asset_path: str) -> FileResponse:
+def public_result_file(slug: str, asset_path: str, request: Request) -> FileResponse:
+    _enforce_public_result_rate_limit(request, bucket="file", slug=slug)
     payload = _load_manifest(slug)
     file_path = _asset_file(slug, asset_path)
     guessed_media_type = mimetypes.guess_type(str(file_path))[0]
     media_type = guessed_media_type or _maybe_text(payload.get("mime_type")) or "application/octet-stream"
-    return FileResponse(file_path, media_type=media_type)
+    return FileResponse(file_path, media_type=media_type, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/results/{slug}", response_class=HTMLResponse)
 def public_result_page(slug: str, request: Request) -> HTMLResponse:
-    return HTMLResponse(_result_html(_load_manifest(slug), hostname=request_hostname(request)))
+    _enforce_public_result_rate_limit(request, bucket="page", slug=slug)
+    return HTMLResponse(_result_html(_load_manifest(slug), hostname=request_hostname(request)), headers={"Cache-Control": "no-store"})
