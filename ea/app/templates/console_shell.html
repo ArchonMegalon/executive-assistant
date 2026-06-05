@@ -24,7 +24,7 @@
   .console-callout {
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
+    background: var(--panel);
     box-shadow: var(--shadow);
   }
   .console-panel,
@@ -75,7 +75,7 @@
     justify-content: space-between;
     gap: 12px;
     padding-bottom: 10px;
-    border-bottom: 1px solid rgba(49, 60, 77, 0.72);
+    border-bottom: 1px solid var(--line);
   }
   .console-row:last-child {
     border-bottom: 0;
@@ -98,7 +98,7 @@
     padding: 5px 9px;
     border-radius: 999px;
     border: 1px solid var(--line);
-    background: rgba(255,255,255,0.03);
+    background: var(--panel-2);
     color: var(--text-soft);
     font-size: 12px;
   }
@@ -112,7 +112,7 @@
   .console-action {
     border: 1px solid var(--line);
     border-radius: 999px;
-    background: rgba(255,255,255,0.05);
+    background: var(--panel);
     color: var(--text);
     font: inherit;
     font-size: 12px;
@@ -134,7 +134,7 @@
   .console-form[data-console-form-variant="property_search"] .property-wizard-step {
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.03);
+    background: var(--panel);
     color: var(--text-soft);
     text-align: left;
     padding: 12px;
@@ -143,8 +143,8 @@
     min-height: 78px;
   }
   .console-form[data-console-form-variant="property_search"] .property-wizard-step.active {
-    border-color: rgba(214, 166, 63, 0.38);
-    background: linear-gradient(180deg, rgba(214, 166, 63, 0.14), rgba(255,255,255,0.03));
+    border-color: rgba(189, 139, 47, 0.38);
+    background: var(--accent-soft);
     color: var(--text);
   }
   .console-form[data-console-form-variant="property_search"] .property-wizard-step small {
@@ -190,8 +190,8 @@
     min-height: 84px;
   }
   .console-form[data-console-form-variant="property_search"] .console-callout {
-    background: linear-gradient(180deg, rgba(214, 166, 63, 0.12), rgba(255,255,255,0.03));
-    border-color: rgba(214, 166, 63, 0.22);
+    background: var(--accent-soft);
+    border-color: rgba(189, 139, 47, 0.24);
   }
   .console-form[data-console-form-variant="property_search"] .console-action-row {
     justify-content: space-between;
@@ -230,7 +230,7 @@
   .console-form[data-console-form-variant="property_search"] input[type="range"] {
     min-height: 28px;
     padding: 0;
-    accent-color: #d6a63f;
+    accent-color: var(--accent);
     background: transparent;
     border: 0;
   }
@@ -244,7 +244,7 @@
     line-height: 1.3;
   }
   .console-form[data-console-form-variant="property_search"] .console-range-scale [data-current-plan-cap] {
-    color: #d6a63f;
+    color: var(--accent);
     font-weight: 760;
   }
   .console-form[data-console-form-variant="property_search"] .console-range-upgrade {
@@ -261,7 +261,7 @@
   .property-shortlist-card {
     border: 1px solid var(--line);
     border-radius: 14px;
-    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    background: var(--panel);
     padding: 14px;
     display: grid;
     gap: 10px;
@@ -304,7 +304,7 @@
   .property-feedback-chip {
     border: 1px solid var(--line);
     border-radius: 999px;
-    background: rgba(255,255,255,0.05);
+    background: var(--panel);
     color: var(--text-soft);
     font: inherit;
     font-size: 12px;
@@ -312,8 +312,8 @@
     cursor: pointer;
   }
   .property-feedback-chip.active {
-    border-color: rgba(214, 166, 63, 0.45);
-    background: rgba(214, 166, 63, 0.12);
+    border-color: rgba(189, 139, 47, 0.45);
+    background: var(--accent-soft);
     color: var(--text);
   }
   .property-feedback-note {
@@ -321,7 +321,7 @@
     min-height: 70px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.04);
+    background: var(--panel);
     color: var(--text);
     padding: 10px 12px;
     font: inherit;
@@ -363,7 +363,7 @@
     width: 100%;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.04);
+    background: var(--panel);
     color: var(--text);
     padding: 10px 12px;
     font: inherit;
@@ -393,7 +393,7 @@
     padding: 10px 12px;
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.03);
+    background: var(--panel);
   }
   .console-choice input {
     width: auto;
@@ -424,13 +424,13 @@
     width: 100%;
     height: 10px;
     border-radius: 999px;
-    background: rgba(255,255,255,0.08);
+    background: var(--line);
     overflow: hidden;
   }
   .console-progress-fill {
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #d6a63f, #f0cf7a);
+    background: linear-gradient(90deg, var(--accent), #d7b56d);
     transition: width 160ms ease;
   }
   .console-run-meta,
@@ -454,7 +454,7 @@
   }
   .console-inline-error {
     min-height: 18px;
-    color: #f0b7b7;
+    color: var(--danger);
     font-size: 12px;
   }
   .console-billing-grid {
@@ -465,14 +465,14 @@
   .console-plan-card {
     border: 1px solid var(--line);
     border-radius: 12px;
-    background: rgba(255,255,255,0.03);
+    background: var(--panel);
     padding: 12px;
     display: grid;
     gap: 8px;
   }
   .console-plan-card.current {
-    border-color: rgba(214, 166, 63, 0.36);
-    background: rgba(214, 166, 63, 0.08);
+    border-color: rgba(189, 139, 47, 0.36);
+    background: var(--accent-soft);
   }
   .console-plan-card ul {
     margin: 0;
@@ -543,7 +543,7 @@
       bottom: 0;
       z-index: 2;
       padding-top: 10px;
-      background: linear-gradient(180deg, rgba(15, 19, 26, 0), rgba(15, 19, 26, 0.96) 28%);
+      background: linear-gradient(180deg, rgba(246, 243, 238, 0), rgba(246, 243, 238, 0.96) 28%);
     }
     .console-form[data-console-form-variant="property_search"] .console-action-row .console-action {
       flex: 1 1 0;

@@ -1,11 +1,39 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
 from tests.product_test_helpers import build_property_client, start_workspace
+
+
+def test_propertyquarry_app_templates_do_not_reintroduce_legacy_dark_theme_tokens() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    template_paths = [
+        repo_root / "ea/app/templates/base_console.html",
+        repo_root / "ea/app/templates/console_shell.html",
+        repo_root / "ea/app/templates/app/object_detail.html",
+        repo_root / "ea/app/templates/app/people_detail.html",
+        repo_root / "ea/app/templates/app/commitment_candidate_review.html",
+        repo_root / "ea/app/templates/app/property_decision_workbench.html",
+    ]
+    forbidden_tokens = (
+        "rgba(18, 23, 34",
+        "rgba(15, 19, 26",
+        "rgba(49, 60, 77",
+        "#070a10",
+        "#0a0d14",
+        "#0b1017",
+        "360 not ready",
+        "not scheduled yet",
+    )
+    for template_path in template_paths:
+        body = template_path.read_text(encoding="utf-8")
+        assert "background: var(--panel);" in body or "background: var(--pq-paper);" in body
+        for token in forbidden_tokens:
+            assert token not in body, f"{token!r} leaked into {template_path.relative_to(repo_root)}"
 
 
 def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:
