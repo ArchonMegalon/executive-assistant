@@ -78,6 +78,55 @@ def test_property_search_location_matching_prefers_requested_districts() -> None
     ) is False
 
 
+def test_property_search_location_matching_accepts_source_scope_location() -> None:
+    hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
+    facts = product_service._property_facts_with_source_scope(
+        facts={"street_address": "Rotensterngasse 21", "provider_channel": "justiz_edikte_at"},
+        source_url=(
+            "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/suchedi?"
+            "retfields=%5BVPLZ%5D=1020;%5BVOrt%5D=Wien"
+        ),
+        source_label="Justiz Edikte Auctions | Austria | Buy | 1020 Vienna",
+    )
+
+    assert facts["source_scope_location"] == "1020 Vienna"
+    assert _property_candidate_matches_requested_location(
+        location_hints=hints,
+        property_url="https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/example!OpenDocument",
+        title="BG Leopoldstadt, 082 25 E 89/25g",
+        summary="Sparse judicial auction detail page.",
+        property_facts=facts,
+    ) is True
+
+
+def test_property_search_sparse_auction_floorplan_area_scores_above_review_threshold() -> None:
+    preview = {
+        "title": "BG Leopoldstadt, 082 25 E 89/25g",
+        "summary": "Sparse judicial auction detail page.",
+        "property_facts_json": {
+            "area_sqm": 126.59,
+            "floorplan_count": 1,
+            "floorplan_urls_json": ["https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/0/example/$file/Gutachten.pdf"],
+            "provider_channel": "justiz_edikte_at",
+            "sale_channel": "judicial_auction",
+            "source_scope_location": "1020 Vienna",
+        },
+    }
+    assessment = {
+        "fit_score": 47.96,
+        "upstream_personalization": {"adjusted_fit_score": 45.46},
+    }
+
+    score = product_service._property_scout_rank_score(
+        property_url="https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/example!OpenDocument",
+        assessment=assessment,
+        preview=preview,
+        ordinal=6,
+    )
+
+    assert score >= 54.0
+
+
 def test_property_search_type_filter_blocks_garage_for_residential_searches() -> None:
     garage_title = "Garagenplatz zu vermieten, 10 m2, EUR 190,-, (1030 Wien) - willhaben"
 

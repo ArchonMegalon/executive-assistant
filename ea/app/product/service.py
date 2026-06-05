@@ -3095,7 +3095,7 @@ def _property_scout_rank_score(
 ) -> float:
     fit_score = _property_alert_fit_score(assessment)
     if fit_score > 0.0:
-        return fit_score
+        return max(0.0, min(100.0, fit_score + _property_scout_objective_review_boost(property_url=property_url, preview=preview)))
     text = " ".join(
         part
         for part in (
@@ -3112,7 +3112,72 @@ def _property_scout_rank_score(
         heuristic += 8.0
     if any(token in text for token in ("lift", "aufzug", "terrasse", "balkon")):
         heuristic += 4.0
-    return max(0.0, min(100.0, heuristic))
+    return max(0.0, min(100.0, heuristic + _property_scout_objective_review_boost(property_url=property_url, preview=preview)))
+
+
+def _property_search_source_scope_location(*, source_url: str = "", source_label: str = "") -> str:
+    text = " ".join(str(part or "").strip() for part in (source_label, source_url) if str(part or "").strip())
+    if not text:
+        return ""
+    decoded = urllib.parse.unquote_plus(text)
+    match = re.search(r"\b(1\d{3})\s*(?:Vienna|Wien)\b", decoded, flags=re.IGNORECASE)
+    if match:
+        return f"{match.group(1)} Vienna"
+    retfield_match = re.search(r"(?:VPLZ|%5BVPLZ%5D)[^=]*=\(?([1-9]\d{3})\)?", decoded, flags=re.IGNORECASE)
+    city_match = re.search(r"(?:VOrt|%5BVOrt%5D)[^=]*=\(?([A-Za-zÄÖÜäöüß]+)\)?", decoded, flags=re.IGNORECASE)
+    if retfield_match:
+        city = str(city_match.group(1) if city_match else "Vienna").strip()
+        if city.lower() == "wien":
+            city = "Vienna"
+        return f"{retfield_match.group(1)} {city}".strip()
+    return ""
+
+
+def _property_facts_with_source_scope(
+    *,
+    facts: dict[str, object] | None,
+    source_url: str = "",
+    source_label: str = "",
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    scope_location = _property_search_source_scope_location(source_url=source_url, source_label=source_label)
+    if not scope_location:
+        return enriched
+    enriched.setdefault("source_scope_location", scope_location)
+    postal_match = re.search(r"\b([1-9]\d{3})\b", scope_location)
+    if postal_match:
+        enriched.setdefault("source_postal_code", postal_match.group(1))
+    city = re.sub(r"\b[1-9]\d{3}\b", "", scope_location).strip()
+    if city:
+        enriched.setdefault("source_city", city)
+    if not any(str(enriched.get(key) or "").strip() for key in ("district", "location", "postal_name", "address", "street_address")):
+        enriched["postal_name"] = scope_location
+    return enriched
+
+
+def _property_scout_objective_review_boost(*, property_url: str, preview: dict[str, object]) -> float:
+    facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
+    boost = 0.0
+    if _property_facts_have_floorplan(facts, preview=preview):
+        boost += 6.0
+    area_sqm = _property_candidate_area_sqm(
+        property_url=property_url,
+        title=str(preview.get("title") or ""),
+        summary=str(preview.get("summary") or ""),
+        property_facts=facts,
+    )
+    if isinstance(area_sqm, float) and area_sqm >= 70.0:
+        boost += 5.0
+    provider_channel = str(facts.get("provider_channel") or "").strip().lower()
+    provider_group = str(facts.get("provider_group") or "").strip().lower()
+    sale_channel = str(facts.get("sale_channel") or "").strip().lower()
+    if sale_channel == "judicial_auction" or provider_channel == "justiz_edikte_at":
+        boost += 5.0
+    elif provider_group == "genossenschaften_at":
+        boost += 4.0
+    if any(str(facts.get(key) or "").strip() for key in ("source_scope_location", "district", "postal_name", "location", "street_address")):
+        boost += 2.0
+    return max(0.0, min(24.0, boost))
 
 
 def _property_search_location_hints(preferences: dict[str, object] | None) -> tuple[str, ...]:
@@ -3145,6 +3210,9 @@ def _property_candidate_matches_requested_location(
         str(facts.get("location") or "").strip(),
         str(facts.get("street_address") or "").strip(),
         str(facts.get("exact_address") or "").strip(),
+        str(facts.get("source_scope_location") or "").strip(),
+        str(facts.get("source_postal_code") or "").strip(),
+        str(facts.get("source_city") or "").strip(),
         *address_lines,
     ]
     raw_text = " ".join(part for part in haystack_parts if part).lower()
@@ -16900,6 +16968,12 @@ class ProductService:
                         "property_facts_json": {},
                     }
                 preview_facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
+                preview_facts = _property_facts_with_source_scope(
+                    facts=preview_facts,
+                    source_url=source_url,
+                    source_label=source_label,
+                )
+                preview["property_facts_json"] = preview_facts
                 preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                 preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
                 if not _property_candidate_matches_requested_property_type(
@@ -16935,6 +17009,12 @@ class ProductService:
                                 if isinstance(preview.get("property_facts_json"), dict)
                                 else {}
                             )
+                            preview_facts = _property_facts_with_source_scope(
+                                facts=preview_facts,
+                                source_url=source_url,
+                                source_label=source_label,
+                            )
+                            preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
                     except Exception:
@@ -16975,6 +17055,12 @@ class ProductService:
                                 if isinstance(preview.get("property_facts_json"), dict)
                                 else {}
                             )
+                            preview_facts = _property_facts_with_source_scope(
+                                facts=preview_facts,
+                                source_url=source_url,
+                                source_label=source_label,
+                            )
+                            preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
                     except Exception:
@@ -17066,6 +17152,12 @@ class ProductService:
                     except Exception:
                         pass
                 detailed_facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
+                detailed_facts = _property_facts_with_source_scope(
+                    facts=detailed_facts,
+                    source_url=source_url,
+                    source_label=source_label,
+                )
+                preview["property_facts_json"] = detailed_facts
                 detailed_title = str(preview.get("title") or property_url).strip() or property_url
                 detailed_summary = str(preview.get("summary") or "").strip()
                 if not _property_candidate_matches_requested_property_type(

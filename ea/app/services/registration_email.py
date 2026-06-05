@@ -135,6 +135,37 @@ def _meta_ref(value: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
 
 
+def _emailit_meta_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (str, int, float)):
+        return str(value).strip()
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    except TypeError:
+        return str(value).strip()
+
+
+def _emailit_meta_payload(*, kind: str, recipient_email: str, meta: dict[str, object] | None = None) -> dict[str, str]:
+    raw = {
+        "kind": kind,
+        "recipient_email": str(recipient_email or "").strip(),
+        **dict(meta or {}),
+    }
+    payload: dict[str, str] = {}
+    for key, value in raw.items():
+        normalized_key = str(key or "").strip()[:80]
+        if not normalized_key:
+            continue
+        normalized_value = _emailit_meta_value(value)
+        if not normalized_value:
+            continue
+        payload[normalized_key] = normalized_value[:500]
+    return payload
+
+
 def _digest_preview_excerpt(plain_text: str, *, max_lines: int = 8, max_chars: int = 800) -> str:
     lines: list[str] = []
     for raw_line in str(plain_text or "").splitlines():
@@ -177,11 +208,7 @@ def _send_emailit_email(
         "html": "",
         "reply_to": resolved_sender_email,
         "tracking": False,
-        "meta": {
-            "kind": kind,
-            "recipient_email": str(recipient_email or "").strip(),
-            **dict(meta or {}),
-        },
+        "meta": _emailit_meta_payload(kind=kind, recipient_email=recipient_email, meta=meta),
     }
     idempotency_seed = json.dumps(
         {
@@ -230,12 +257,16 @@ def _send_emailit_email(
                     fallback_name = _fallback_sender_name()
                     payload["from"] = f"{fallback_name} <{fallback_email}>"
                     payload["reply_to"] = fallback_email
-                    payload["meta"] = {
-                        **dict(payload.get("meta") or {}),
-                        "sender_fallback_used": True,
-                        "preferred_sender_email": resolved_sender_email,
-                        "fallback_sender_email": fallback_email,
-                    }
+                    payload["meta"] = _emailit_meta_payload(
+                        kind=kind,
+                        recipient_email=recipient_email,
+                        meta={
+                            **dict(payload.get("meta") or {}),
+                            "sender_fallback_used": True,
+                            "preferred_sender_email": resolved_sender_email,
+                            "fallback_sender_email": fallback_email,
+                        },
+                    )
                     fallback_seed = json.dumps(
                         {
                             "kind": kind,

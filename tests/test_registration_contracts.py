@@ -521,7 +521,7 @@ def test_registration_email_falls_back_to_verified_sender_when_domain_is_not_ver
     assert call_count["value"] == 2
     assert observed_payloads[0]["from"] == "PropertyQuarry <property@propertyquarry.com>"
     assert observed_payloads[1]["from"] == "PropertyQuarry <concierge@chummer.run>"
-    assert observed_payloads[1]["meta"]["sender_fallback_used"] is True
+    assert observed_payloads[1]["meta"]["sender_fallback_used"] == "true"
     assert observed_payloads[1]["meta"]["preferred_sender_email"] == "property@propertyquarry.com"
     assert observed_payloads[1]["meta"]["fallback_sender_email"] == "concierge@chummer.run"
     assert receipt.message_id == "emailit-live-fallback-1"
@@ -567,6 +567,64 @@ def test_registration_email_can_force_verified_sender_without_primary_attempt(
     assert len(observed_payloads) == 1
     assert observed_payloads[0]["from"] == "PropertyQuarry <concierge@chummer.run>"
     assert receipt.message_id == "emailit-live-forced-fallback-1"
+
+
+def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_FROM", "property@propertyquarry.com")
+    monkeypatch.setenv("EA_REGISTRATION_EMAIL_NAME", "PropertyQuarry")
+
+    from app.services import registration_email as service
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "emailit-property-results-1"}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=0):
+        captured["timeout"] = timeout
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _Response()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", _fake_urlopen)
+
+    receipt = service.send_property_search_results_ready_email(
+        recipient_email="tibor.girschele@gmail.com",
+        results_url="https://propertyquarry.com/app/properties?run_id=run-1",
+        result_total=2,
+        hosted_tour_total=1,
+        top_properties=[
+            {
+                "title": "BG Leopoldstadt, 082 25 E 89/25g",
+                "source_label": "Justiz Edikte Auctions | Austria | Buy | 1020 Vienna",
+                "fit_summary": "Sparse but relevant auction with floorplan and enough area.",
+                "review_url": "https://propertyquarry.com/app/research/run-1/prop-1",
+                "tour_status": "queued",
+            },
+            {
+                "title": "Genossenschaft 70 m2",
+                "property_url": "https://propertyquarry.com/source/property-2",
+            },
+        ],
+    )
+
+    payload = dict(captured["payload"])
+    assert payload["from"] == "PropertyQuarry <property@propertyquarry.com>"
+    assert payload["subject"] == "PropertyQuarry results ready"
+    assert "Best matches:" in payload["text"]
+    assert "BG Leopoldstadt" in payload["text"]
+    assert "https://propertyquarry.com/app/properties?run_id=run-1" in payload["text"]
+    assert isinstance(payload["meta"]["top_property_refs"], str)
+    assert isinstance(json.loads(payload["meta"]["top_property_refs"]), list)
+    assert payload["meta"]["results_ref"]
+    assert receipt.message_id == "emailit-property-results-1"
 
 
 def test_channel_digest_email_payload_uses_compact_preview(monkeypatch: pytest.MonkeyPatch) -> None:
