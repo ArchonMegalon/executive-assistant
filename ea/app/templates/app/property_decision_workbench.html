@@ -8,8 +8,10 @@
 {% set run_status = (run.get('status') or 'not_started')|string %}
 {% set terminal_states = ['processed', 'completed', 'failed', 'noop', 'cancelled'] %}
 {% set run_active = run.get('run_id') and run_status not in terminal_states %}
+{% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
+{% set run_visible = run_active or run_terminal_no_results %}
 {% set has_results = results|length > 0 %}
-{% set setup_mode = not run_active and not has_results %}
+{% set setup_mode = not run_visible and not has_results %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 <!doctype html>
 <html lang="en">
@@ -754,7 +756,7 @@
   </style>
 </head>
 <body>
-  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else 'setup') }}">
+  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('run_terminal' if run_terminal_no_results else 'setup')) }}">
     <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
@@ -793,6 +795,8 @@
         {% endif %}
         {% if run_active %}
         <button class="pqx-button primary" type="button" data-pqx-refresh-status>Refresh status</button>
+        {% elif run_terminal_no_results %}
+        <a class="pqx-link-button primary" href="/app/properties">New search</a>
         {% elif setup_mode %}
         <button class="pqx-button primary" type="button" data-pqx-launch-top>Launch search</button>
         {% endif %}
@@ -911,12 +915,12 @@
           {% endif %}
         </section>
       </section>
-      {% elif run_active %}
+      {% elif run_visible %}
       <section class="pqx-stage pqx-running">
         <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
           <div class="pqx-title">
-            <span>Live run</span>
-            <h1>Search is running. Inputs are locked.</h1>
+            <span>{% if run_active %}Live run{% elif run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
+            <h1>{% if run_active %}Search is running. Inputs are locked.{% elif run_status == 'failed' %}Search stopped before results.{% else %}Search finished. No ranked matches yet.{% endif %}</h1>
           </div>
           <div class="pqx-progress-ring" style="--progress: {{ run.get('progress') or 0 }};" data-pqx-progress-ring>
             <div>
@@ -926,16 +930,16 @@
           </div>
           <div>
             <strong data-pqx-run-message>{{ run.get('message') or 'The search is queued.' }}</strong>
-            <p class="pqx-note">When the final shortlist is ready, this page becomes the result desk automatically.</p>
+            <p class="pqx-note">{% if run_active %}When the final shortlist is ready, this page becomes the result desk automatically.{% elif run_status == 'failed' %}The activity log shows the blocking step. Start a new search after changing the brief or retrying the provider lane.{% else %}No ranked shortlist was produced for this run. Adjust providers or target areas and launch a new search when ready.{% endif %}</p>
           </div>
         </aside>
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
           <div class="pqx-section-head">
             <div>
               <h2>Run activity</h2>
-              <div class="pqx-note">{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings · {{ ((run.get('summary') or {}).get('tour_created_total') or 0) + ((run.get('summary') or {}).get('tour_existing_total') or 0) }} tours</div>
+              <div class="pqx-note" data-pqx-run-summary>{{ (run.get('summary') or {}).get('sources_total') or 0 }} sources · {{ (run.get('summary') or {}).get('listing_total') or 0 }} listings · {{ ((run.get('summary') or {}).get('tour_created_total') or 0) + ((run.get('summary') or {}).get('tour_existing_total') or 0) }} tours</div>
             </div>
-            <button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>
+            {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}
@@ -1211,6 +1215,21 @@
         max_results_per_source: integerValue(form, 'max_results_per_source'),
       };
     };
+    const runSummaryText = (runPayload) => {
+      const summary = runPayload?.summary || {};
+      const sources = Number(summary.sources_total || 0);
+      const listings = Number(summary.listing_total || 0);
+      const tours = Number(summary.tour_created_total || 0) + Number(summary.tour_existing_total || 0);
+      return `${sources} sources · ${listings} listings · ${tours} tours`;
+    };
+    const renderRunEvents = (events) => {
+      const rows = Array.isArray(events) ? [...events].reverse().slice(0, 12) : [];
+      return rows.map((event) => {
+        const step = String(event?.step || 'Update').replaceAll('_', ' ');
+        const label = step ? step.charAt(0).toUpperCase() + step.slice(1) : 'Update';
+        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(event?.message || 'No detail yet.')}</span></div>`;
+      }).join('') || '<div class="pqx-empty">Waiting for the first crawler update.</div>';
+    };
     const renderRun = (runPayload) => {
       if (!runPayload || typeof runPayload !== 'object') return;
       const status = String(runPayload.status || 'queued');
@@ -1219,17 +1238,38 @@
       const messageNode = root.querySelector('[data-pqx-run-message]');
       const ring = root.querySelector('[data-pqx-progress-ring]');
       const progressLabel = root.querySelector('[data-pw-run-progress-label]');
+      const summaryNode = root.querySelector('[data-pqx-run-summary]');
+      const eventsNode = root.querySelector('[data-pqx-run-events]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = String(runPayload.message || 'Queued for execution.');
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
+      if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
+      if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
     };
     const pollRun = async (statusUrl) => {
       if (!statusUrl) return;
+      let failedPolls = 0;
       while (true) {
-        const response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+        let response;
+        let body = {};
+        try {
+          response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
+          body = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+          failedPolls = 0;
+        } catch (err) {
+          failedPolls += 1;
+          const message = err?.message || 'Could not load property search status.';
+          renderRun({
+            status: 'in_progress',
+            progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
+            message: failedPolls >= 3 ? message : 'Refreshing run status...',
+            events: [{ step: 'status_refresh', message, status: 'retrying' }],
+          });
+          await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));
+          continue;
+        }
         renderRun(body);
         if (terminalStates.has(String(body.status || ''))) {
           window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;

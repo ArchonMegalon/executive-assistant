@@ -330,6 +330,38 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     )
 
 
+def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> None:
+    principal_id = "pq-failed-run-visible"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Failed Run Office")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "failed",
+            "progress": 100,
+            "message": "Provider returned 403 while fetching Willhaben.",
+            "summary": {"sources_total": 1, "listing_total": 0, "tour_created_total": 0, "tour_existing_total": 0, "sources": []},
+            "events": [
+                {"step": "source_fetching", "message": "Fetching source page for Willhaben.", "status": "in_progress"},
+                {"step": "failed", "message": "Provider returned 403 while fetching Willhaben.", "status": "failed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    page = client.get("/app/properties", params={"run_id": "run-failed"}, headers=headers)
+    assert page.status_code == 200
+    assert 'data-pqx-state="run_terminal"' in page.text
+    assert "Search stopped before results." in page.text
+    assert "Provider returned 403 while fetching Willhaben." in page.text
+    assert "Run activity" in page.text
+    assert 'data-workbench-brief-drawer' not in page.text
+    assert "Build the brief. Then let the agents work." not in page.text
+
+
 def test_propertyquarry_packet_enriches_sparse_candidate_facts_for_investment(monkeypatch) -> None:
     principal_id = "pq-packet-fact-enrichment"
     client = build_property_client(principal_id=principal_id)
