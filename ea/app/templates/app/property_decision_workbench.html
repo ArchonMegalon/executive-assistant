@@ -1370,6 +1370,10 @@
           status.textContent = readableErrorDetail(runBody.message || `Initialization required for ${runBody.bootstrap_country_label || runBody.bootstrap_country_code || 'this market'}.`, 'Market initialization is required before this search can run.');
           return;
         }
+        if (runBody.run_id) {
+          window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
+          return;
+        }
         pollRun(String(runBody.status_url || ''));
       } catch (err) {
         error.textContent = err.message || 'Could not start property search.';

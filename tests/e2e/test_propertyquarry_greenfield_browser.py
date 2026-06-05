@@ -326,3 +326,85 @@ def test_propertyquarry_start_failure_explains_backend_reason(
         assert page.locator("[data-property-inline-error]", has_text="plus plan").is_visible()
     finally:
         context.close()
+
+
+def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
+    monkeypatch: pytest.MonkeyPatch,
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    observed: dict[str, object] = {}
+
+    def _fake_sync_direct_property_scout(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        selected_platforms: tuple[str, ...] = (),
+        property_search_preferences: dict[str, object] | None = None,
+        force_refresh: bool = False,
+        max_results_per_source: int | None = None,
+        progress_callback: callable | None = None,
+    ) -> dict[str, object]:
+        observed["principal_id"] = principal_id
+        observed["selected_platforms"] = tuple(selected_platforms)
+        observed["property_search_preferences"] = dict(property_search_preferences or {})
+        observed["max_results_per_source"] = max_results_per_source
+        if callable(progress_callback):
+            progress_callback(
+                step="sources_resolved",
+                message="Resolved 1 source for launch smoke.",
+                status="in_progress",
+                steps_delta=1,
+                summary_updates={"sources_total": 1},
+            )
+        return {
+            "generated_at": "2026-06-05T00:00:00+00:00",
+            "status": "processed",
+            "sources_total": 1,
+            "listing_total": 0,
+            "review_created_total": 0,
+            "review_existing_total": 0,
+            "notified_total": 0,
+            "email_notified_total": 0,
+            "tour_created_total": 0,
+            "tour_existing_total": 0,
+            "high_fit_total": 0,
+            "watch_notified_total": 0,
+            "sources": [],
+        }
+
+    monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/properties", wait_until="networkidle")
+        assert response is not None and response.ok
+        page.select_option('select[name="country_code"]', "AT")
+        page.locator('[data-property-step-trigger="areas"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'areas'")
+        page.locator('input[name="all_of_vienna"]').check()
+        page.locator('[data-property-step-trigger="providers"]').click()
+        page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
+
+        with page.expect_response("**/app/api/signals/property/search/run") as start_response:
+            page.locator("[data-property-start]").click()
+        response = start_response.value
+        assert response.ok
+        page.wait_for_url("**/app/properties?run_id=*", timeout=5000)
+        run_id = page.evaluate("new URL(window.location.href).searchParams.get('run_id')")
+        assert run_id
+        page.wait_for_function("document.querySelector('[data-pqx-run-status]')?.textContent.trim().length > 0")
+        assert "Could not start property search" not in page.locator("body").inner_text()
+        deadline = time.time() + 5.0
+        while "property_search_preferences" not in observed and time.time() < deadline:
+            time.sleep(0.05)
+        assert observed["principal_id"] == "pq-greenfield-browser"
+        preferences = dict(observed["property_search_preferences"])
+        assert preferences["country_code"] == "AT"
+        assert preferences["region_code"] == "vienna"
+        assert preferences["all_of_vienna"] is True
+        assert preferences["location_query"] == "Vienna"
+    finally:
+        context.close()
