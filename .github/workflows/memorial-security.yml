@@ -1,0 +1,27 @@
+name: Memorial Security Contracts
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  memorial-security-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ea/requirements.txt pytest httpx
+
+      - name: Run Memorial Security Regression Contracts
+        run: |
+          PYTHONPATH=.:ea pytest -q tests/test_memorial_security_contracts.py
