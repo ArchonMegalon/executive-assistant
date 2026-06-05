@@ -10,8 +10,9 @@ import json
 import logging
 import mimetypes
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -121,11 +122,363 @@ def _load_tour(slug: str) -> dict[str, object]:
     return payload
 
 
+_PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
+    {
+        "slug",
+        "title",
+        "tour_title",
+        "display_title",
+        "variant_key",
+        "variant_label",
+        "scene_count",
+        "scene_strategy",
+        "creation_mode",
+        "brand_name",
+        "listing_url",
+        "property_url",
+        "hosted_url",
+        "public_url",
+        "crezlo_public_url",
+        "source_virtual_tour_url",
+        "source_virtual_tour_origin",
+        "panorama_source",
+        "facts",
+        "brief",
+        "scenes",
+        "video_relpath",
+        "video_fallback_relpath",
+    }
+)
+_PUBLIC_TOUR_SCENE_KEYS = frozenset(
+    {
+        "name",
+        "role",
+        "mime_type",
+        "scene_id",
+        "location_id",
+        "id",
+        "scene",
+        "next_scene_id",
+        "prev_scene_id",
+        "next_scene",
+        "prev_scene",
+        "next_location_id",
+        "prev_location_id",
+        "next",
+        "prev",
+        "next_scene_index",
+        "prev_scene_index",
+        "image_url",
+        "asset_relpath",
+        "cube_faces",
+    }
+)
+_PUBLIC_TOUR_PRIVATE_KEYS = frozenset(
+    {
+        "_feedback_suggestions",
+        "_learning_summary",
+        "_shortlist_compare",
+        "actor",
+        "api_key",
+        "audit_rows",
+        "auth_header",
+        "authorization",
+        "cookie",
+        "cookies",
+        "debug",
+        "external_id",
+        "headers",
+        "internal_ref",
+        "learning_summary",
+        "owner_id",
+        "person_id",
+        "preference_nodes",
+        "preference_profile",
+        "principal_id",
+        "private_recipient_email",
+        "public_preference_snapshot",
+        "raw_signal_json",
+        "recipient",
+        "recipient_email",
+        "recipient_name",
+        "recipient_phone",
+        "refresh_token",
+        "runtime_inputs_json",
+        "session",
+        "shortlist_context",
+        "source_ref",
+        "token",
+    }
+)
+_PUBLIC_TOUR_PRIVATE_KEY_MARKERS = (
+    "access_token",
+    "api_key",
+    "auth",
+    "cookie",
+    "credential",
+    "debug",
+    "internal",
+    "learning",
+    "oauth",
+    "owner",
+    "preference",
+    "principal",
+    "private",
+    "recipient",
+    "refresh_token",
+    "secret",
+    "session",
+    "shortlist",
+)
+_PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS = frozenset(
+    {
+        ".avif",
+        ".gif",
+        ".jpeg",
+        ".jpg",
+        ".m4v",
+        ".mov",
+        ".mp4",
+        ".pdf",
+        ".png",
+        ".webm",
+        ".webp",
+    }
+)
+_PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS = frozenset(
+    {
+        ".conf",
+        ".csv",
+        ".db",
+        ".env",
+        ".gz",
+        ".htm",
+        ".html",
+        ".ini",
+        ".json",
+        ".key",
+        ".log",
+        ".pem",
+        ".sqlite",
+        ".tar",
+        ".txt",
+        ".yaml",
+        ".yml",
+        ".zip",
+    }
+)
+_PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES = (
+    "willhaben.at",
+    "immobilienscout24.at",
+    "immowelt.at",
+    "immonet.de",
+    "edikte2.justiz.gv.at",
+    "sreal.at",
+    "immobilien.derstandard.at",
+    "derstandard.at",
+)
+
+
+def _public_tour_key_is_private(key: object) -> bool:
+    normalized = str(key or "").strip().lower()
+    if not normalized:
+        return True
+    if normalized in _PUBLIC_TOUR_PRIVATE_KEYS:
+        return True
+    return any(marker in normalized for marker in _PUBLIC_TOUR_PRIVATE_KEY_MARKERS)
+
+
+def _public_tour_safe_asset_relpath(value: object) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw or "\x00" in raw or "://" in raw or raw.startswith("/"):
+        return ""
+    path = PurePosixPath(raw)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        return ""
+    return "/".join(path.parts)
+
+
+def _public_tour_asset_path_is_public(relpath: str) -> bool:
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    if not safe_relpath:
+        return False
+    suffix = PurePosixPath(safe_relpath).suffix.lower()
+    if suffix in _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS:
+        return False
+    return suffix in _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS
+
+
+def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
+    refs: set[str] = set()
+
+    def _add(value: object) -> None:
+        relpath = _public_tour_safe_asset_relpath(value)
+        if relpath and _public_tour_asset_path_is_public(relpath):
+            refs.add(relpath)
+
+    _add(payload.get("video_relpath"))
+    _add(payload.get("video_fallback_relpath"))
+    for scene in list(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        for key in ("asset_relpath", "thumbnail_relpath", "preview_relpath", "floorplan_relpath"):
+            _add(scene.get(key))
+        cube_faces = scene.get("cube_faces")
+        if isinstance(cube_faces, dict):
+            for value in cube_faces.values():
+                _add(value)
+    public_assets = payload.get("public_assets")
+    if isinstance(public_assets, list):
+        for row in public_assets:
+            if isinstance(row, str):
+                _add(row)
+                continue
+            if not isinstance(row, dict):
+                continue
+            privacy_class = str(row.get("privacy_class") or row.get("privacy") or "public").strip().lower()
+            if privacy_class in {"private", "internal", "debug", "restricted"}:
+                continue
+            for key in ("path", "relpath", "asset_relpath"):
+                _add(row.get(key))
+    return refs
+
+
+def _public_tour_allowed_asset_paths(payload: dict[str, object]) -> set[str]:
+    return {
+        relpath
+        for relpath in _public_tour_collect_asset_refs(payload)
+        if _public_tour_asset_path_is_public(relpath)
+    }
+
+
+def _public_tour_file_url(slug: str, relpath: str) -> str:
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    if not slug or not safe_relpath:
+        return ""
+    return f"/tours/files/{slug}/{safe_relpath}"
+
+
+def _public_tour_safe_http_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return normalized
+
+
+def _redact_public_tour_value(value: object) -> object:
+    if isinstance(value, dict):
+        redacted: dict[str, object] = {}
+        for key, item in value.items():
+            if _public_tour_key_is_private(key):
+                continue
+            redacted[str(key)] = _redact_public_tour_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_public_tour_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_public_tour_value(item) for item in value]
+    return value
+
+
+def _redacted_public_tour_scenes(
+    payload: dict[str, object],
+    *,
+    expose_asset_relpaths: bool,
+) -> list[dict[str, object]]:
+    slug = str(payload.get("slug") or "").strip()
+    allowed_assets = _public_tour_allowed_asset_paths(payload)
+    rows: list[dict[str, object]] = []
+    for scene in list(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        rendered: dict[str, object] = {}
+        for key, value in scene.items():
+            if key not in _PUBLIC_TOUR_SCENE_KEYS or _public_tour_key_is_private(key):
+                continue
+            if key == "asset_relpath":
+                relpath = _public_tour_safe_asset_relpath(value)
+                if relpath not in allowed_assets:
+                    continue
+                if expose_asset_relpaths:
+                    rendered[key] = relpath
+                else:
+                    rendered["image_url"] = _public_tour_file_url(slug, relpath)
+                continue
+            if key == "cube_faces":
+                cube_faces: dict[str, object] = {}
+                for face_key, face_value in dict(value or {}).items():
+                    relpath = _public_tour_safe_asset_relpath(face_value)
+                    if relpath not in allowed_assets:
+                        continue
+                    cube_faces[str(face_key)] = relpath if expose_asset_relpaths else _public_tour_file_url(slug, relpath)
+                if cube_faces:
+                    rendered[key] = cube_faces
+                continue
+            if key == "image_url":
+                safe_url = _public_tour_safe_http_url(value)
+                if safe_url:
+                    rendered[key] = safe_url
+                continue
+            rendered[str(key)] = _redact_public_tour_value(value)
+        if rendered:
+            rows.append(rendered)
+    return rows
+
+
+def _redacted_public_tour_payload(
+    payload: dict[str, object],
+    *,
+    expose_asset_relpaths: bool = False,
+) -> dict[str, object]:
+    rendered: dict[str, object] = {}
+    slug = str(payload.get("slug") or "").strip()
+    for key in _PUBLIC_TOUR_TOP_LEVEL_KEYS:
+        if key not in payload or _public_tour_key_is_private(key):
+            continue
+        if key in {"facts", "brief"}:
+            rendered[key] = _redact_public_tour_value(payload.get(key) if isinstance(payload.get(key), dict) else {})
+            continue
+        if key == "scenes":
+            rendered[key] = _redacted_public_tour_scenes(payload, expose_asset_relpaths=expose_asset_relpaths)
+            continue
+        if key in {"video_relpath", "video_fallback_relpath"}:
+            relpath = _public_tour_safe_asset_relpath(payload.get(key))
+            if not relpath or relpath not in _public_tour_allowed_asset_paths(payload):
+                continue
+            if expose_asset_relpaths:
+                rendered[key] = relpath
+            else:
+                rendered[key.replace("_relpath", "_url")] = _public_tour_file_url(slug, relpath)
+            continue
+        rendered[key] = _redact_public_tour_value(payload.get(key))
+    rendered["slug"] = slug
+    rendered.setdefault("facts", {})
+    rendered.setdefault("brief", {})
+    rendered.setdefault("scenes", [])
+    if not expose_asset_relpaths:
+        rendered["public_assets"] = [
+            {
+                "path": relpath,
+                "url": _public_tour_file_url(slug, relpath),
+                "mime_type": mimetypes.guess_type(relpath)[0] or "application/octet-stream",
+            }
+            for relpath in sorted(_public_tour_allowed_asset_paths(payload))
+        ]
+    return rendered
+
+
 def _asset_file(slug: str, asset_path: str) -> Path:
+    payload = _load_tour(slug)
+    safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    if not safe_relpath or safe_relpath not in _public_tour_allowed_asset_paths(payload):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
     bundle_dir = _tour_bundle_dir(slug)
     if bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
-    candidate = (bundle_dir / str(asset_path or "")).resolve()
+    candidate = (bundle_dir / safe_relpath).resolve()
     if bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if not candidate.exists() or not candidate.is_file():
@@ -155,6 +508,64 @@ def _embedded_live_360_url(payload: dict[str, object]) -> str:
         normalized.get("source_virtual_tour_url")
         or normalized.get("source_virtual_tour_origin")
     )
+
+
+def _public_tour_listing_research_allowed_hosts() -> tuple[str, ...]:
+    raw = str(os.getenv("PROPERTYQUARRY_PUBLIC_RESEARCH_ALLOWED_HOSTS") or "").strip()
+    if not raw:
+        return _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES
+    hosts = tuple(
+        item.strip().lower().lstrip(".")
+        for item in raw.split(",")
+        if item.strip().lower().lstrip(".")
+    )
+    return hosts or _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES
+
+
+def _public_tour_hostname_matches_suffix(hostname: str, suffix: str) -> bool:
+    normalized_host = str(hostname or "").strip().lower().rstrip(".")
+    normalized_suffix = str(suffix or "").strip().lower().rstrip(".").lstrip(".")
+    if not normalized_host or not normalized_suffix:
+        return False
+    return normalized_host == normalized_suffix or normalized_host.endswith(f".{normalized_suffix}")
+
+
+def _public_tour_host_resolves_to_public_ips(hostname: str) -> bool:
+    try:
+        addresses = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    if not addresses:
+        return False
+    for row in addresses:
+        try:
+            ip_value = str(row[4][0])
+            address = ipaddress.ip_address(ip_value)
+        except (IndexError, TypeError, ValueError):
+            return False
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_unspecified
+        ):
+            return False
+    return True
+
+
+def _public_tour_listing_research_url_allowed(url: str) -> bool:
+    parsed = urlparse(str(url or "").strip())
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return False
+    hostname = parsed.hostname.strip().lower().rstrip(".")
+    if not any(
+        _public_tour_hostname_matches_suffix(hostname, suffix)
+        for suffix in _public_tour_listing_research_allowed_hosts()
+    ):
+        return False
+    return _public_tour_host_resolves_to_public_ips(hostname)
 
 
 def _haversine_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
@@ -259,6 +670,8 @@ def _fetch_listing_research(url: str) -> dict[str, object]:
     normalized = str(url or "").strip()
     parsed = urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return {}
+    if not _public_tour_listing_research_url_allowed(normalized):
         return {}
     request = urllib.request.Request(
         normalized,
@@ -3299,7 +3712,10 @@ def public_tour_payload(slug: str, request: Request) -> JSONResponse:
     payload = _load_tour(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+    return JSONResponse(
+        _redacted_public_tour_payload(payload, expose_asset_relpaths=False),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
@@ -3441,10 +3857,10 @@ def public_tour_page(
         payload = _load_tour(slug)
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-        rendered_payload = dict(payload)
+        rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, _ = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
         rendered_facts.pop("public_preference_snapshot", None)
-        rendered_payload["facts"] = dict(rendered_facts)
+        rendered_payload["facts"] = dict(_redact_public_tour_value(rendered_facts))
         rendered_payload["_feedback_suggestions"] = {}
         rendered_payload["_learning_summary"] = {}
         rendered_payload["_shortlist_compare"] = {"current": {}, "items": [], "metric_specs": list(_shortlist_metric_labels())}

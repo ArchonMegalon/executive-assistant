@@ -168,6 +168,28 @@ def test_default_platforms_for_country_are_stable() -> None:
     assert default_language_for_country("SE") == "sv"
 
 
+def test_workspace_location_options_follow_supported_country_codes() -> None:
+    from app.api.routes.landing_view_models import _property_location_options
+
+    assert any(row["value"] == "London" for row in _property_location_options("UK"))
+    assert any(row["value"] == "London" for row in _property_location_options("GB"))
+
+
+def test_workspace_preference_schema_matches_backend_categories() -> None:
+    from app.api.routes.landing_view_models import _property_preference_schema
+
+    schema = _property_preference_schema()
+    categories = schema["categories"]
+    constraint_keys = {row["key"] for row in categories["constraint"]["keys"]}
+    soft_keys = {row["key"] for row in categories["soft_preference"]["keys"]}
+    aversion_keys = {row["key"] for row in categories["aversion"]["keys"]}
+
+    assert "require_lift" in constraint_keys
+    assert "require_lift" not in soft_keys
+    assert "prefer_lift" in soft_keys
+    assert "avoided_districts" in aversion_keys
+
+
 def test_provider_listing_markers_follow_provider_host() -> None:
     markers = provider_listing_markers_for_host("www.realtor.com")
 

@@ -4870,6 +4870,19 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     assert evidence.status_code == 200
     assert evidence.json()["applied_nodes"][0]["key"] == "preferred_districts"
 
+    invalid_evidence = client.post(
+        "/app/api/people/self/preference-profile/evidence",
+        json={
+            "domain": "willhaben",
+            "event_type": "unknown_external_script",
+            "object_type": "listing",
+            "object_id": "listing-1",
+            "signal_strength": 1.5,
+            "raw_signal_json": {"payload": "x" * 5000},
+        },
+    )
+    assert invalid_evidence.status_code == 422
+
     assessment = client.post(
         "/app/api/people/self/preference-profile/assessments",
         json={

@@ -1081,6 +1081,7 @@
         data-preference-person-id="{{ preference_manager.get('person_id') or 'self' }}"
         data-preference-node-endpoint="{{ preference_manager.get('node_endpoint') or '/app/api/people/self/preference-profile/nodes' }}"
         data-preference-archive-endpoint-template="{{ preference_manager.get('archive_endpoint_template') or '/app/api/people/self/preference-profile/nodes/__NODE_ID__/archive' }}"
+        data-preference-schema='{{ (preference_manager.get("schema") or {})|tojson|safe }}'
       >
         <div>
           <div class="pq-kicker">Preference manager</div>
@@ -1311,9 +1312,23 @@
     if (typeof value === 'boolean') return value ? 'yes' : 'no';
     return String(value ?? '').trim() || 'empty';
   };
-  const parsePreferenceValue = (rawValue, key) => {
+  const parsePreferenceValue = (rawValue, key, valueKind = '') => {
     const raw = String(rawValue || '').trim();
     const normalizedKey = String(key || '').trim().toLowerCase();
+    if (valueKind === 'bool') {
+      if (!raw) return true;
+      const lowered = raw.toLowerCase();
+      if (['true', 'yes', 'ja', '1', 'on'].includes(lowered)) return true;
+      if (['false', 'no', 'nein', '0', 'off'].includes(lowered)) return false;
+    }
+    if (valueKind === 'positive_number') {
+      const numeric = Number(raw.replace(',', '.'));
+      if (Number.isFinite(numeric)) return numeric;
+      return raw;
+    }
+    if (valueKind === 'text_list') {
+      return raw.split(',').map((item) => item.trim()).filter(Boolean);
+    }
     if (!raw && /^(prefer_|require_|requires_)/.test(normalizedKey)) return true;
     if (!raw) return '';
     const lowered = raw.toLowerCase();
@@ -1764,11 +1779,47 @@
     const errorNode = manager.querySelector('[data-preference-error]');
     const nodeEndpoint = String(manager.getAttribute('data-preference-node-endpoint') || '').trim();
     const archiveEndpointTemplate = String(manager.getAttribute('data-preference-archive-endpoint-template') || '').trim();
+    const preferenceSchema = (() => {
+      try { return JSON.parse(manager.getAttribute('data-preference-schema') || '{}'); } catch (_error) { return {}; }
+    })();
+    const categoryField = form?.querySelector('[name="category"]');
+    const keyField = form?.querySelector('[name="key"]');
+    const valueField = form?.querySelector('[name="value"]');
+    const keyOptions = keyField?.list;
+    const categories = preferenceSchema?.categories && typeof preferenceSchema.categories === 'object' ? preferenceSchema.categories : {};
 
     const setStatus = (message, isError = false) => {
       if (statusNode) statusNode.textContent = isError ? '' : message;
       if (errorNode) errorNode.textContent = isError ? message : '';
     };
+    const findPreferenceKeySpec = (key) => {
+      const normalized = String(key || '').trim().toLowerCase();
+      if (!normalized) return null;
+      for (const [category, bucket] of Object.entries(categories)) {
+        const keys = Array.isArray(bucket?.keys) ? bucket.keys : [];
+        const found = keys.find((item) => String(item?.key || '').trim().toLowerCase() === normalized);
+        if (found) return { ...found, category };
+      }
+      return null;
+    };
+    const syncPreferenceKeyOptions = () => {
+      if (!categoryField || !keyField || !keyOptions) return;
+      const category = String(categoryField.value || 'soft_preference').trim();
+      const keys = Array.isArray(categories?.[category]?.keys) ? categories[category].keys : [];
+      keyOptions.innerHTML = keys.map((item) => `<option value="${escapeHtml(String(item.key || ''))}" label="${escapeHtml(String(item.label || item.key || ''))}"></option>`).join('');
+      const typedKey = String(keyField.value || '').trim().toLowerCase();
+      const typedSpec = findPreferenceKeySpec(typedKey);
+      if (typedSpec && typedSpec.category !== category) {
+        categoryField.value = typedSpec.category;
+        syncPreferenceKeyOptions();
+        return;
+      }
+      const currentSpec = typedSpec || keys[0] || null;
+      if (valueField && currentSpec?.hint) valueField.placeholder = String(currentSpec.hint || '');
+    };
+    categoryField?.addEventListener('change', syncPreferenceKeyOptions);
+    keyField?.addEventListener('input', syncPreferenceKeyOptions);
+    syncPreferenceKeyOptions();
     const ensureEmptyState = () => {
       if (!listNode) return;
       if (listNode.querySelector('[data-preference-node]')) return;
@@ -1812,7 +1863,7 @@
     form?.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!nodeEndpoint || !listNode) return;
-      const category = String(form.querySelector('[name="category"]')?.value || 'soft_preference').trim();
+      let category = String(form.querySelector('[name="category"]')?.value || 'soft_preference').trim();
       const key = String(form.querySelector('[name="key"]')?.value || '').trim().toLowerCase();
       const valueInput = form.querySelector('[name="value"]');
       const strength = String(form.querySelector('[name="strength"]')?.value || 'medium').trim();
@@ -1820,11 +1871,20 @@
         setStatus('Add a preference key first.', true);
         return;
       }
+      const keySpec = findPreferenceKeySpec(key);
+      if (!keySpec) {
+        setStatus('Choose a supported preference key.', true);
+        return;
+      }
+      if (keySpec.category !== category) {
+        category = keySpec.category;
+        if (categoryField) categoryField.value = category;
+      }
       const payload = {
         domain: 'willhaben',
         category,
         key,
-        value_json: parsePreferenceValue(valueInput?.value || '', key),
+        value_json: parsePreferenceValue(valueInput?.value || '', key, String(keySpec.value_kind || '')),
         strength,
         confidence: 1,
         source_mode: 'explicit',

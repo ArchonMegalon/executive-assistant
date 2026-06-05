@@ -34,6 +34,40 @@ def _merge_option_catalog(
     return merged
 
 
+def _property_preference_schema() -> dict[str, object]:
+    from app.api.routes.product_api_contracts import _PROPERTY_PREFERENCE_VALUE_SPECS
+
+    category_labels = {
+        "constraint": "Hard rule",
+        "soft_preference": "Preference",
+        "aversion": "Avoid",
+    }
+    value_hints = {
+        "bool": "Leave empty for yes, or enter true/false.",
+        "positive_number": "Enter a number.",
+        "text_list": "Enter comma-separated values.",
+    }
+    categories: dict[str, dict[str, object]] = {}
+    for category, key in sorted(_PROPERTY_PREFERENCE_VALUE_SPECS):
+        value_kind = str(_PROPERTY_PREFERENCE_VALUE_SPECS[(category, key)])
+        bucket = categories.setdefault(
+            category,
+            {
+                "label": category_labels.get(category, category.replace("_", " ").title()),
+                "keys": [],
+            },
+        )
+        bucket["keys"].append(
+            {
+                "key": key,
+                "label": key.replace("_", " ").title(),
+                "value_kind": value_kind,
+                "hint": value_hints.get(value_kind, "Enter a value."),
+            }
+        )
+    return {"categories": categories}
+
+
 def _property_region_options(country_code: str) -> list[dict[str, str]]:
     catalogs: dict[str, list[dict[str, str]]] = {
         "AT": [
@@ -143,7 +177,7 @@ def _property_location_options(country_code: str, region_code: str = "") -> list
             {"value": "Rotterdam", "label": "Rotterdam", "detail": "City-wide"},
             {"value": "Utrecht", "label": "Utrecht", "detail": "City-wide"},
         ],
-        "GB": [
+        "UK": [
             {"value": "London", "label": "London", "detail": "City-wide"},
             {"value": "Manchester", "label": "Manchester", "detail": "City-wide"},
             {"value": "Bristol", "label": "Bristol", "detail": "City-wide"},
@@ -156,7 +190,10 @@ def _property_location_options(country_code: str, region_code: str = "") -> list
             {"value": "Boston", "label": "Boston", "detail": "City-wide"},
         ],
     }
-    return list(catalogs.get(str(country_code or "").strip().upper(), []))
+    normalized_country = str(country_code or "").strip().upper()
+    if normalized_country == "GB":
+        normalized_country = "UK"
+    return list(catalogs.get(normalized_country, []))
 
 
 def _property_keyword_options() -> list[dict[str, str]]:
@@ -1416,6 +1453,7 @@ def property_workspace_payload(
         "person_id": preference_person_id,
         "nodes": preference_manager_nodes,
         "active_nodes": [row for row in preference_manager_nodes if str(row.get("status") or "") == "active"],
+        "schema": _property_preference_schema(),
         "bundle_endpoint": f"/app/api/people/{preference_person_id}/preference-profile",
         "node_endpoint": f"/app/api/people/{preference_person_id}/preference-profile/nodes",
         "archive_endpoint_template": f"/app/api/people/{preference_person_id}/preference-profile/nodes/__NODE_ID__/archive",

@@ -6972,6 +6972,9 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     bundle_dir.mkdir(parents=True)
     asset_path = bundle_dir / "scene-01.jpg"
     asset_path.write_bytes(b"fake-jpeg-data")
+    (bundle_dir / "debug.log").write_text("debug-token", encoding="utf-8")
+    (bundle_dir / "raw-payload.json").write_text('{"principal_id":"exec-public-tour"}', encoding="utf-8")
+    (bundle_dir / "notes.txt").write_text("recipient@example.test", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -6981,6 +6984,11 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
                 "variant_key": "layout_first",
                 "variant_label": "layout first",
                 "scene_count": 1,
+                "principal_id": "exec-public-tour",
+                "recipient_email": "recipient@example.test",
+                "source_ref": "private-source-ref",
+                "external_id": "external-private-id",
+                "runtime_inputs_json": {"credential_hint": "do-not-serve"},
                 "listing_url": "https://example.test/listing",
                 "hosted_url": f"https://ea.example/tours/{slug}",
                 "facts": {
@@ -6990,6 +6998,15 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
                     "availability": "ab sofort",
                     "address_lines": ["1200 Wien"],
                     "teaser_attributes": ["Kahlenbergblick"],
+                    "public_preference_snapshot": {
+                        "profile": {"principal_id": "exec-public-tour"},
+                        "preference_nodes": [{"key": "prefer_balcony", "value_json": True}],
+                    },
+                    "personal_fit_assessment": {
+                        "fit_score": 81,
+                        "good_fit_reasons": ["Strong layout signal"],
+                        "preference_nodes": [{"key": "private-node"}],
+                    },
                 },
                 "brief": {
                     "theme_name": "Calm daylight",
@@ -7026,12 +7043,31 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
 
     payload = client.get(f"/tours/{slug}.json")
     assert payload.status_code == 200
-    assert payload.json()["slug"] == slug
+    payload_body = payload.json()
+    assert payload_body["slug"] == slug
+    assert payload_body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
+    assert payload_body["facts"]["personal_fit_assessment"]["fit_score"] == 81
+    serialized_payload = json.dumps(payload_body, sort_keys=True)
+    for private_marker in (
+        "principal_id",
+        "recipient@example.test",
+        "private-source-ref",
+        "external-private-id",
+        "runtime_inputs_json",
+        "public_preference_snapshot",
+        "preference_nodes",
+        "debug-token",
+    ):
+        assert private_marker not in serialized_payload
 
     asset = client.get(f"/tours/files/{slug}/scene-01.jpg")
     assert asset.status_code == 200
     assert asset.content == b"fake-jpeg-data"
     assert asset.headers["content-type"].startswith("image/jpeg")
+    assert client.get(f"/tours/files/{slug}/tour.json").status_code == 404
+    assert client.get(f"/tours/files/{slug}/raw-payload.json").status_code == 404
+    assert client.get(f"/tours/files/{slug}/debug.log").status_code == 404
+    assert client.get(f"/tours/files/{slug}/notes.txt").status_code == 404
 
 
 def test_public_tour_routes_render_pdf_floorplan_scenes(

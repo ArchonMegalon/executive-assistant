@@ -795,6 +795,42 @@ _PREFERENCE_SOURCE_MODES = frozenset(
 )
 _PREFERENCE_STATUSES = frozenset({"active", "inactive"})
 _PREFERENCE_DECAY_POLICIES = frozenset({"manual_only", "reinforce_only", "decay_on_disconfirm", "none"})
+_PREFERENCE_EVIDENCE_EVENT_TYPES = frozenset(
+    {
+        "document_pattern_detected",
+        "feedback_inbox_accepted",
+        "feedback_inbox_rejected",
+        "filter_applied",
+        "listing_rejected",
+        "listing_saved",
+        "listing_shortlisted",
+        "listing_viewed",
+        "manual_correction",
+        "preference_feedback",
+        "profile_followup_nudged",
+        "profile_followup_resolution_recorded",
+        "property_feedback",
+        "public_tour_external_feedback",
+        "search_result_opened",
+        "source_scan_result_reviewed",
+    }
+)
+_PREFERENCE_EVIDENCE_OBJECT_TYPES = frozenset(
+    {
+        "conversation",
+        "document",
+        "feedback",
+        "listing",
+        "manual_note",
+        "profile",
+        "property",
+        "property_listing",
+        "property_search",
+        "search_run",
+        "source_scan_result",
+        "tour",
+    }
+)
 _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("constraint", "max_total_rent_eur"): "positive_number",
     ("constraint", "min_rooms"): "positive_number",
@@ -977,15 +1013,37 @@ class PreferenceNodeArchiveIn(BaseModel):
 
 
 class PreferenceEvidenceEventIn(BaseModel):
-    domain: str = Field(min_length=1)
-    event_type: str = Field(min_length=1)
-    object_type: str = Field(min_length=1)
-    object_id: str = Field(min_length=1)
-    source_ref: str = ""
+    domain: str = Field(min_length=1, max_length=80)
+    event_type: str = Field(min_length=1, max_length=120)
+    object_type: str = Field(min_length=1, max_length=120)
+    object_id: str = Field(min_length=1, max_length=500)
+    source_ref: str = Field(default="", max_length=500)
     raw_signal_json: dict[str, object] = Field(default_factory=dict)
     interpreted_signal_json: dict[str, object] = Field(default_factory=dict)
-    signal_strength: float = 0.5
+    signal_strength: float = Field(default=0.5, ge=0.0, le=1.0)
     reversible: bool = True
+
+    @field_validator("domain", "event_type", "object_type", mode="before")
+    @classmethod
+    def _normalize_tokens(cls, value: object) -> str:
+        return _normalized_preference_text(value, max_length=120)
+
+    @field_validator("object_id", "source_ref", mode="before")
+    @classmethod
+    def _normalize_refs(cls, value: object) -> str:
+        return " ".join(str(value or "").split()).strip()
+
+    @model_validator(mode="after")
+    def _validate_preference_evidence(self) -> "PreferenceEvidenceEventIn":
+        if self.domain not in _PREFERENCE_DOMAINS:
+            raise _preference_error("unsupported_preference_domain")
+        if self.event_type not in _PREFERENCE_EVIDENCE_EVENT_TYPES:
+            raise _preference_error("unsupported_preference_evidence_event_type")
+        if self.object_type not in _PREFERENCE_EVIDENCE_OBJECT_TYPES:
+            raise _preference_error("unsupported_preference_evidence_object_type")
+        _validate_preference_json_size(self.raw_signal_json)
+        _validate_preference_json_size(self.interpreted_signal_json)
+        return self
 
 
 class PreferenceCorrectionApplyIn(BaseModel):
