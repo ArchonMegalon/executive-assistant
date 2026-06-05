@@ -1286,8 +1286,8 @@ def app_section_payload(
                 },
                 {
                     "eyebrow": "Shortlist",
-                    "title": "Best candidates to review now",
-                    "body": "A flagship flow should open with ranked review packets, not just crawl counters. The top row should explain the fit and give the user the next useful action immediately.",
+                    "title": "Ranked review desk",
+                    "body": "The strongest matches stay review-ready: fit, risk, 360 status, packet link, and the next useful action are visible before operational crawl details.",
                     "items": property_shortlist_rows
                     or property_recent_matches
                     or [
@@ -2055,8 +2055,8 @@ def property_workspace_payload(
             "title": "Shortlist",
             "summary": "Keep the strongest candidates in one ranked lane and record preference feedback directly on the cards.",
             "hero_kicker": "Shortlist",
-            "hero_title": "Review only the few properties that deserve attention now.",
-            "hero_summary": "A paying customer should open this first: fit, risks, packet link, 360 link, and one-step feedback instead of operational counters.",
+            "hero_title": "Review the properties that deserve attention now.",
+            "hero_summary": "Start with fit, risks, packet link, 360 link, and one-step feedback. Crawl counters stay secondary.",
             "hero_actions": hero_actions["shortlist"],
             "hero_highlights": hero_highlights["shortlist"],
             "primary_cards": [

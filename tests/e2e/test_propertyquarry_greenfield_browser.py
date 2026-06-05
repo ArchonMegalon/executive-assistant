@@ -432,7 +432,7 @@ def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     try:
         response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.get_by_role("heading", name="Best candidates to review now").first.is_visible()
+        assert page.get_by_role("heading", name="Ranked review desk").first.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")

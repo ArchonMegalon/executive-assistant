@@ -2180,6 +2180,30 @@ def _is_memorial_ooda_question(question: str) -> bool:
     return any(token in lowered for token in keywords)
 
 
+def _is_memorial_live_interaction_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if any(token in lowered for token in ("schach", "zug", "rochade", "schachmatt", "matt")):
+        return True
+    if any(token in lowered for token in ("spielen", "spiel", "rede", "sprich")) and any(token in lowered for token in ("mit dir", "gegen dich", "mit mir")):
+        return True
+    return bool(re.search(r"\b[a-h][1-8]\b", lowered))
+
+
+def _memorial_should_include_mail_memory(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    if _is_memorial_mail_style_question(lowered):
+        return True
+    if _is_memorial_family_mail_question(lowered) or _is_memorial_colleague_mail_question(lowered):
+        return True
+    if _is_memorial_mail_practice_question(lowered):
+        return True
+    return any(token in lowered for token in ("mail", "email", "e-mail", "quelle", "quellmail", "quellmails", "originalmail", "originalmails"))
+
+
 def _is_memorial_identity_question(question: str) -> bool:
     lowered = " ".join(_text(question, "").lower().split())
     if not lowered:
@@ -3175,7 +3199,7 @@ def _memorial_chat_fallback_answer(
             "Nein, darauf soll sie sich jetzt nicht mehr versteifen. Dieser Wunsch war voreilig, weil ich nicht wissen konnte, wie schnell sich alles entwickelt. Wenn der Koffer noch nicht gekauft ist, soll sie ihn lassen; wenn er schon gekauft wurde, soll sie ihn zurueckschicken. Man muss ja nicht an etwas festhalten, das seinen Sinn verloren hat.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
-    elif any(token in lowered for token in ("schach", "familie")):
+    elif "familie" in lowered:
         if primary_memory_line:
             body = (
                 f"Zur Information: {primary_memory_line}. "
@@ -3446,6 +3470,12 @@ def _build_memorial_chat_messages(
     memory_axis_instruction = _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
     if memory_axis_instruction:
         context_bits.append("Antwortfokus: " + memory_axis_instruction)
+    if _is_memorial_live_interaction_question(normalized_question):
+        context_bits.append(
+            "Antwortmodus: gegenwaertige Live-Interaktion. "
+            "Reagiere direkt auf die aktuelle Ansprache oder den aktuellen Spielzug. "
+            "Keine Archivvorlesung, keine Mailzusammenfassung, keine rueckblickende Einleitung."
+        )
     personal_lines = _personal_memory_context_lines(
         slug=slug or _text(payload.get("slug"), ""),
         context=personal_memory_context or {},
@@ -3550,6 +3580,12 @@ def _memorial_memory_context_lines(
         )
     except Exception:
         return []
+    if not _memorial_should_include_mail_memory(question):
+        rows = [
+            row
+            for row in rows
+            if _text(dict(getattr(row, "fact_json", {}) or {}).get("memory_kind"), "").lower() != "mail_message"
+        ]
     return format_memorial_memory_context(rows)
 
 
@@ -3585,7 +3621,7 @@ def _memorial_memory_axis_instruction(question: str, grouped: dict[str, list[str
             "Antworte zuerst aus den stilistischen Erinnerungen: Satzbau, Ton, typische Formulierungen und Reihenfolge der Argumentation. "
             "Biografie hier nur nachgeordnet."
         )
-    if any(token in lowered for token in ("familie", "schach", "damals", "erinner", "kindheit", "reise", "krank", "spital", "krankenhaus")) and grouped.get("episodic"):
+    if any(token in lowered for token in ("familie", "damals", "erinner", "kindheit", "reise", "krank", "spital", "krankenhaus")) and grouped.get("episodic"):
         return (
             "Diese Frage zielt auf konkrete Erinnerung. "
             "Antworte zuerst aus episodischen Erinnerungen: Gegenstaende, Situationen, familiaere Bindungen und was bleiben oder bewahrt werden sollte. "
@@ -3743,7 +3779,9 @@ def _memorial_chat_answer(
         fallback["llm_request_model"] = requested_model
         fallback["llm_fallback_used"] = False
         return fallback
-    if "schach" in normalized_question.lower():
+    if _is_memorial_live_interaction_question(normalized_question):
+        requested_model = requested_model or DEFAULT_PUBLIC_MODEL
+    elif "schach" in normalized_question.lower():
         fallback = _memorial_chat_fallback_answer(
             payload,
             normalized_question,

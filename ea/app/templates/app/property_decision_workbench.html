@@ -180,21 +180,21 @@
     .pqx-link-button:focus-visible,
     .pqx-mode-button:focus-visible,
     .pqx-result:focus-visible,
-	    .pqx-check:focus-within {
-	      outline: 3px solid rgba(189, 139, 47, 0.34);
-	      outline-offset: 2px;
-	    }
-	    .pqx-field-link {
-	      width: fit-content;
-	      display: inline-flex;
-	      margin-top: 8px;
-	      color: var(--pq-gold-strong);
-	      font-size: 12px;
-	      font-weight: 760;
-	      text-decoration: underline;
-	      text-underline-offset: 3px;
-	    }
-	    .pqx-main {
+    .pqx-check:focus-within {
+      outline: 3px solid rgba(189, 139, 47, 0.34);
+      outline-offset: 2px;
+    }
+    .pqx-field-link {
+      width: fit-content;
+      display: inline-flex;
+      margin-top: 8px;
+      color: var(--pq-gold-strong);
+      font-size: 12px;
+      font-weight: 760;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .pqx-main {
       width: min(1760px, calc(100vw - 32px));
       margin: 0 auto;
       padding: clamp(16px, 2.6vw, 34px) 0 88px;
@@ -695,31 +695,31 @@
       font-size: 11px;
       text-transform: uppercase;
     }
-	    .pqx-source-metrics b {
-	      color: var(--pq-ink);
-	      font-size: 1rem;
-	      text-transform: none;
-	    }
-	    .pqx-source-candidates {
-	      display: grid;
-	      gap: 7px;
-	      margin-top: 2px;
-	    }
-	    .pqx-source-candidate {
-	      display: grid;
-	      gap: 2px;
-	      padding: 9px 10px;
-	      border: 1px solid rgba(185, 173, 154, 0.72);
-	      border-radius: 8px;
-	      background: rgba(255, 253, 248, 0.72);
-	    }
-	    .pqx-source-candidate a {
-	      color: var(--pq-ink);
-	      font-weight: 760;
-	      text-decoration: underline;
-	      text-underline-offset: 3px;
-	    }
-	    .pqx-results {
+    .pqx-source-metrics b {
+      color: var(--pq-ink);
+      font-size: 1rem;
+      text-transform: none;
+    }
+    .pqx-source-candidates {
+      display: grid;
+      gap: 7px;
+      margin-top: 2px;
+    }
+    .pqx-source-candidate {
+      display: grid;
+      gap: 2px;
+      padding: 9px 10px;
+      border: 1px solid rgba(185, 173, 154, 0.72);
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.72);
+    }
+    .pqx-source-candidate a {
+      color: var(--pq-ink);
+      font-weight: 760;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .pqx-results {
       display: grid;
       grid-template-columns: minmax(420px, 1.02fr) minmax(420px, 0.98fr);
       gap: 16px;
@@ -1399,8 +1399,8 @@
         <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
           <div class="pqx-section-head">
             <div>
-              <h2>Source scan result</h2>
-              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources · {{ run_summary.get('listing_total') or 0 }} listings · {{ run_summary.get('filtered_low_fit_total') or 0 }} below threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} without floor plan</div>
+              <h2>Provider coverage report</h2>
+              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} providers checked · {{ run_summary.get('listing_total') or 0 }} listings reviewed · {{ run_summary.get('filtered_low_fit_total') or 0 }} below threshold · {{ run_summary.get('filtered_floorplan_total') or 0 }} without floor plan</div>
             </div>
             <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
           </div>
@@ -1411,7 +1411,7 @@
               <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
               <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
               <div class="pqx-source-metrics">
-                <span>Scanned <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
+                <span>Reviewed <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
                 <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
                 <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
                 <span>No plan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>

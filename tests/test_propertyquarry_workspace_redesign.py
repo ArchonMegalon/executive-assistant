@@ -255,7 +255,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
 
     shortlist = client.get("/app/shortlist", params={"run_id": "run-42"}, headers=headers)
     assert shortlist.status_code == 200
-    assert "Review only the few properties that deserve attention now." in shortlist.text
+    assert "Review the properties that deserve attention now." in shortlist.text
     assert "Compare the top shortlist before opening deeper packets" in shortlist.text
     assert "Altbau near U6" in shortlist.text
     assert "Review packet" in shortlist.text
@@ -477,7 +477,7 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     assert page.status_code == 200
     assert 'data-pqx-state="empty_results"' in page.text
     assert "The search did not finish cleanly." in page.text
-    assert "Source scan result" in page.text
+    assert "Provider coverage report" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Run activity" in page.text
     assert 'data-workbench-brief-drawer' not in page.text
