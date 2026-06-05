@@ -3924,6 +3924,7 @@ def test_property_scout_page_preview_extracts_justiz_edikte_facts(monkeypatch: p
                   <dt>Nutzung</dt><dd>bewohnt</dd>
                   <dt>Wohnfläche</dt><dd>97,4 m²</dd>
                 </dl>
+                <a href="/edikte/ex/exedi3.nsf/0/ABCDEF123456/$file/grundriss.pdf">Grundriss</a>
               </body>
             </html>
         """,
@@ -3944,7 +3945,46 @@ def test_property_scout_page_preview_extracts_justiz_edikte_facts(monkeypatch: p
     assert facts["postal_name"] == "1190 Wien"
     assert facts["occupancy_status"] == "bewohnt"
     assert facts["area_sqm"] == 97.4
+    assert facts["has_floorplan"] is True
+    assert preview["floorplan_urls_json"] == (
+        "https://edikte.justiz.gv.at/edikte/ex/exedi3.nsf/0/ABCDEF123456/$file/grundriss.pdf",
+    )
     assert "Bezirksgericht Döbling" in preview["summary"]
+
+
+def test_property_scout_page_preview_extracts_cooperative_media_and_floorplans(monkeypatch: pytest.MonkeyPatch) -> None:
+    listing_url = "https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=01000103511"
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_fetch_html",
+        lambda url, *, timeout_seconds=60.0: """
+            <html>
+              <head>
+                <title>GESIBA Wohnung Kurbadstraße</title>
+                <meta property="og:image" content="/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/hero.jpg">
+              </head>
+              <body>
+                <img src="/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/21921/rendering-2.jpg">
+                <a class="download" href="/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/21921/grundriss-top-12.png">Grundriss Top 12</a>
+                <p>Lift und Tiefgarage vorhanden.</p>
+              </body>
+            </html>
+        """,
+    )
+
+    preview = product_service._property_scout_page_preview(listing_url)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["provider_channel"] == "gesiba"
+    assert facts["provider_group"] == "genossenschaften_at"
+    assert facts["has_lift"] is True
+    assert facts["garage"] is True
+    assert facts["has_floorplan"] is True
+    assert preview["floorplan_urls_json"] == (
+        "https://www.gesiba.at/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/21921/grundriss-top-12.png",
+    )
+    assert "https://www.gesiba.at/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/hero.jpg" in preview["media_urls_json"]
+    assert "https://www.gesiba.at/imager/objekte/1100_WIEN_KURBADSTRASSE_-_01000103511/21921/rendering-2.jpg" in preview["media_urls_json"]
 
 
 def test_property_scout_page_preview_extracts_boe_subastas_facts(monkeypatch: pytest.MonkeyPatch) -> None:

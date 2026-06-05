@@ -245,6 +245,22 @@ _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "ogulo.de",
     "feelestate.com",
 )
+_PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
+_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
+_PROPERTY_SCOUT_FLOORPLAN_MARKERS = (
+    "floorplan",
+    "floor-plan",
+    "floor_plan",
+    "floor plan",
+    "grundriss",
+    "grundrisse",
+    "lageplan",
+    "raumplan",
+    "raumskizze",
+    "plan_top",
+    "plan top",
+    "wohnungsplan",
+)
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
@@ -1001,6 +1017,75 @@ def _property_scout_extract_html_attr_urls(*, source_url: str, html: str, attr_n
             seen.add(normalized)
             values.append(normalized)
     return tuple(values)
+
+
+def _property_scout_is_asset_url(url: str, *, extensions: tuple[str, ...]) -> bool:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    path = urllib.parse.unquote(parsed.path or "").lower()
+    return bool(path.endswith(extensions))
+
+
+def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
+    raw_urls: list[str] = []
+    raw_urls.extend(_extract_urls_from_text(normalized_html))
+    raw_urls.extend(_property_scout_extract_meta_contents(normalized_html, "og:image"))
+    for attr_name in ("src", "href", "data-src", "data-original", "data-lazy-src", "data-background-image"):
+        raw_urls.extend(_property_scout_extract_html_attr_urls(source_url=source_url, html=normalized_html, attr_name=attr_name))
+    media_urls: list[str] = []
+    seen: set[str] = set()
+    for raw_url in raw_urls:
+        try:
+            normalized = urllib.parse.urljoin(source_url, str(raw_url or "").strip())
+        except ValueError:
+            continue
+        normalized = urllib.parse.urldefrag(normalized)[0]
+        if not normalized or normalized in seen:
+            continue
+        if not _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS):
+            continue
+        seen.add(normalized)
+        media_urls.append(normalized)
+    return tuple(media_urls)
+
+
+def _property_scout_extract_floorplan_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+    normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
+    floorplan_urls: list[str] = []
+    seen: set[str] = set()
+    attr_pattern = re.compile(
+        r"""(href|src|data-src|data-original|data-lazy-src|data-background-image)=["']([^"']+)["']""",
+        re.IGNORECASE,
+    )
+    for match in attr_pattern.finditer(normalized_html):
+        attr_name = str(match.group(1) or "").strip().lower()
+        raw_url = str(match.group(2) or "").strip()
+        try:
+            normalized = urllib.parse.urljoin(source_url, raw_url)
+        except ValueError:
+            continue
+        normalized = urllib.parse.urldefrag(normalized)[0]
+        if not normalized or normalized in seen:
+            continue
+        if not _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS):
+            continue
+        lowered_url = urllib.parse.unquote(normalized).lower()
+        tag_start = normalized_html.rfind("<", 0, match.start())
+        tag_end = normalized_html.find(">", match.end())
+        if tag_start < 0:
+            tag_start = max(0, match.start() - 80)
+        if tag_end < 0:
+            tag_end = min(len(normalized_html), match.end() + 80)
+        context = normalized_html[tag_start : tag_end + 1].lower()
+        if attr_name == "href":
+            close = normalized_html.find("</a>", tag_end)
+            if close >= 0 and close - tag_end < 320:
+                context += normalized_html[tag_end + 1 : close + 4].lower()
+        if not any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+            continue
+        seen.add(normalized)
+        floorplan_urls.append(normalized)
+    return tuple(floorplan_urls)
 
 
 def _property_scout_extract_source_virtual_tour_url(*, source_url: str, html: str) -> str:
@@ -1911,22 +1996,25 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     og_title = _property_scout_extract_meta_content(html, "og:title")
     og_description = _property_scout_extract_meta_content(html, "og:description")
     meta_description = _property_scout_extract_meta_content(html, "description")
-    og_images = _property_scout_extract_meta_contents(html, "og:image")
-    src_images = tuple(
-        value
-        for value in _property_scout_extract_html_attr_urls(source_url=normalized, html=html, attr_name="src")
-        if urllib.parse.urlparse(value).path.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
-    )
+    media_urls = _property_scout_extract_detail_media_urls(source_url=normalized, html=html)
+    floorplan_urls = _property_scout_extract_floorplan_urls(source_url=normalized, html=html)
     source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url(source_url=normalized, html=html)
-    media_urls = tuple(dict.fromkeys(tuple(urllib.parse.urljoin(normalized, value) for value in og_images if str(value or "").strip()) + src_images))
     property_facts = _property_distressed_sale_preview_facts(normalized, html)
+    cooperative_facts = _property_cooperative_housing_facts(normalized, html, _property_html_fragment_text(html))
+    if cooperative_facts:
+        property_facts.update(cooperative_facts)
     property_facts.update(
         {
             "has_360": bool(source_virtual_tour_url),
             "source_virtual_tour_url": source_virtual_tour_url,
             "panorama_source": urllib.parse.urlparse(source_virtual_tour_url).netloc.lower() if source_virtual_tour_url else "",
+            "has_floorplan": bool(floorplan_urls) or bool(property_facts.get("has_floorplan")),
+            "floorplan_count": len(floorplan_urls) or int(property_facts.get("floorplan_count") or 0),
+            "media_count": len(media_urls) or int(property_facts.get("media_count") or 0),
         }
     )
+    if floorplan_urls:
+        property_facts["floorplan_urls_json"] = list(floorplan_urls)
     summary = _property_preview_summary_from_facts(
         base_summary=og_description or meta_description,
         property_facts=property_facts,
@@ -1937,7 +2025,7 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
         "summary": summary,
         "property_facts_json": property_facts,
         "media_urls_json": media_urls[:12],
-        "floorplan_urls_json": (),
+        "floorplan_urls_json": floorplan_urls[:6],
         "source_virtual_tour_url": source_virtual_tour_url,
         "panorama_source": urllib.parse.urlparse(source_virtual_tour_url).netloc.lower() if source_virtual_tour_url else "",
     }
