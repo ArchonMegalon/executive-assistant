@@ -300,6 +300,37 @@ def test_properties_workspace_surface_renders_run_state_and_hosted_match(monkeyp
     assert "Plus checkout" in billing.text
 
 
+def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
+    principal_id = "exec-browser-property-legacy-slider"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Vienna",
+            "selected_platforms": ["willhaben"],
+            "min_match_score": 80,
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    response = client.get("/app/properties")
+    assert response.status_code == 200
+    assert 'data-console-form-variant="property_search"' in response.text
+    assert 'name="min_match_score"' in response.text
+    assert 'type="range"' in response.text
+    assert 'max="45"' in response.text
+    assert 'data-range-value-for="min_match_score"' in response.text
+    assert "Minimum personal fit score" in response.text
+    assert "backend crawl and scoring load" in response.text
+    assert "min_match_score: integerValue(form, 'min_match_score')" in response.text
+
+
 def test_properties_workspace_surface_does_not_fallback_to_origin_listing_link(monkeypatch) -> None:
     principal_id = "exec-browser-properties-no-origin-fallback"
     client = build_product_client(principal_id=principal_id)

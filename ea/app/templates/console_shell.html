@@ -203,6 +203,37 @@
   .console-form[data-console-form-variant="property_search"] .console-plan-card {
     gap: 10px;
   }
+  .console-form[data-console-form-variant="property_search"] .console-range-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-range-help {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text-soft);
+    cursor: help;
+    font-size: 11px;
+    line-height: 1;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-range-value {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  .console-form[data-console-form-variant="property_search"] input[type="range"] {
+    min-height: 28px;
+    padding: 0;
+    accent-color: #d6a63f;
+    background: transparent;
+    border: 0;
+  }
   .property-shortlist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -932,6 +963,22 @@
               <option value="{{ option.value }}" {% if (field.value or '') == (option.value or '') %}selected{% endif %}>{{ option.label }}</option>
               {% endfor %}
             </select>
+            {% elif field.type == 'range' %}
+            <span class="console-range-head">
+              <span class="console-range-value" data-range-value-for="{{ field.name }}">{{ field.value or field.min or '1' }}{{ field.suffix or '' }}</span>
+              {% if field.tooltip %}<span class="console-range-help" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}
+            </span>
+            <input
+              type="range"
+              name="{{ field.name }}"
+              value="{{ field.value or field.min or '1' }}"
+              {% if field.min %}min="{{ field.min }}"{% endif %}
+              {% if field.max %}max="{{ field.max }}"{% endif %}
+              {% if field.range_step %}step="{{ field.range_step }}"{% endif %}
+              {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %}
+              data-range-output="{{ field.name }}"
+              data-range-suffix="{{ field.suffix or '' }}"
+            >
             {% elif field.type == 'checkbox' %}
             <input
               type="checkbox"
@@ -1348,10 +1395,24 @@
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),
         max_results_per_source: parsedMaxResults,
+        min_match_score: integerValue(form, 'min_match_score'),
       },
       force_refresh: form.querySelector('input[name="force_refresh"]')?.checked || false,
       max_results_per_source: parsedMaxResults,
     };
+  };
+
+  const bindRangeOutputs = (form) => {
+    form.querySelectorAll('input[type="range"][data-range-output]').forEach((input) => {
+      const name = String(input.getAttribute('data-range-output') || input.name || '').trim();
+      const output = form.querySelector(`[data-range-value-for="${name}"]`);
+      const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
+      const sync = () => {
+        if (output) output.textContent = `${input.value}${suffix}`;
+      };
+      input.addEventListener('input', sync);
+      sync();
+    });
   };
 
   const renderRun = (form, payload) => {
@@ -1466,6 +1527,7 @@
     } catch (_error) {
       meta = {};
     }
+    bindRangeOutputs(form);
     initPropertyWizard(form, meta);
     const countryField = form.querySelector('select[name="country_code"]');
     const regionField = form.querySelector('select[name="region_code"]');
