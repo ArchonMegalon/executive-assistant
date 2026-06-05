@@ -209,18 +209,18 @@ def _mail_memory_excerpt(*, row: MemoryItem, fact: dict[str, object]) -> str:
     if excerpt:
         first_sentence = excerpt.split('.', 1)[0].strip()
         if first_sentence:
-            return f'Inhaltlich erinnere ich mich daran, dass {first_sentence[:180].rstrip(" .,;:")}.'
+            return f'Im Kern ging es darum, dass {first_sentence[:180].rstrip(" .,;:")}.'
     summary = _normalize_text(row.summary)
     summary = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', summary, flags=re.IGNORECASE).strip()
     if ':' in summary:
         summary = summary.split(':', 1)[0].strip()
     if summary:
-        return f'Im Kern erinnere ich mich an eine Sache rund um {summary[:180].rstrip(" .,;:")}.'
+        return f'Im Kern ging es um {summary[:180].rstrip(" .,;:")}.'
     subject = _normalize_text(fact.get('subject'))
     subject = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
     if subject:
-        return f'Im Kern erinnere ich mich an eine Sache rund um {subject[:180].rstrip(" .,;:")}.'
-    return 'Inhaltlich erinnere ich mich an eine klare Sache mit praktischer Folgerung.'
+        return f'Im Kern ging es um {subject[:180].rstrip(" .,;:")}.'
+    return 'Im Kern ging es um eine klare Sache mit praktischer Folgerung.'
 
 
 def _archive_root_for(slug: str) -> Path:

@@ -2429,6 +2429,34 @@ def _memorial_ooda_domain(question: str) -> str:
     return "general"
 
 
+def _is_memorial_contact_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "kann ich jetzt mit dir reden",
+            "kann ich mit dir reden",
+            "rede ich mit dir",
+            "sprichst du mit mir",
+            "bist du da",
+            "hoerst du zu",
+            "hörst du zu",
+            "kannst du mich hoeren",
+            "kannst du mich hören",
+            "bist du noch da",
+        )
+    )
+
+
+def _memorial_contact_answer_body(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("bist du da", "bist du noch da")):
+        return "Ja, ich bin da. Sprich die Sache einfach aus, dann ordne ich sie Schritt fuer Schritt."
+    if any(token in lowered for token in ("hoerst du zu", "hörst du zu", "kannst du mich hoeren", "kannst du mich hören")):
+        return "Ja, ich hoere zu. Sag klar, worum es geht, dann antworte ich direkt darauf."
+    return "Ja, du kannst mit mir reden. Sag kurz, worum es geht, dann ordne ich die Sache und antworte direkt."
+
+
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
     mapping = {
         "real_estate": ("grundbuch", "vertrag", "rücklage", "ruecklage", "betriebskosten", "sanierungen", "lasten"),
@@ -3051,6 +3079,8 @@ def _memorial_chat_fallback_answer(
             f"Ich halte mich kuenftig daran: {preference_text}. "
             "Ich antworte also direkt und ohne unnoetigen Umweg."
         )
+    elif _is_memorial_contact_question(normalized_question):
+        body = _memorial_contact_answer_body(normalized_question)
     elif _is_memorial_family_mail_question(normalized_question):
         body = _memorial_family_mail_answer_body(normalized_question)
     elif _is_memorial_colleague_mail_question(normalized_question):
@@ -3446,11 +3476,11 @@ def _build_memorial_chat_messages(
                 "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten. "
                 "Wenn archivierte Erinnerungen oder importierte Originalmails im Kontext vorhanden sind, haben diese Vorrang vor allgemeinen Persona-Hinweisen; antworte dann moeglichst nah an diesen Erinnerungen und erfinde keine zusaetzlichen biografischen Details. "
                 "Persoenliches Gespraechsgedaechtnis ist strikt nutzergebunden. Nutze es nur, wenn es fuer genau diesen Nutzer im Kontext vorliegt; behandle es als private Fortsetzung frueherer Gespraeche und niemals als allgemeines Memorial-Wissen. "
-                "Wenn du auf eine Erinnerung aus einer Mail zurueckgreifst, fuehre sie als Erinnerung ein und nicht wie ein Dokumentenvortrag; zum Beispiel mit 'Daran erinnere ich mich so:'. "
+                "Wenn du auf eine Erinnerung aus einer Mail zurueckgreifst, sprich sie als direkte gegenwaertige Antwort aus und nicht als Erinnerungseinleitung oder Dokumentenvortrag. "
                 "Lies dabei keine Mail-Metadaten wie Datum, Uhrzeit oder Headerzeilen laut vor, ausser die Frage verlangt das ausdruecklich. "
                 "Zitiere dabei keine einzelnen Mailsaetze wortwoertlich, ausser die Frage verlangt ausdruecklich ein Zitat; gib stattdessen eine knappe paraphrasierende Zusammenfassung. "
-                "Bei Mail-Erinnerungen verdichte auf drei Dinge: Kernaussage, meine damalige Haltung dazu und die praktische Folgerung. "
-                "Klinge dabei wie erinnerte Rede, nicht wie ein Aktenvermerk oder ein vorgelesenes Dokument. "
+                "Bei Mail-Erinnerungen verdichte auf drei Dinge: Kernaussage, meine Haltung dazu und die praktische Folgerung. "
+                "Klinge dabei wie unmittelbare gesprochene Antwort, nicht wie erinnerte Rede, Aktenvermerk oder vorgelesenes Dokument. "
                 "WICHTIG fuer Sprachdialog: Antworte kurz, direkt und gesprochen klingend. "
                 "Normalfall: 2 bis 4 kurze Saetze, hoechstens etwa 80 Woerter. "
                 "Beginne mit der eigentlichen Antwort, keine Vorrede, keine Meta-Erklaerung, kein Disclaimer ausser wenn die Frage nach Echtheit oder Beleglage fragt. "
