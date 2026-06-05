@@ -24,7 +24,7 @@ STATE_OUT = Path("/docker/fleet/state/chummer6/ea_provider_readiness.json")
 RAW_KEY_NAMES = {
     "pollinations": [],
     "browseract": ["BROWSERACT_API_KEY", "BROWSERACT_API_KEY_FALLBACK_1", "BROWSERACT_API_KEY_FALLBACK_2", "BROWSERACT_API_KEY_FALLBACK_3"],
-    "unmixr": ["UNMIXR_API_KEY"],
+    "unmixr": ["UNMIXR_API_KEY", "UNMIXR_VOICE_ID"],
     "onemin": [
         "ONEMIN_AI_API_KEY",
         "ONEMIN_AI_API_KEY_FALLBACK_1",
@@ -425,6 +425,20 @@ def provider_state(name: str) -> dict[str, object]:
             "detail": detail,
             "resolved_slot_count": len(resolved_slots),
         }
+    if name == "unmixr":
+        required_keys = RAW_KEY_NAMES.get("unmixr", [])
+        missing_keys = [env_name for env_name in required_keys if not env_value(env_name)]
+        available = not missing_keys
+        if available:
+            status = "ready"
+            detail = "Unmixr short-TTS credentials are complete for the Chummer promo narration lane."
+        elif raw_keys:
+            status = "partial_credentials"
+            detail = f"Unmixr is missing required env for Chummer promo narration: {', '.join(missing_keys)}."
+        else:
+            status = "not_configured"
+            detail = "No Unmixr API key or voice id found."
+        return {"provider": name, "status": status, "available": available, "raw_keys": raw_keys, "adapters": adapters, "detail": detail}
     available = bool(adapters)
     if available:
         status = "ready"

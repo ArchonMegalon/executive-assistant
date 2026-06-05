@@ -104,7 +104,7 @@ services:
       - ./config:/app/config:ro
       - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
-      - ./memorial_data:/data/memorial_data:ro
+      - ea_memorial_data:/data/memorial_data:ro
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -253,6 +253,7 @@ services:
 
 volumes:
   ea_artifacts: {}
+  ea_memorial_data: {}
   ea_openvoice_data: {}
   ea_pgdata: {}
   ea_public_tours: {}

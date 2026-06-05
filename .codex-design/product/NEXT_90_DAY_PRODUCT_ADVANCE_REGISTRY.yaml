@@ -2992,8 +2992,13 @@ milestones:
       title: Close hosted bounded-context, campaign, account, support, public, community, and orchestration-boundary coverage.
     - id: '135.5'
       owner: chummer6-hub-registry
-      title: Close registry persistence, release-channel, artifact lineage, publication, entitlement, and compatibility-boundary
-        coverage.
+      title: Close registry persistence, release-channel, artifact lineage, publication, entitlement, and compatibility-boundary coverage.
+      status: complete
+      evidence:
+        - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json and /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json now publish canonical `registryBoundaryCoverage` closure truth.
+        - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py plus /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py derive and fail-close the canonical `registryBoundaryCoverage` payload.
+        - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m135_registry_boundary_coverage.py plus /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m135_registry_boundary_coverage.py
+        - /docker/chummercomplete/chummer-hub-registry/docs/next90-m135-registry-boundary-coverage.closeout.md records the shipped proof anchors.
     - id: '135.6'
       owner: chummer6-ui
       title: Close desktop workbench, Build Lab, GM Runboard, publication, restore, support, and veteran-familiarity surface
@@ -3538,6 +3543,7 @@ milestones:
     - id: '143.4'
       owner: chummer6-hub-registry
       title: Keep public or signed-in release and exchange surfaces from overstating output readiness when proof receipts are stale or incomplete.
+      status: complete
     - id: '143.5'
       owner: executive-assistant
       title: Compile route-specific compare packs and artifact proofs for print, export, exchange, SR6 supplement, and house-rule workflows.

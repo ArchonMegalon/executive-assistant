@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-06-02
+Updated: 2026-06-03
 
 ## Workspace Integration Tier Guide
 
@@ -15,7 +15,7 @@ Updated: 2026-06-02
 
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
-| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-06-02T18:17:17.602510+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` | `Advanced Business Plan` | `12 licenses / 12 accounts` | `Owned` |  | `Tier 1` | Local `.env` key rotation slots plus `scripts/resolve_onemin_ai_key.sh` | Primary and fallback API-key flow is wired locally and kept out of git. Shared browser-login password is seeded in local `.env`. Latest credit refresh on `2026-06-03T19:31:26.138703+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `ChatPlayground AI` | `Unlimited Plan` | `1 account` | `Owned` |  | `Tier 3` | None | Tracked LTD only; no local runtime integration yet. |
 | `Soundmadeseen` | `API Access` | `1 key` | `Owned` |  | `Tier 4` | `.env` placeholder/secret tracked locally | API key exists in local `.env`; service-level workflow and account-level verification are still pending. Candidate newsroom sound-design lane only after rights, cue provenance, and adapter proof exist. |
 | `Emailit` | `Tier 5` | `1 account / 1 key` | `Owned` |  | `Tier 1` | Local `.env` API key plus verified `chummer.run` sender-domain wiring in EA | Transactional Emailit delivery is wired locally, `chummer.run` is verified as a sending domain, and the CodexEA internal-affairs daily summary now sends from `ia@chummer.run`. It is also the approved Black Ledger Newsroom delivery lane after episode proof exists. |
@@ -65,7 +65,7 @@ Updated: 2026-06-02
 | `Syllabbles` | `Max tier` | `1 account` | `Activated` |  | `Tier 2` | Local `.env` credentials plus dispatch-draft adapter, template, and dry-run tests | Use as a Black Ledger Dispatch draft workbench only. Drafts stay non-authoritative until Chummer gates and publishes them. |
 | `blipai.app` | `Max tier` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials/token plus operator-capture packet transform and tests | Use for operator voice capture, prompt capture, and audit-note capture. Never publish directly from this lane. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local API key plus projection adapter and dry-run sync receipt | Use only as a curated operator projection surface for product signals, dispatches, tick-news delivery, package pressure, adapter readiness, and newsroom production tracking. |
-| `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 3` | None | Candidate newsroom narration cleanup / voice polish lane, but no active local runtime integration is verified in this repo yet. |
+| `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local `UNMIXR_*` env contract in EA plus direct Chummer promo-narration wiring | AppSumo Tier 4 ownership is now tracked alongside a direct short-TTS runtime path in `chummer.run-services` for promo narration rebuilds. The dedicated Unmixr login is now seeded locally, and the API-key, voice-id, and voice-tuning slots are documented here and in the mirrored PropertyQuarry repo, but live provider API credentials still need to be seeded before this lane is operational. |
 | `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
@@ -80,7 +80,7 @@ Use this section to track missing tier/email/account facts discovered through th
 
 | Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
 |---|---|---|---|---|---|
-| `1min.AI` |  | `manual_seeded` | `local_env_browseract_refresh` | 2026-06-02T18:17:17.602510+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-06-02T18:17:17.602510+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
+| `1min.AI` |  | `manual_seeded` | `local_env_browseract_refresh` | 2026-06-03T19:31:26.138703+00:00 | API-key rotation slots and the shared browser-login password now exist locally. Latest credit refresh on `2026-06-03T19:31:26.138703+00:00` for `ONEMIN_AI_API_KEY` confirmed `12345` remaining credits with the next top-up projected for `2026-03-31T00:00:00Z` (`20000` credits). |
 | `PayFunnels` |  | `manual_seeded` | `payfunnels_test_billing_receipts` | 2026-06-01T00:00:00Z | Tier 3 is tracked as a test-only billing adapter. Receipts verify the $1 no-benefit checkout copy, acknowledgement gate, webhook signature/idempotency checks, receipt ledger, no-op entitlement ledger, refund path, and security review. |
 | `PayPal API` | `tibor.girschele@gmail.com` | `manual_seeded` | `local_env` | 2026-06-02T00:00:00Z | Client ID, secret, and account email are now stored locally. Checkout, webhook verification, and entitlement mapping still need implementation. |
 | `Prompt Architects` |  | `manual_seeded` | `local_env + prompt_foundry_receipts` | 2026-06-01T20:54:48.618432+00:00 | Local `.env` contains the AppSumo API key slot for `PROMPTING_SYSTEMS_API_KEY`; Prompt Foundry integration receipts verify Tier 4 capability capture, template seed/operator assist, usage metering, privacy boundaries, MagicFit bridge, and runtime GM assist disabled pending API/MCP/privacy/export proof. |
@@ -125,7 +125,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `Syllabbles` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Tier 3 and shared credentials were seeded manually for the Black Ledger dispatch draft lane; structured verification and any BrowserAct capture are still pending. |
 | `blipai.app` | `the.girscheles@gmail.com` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Shared credentials are now seeded locally; plan/tier and structured verification are still pending. |
 | `Teable` | ops@teable.example | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
-| `Unmixr AI` |  | `missing` | `manual_inventory` |  | No BrowserAct discovery run recorded yet. |
+| `Unmixr AI` | `the.girscheles@gmail.com` | `manual_seeded` | `user_report + local_runtime_docs` | 2026-06-03T09:58:09Z | Highest AppSumo tier was reported by the user, and the Chummer promo narration runtime is now wired for direct Unmixr short-TTS use. The dedicated login is seeded in the local env surfaces, but `UNMIXR_API_KEY` and `UNMIXR_VOICE_ID` are still unset, so live provider proof remains pending. |
 | `Vizologi` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 
 ## Attention Items
