@@ -435,7 +435,7 @@ class OpenVoiceRuntime:
             wav_paths: list[Path] = []
             for index, (filename, payload) in enumerate(source_files, start=1):
                 suffix = Path(filename or f"sample-{index}.bin").suffix or ".bin"
-                sample_path = voice_dir / f"sample-{index}{suffix}"
+                sample_path = voice_dir / f"sample-{index}-raw{suffix}"
                 sample_path.write_bytes(payload)
                 wav_path = voice_dir / f"sample-{index}.wav"
                 self._convert_to_wav(source_path=sample_path, target_path=wav_path)
@@ -456,6 +456,19 @@ class OpenVoiceRuntime:
             }
             self._manifest_path(voice_id).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             return manifest
+
+    def synthesize_base(self, *, text: str, lang: str, base_voice_variant: str = "") -> bytes:
+        with tempfile.TemporaryDirectory(prefix="openvoice-base-") as tmp_dir:
+            output_path = Path(tmp_dir) / "base.wav"
+            self._build_source_audio(
+                text=text,
+                output_path=output_path,
+                lang=lang,
+                base_voice_variant=base_voice_variant,
+            )
+            if not output_path.is_file():
+                raise RuntimeError("base_tts_output_missing")
+            return output_path.read_bytes()
 
     def synthesize(self, *, voice_id: str, text: str, lang: str, base_voice_variant: str = "") -> bytes:
         self._ensure_loaded()

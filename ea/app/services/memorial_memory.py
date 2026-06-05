@@ -204,6 +204,25 @@ def _message_summary(message: Message, body_text: str) -> str:
     return _normalize_text(f'Email von {sender}')[:280] or 'Email'
 
 
+def _mail_memory_excerpt(*, row: MemoryItem, fact: dict[str, object]) -> str:
+    subject = _normalize_text(fact.get('subject'))
+    subject = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
+    if subject:
+        return f'Es ging damals im Kern um {subject}.'
+    summary = _normalize_text(row.summary)
+    summary = re.sub(r'^(?:re|aw|wg|fwd)\s*:\s*', '', summary, flags=re.IGNORECASE).strip()
+    if ':' in summary:
+        summary = summary.split(':', 1)[0].strip()
+    if summary:
+        return f'Es ging damals im Kern um {summary[:180].rstrip(" .,;:")}.'
+    excerpt = _normalize_text(fact.get('body_excerpt'))
+    if excerpt:
+        first_sentence = excerpt.split('.', 1)[0].strip()
+        if first_sentence:
+            return f'Inhaltlich ging es damals darum, dass {first_sentence[:180].rstrip(" .,;:")}.'
+    return 'Inhaltlich erinnere ich mich an eine klare Sache mit praktischer Folgerung.'
+
+
 def _archive_root_for(slug: str) -> Path:
     return _ARCHIVE_ROOT / _safe_slug(slug)
 
@@ -647,13 +666,20 @@ def format_memorial_memory_context(rows: list[MemoryItem]) -> list[str]:
     for row in rows:
         fact = dict(row.fact_json or {})
         axis = _normalize_text(fact.get('memory_axis')).lower()
+        memory_kind = _normalize_text(fact.get('memory_kind')).lower()
         subject = _normalize_text(fact.get('subject'))
-        date = _normalize_text(fact.get('date'))
-        excerpt = _normalize_text(fact.get('body_excerpt'))[:360]
-        if not excerpt:
-            excerpt = _normalize_text(fact.get('body') or fact.get('evidence') or fact.get('note') or fact.get('title'))[:360]
         source = _normalize_text(fact.get('from'))
-        bits = [bit for bit in [date, subject, source] if bit]
+        if memory_kind == 'mail_message':
+            excerpt = _mail_memory_excerpt(row=row, fact=fact)
+            bits = [bit for bit in [subject] if bit]
+            if excerpt:
+                excerpt = f"Daran erinnere ich mich so: {excerpt}"
+        else:
+            excerpt = _normalize_text(fact.get('body_excerpt'))[:360]
+            if not excerpt:
+                excerpt = _normalize_text(fact.get('body') or fact.get('evidence') or fact.get('note') or fact.get('title'))[:360]
+            date = _normalize_text(fact.get('date'))
+            bits = [bit for bit in [date, subject, source] if bit]
         prefix = ' | '.join(bits)
         axis_label = {
             'stylistic': 'Stil',

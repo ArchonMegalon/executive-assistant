@@ -1092,7 +1092,7 @@ class ProviderRegistryService:
             "onemin": _onemin_secret_env_names(),
             "prompting_systems": ("PROMPTING_SYSTEMS_API_KEY",),
             "teable": ("TEABLE_API_KEY",),
-            "unmixr": ("UNMIXR_API_KEY",),
+            "unmixr": ("UNMIXR_API_KEY", "UNMIXR_VOICE_ID"),
         }
         return mapping.get(str(provider_key or "").strip(), ())
 

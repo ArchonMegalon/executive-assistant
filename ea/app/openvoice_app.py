@@ -129,3 +129,24 @@ async def synthesize(payload: dict[str, object]) -> Response:
             raise HTTPException(status_code=404, detail=detail) from exc
         raise HTTPException(status_code=503, detail=detail) from exc
     return Response(content=audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/synthesize-base")
+async def synthesize_base(payload: dict[str, object]) -> Response:
+    text = _normalize_text(payload.get("text"))
+    lang = str(payload.get("lang") or "de").strip() or "de"
+    base_voice_variant = _normalize_simple_id(str(payload.get("base_voice_variant") or "default"), field_name="base_voice_variant")
+    if not text:
+        raise HTTPException(status_code=400, detail="tts_text_missing")
+    if len(text) > _MAX_TTS_TEXT_LEN:
+        raise HTTPException(status_code=400, detail="tts_text_too_long")
+    runtime = get_openvoice_runtime()
+    try:
+        audio = runtime.synthesize_base(
+            text=text,
+            lang=lang,
+            base_voice_variant=base_voice_variant,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return Response(content=audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})

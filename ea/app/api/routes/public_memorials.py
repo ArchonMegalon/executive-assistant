@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import html
 import json
 import hmac
@@ -11,10 +12,12 @@ import os
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 import urllib.parse
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -66,6 +69,10 @@ _TTS_PLUGIN_DEFAULT_ID = OPENVOICE_TTS_PLUGIN_ID
 _LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
 _TTS_MAX_CLONE_FILES = 3
 _TTS_MAX_TEXT_LEN = 3000
+_PERSONAL_MEMORY_ROOT = Path("/data/artifacts/memorial_user_memory")
+_PERSONAL_MEMORY_MAX_ITEMS = 24
+_VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
+_MEMORIAL_PWA_VERSION = "20260605b"
 
 
 def _memorial_dir_candidates() -> list[Path]:
@@ -135,6 +142,428 @@ def _safe_slug(slug: str) -> str:
     if not safe or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="memorial_not_found")
     return safe
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _safe_scope_token(value: object, fallback: str = "guest") -> str:
+    normalized = "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum() or ch in {"-", "_", ":"})
+    return normalized[:120] or fallback
+
+
+def _memorial_guest_scope(visitor_id: str) -> str:
+    safe_visitor = _safe_scope_token(visitor_id, "guest")
+    return f"guest:{safe_visitor}"
+
+
+def _memorial_personal_memory_path(*, slug: str, scope: str) -> Path:
+    safe_slug = _safe_slug(slug)
+    scope_hash = hashlib.sha1(str(scope).encode("utf-8")).hexdigest()[:24]
+    return (_PERSONAL_MEMORY_ROOT / safe_slug / f"{scope_hash}.json").resolve()
+
+
+def _load_personal_memory_store(*, slug: str, scope: str) -> dict[str, object]:
+    path = _memorial_personal_memory_path(slug=slug, scope=scope)
+    if not path.is_file():
+        return {
+            "slug": _safe_slug(slug),
+            "scope": scope,
+            "mode": "guest" if str(scope).startswith("guest:") else "account",
+            "items": [],
+            "created_at": _utc_now_iso(),
+            "updated_at": _utc_now_iso(),
+            "frozen": False,
+            "approved_voice_choice": "",
+        }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["slug"] = _safe_slug(slug)
+    payload["scope"] = str(payload.get("scope") or scope)
+    payload["mode"] = "guest" if str(payload["scope"]).startswith("guest:") else "account"
+    if not isinstance(payload.get("items"), list):
+        payload["items"] = []
+    payload["created_at"] = _text(payload.get("created_at"), _utc_now_iso())
+    payload["updated_at"] = _text(payload.get("updated_at"), _utc_now_iso())
+    payload["frozen"] = bool(payload.get("frozen"))
+    payload["approved_voice_choice"] = _text(payload.get("approved_voice_choice"), "")
+    return payload
+
+
+def _save_personal_memory_store(*, slug: str, scope: str, payload: dict[str, object]) -> dict[str, object]:
+    path = _memorial_personal_memory_path(slug=slug, scope=scope)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stored = dict(payload)
+    stored["slug"] = _safe_slug(slug)
+    stored["scope"] = scope
+    stored["mode"] = "guest" if str(scope).startswith("guest:") else "account"
+    stored["updated_at"] = _utc_now_iso()
+    _write_json_atomic(path, stored)
+    return stored
+
+
+def _extract_personal_memory_request_context(
+    *,
+    request: Request | None = None,
+    body: dict[str, object] | None = None,
+    websocket: WebSocket | None = None,
+) -> dict[str, object]:
+    body = body or {}
+    headers = request.headers if request is not None else (websocket.headers if websocket is not None else {})
+    query = request.query_params if request is not None else (websocket.query_params if websocket is not None else {})
+    visitor_id = _text(
+        body.get("visitor_id"),
+        _text(headers.get("x-memorial-visitor-id"), _text(query.get("visitor_id"), "")),
+    )
+    personal_memory_enabled = str(
+        body.get("personal_memory_enabled")
+        if body.get("personal_memory_enabled") is not None
+        else headers.get("x-memorial-personal-memory") or query.get("personal_memory") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    account_id = _text(
+        body.get("account_id"),
+        _text(headers.get("x-memorial-account-id"), _text(query.get("account_id"), "")),
+    )
+    scope = _safe_scope_token(f"user:{account_id}", "") if account_id else ""
+    if not scope and visitor_id:
+        scope = _memorial_guest_scope(visitor_id)
+    return {
+        "visitor_id": visitor_id,
+        "account_id": account_id,
+        "scope": scope,
+        "personal_memory_enabled": personal_memory_enabled,
+        "guest_mode": bool(scope.startswith("guest:")) if scope else True,
+    }
+
+
+def _voice_ab_variant_from_request(
+    *,
+    request: Request | None = None,
+    body: dict[str, object] | None = None,
+    websocket: WebSocket | None = None,
+) -> str:
+    body = body or {}
+    headers = request.headers if request is not None else (websocket.headers if websocket is not None else {})
+    query = request.query_params if request is not None else (websocket.query_params if websocket is not None else {})
+    variant = _text(body.get("voice_ab_variant"), _text(headers.get("x-memorial-voice-variant"), _text(query.get("voice_variant"), ""))).lower()
+    return variant if variant in {"a", "b"} else ""
+
+
+def _personal_memory_public_status(*, slug: str, context: dict[str, object]) -> dict[str, object]:
+    scope = _text(context.get("scope"), "")
+    base = {
+        "available": bool(scope),
+        "enabled": bool(context.get("personal_memory_enabled")) and bool(scope),
+        "guest_mode": bool(context.get("guest_mode")),
+        "has_login": not bool(context.get("guest_mode")) and bool(_text(context.get("account_id"), "")),
+        "item_count": 0,
+        "frozen": False,
+        "approved_voice_choice": "",
+    }
+    if not scope:
+        return base
+    store = _load_personal_memory_store(slug=slug, scope=scope)
+    base["item_count"] = len([item for item in store.get("items", []) if isinstance(item, dict)])
+    base["frozen"] = bool(store.get("frozen"))
+    base["approved_voice_choice"] = _text(store.get("approved_voice_choice"), "")
+    return base
+
+
+def _personal_memory_tags_from_question(question: str) -> list[str]:
+    lowered = _text(question, "").lower()
+    tags: list[str] = []
+    tag_map = {
+        "wohnung": ("wohnung", "kauf", "brockhausenweg", "grundbuch", "ruecklage", "betriebskosten"),
+        "familie": ("familie", "susanna", "susi", "elisabeth", "noah", "eva", "stefan"),
+        "mailstil": ("mail", "email", "schriftlich", "schreibstil", "formulier"),
+        "stimme": ("stimme", "klang", "blechern", "hall", "qualitaet"),
+        "ooda": ("soll ich", "kaufen", "wechseln", "rechtsstreit", "entscheiden"),
+    }
+    for label, needles in tag_map.items():
+        if any(needle in lowered for needle in needles):
+            tags.append(label)
+    return tags[:6]
+
+
+def _personal_memory_kind_and_summary(*, question: str, answer: str) -> tuple[str, str, str]:
+    normalized_question = _text(question, "")
+    normalized_answer = _text(answer, "")
+    lowered_question = normalized_question.lower()
+    if any(token in lowered_question for token in ("knapp", "kürzer", "kuerzer", "direkt", "nicht wort", "nicht vorlesen", "zusammenfassung")):
+        summary = "Nutzer bevorzugt knappe, direkte und paraphrasierende Antworten statt wortwoertlicher oder ausladender Wiedergabe."
+        return "preference", "Antwortstil", summary
+    if any(token in lowered_question for token in ("stimme", "klang", "blechern", "hall", "qualitaet")):
+        summary = "Nutzer achtet stark auf Stimmidentitaet und Verstaendlichkeit; Telefon- oder Blechcharakter wird negativ bewertet."
+        return "preference", "Stimmvorlieben", summary
+    concise_answer = normalized_answer.split(".", 1)[0].strip()
+    if concise_answer:
+        concise_answer = concise_answer.rstrip(" .,;:")
+    if _is_memorial_ooda_question(normalized_question):
+        summary = concise_answer or "Es ging um eine konkrete Entscheidungsfrage mit OODA-Pruefung und vorlaeufigem Urteil."
+        return "ongoing_topic", normalized_question[:96], summary
+    summary = concise_answer or (normalized_question[:180].rstrip(" .,;:") + ".")
+    return "conversation_topic", normalized_question[:96], summary
+
+
+def _remember_personal_conversation_turn(
+    *,
+    slug: str,
+    context: dict[str, object],
+    question: str,
+    answer: str,
+) -> None:
+    if not bool(context.get("personal_memory_enabled")):
+        return
+    scope = _text(context.get("scope"), "")
+    if not scope:
+        return
+    store = _load_personal_memory_store(slug=slug, scope=scope)
+    if bool(store.get("frozen")):
+        return
+    kind, title, summary = _personal_memory_kind_and_summary(question=question, answer=answer)
+    item = {
+        "id": uuid.uuid4().hex,
+        "kind": kind,
+        "title": title,
+        "summary": summary,
+        "question": _text(question, "")[:280],
+        "tags": _personal_memory_tags_from_question(question),
+        "salience": 0.82 if kind == "preference" else 0.68,
+        "created_at": _utc_now_iso(),
+        "updated_at": _utc_now_iso(),
+    }
+    items = [dict(existing) for existing in store.get("items", []) if isinstance(existing, dict)]
+    if kind == "preference":
+        deduped: list[dict[str, object]] = []
+        replaced = False
+        for existing in items:
+            if str(existing.get("kind") or "") == kind and str(existing.get("title") or "") == title:
+                if not replaced:
+                    deduped.append(item)
+                    replaced = True
+                continue
+            deduped.append(existing)
+        if not replaced:
+            deduped.insert(0, item)
+        items = deduped
+    else:
+        items.insert(0, item)
+    store["items"] = items[:_PERSONAL_MEMORY_MAX_ITEMS]
+    _save_personal_memory_store(slug=slug, scope=scope, payload=store)
+
+
+def _personal_memory_context_lines(*, slug: str, context: dict[str, object], question: str) -> list[str]:
+    if not bool(context.get("personal_memory_enabled")):
+        return []
+    scope = _text(context.get("scope"), "")
+    if not scope:
+        return []
+    store = _load_personal_memory_store(slug=slug, scope=scope)
+    rows = [dict(item) for item in store.get("items", []) if isinstance(item, dict)]
+    if not rows:
+        return []
+    query_tokens = set(re.findall(r"[a-zA-ZÀ-ÿ0-9_-]{3,}", _text(question, "").lower()))
+    scored: list[tuple[float, dict[str, object]]] = []
+    for item in rows:
+        haystack = " ".join(
+            [
+                _text(item.get("title"), "").lower(),
+                _text(item.get("summary"), "").lower(),
+                " ".join(str(tag).lower() for tag in item.get("tags", []) if str(tag).strip()),
+            ]
+        )
+        score = float(item.get("salience") or 0.4)
+        overlap = len(query_tokens & set(re.findall(r"[a-zA-ZÀ-ÿ0-9_-]{3,}", haystack)))
+        score += overlap * 0.7
+        if str(item.get("kind") or "") == "preference":
+            score += 0.4
+        scored.append((score, item))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    lines: list[str] = []
+    for _, item in scored[:4]:
+        kind = _text(item.get("kind"), "")
+        summary = _text(item.get("summary"), "")
+        if not summary:
+            continue
+        if kind == "preference":
+            lines.append("[Persoenlich] Nutzerpraeferenz: " + summary)
+        else:
+            lines.append("[Persoenlich] Frueheres Gespraech: " + summary)
+    return lines
+
+
+def _voice_ab_config_path(slug: str) -> Path:
+    return (_VOICE_AB_ROOT / _safe_slug(slug) / "voice_ab.json").resolve()
+
+
+def _default_voice_ab_config(slug: str) -> dict[str, object]:
+    base = _load_voice_config(slug)
+    return {
+        "slug": _safe_slug(slug),
+        "variants": [
+            {
+                "id": "a",
+                "label": "Stimme A · klarer",
+                "tts_plugin": UNMIXR_TTS_PLUGIN_ID,
+                "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+                "unmixr_speaking_rate": _text(base.get("unmixr_speaking_rate"), "low"),
+                "unmixr_speaking_pitch": _text(base.get("unmixr_speaking_pitch"), "medium"),
+                "unmixr_speaking_volume": _text(base.get("unmixr_speaking_volume"), "high"),
+                "description": "Aktuell beste Verstaendlichkeit",
+            },
+            {
+                "id": "b",
+                "label": "Stimme B · naeher an ihm",
+                "tts_plugin": UNMIXR_TTS_PLUGIN_ID,
+                "tts_plugin_voice_id": "e8eced7f-35fa-4036-af46-ba2b748afd70",
+                "unmixr_speaking_rate": "low",
+                "unmixr_speaking_pitch": "medium",
+                "unmixr_speaking_volume": "high",
+                "description": "Neuer Challenger aus reinen Interviewspuren",
+            },
+        ],
+        "sample_text": "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.",
+        "updated_at": _utc_now_iso(),
+    }
+
+
+def _load_voice_ab_config(slug: str) -> dict[str, object]:
+    path = _voice_ab_config_path(slug)
+    if not path.is_file():
+        return _default_voice_ab_config(slug)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    merged = _default_voice_ab_config(slug)
+    merged.update({k: v for k, v in payload.items() if k != "variants"})
+    variants = payload.get("variants")
+    if isinstance(variants, list) and variants:
+        cleaned: list[dict[str, object]] = []
+        for item in variants[:2]:
+            if not isinstance(item, dict):
+                continue
+            cleaned.append(
+                {
+                    "id": _text(item.get("id"), "a"),
+                    "label": _text(item.get("label"), "Stimme"),
+                    "tts_plugin": _safe_tts_plugin_id(item.get("tts_plugin")) or UNMIXR_TTS_PLUGIN_ID,
+                    "tts_plugin_voice_id": _text(item.get("tts_plugin_voice_id"), ""),
+                    "unmixr_speaking_rate": _text(item.get("unmixr_speaking_rate"), "low"),
+                    "unmixr_speaking_pitch": _text(item.get("unmixr_speaking_pitch"), "medium"),
+                    "unmixr_speaking_volume": _text(item.get("unmixr_speaking_volume"), "high"),
+                    "description": _text(item.get("description"), ""),
+                }
+            )
+        if cleaned:
+            merged["variants"] = cleaned
+    return merged
+
+
+def _voice_ab_variant_choice(
+    *,
+    slug: str,
+    variant_id: str,
+    context: dict[str, object] | None = None,
+) -> dict[str, object]:
+    config = _load_voice_ab_config(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
+    selected = next((item for item in variants if _text(item.get("id"), "") == variant_id), None)
+    if selected is None and variants:
+        selected = variants[0]
+    if selected is None:
+        return {}
+    if context:
+        scope = _text(context.get("scope"), "")
+        if scope:
+            store = _load_personal_memory_store(slug=slug, scope=scope)
+            if bool(store.get("frozen")) and _text(store.get("approved_voice_choice"), ""):
+                approved = _text(store.get("approved_voice_choice"), "")
+                approved_variant = next((item for item in variants if _text(item.get("id"), "") == approved), None)
+                if approved_variant is not None:
+                    selected = approved_variant
+    return {
+        "tts_plugin": _safe_tts_plugin_id(selected.get("tts_plugin")) or UNMIXR_TTS_PLUGIN_ID,
+        "tts_plugin_voice_id": _text(selected.get("tts_plugin_voice_id"), ""),
+        "unmixr_speaking_rate": _text(selected.get("unmixr_speaking_rate"), ""),
+        "unmixr_speaking_pitch": _text(selected.get("unmixr_speaking_pitch"), ""),
+        "unmixr_speaking_volume": _text(selected.get("unmixr_speaking_volume"), ""),
+        "voice_ab_variant": _text(selected.get("id"), ""),
+    }
+
+
+def _voice_ab_rating_path(slug: str) -> Path:
+    return (_VOICE_AB_ROOT / _safe_slug(slug) / "ratings.json").resolve()
+
+
+def _load_voice_ab_ratings(slug: str) -> dict[str, object]:
+    path = _voice_ab_rating_path(slug)
+    if not path.is_file():
+        return {"slug": _safe_slug(slug), "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0}, "events": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    totals = dict(payload.get("totals") or {})
+    return {
+        "slug": _safe_slug(slug),
+        "totals": {
+            "a": int(totals.get("a", 0) or 0),
+            "b": int(totals.get("b", 0) or 0),
+            "equal": int(totals.get("equal", 0) or 0),
+            "approved": int(totals.get("approved", 0) or 0),
+        },
+        "events": [dict(item) for item in payload.get("events", []) if isinstance(item, dict)][-40:],
+    }
+
+
+def _save_voice_ab_ratings(slug: str, payload: dict[str, object]) -> None:
+    path = _voice_ab_rating_path(slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json_atomic(path, payload)
+
+
+def _record_voice_ab_rating(
+    *,
+    slug: str,
+    context: dict[str, object],
+    choice: str,
+    approved_variant: str = "",
+    note: str = "",
+) -> dict[str, object]:
+    ratings = _load_voice_ab_ratings(slug)
+    choice_key = choice if choice in {"a", "b", "equal"} else "equal"
+    ratings["totals"][choice_key] = int(ratings["totals"].get(choice_key, 0) or 0) + 1
+    if approved_variant in {"a", "b"}:
+        ratings["totals"]["approved"] = int(ratings["totals"].get("approved", 0) or 0) + 1
+    ratings["events"] = list(ratings.get("events", []))[-39:]
+    ratings["events"].append(
+        {
+            "scope": _text(context.get("scope"), ""),
+            "guest_mode": bool(context.get("guest_mode")),
+            "choice": choice_key,
+            "approved_variant": approved_variant,
+            "note": _text(note, "")[:240],
+            "created_at": _utc_now_iso(),
+        }
+    )
+    _save_voice_ab_ratings(slug, ratings)
+    scope = _text(context.get("scope"), "")
+    if scope and approved_variant in {"a", "b"}:
+        store = _load_personal_memory_store(slug=slug, scope=scope)
+        store["frozen"] = True
+        store["approved_voice_choice"] = approved_variant
+        _save_personal_memory_store(slug=slug, scope=scope, payload=store)
+    return ratings
 
 
 def _memorial_bundle(slug: str) -> Path:
@@ -910,12 +1339,12 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
 
 
 def _memorial_pwa_service_worker(slug: str) -> str:
-    cache_name = f"memorial-pwa-{slug}-v3"
+    cache_name = f"memorial-pwa-{slug}-v{_MEMORIAL_PWA_VERSION}"
     base_path = f"/memorials/{slug}"
     precache = [
         base_path,
         f"{base_path}?source=pwa",
-        f"{base_path}/app.webmanifest",
+        f"{base_path}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}",
         f"{base_path}/icon.svg",
     ]
     precache_json = json.dumps(precache, ensure_ascii=True)
@@ -1679,7 +2108,7 @@ def _memorial_ooda_struct(
         act = "schriftlich pruefen, Zahlen vergleichen, erst dann entscheiden"
     elif domain == "employment":
         orient = "was rechtlich zugesichert ist und was bloss Gerede bleibt"
-        decide = "keine grossen Bewegungen, bevor die Bedingungen schriftlich vorliegen"
+        decide = "nicht wechseln, bevor die Bedingungen schriftlich vorliegen"
         act = "alles schriftlich geben lassen, vergleichen, erst dann wechseln"
     elif domain == "legal_dispute":
         orient = "Rechtsfrage, Beweislast und Anspruch sauber auseinanderhalten"
@@ -1771,50 +2200,55 @@ def _memorial_ooda_answer_body(
     act = _text(ooda.get("act"), "")
     if domain == "real_estate":
         return (
-            "Ich beginne nicht mit Gefuehl, sondern mit Beobachtung. "
-            + f"Zuerst brauche ich {observe}. "
-            + (f" Live sehe ich immerhin schon: {observed}. " if observed else " ")
-            + f"Dann ordne ich die Sache {orient}. "
-            + (f" Offen sind vor allem noch: {missing}. " if missing else " ")
-            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln erst nach: {act}."
+            f"Vorlaeufig wuerde ich {decide}. "
+            + f"Dafuer brauche ich zuerst {observe}. "
+            + (f" Live sehe ich bereits: {observed}. " if observed else " ")
+            + f"Entscheidend ist dabei {orient}. "
+            + (f" Noch offen sind vor allem: {missing}. " if missing else " ")
+            + f"Mein Rat waere deshalb: {act}."
         )
     if domain == "employment":
         return (
-            f"Zuerst beobachte ich den Sachverhalt: {observe}. "
+            f"Vorlaeufig wuerde ich {decide}. "
+            + f"Ich wuerde dafuer zuerst den Sachverhalt pruefen: {observe}. "
             + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
-            + f"Dann muss man die Sache ordnen: {orient}. "
+            + f"Entscheidend ist dabei {orient}. "
             + ((f" Offen sind fuer mich vor allem noch: {missing}. ") if missing else " ")
-            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln heisst: {act}."
+            + f"Mein Rat waere deshalb: {act}."
         )
     if domain == "legal_dispute":
         return (
-            f"Bei {subject} wuerde ich zuerst beobachten, was wirklich geschehen ist: {observe}. "
+            f"Bei {subject} waere mein vorlaeufiges Urteil: {decide}. "
+            + f"Zuerst pruefe ich dafuer, was wirklich geschehen ist: {observe}. "
             + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
-            + f"Dann ordne ich die Rechtsfrage: {orient}. "
+            + f"Entscheidend ist dabei {orient}. "
             + ((f" Noch ungeklaert sind dabei vor allem: {missing}. ") if missing else " ")
-            + f"Mein vorlaeufiges Urteil waere: {decide}; handeln sollte man dann: {act}."
+            + f"Handeln sollte man dann so: {act}."
         )
     if domain == "healthcare":
         return (
-            f"Zuerst beobachte ich {observe}. "
+            f"Vorlaeufig wuerde ich {decide}. "
+            + f"Zuerst pruefe ich dafuer {observe}. "
             + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
-            + f"Dann ordne ich die Sache: {orient}. "
+            + f"Entscheidend ist dabei {orient}. "
             + ((f" Mir fehlen dafuer vor allem noch: {missing}. ") if missing else " ")
-            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln heisst: {act}."
+            + f"Mein Rat waere deshalb: {act}."
         )
     if domain == "finance":
         return (
-            f"Zuerst beobachte ich {observe}. "
+            f"Vorlaeufig wuerde ich {decide}. "
+            + f"Zuerst pruefe ich dafuer {observe}. "
             + ((f" Live sehe ich bereits: {observed}. ") if observed else " ")
-            + f"Dann muss man ordnen, {orient}. "
+            + f"Entscheidend ist dabei, {orient}. "
             + ((f" Was noch offen ist: {missing}. ") if missing else " ")
-            + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln sollte man: {act}."
+            + f"Mein Rat waere deshalb: {act}."
         )
     return (
-        "Zuerst beobachte ich die Tatsachen, die Unterlagen und das eigentliche Risiko. "
-        + f"Dann ordne ich die Sache begrifflich und rechtlich: {orient}. "
+        f"Vorlaeufig wuerde ich {decide}. "
+        + "Dafuer pruefe ich erst die Tatsachen, die Unterlagen und das eigentliche Risiko. "
+        + f"Entscheidend ist dabei {orient}. "
         + ((f" Was mir dafuer noch fehlt: {missing}. ") if missing else " ")
-        + f"Mein vorlaeufiges Urteil lautet: {decide}; handeln sollte man also: {act}."
+        + f"Mein Rat waere deshalb: {act}."
     )
 
 
@@ -1844,6 +2278,7 @@ def _memorial_chat_fallback_answer(
     *,
     slug: str = "",
     memory_runtime=None,
+    personal_memory_context: dict[str, object] | None = None,
     llm_model: str = "",
     fallback_reason: str = "",
 ) -> dict[str, object]:
@@ -1873,6 +2308,11 @@ def _memorial_chat_fallback_answer(
         question=normalized_question,
         memory_runtime=memory_runtime,
     )
+    personal_memory_lines = _personal_memory_context_lines(
+        slug=slug or _text(payload.get("slug"), ""),
+        context=personal_memory_context or {},
+        question=normalized_question,
+    )
     primary_memory_line = memory_lines[0] if memory_lines else ""
     if _is_memorial_identity_question(normalized_question):
         body = (
@@ -1880,6 +2320,16 @@ def _memorial_chat_fallback_answer(
             "Ich bin hier als Erinnerung ansprechbar, nicht als Beweis, dass ich wirklich da bin. "
             "Meine Stimme und diese Worte duerfen dir nahe sein, aber begrifflich bleiben sie zusammengesetzt aus Aufnahmen, Quellen und euren Erinnerungen. "
             "Ich habe nie viel davon gehalten, Begriffe unsauber werden zu lassen. Das fuehrt erfahrungsgemaess zu nichts Gutem."
+        )
+    elif (
+        any(token in lowered for token in ("kuenftig antworten", "künftig antworten", "antwortest", "antworten sollst", "antworte mir kuenftig", "antworte mir künftig"))
+        or "antwortstil" in lowered
+    ) and personal_memory_lines:
+        preference_line = next((line for line in personal_memory_lines if "Nutzerpraeferenz:" in line), personal_memory_lines[0])
+        preference_text = preference_line.split("Nutzerpraeferenz:", 1)[1].strip() if "Nutzerpraeferenz:" in preference_line else preference_line
+        body = (
+            f"Ich halte mich kuenftig daran: {preference_text}. "
+            "Ich antworte also direkt und ohne unnoetigen Umweg."
         )
     elif _is_memorial_family_mail_question(normalized_question):
         body = _memorial_family_mail_answer_body(normalized_question)
@@ -2032,8 +2482,8 @@ def _memorial_chat_fallback_answer(
     else:
         fact_line = primary_memory_line or (facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen.")
         body = (
-            f"Ich weiss nicht mehr, als hier von mir aufgehoben ist. Zur Information: {fact_line} "
-            "Die Sache laesst sich enger ordnen, sobald die Frage enger gestellt ist. Alles andere bleibt meines Erachtens zu ungenau."
+            f"Belegt ist hier vor allem Folgendes: {fact_line} "
+            "Wenn du die Frage enger stellst, kann ich daraus auch enger antworten. Alles andere bleibt meines Erachtens zu ungenau."
         )
     response = {
         "person_name": person_name,
@@ -2042,6 +2492,7 @@ def _memorial_chat_fallback_answer(
         "answer": _compact_memorial_spoken_answer(body),
         "sources": [item for item in source_labels if item],
         "private_context_used": bool(private_notes),
+        "personal_memory_used": bool(personal_memory_lines),
         "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
         "llm_model": llm_model or "",
         "llm_fallback_used": True,
@@ -2138,6 +2589,7 @@ def _build_memorial_chat_messages(
     *,
     slug: str = "",
     memory_runtime=None,
+    personal_memory_context: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
     normalized_question = " ".join(str(question or "").strip().split())
     if not normalized_question:
@@ -2145,7 +2597,7 @@ def _build_memorial_chat_messages(
     if len(normalized_question) > 1200:
         raise HTTPException(status_code=400, detail="question_too_long")
     person_name = _text(payload.get("person_name"), "Manfred")
-    relationship = _text(payload.get("relationship"), "Vater")
+    relationship = _text(payload.get("relationship"), "")
     has_imported_mail = memorial_has_imported_mail(
         memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
@@ -2155,10 +2607,9 @@ def _build_memorial_chat_messages(
     transcript_signal_report = dict(private_profile.get("transcript_signal_report") or {})
     character_notes = [str(item).strip() for item in (payload.get("character_notes") or []) if str(item).strip()]
     conversation_style = dict(payload.get("conversation_style") or {})
-    context_bits = [
-        f"Person: {person_name}",
-        f"Beziehung: {relationship}",
-    ]
+    context_bits = [f"Person: {person_name}"]
+    if relationship:
+        context_bits.append(f"Beziehung: {relationship}")
     if facts:
         context_bits.append("Quellen aus Archiv: " + " | ".join(facts))
     if private_notes:
@@ -2234,6 +2685,13 @@ def _build_memorial_chat_messages(
     memory_axis_instruction = _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
     if memory_axis_instruction:
         context_bits.append("Antwortfokus: " + memory_axis_instruction)
+    personal_lines = _personal_memory_context_lines(
+        slug=slug or _text(payload.get("slug"), ""),
+        context=personal_memory_context or {},
+        question=normalized_question,
+    )
+    if personal_lines:
+        context_bits.append("Persoenliches Gespraechsgedaechtnis fuer genau diesen Nutzer: " + " | ".join(personal_lines[:4]))
     ooda_instruction = ""
     if _is_memorial_ooda_question(normalized_question):
         ooda_instruction = (
@@ -2252,6 +2710,12 @@ def _build_memorial_chat_messages(
                 "Wenn etwas ungeklärt ist, sage offen, dass es nicht belegt ist und bitte um eine präzisere Frage. "
                 "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten. "
                 "Wenn archivierte Erinnerungen oder importierte Originalmails im Kontext vorhanden sind, haben diese Vorrang vor allgemeinen Persona-Hinweisen; antworte dann moeglichst nah an diesen Erinnerungen und erfinde keine zusaetzlichen biografischen Details. "
+                "Persoenliches Gespraechsgedaechtnis ist strikt nutzergebunden. Nutze es nur, wenn es fuer genau diesen Nutzer im Kontext vorliegt; behandle es als private Fortsetzung frueherer Gespraeche und niemals als allgemeines Memorial-Wissen. "
+                "Wenn du auf eine Erinnerung aus einer Mail zurueckgreifst, fuehre sie als Erinnerung ein und nicht wie ein Dokumentenvortrag; zum Beispiel mit 'Daran erinnere ich mich so:'. "
+                "Lies dabei keine Mail-Metadaten wie Datum, Uhrzeit oder Headerzeilen laut vor, ausser die Frage verlangt das ausdruecklich. "
+                "Zitiere dabei keine einzelnen Mailsaetze wortwoertlich, ausser die Frage verlangt ausdruecklich ein Zitat; gib stattdessen eine knappe paraphrasierende Zusammenfassung. "
+                "Bei Mail-Erinnerungen verdichte auf drei Dinge: Kernaussage, meine damalige Haltung dazu und die praktische Folgerung. "
+                "Klinge dabei wie erinnerte Rede, nicht wie ein Aktenvermerk oder ein vorgelesenes Dokument. "
                 "WICHTIG fuer Sprachdialog: Antworte kurz, direkt und gesprochen klingend. "
                 "Normalfall: 2 bis 4 kurze Saetze, hoechstens etwa 80 Woerter. "
                 "Beginne mit der eigentlichen Antwort, keine Vorrede, keine Meta-Erklaerung, kein Disclaimer ausser wenn die Frage nach Echtheit oder Beleglage fragt. "
@@ -2377,6 +2841,7 @@ def _memorial_chat_answer(
     *,
     slug: str = "",
     memory_runtime=None,
+    personal_memory_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
     person_name = _text(payload.get("person_name"), "Manfred")
     normalized_question = " ".join(str(question or "").strip().split())
@@ -2388,6 +2853,59 @@ def _memorial_chat_answer(
         memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
     )
+    lowered_question = normalized_question.lower()
+    personal_memory_lines = _personal_memory_context_lines(
+        slug=slug or _text(payload.get("slug"), ""),
+        context=personal_memory_context or {},
+        question=normalized_question,
+    )
+    if any(
+        token in lowered_question
+        for token in (
+            "kuenftig antworten",
+            "künftig antworten",
+            "antwortest",
+            "antworten sollst",
+            "antworte mir kuenftig",
+            "antworte mir künftig",
+            "antwortstil",
+            "knapp und ohne wiederholungen",
+            "knapp ohne wiederholungen",
+            "ohne wiederholungen",
+            "ohne wiederholung",
+            "ohne fragewiederholung",
+            "ohne frage wiederholung",
+        )
+    ):
+        if personal_memory_lines:
+            fallback = _memorial_chat_fallback_answer(
+                payload,
+                normalized_question,
+                private_profile,
+                slug=slug or _text(payload.get("slug"), ""),
+                memory_runtime=memory_runtime,
+                personal_memory_context=personal_memory_context,
+                llm_model=requested_model,
+                fallback_reason="personal_memory_style_guardrail",
+            )
+        else:
+            fallback = {
+                "person_name": person_name,
+                "mode": "memorial_first_person_memory_chat",
+                "question": normalized_question,
+                "answer": "Verstanden. Ich antworte kuenftig knapp, direkt und ohne Wiederholungen.",
+                "sources": [],
+                "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
+                "personal_memory_used": False,
+                "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            }
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        if personal_memory_lines and "Nutzer bevorzugt knappe, direkte und paraphrasierende Antworten statt wortwoertlicher oder ausladender Wiedergabe." in _text(fallback.get("answer"), ""):
+            fallback["answer"] = "Ich halte es kuenftig knapp, direkt und ohne unnoetige Wiederholungen."
+        return fallback
     if _is_memorial_ooda_question(normalized_question):
         fallback = _memorial_chat_fallback_answer(
             payload,
@@ -2395,6 +2913,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="memorial_ooda_loop",
         )
@@ -2410,6 +2929,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="family_mail_guardrail",
         )
@@ -2425,6 +2945,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="colleague_mail_guardrail",
         )
@@ -2440,6 +2961,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="mail_style_without_imported_mail",
         )
@@ -2455,6 +2977,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="memorial_anchor_memory_guardrail",
         )
@@ -2473,6 +2996,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason=fallback_reason,
         )
@@ -2488,6 +3012,7 @@ def _memorial_chat_answer(
         normalized_question,
         slug=slug or _text(payload.get("slug"), ""),
         memory_runtime=memory_runtime,
+        personal_memory_context=personal_memory_context,
     )
     try:
         result = generate_text(
@@ -2526,6 +3051,11 @@ def _memorial_chat_answer(
             "answer": generated,
             "sources": [item for item in source_labels if item],
             "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
+            "personal_memory_used": bool(_personal_memory_context_lines(
+                slug=slug or _text(payload.get("slug"), ""),
+                context=personal_memory_context or {},
+                question=normalized_question,
+            )),
             "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
             "llm_model": _text(result.model, requested_model),
             "llm_provider": provider_key,
@@ -2542,6 +3072,7 @@ def _memorial_chat_answer(
             private_profile,
             slug=slug or _text(payload.get("slug"), ""),
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason=f"upstream_unavailable:{exc}",
         )
@@ -2674,7 +3205,13 @@ def _compact_memorial_realtime_answer(value: object) -> str:
     return (shortened or compact[:300].strip()).rstrip(",;:")
 
 
-def _pad_speech_audio_lead_in(*, payload: bytes, content_type: str, silence_ms: int = 180) -> tuple[bytes, str]:
+def _pad_speech_audio_lead_in(
+    *,
+    payload: bytes,
+    content_type: str,
+    silence_ms: int = 180,
+    extra_filters: str = "",
+) -> tuple[bytes, str]:
     if not payload:
         return payload, content_type
     normalized_content_type = str(content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
@@ -2685,6 +3222,10 @@ def _pad_speech_audio_lead_in(*, payload: bytes, content_type: str, silence_ms: 
         input_path = Path(tmp_dir) / f"input{input_suffix}"
         output_path = Path(tmp_dir) / "output.wav"
         input_path.write_bytes(payload)
+        filter_chain = [f"adelay={int(max(0, silence_ms))}|{int(max(0, silence_ms))}"]
+        normalized_extra_filters = str(extra_filters or "").strip()
+        if normalized_extra_filters:
+            filter_chain.append(normalized_extra_filters)
         proc = subprocess.run(
             [
                 "ffmpeg",
@@ -2695,7 +3236,7 @@ def _pad_speech_audio_lead_in(*, payload: bytes, content_type: str, silence_ms: 
                 "-i",
                 str(input_path),
                 "-af",
-                f"adelay={int(max(0, silence_ms))}|{int(max(0, silence_ms))}",
+                ",".join(filter_chain),
                 "-ac",
                 "1",
                 "-ar",
@@ -2713,6 +3254,26 @@ def _pad_speech_audio_lead_in(*, payload: bytes, content_type: str, silence_ms: 
         return output_path.read_bytes(), output_content_type
 
 
+def _speech_postprocess_filters(tts_plugin: str) -> str:
+    plugin_id = str(tts_plugin or "").strip().lower()
+    if plugin_id != UNMIXR_TTS_PLUGIN_ID:
+        return ""
+    return ",".join(
+        [
+            "highpass=f=55",
+            "equalizer=f=165:t=q:w=1.1:g=1.8",
+            "equalizer=f=520:t=q:w=1.0:g=0.8",
+            "equalizer=f=2350:t=q:w=1.1:g=-1.6",
+            "equalizer=f=3600:t=q:w=1.0:g=-2.8",
+            "equalizer=f=5200:t=q:w=1.0:g=-2.0",
+            "lowpass=f=6200",
+            "afftdn=nf=-22",
+            "acompressor=threshold=-20dB:ratio=1.8:attack=16:release=135:makeup=1.0",
+            "alimiter=limit=0.90",
+        ]
+    )
+
+
 def _build_memorial_conversation_turn_payload(
     *,
     slug: str,
@@ -2720,6 +3281,8 @@ def _build_memorial_conversation_turn_payload(
     content_type: str,
     prefer_fast_tts: bool = False,
     memory_runtime=None,
+    personal_memory_context: dict[str, object] | None = None,
+    voice_ab_variant: str = "",
 ) -> dict[str, object]:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
@@ -2735,9 +3298,12 @@ def _build_memorial_conversation_turn_payload(
         requested_model=selected_model,
         slug=slug,
         memory_runtime=memory_runtime,
+        personal_memory_context=personal_memory_context,
     )
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
+    if voice_ab_variant in {"a", "b"}:
+        merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=voice_ab_variant, context=personal_memory_context))
     tts_options = _tts_plugin_options(
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
@@ -2794,11 +3360,18 @@ def _build_memorial_conversation_turn_payload(
         payload=audio,
         content_type=audio_content_type,
         silence_ms=lead_in_ms,
+        extra_filters=_speech_postprocess_filters(selected_plugin),
     )
     response_payload = dict(answer_payload)
     response_payload["transcript_text"] = transcript_text
     response_payload["audio_content_type"] = audio_content_type
     response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
+    _remember_personal_conversation_turn(
+        slug=slug,
+        context=personal_memory_context or {},
+        question=transcript_text,
+        answer=_text(answer_payload.get("answer"), ""),
+    )
     return response_payload
 
 
@@ -2938,7 +3511,6 @@ def _memorial_html(
         payload.get("subtitle"),
         "Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.",
     )
-    relationship = _text(payload.get("relationship"), "Vater")
     intro = _text(
         payload.get("intro"),
         "Diese Seite sammelt echte Aufnahmen und belegte Erinnerungen. Neue Texte sind keine direkte Rede.",
@@ -3096,7 +3668,7 @@ def _memorial_html(
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="{html.escape(_memorial_pwa_short_name(payload))}">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest">
+    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}">
     <link rel="apple-touch-icon" href="/memorials/{html.escape(slug)}/icon.svg">
     {clickrank_html}
     <style>
@@ -4078,14 +4650,26 @@ def _memorial_html(
       <div class="wrap hero">
         <div class="hero-stage">
           <div class="hero-copy">
-            <p class="eyebrow">Gedenkseite · {html.escape(relationship)}</p>
+            <p class="eyebrow">Gedenkseite</p>
             <h1>{html.escape(person_name)}</h1>
             <p class="lead">{html.escape(subtitle)}</p>
             <div class="hero-actions">
-              <button type="button" class="hero-cta" data-hero-action="conversation" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich starte jetzt das Gespräch ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte Mikrofon erlauben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich starte jetzt das Gespräch ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte Mikrofon erlauben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
+              <button type="button" class="hero-cta" data-hero-action="conversation" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
+              <label class="autostart-toggle" style="display:block;margin-top:10px;color:var(--muted);font-size:.92rem;">
+                <input type="checkbox" id="memorial-autostart-optin" style="margin-right:8px;" />
+                Gespräch automatisch beginnen
+              </label>
+              <label class="autostart-toggle" style="display:block;margin-top:8px;color:var(--muted);font-size:.92rem;">
+                <input type="checkbox" id="memorial-personal-memory-optin" style="margin-right:8px;" />
+                Frühere Gespräche
+              </label>
+              <div id="memorial-personal-memory-status" style="margin-top:8px;color:var(--muted);font-size:.88rem;">Gastmodus · Gedächtnis aus.</div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                <button type="button" id="memorial-personal-memory-forget">Vergessen</button>
+              </div>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
-              Installiere diese Seite als App und starte Manfred künftig direkt vom Homescreen.
+              Als App installieren.
               <button type="button" id="memorial-install-button" hidden>App installieren</button>
             </p>
             <p class="hero-meta">Jurist, Querulant, Prinzipienmensch.</p>
@@ -4096,7 +4680,7 @@ def _memorial_html(
     <main class="wrap">
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note" id="memorial-speech-note">
-          Tippe auf <strong>Gespräch beginnen</strong>, um die offene Konversation zu starten oder wieder zu stoppen.
+          <strong>Gespräch beginnen</strong>.
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
             <div class="speech-wave" id="memorial-speech-wave">
@@ -4110,7 +4694,29 @@ def _memorial_html(
           </div>
           <div class="speech-status-meta">
             <span id="memorial-speech-phase">Bereit</span>
-            <span id="memorial-speech-detail">Bereit für ein Gespräch.</span>
+            <span id="memorial-speech-detail">Bereit.</span>
+          </div>
+        </div>
+        <div class="voice-tools" id="memorial-voice-ab-panel" style="margin:16px 0 10px;">
+          <h2 style="margin-top:0;">Stimmvergleich</h2>
+          <p class="lead" style="margin-bottom:10px;">A und B anhören, dann wählen.</p>
+          <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
+          <div class="voice-actions" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <strong>Stimme A</strong>
+              <button type="button" id="memorial-voice-ab-preview-a">A hören</button>
+              <button type="button" data-voice-rating="a">A besser</button>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <strong>Stimme B</strong>
+              <button type="button" id="memorial-voice-ab-preview-b">B hören</button>
+              <button type="button" data-voice-rating="b">B besser</button>
+            </div>
+          </div>
+          <div class="voice-actions">
+            <button type="button" data-voice-rating="equal">Beide ok</button>
+            <button type="button" id="memorial-voice-ab-approve">Passt</button>
+            <span class="voice-status" id="memorial-voice-ab-status">Bereit.</span>
           </div>
         </div>
         <div class="minimal-hidden" hidden aria-hidden="true">
@@ -4245,7 +4851,20 @@ def _memorial_html(
       const ttsBaseVoiceButtons = Array.from(document.querySelectorAll("[data-variant]"));
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
+      const autostartOptin = document.getElementById("memorial-autostart-optin");
+      const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
+      const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
+      const personalMemoryForgetButton = document.getElementById("memorial-personal-memory-forget");
+      const voiceAbOptions = document.getElementById("memorial-voice-ab-options");
+      const voiceAbPreviewAButton = document.getElementById("memorial-voice-ab-preview-a");
+      const voiceAbPreviewBButton = document.getElementById("memorial-voice-ab-preview-b");
+      const voiceAbStatus = document.getElementById("memorial-voice-ab-status");
+      const voiceAbApproveButton = document.getElementById("memorial-voice-ab-approve");
+      const voiceAbRatingButtons = Array.from(document.querySelectorAll("[data-voice-rating]"));
       let deferredInstallPrompt = null;
+      const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
+      const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
+      const memorialVisitorIdStorageKey = "memorial_guest_visitor_id_v1";
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
       const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
@@ -4284,6 +4903,7 @@ def _memorial_html(
       let activeLevelMonitor = null;
       let activeBargeInRecognition = null;
       let conversationTurnInFlight = false;
+      let conversationIdleMisses = 0;
       let speechHadError = false;
       let speechObjectUrl = null;
       let activeRecorderStopTimer = null;
@@ -4310,6 +4930,134 @@ def _memorial_html(
         voice_name_hints: ["de-AT", "de-DE", "German"],
         synthetic_voice_clone_of_memorial_person: false
       }};
+      let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
+      let voiceAbState = {{
+        variants: [],
+        sample_text: "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.",
+        selected_variant: "a",
+        frozen: false,
+      }};
+      function ensureMemorialVisitorId() {{
+        try {{
+          let value = String(window.localStorage.getItem(memorialVisitorIdStorageKey) || "").trim();
+          if (!value) {{
+            value = (window.crypto && typeof window.crypto.randomUUID === "function")
+              ? window.crypto.randomUUID()
+              : ("guest_" + String(Date.now()) + "_" + String(Math.floor(Math.random() * 100000)));
+            window.localStorage.setItem(memorialVisitorIdStorageKey, value);
+          }}
+          return value;
+        }} catch (error) {{
+          return "guest_fallback_" + String(Date.now());
+        }}
+      }}
+      function personalMemoryEnabled() {{
+        return Boolean(personalMemoryOptin && personalMemoryOptin.checked);
+      }}
+      function personalMemoryHeaders() {{
+        return {{
+          "x-memorial-visitor-id": ensureMemorialVisitorId(),
+          "x-memorial-personal-memory": personalMemoryEnabled() ? "1" : "0",
+        }};
+      }}
+      function updatePersonalMemoryStatusUi() {{
+        if (!personalMemoryStatus) return;
+        const enabled = personalMemoryEnabled();
+        const itemCount = Number((personalMemoryStatusPayload && personalMemoryStatusPayload.item_count) || 0);
+        const frozen = Boolean(personalMemoryStatusPayload && personalMemoryStatusPayload.frozen);
+        if (!enabled) {{
+          personalMemoryStatus.textContent = "Gastmodus · Gedächtnis aus.";
+          return;
+        }}
+        const scopeText = "Nur hier";
+        if (frozen) {{
+          personalMemoryStatus.textContent = scopeText + " · Stimme fixiert · " + String(itemCount);
+          return;
+        }}
+        personalMemoryStatus.textContent = scopeText + " · Gedächtnis aktiv · " + String(itemCount);
+      }}
+      function activeVoiceVariant() {{
+        if (voiceAbState.frozen && String(personalMemoryStatusPayload.approved_voice_choice || "").trim()) {{
+          return String(personalMemoryStatusPayload.approved_voice_choice || "").trim().toLowerCase();
+        }}
+        return String(voiceAbState.selected_variant || "a").trim().toLowerCase() || "a";
+      }}
+      function renderVoiceAbOptions() {{
+        if (!voiceAbOptions) return;
+        const variants = Array.isArray(voiceAbState.variants) ? voiceAbState.variants : [];
+        const selected = activeVoiceVariant();
+        voiceAbOptions.innerHTML = variants.map((variant) => {{
+          const id = String(variant.id || "").trim();
+          const checked = id === selected ? " checked" : "";
+          const disabled = voiceAbState.frozen ? " disabled" : "";
+          const label = String(variant.label || ("Stimme " + id.toUpperCase()));
+          const desc = String(variant.description || "").trim();
+          return '<label class="voice-variant-chip" style="display:inline-flex;align-items:center;gap:8px;"><input type="radio" name="memorial-voice-ab" value="' + id + '"' + checked + disabled + '> <strong>' + label + '</strong>' + (desc ? ' <span style="opacity:.75;">' + desc + '</span>' : '') + '</label>';
+        }}).join("");
+        for (const button of voiceAbRatingButtons) {{
+          button.disabled = voiceAbState.frozen;
+        }}
+        if (voiceAbApproveButton) voiceAbApproveButton.disabled = voiceAbState.frozen;
+      }}
+      async function loadVoiceAbConfig() {{
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-ab", {{
+            headers: personalMemoryHeaders(),
+          }});
+          if (!response.ok) return;
+          const payload = await response.json();
+          voiceAbState.variants = Array.isArray(payload.variants) ? payload.variants : [];
+          voiceAbState.sample_text = String(payload.sample_text || voiceAbState.sample_text || "");
+          voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
+          if (payload.personal_memory) personalMemoryStatusPayload = payload.personal_memory;
+          const approved = String((payload.personal_memory && payload.personal_memory.approved_voice_choice) || "").trim().toLowerCase();
+          if (approved) {{
+            voiceAbState.selected_variant = approved;
+          }} else {{
+            const saved = String(window.localStorage.getItem("memorial_voice_ab_selected_v1") || "").trim().toLowerCase();
+            voiceAbState.selected_variant = saved || "a";
+          }}
+          renderVoiceAbOptions();
+          updatePersonalMemoryStatusUi();
+          if (voiceAbStatus) {{
+            const totals = payload && payload.totals ? payload.totals : {{}};
+            const activeLabel = voiceAbState.selected_variant === "b" ? "Aktiv: B" : "Aktiv: A";
+            const summary = activeLabel + " · A " + String(totals.a || 0) + " · B " + String(totals.b || 0);
+            voiceAbStatus.textContent = voiceAbState.frozen
+              ? ("Stimme bestätigt. " + summary)
+              : ("Bereit. " + summary);
+          }}
+        }} catch (error) {{}}
+      }}
+      async function submitVoiceAbRating(choice, approvedVariant = "") {{
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-ab/rate", {{
+            method: "POST",
+            headers: Object.assign({{ "Content-Type": "application/json" }}, personalMemoryHeaders()),
+            body: JSON.stringify({{
+              choice: String(choice || "equal"),
+              approved_variant: String(approvedVariant || ""),
+              visitor_id: ensureMemorialVisitorId(),
+              personal_memory_enabled: personalMemoryEnabled(),
+            }}),
+          }});
+          if (!response.ok) throw new Error("rating_failed");
+          const payload = await response.json();
+          if (payload.personal_memory) personalMemoryStatusPayload = payload.personal_memory;
+          voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
+          if (voiceAbState.frozen && String(payload.personal_memory.approved_voice_choice || "").trim()) {{
+            voiceAbState.selected_variant = String(payload.personal_memory.approved_voice_choice || "").trim().toLowerCase();
+          }}
+          try {{
+            window.localStorage.setItem("memorial_voice_ab_selected_v1", voiceAbState.selected_variant);
+          }} catch (error) {{}}
+          renderVoiceAbOptions();
+          updatePersonalMemoryStatusUi();
+          if (voiceAbStatus) voiceAbStatus.textContent = voiceAbState.frozen ? "Stimme bestätigt. Vergleich beendet." : "Auswahl gespeichert.";
+        }} catch (error) {{
+          if (voiceAbStatus) voiceAbStatus.textContent = "Auswahl konnte nicht gespeichert werden.";
+        }}
+      }}
       function friendlyTtsPluginLabel(option) {{
         const pluginId = String((option && option.tts_plugin) || "").trim();
         const configuredVoiceLabel = String((memorialVoiceConfig && memorialVoiceConfig.voice_label) || "").trim() || "Manfred";
@@ -4361,6 +5109,41 @@ def _memorial_html(
           speechVoiceChip.textContent = "Basis: " + selected;
         }}
       }}
+      function memorialAutostartEnabled() {{
+        try {{
+          return window.localStorage.getItem(memorialAutostartStorageKey) === "1";
+        }} catch (error) {{
+          return false;
+        }}
+      }}
+      async function loadPersonalMemoryStatus() {{
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/personal-memory", {{
+            headers: personalMemoryHeaders(),
+          }});
+          if (!response.ok) return;
+          personalMemoryStatusPayload = await response.json();
+          updatePersonalMemoryStatusUi();
+        }} catch (error) {{}}
+      }}
+      async function forgetPersonalMemory() {{
+        try {{
+          const response = await fetch("/memorials/{html.escape(slug)}/personal-memory", {{
+            method: "DELETE",
+            headers: personalMemoryHeaders(),
+          }});
+          if (!response.ok) throw new Error("forget_failed");
+          personalMemoryStatusPayload = await response.json();
+          updatePersonalMemoryStatusUi();
+          setSpeechStatus("Persönliches Gesprächsgedächtnis wurde gelöscht.", "idle", "Nur dieser Browser wurde vergessen");
+        }} catch (error) {{
+          setSpeechStatus("Gesprächsgedächtnis konnte nicht gelöscht werden.", "error", "Speicherfehler");
+        }}
+      }}
+      function syncMemorialAutostartOptin() {{
+        if (!autostartOptin) return;
+        autostartOptin.checked = memorialAutostartEnabled();
+      }}
       function setSpeechStatus(message, state = "idle", detail = "") {{
         speechState = state;
         if (speechNote) {{
@@ -4390,31 +5173,31 @@ def _memorial_html(
           speakingOverlay.classList.toggle("is-active", active);
           speakingOverlay.hidden = !active;
           speakingOverlay.setAttribute("aria-hidden", active ? "false" : "true");
-          speakingOverlay.setAttribute("aria-label", active ? "Manfred spricht gerade. Tippen zum Unterbrechen." : "Manfred spricht gerade nicht.");
+          speakingOverlay.setAttribute("aria-label", active ? "Manfred spricht gerade. Tippen zum Unterbrechen." : (state === "thinking" ? "Manfred denkt nach." : "Manfred spricht gerade nicht."));
         }}
         if (speakingOverlayTitle) {{
-          speakingOverlayTitle.textContent = state === "speaking" ? "Manfred spricht gerade" : "Manfred wartet";
+          speakingOverlayTitle.textContent = state === "speaking" ? "Manfred spricht gerade" : (state === "thinking" ? "Manfred denkt nach" : "Manfred wartet");
         }}
         if (speakingOverlayDetail) {{
           speakingOverlayDetail.textContent = state === "speaking"
-            ? (speakingOverlayPreview || "Tippen zum Unterbrechen")
-            : (state === "listening" ? "Ich höre wieder zu" : "Bereit");
+            ? (speakingOverlayPreview || "Tippen zum Stoppen")
+            : (state === "thinking" ? "Kommt gleich" : (state === "listening" ? "Höre zu" : "Bereit"));
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
           listening: "Hört zu",
           transcribing: "Transkribiert",
-          thinking: "Antwortet",
+          thinking: "Denkt nach",
           speaking: "Spricht",
           working: "Arbeitet",
           error: "Problem"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = detail || ({{
-          idle: "Offene Konversation bereit",
-          listening: "Ich höre zu",
-          transcribing: "Audio wird in Text umgewandelt",
-          thinking: "Manfred formuliert eine Antwort",
-          speaking: "Antwort wird vorgelesen",
+          idle: "Bereit",
+          listening: "Höre zu",
+          transcribing: "Erkenne Audio",
+          thinking: "Antwortet",
+          speaking: "Läuft",
           working: "Bitte kurz warten",
           error: "Erneut versuchen oder tippen"
         }})[state] || "";
@@ -4468,7 +5251,7 @@ def _memorial_html(
           return await fetch(url, Object.assign({{}}, options, {{ signal: controller.signal }}));
         }} catch (error) {{
           if (controller.signal.aborted) {{
-            throw new Error("Zeitüberschreitung. Bitte erneut versuchen.");
+            throw new Error("Server startet gerade neu oder antwortet zu langsam. Bitte in wenigen Sekunden erneut versuchen.");
           }}
           throw error;
         }} finally {{
@@ -4478,7 +5261,10 @@ def _memorial_html(
       }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-        return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime";
+        const params = new URLSearchParams();
+        params.set("visitor_id", ensureMemorialVisitorId());
+        params.set("personal_memory", personalMemoryEnabled() ? "1" : "0");
+        return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime?" + params.toString();
       }}
       function handleRealtimeMessage(event) {{
         let payload = null;
@@ -4502,7 +5288,7 @@ def _memorial_html(
             listening: "listening",
             transcribing: "transcribing",
             thinking: "thinking",
-            speaking: "speaking",
+            speaking: "thinking",
           }}[phase] || "working";
           setSpeechStatus(detail || "Realtime aktiv.", mapped, detail || "Live-Session");
           return;
@@ -4526,7 +5312,7 @@ def _memorial_html(
           realtimeTurnData.audio_chunks.push(String(payload.audio_base64 || ""));
           const part = Math.max(1, Number(payload.part || 1));
           const total = Math.max(part, Number(payload.total_parts || part));
-          setSpeechStatus("Antwort wird gestreamt.", "speaking", "Audio " + part + "/" + total);
+          setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio " + part + "/" + total + " wird vorbereitet");
           return;
         }}
         if (type === "audio_complete") {{
@@ -4583,12 +5369,14 @@ def _memorial_html(
             }};
             socket.onerror = () => {{
               realtimeSocketPromise = null;
-              reject(new Error("Realtime-Verbindung fehlgeschlagen."));
+              reject(new Error("Server startet gerade neu. Bitte in wenigen Sekunden erneut versuchen."));
             }};
             socket.onclose = () => {{
               realtimeSocket = null;
               realtimeSocketPromise = null;
-              if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error("Realtime-Verbindung beendet."));
+              if (realtimeTurnPending && realtimeTurnPending.reject) {{
+                realtimeTurnPending.reject(new Error("Server startet gerade neu. Bitte in wenigen Sekunden erneut versuchen."));
+              }}
               realtimeTurnPending = null;
               realtimeTurnData = null;
               activeRealtimeTurnId = "";
@@ -4611,12 +5399,25 @@ def _memorial_html(
         const directText = normalizeTranscriptText(input && typeof input === "object" && !("size" in input) ? (input.text || "") : "");
         if (directText) {{
           realtimeTurnData.transcript_text = directText;
-          socket.send(JSON.stringify({{ type: "user_text_turn", turn_id: turnId, text: directText }}));
+          socket.send(JSON.stringify({{
+            type: "user_text_turn",
+            turn_id: turnId,
+            text: directText,
+            visitor_id: ensureMemorialVisitorId(),
+            personal_memory_enabled: personalMemoryEnabled()
+          }}));
           return resultPromise;
         }}
         const audioBlob = input && typeof input === "object" && "size" in input ? input : (input && typeof input === "object" ? input.audioBlob : null);
         if (!audioBlob || !audioBlob.size) throw new Error("Audioaufnahme fehlt. Bitte erneut versuchen.");
-        socket.send(JSON.stringify({{ type: "user_audio_start", turn_id: turnId, content_type: audioBlob.type || "application/octet-stream" }}));
+        socket.send(JSON.stringify({{
+          type: "user_audio_start",
+          turn_id: turnId,
+          content_type: audioBlob.type || "application/octet-stream",
+          visitor_id: ensureMemorialVisitorId(),
+          personal_memory_enabled: personalMemoryEnabled(),
+          voice_ab_variant: activeVoiceVariant()
+        }}));
         socket.send(await audioBlob.arrayBuffer());
         socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }}));
         return resultPromise;
@@ -4868,6 +5669,53 @@ def _memorial_html(
       function normalizeTranscriptText(value) {{
         return String(value || "").replace(/\\s+/g, " ").trim();
       }}
+      function normalizeConversationCompareText(value) {{
+        return normalizeTranscriptText(value || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9äöüß]+/gi, " ")
+          .replace(/\\s+/g, " ")
+          .trim();
+      }}
+      function conversationEchoScore(a, b) {{
+        const left = normalizeConversationCompareText(a);
+        const right = normalizeConversationCompareText(b);
+        if (!left || !right) return 0;
+        if (left === right) return 1;
+        const leftWords = left.split(" ").filter(Boolean);
+        const rightWords = right.split(" ").filter(Boolean);
+        if (!leftWords.length || !rightWords.length) return 0;
+        const rightSet = new Set(rightWords);
+        let overlap = 0;
+        for (const word of leftWords) {{
+          if (rightSet.has(word)) overlap += 1;
+        }}
+        return overlap / Math.max(leftWords.length, rightWords.length);
+      }}
+      function shouldSendConversationTranscript(transcript) {{
+        const normalized = normalizeTranscriptText(transcript || "");
+        if (!normalized) return false;
+        const words = normalized.split(/\\s+/).filter(Boolean);
+        if (normalized.length < 12 || words.length < 3) return false;
+        if (lastAnswerText && conversationEchoScore(normalized, lastAnswerText) >= 0.72) return false;
+        const lowered = normalizeConversationCompareText(normalized);
+        const starters = new Set([
+          "was", "wie", "warum", "wieso", "weshalb", "wer", "wo", "wann", "welche", "welcher", "welches",
+          "soll", "sollte", "kann", "koennte", "darf", "hast", "bist", "glaubst", "weisst", "weißt",
+          "erzaehl", "erzaehlst", "erzaehle", "erzähl", "erzählst", "erzähle", "sag", "sage", "erklaer", "erklaere", "erklär", "erkläre",
+          "bitte"
+        ]);
+        const firstWord = lowered.split(" ").filter(Boolean)[0] || "";
+        const looksDirected =
+          /[?]$/.test(String(transcript || "").trim()) ||
+          starters.has(firstWord) ||
+          lowered.includes(" manfred ") ||
+          lowered.startsWith("manfred ") ||
+          lowered.startsWith("ich moechte ") ||
+          lowered.startsWith("ich möchte ") ||
+          lowered.startsWith("ich will ");
+        if (!looksDirected) return false;
+        return true;
+      }}
       function stopSpeechPlayback() {{
         speakingOverlayPreview = "";
         if (speechAudio) {{
@@ -4893,11 +5741,27 @@ def _memorial_html(
         const option = getActiveTtsPluginOption();
         const plugin = String(ttsPluginSelect ? (ttsPluginSelect.value || memorialVoiceConfig.tts_plugin || "") : String(memorialVoiceConfig.tts_plugin || ""));
         const voiceId = String(option.tts_plugin_voice_id || memorialVoiceConfig.tts_plugin_voice_id || "");
+        const selectedVariant = activeVoiceVariant();
         return {{
           tts_plugin: plugin,
           tts_plugin_voice_id: voiceId,
           tts_plugin_label: String(option.tts_plugin_label || "TTS Plugin"),
           tts_plugin_enabled: Boolean(option.tts_plugin_enabled),
+          voice_ab_variant: selectedVariant,
+        }};
+      }}
+      function voiceAbPluginConfig(variantId) {{
+        const normalized = String(variantId || "").trim().toLowerCase();
+        const variant = Array.isArray(voiceAbState.variants)
+          ? voiceAbState.variants.find((item) => String(item && item.id || "").trim().toLowerCase() === normalized)
+          : null;
+        if (!variant) return currentTtsOptionOrDefault();
+        return {{
+          tts_plugin: String(variant.tts_plugin || memorialVoiceConfig.tts_plugin || ""),
+          tts_plugin_voice_id: String(variant.tts_plugin_voice_id || memorialVoiceConfig.tts_plugin_voice_id || ""),
+          tts_plugin_label: String(variant.label || "Stimme"),
+          tts_plugin_enabled: true,
+          voice_ab_variant: normalized || activeVoiceVariant(),
         }};
       }}
       async function parseSpeakError(response) {{
@@ -4906,6 +5770,9 @@ def _memorial_html(
           const payload = JSON.parse(raw);
           return String(payload.detail || payload.message || payload.error || raw || "request_failed");
         }} catch (error) {{
+          const preview = String(raw || "").trim();
+          if (response && response.status >= 500) return "Server startet gerade neu. Bitte in wenigen Sekunden erneut versuchen.";
+          if (preview.startsWith("<")) return "Server startet gerade neu. Bitte in wenigen Sekunden erneut versuchen.";
           return String(raw || "request_failed");
         }}
       }}
@@ -4918,7 +5785,10 @@ def _memorial_html(
         }} catch (error) {{
           if (error instanceof SyntaxError) {{
             const preview = raw.trim().slice(0, 120);
-            throw new Error(preview.startsWith("<") ? "Server lieferte HTML statt JSON. Bitte kurz warten und erneut versuchen." : preview || "ungueltige Serverantwort");
+            if ((response && response.status >= 500) || preview.startsWith("<")) {{
+              throw new Error("Server startet gerade neu. Bitte in wenigen Sekunden erneut versuchen.");
+            }}
+            throw new Error(preview || "ungueltige Serverantwort");
           }}
           throw error;
         }}
@@ -4936,10 +5806,17 @@ def _memorial_html(
         try {{
           const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/chat", {{
             method: "POST",
-            headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify(requestPayload)
+            headers: Object.assign({{ "Content-Type": "application/json" }}, personalMemoryHeaders()),
+            body: JSON.stringify(Object.assign(requestPayload, {{
+              visitor_id: ensureMemorialVisitorId(),
+              personal_memory_enabled: personalMemoryEnabled(),
+            }}))
           }}, 50000);
           const payload = await readJsonResponse(response);
+          if (payload && payload.personal_memory) {{
+            personalMemoryStatusPayload = payload.personal_memory;
+            updatePersonalMemoryStatusUi();
+          }}
           lastAnswerText = String(payload.answer || "");
           answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           appendSpeechTurn("assistant", lastAnswerText);
@@ -4955,14 +5832,14 @@ def _memorial_html(
           if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
         }}
       }}
-      async function speakText(value, onDone = null) {{
+      async function speakText(value, onDone = null, pluginOverride = null) {{
         const text = normalizeTranscriptText(value || lastAnswerText || "");
         if (!text) {{
           if (onDone) onDone();
           return;
         }}
         stopSpeechPlayback();
-        const pluginConfig = currentTtsOptionOrDefault();
+        const pluginConfig = pluginOverride || currentTtsOptionOrDefault();
         if (!pluginConfig.tts_plugin_enabled) {{
           setSpeechStatus("Ausgewähltes TTS-Plugin ist nicht aktiviert.", "error", "TTS nicht aktiv");
           if (onDone) onDone();
@@ -5021,6 +5898,9 @@ def _memorial_html(
               tts_plugin: pluginConfig.tts_plugin,
               tts_plugin_voice_id: pluginConfig.tts_plugin_voice_id,
               tts_base_voice_variant: currentBaseVoiceVariant(),
+              voice_ab_variant: pluginConfig.voice_ab_variant,
+              visitor_id: ensureMemorialVisitorId(),
+              personal_memory_enabled: personalMemoryEnabled(),
             }}),
           }}, 60000);
           if (!response.ok) {{
@@ -5033,6 +5913,9 @@ def _memorial_html(
           }}
           speechObjectUrl = URL.createObjectURL(blob);
           speechAudio.src = speechObjectUrl;
+          speechAudio.onplaying = () => {{
+            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+          }};
           speechAudio.onended = () => {{
             stopSpeechPlayback();
             setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
@@ -5044,7 +5927,7 @@ def _memorial_html(
             if (onDone) onDone();
           }};
           setSpeakingOverlayPreview(text);
-          setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+          setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
           await speechAudio.play();
         }} catch (error) {{
           if (speechAudio) speechAudio.src = "";
@@ -5410,6 +6293,14 @@ def _memorial_html(
       async function handleConversationTranscript(transcript) {{
         const normalized = normalizeTranscriptText(transcript || "");
         if (!conversationActive || !normalized || conversationTurnInFlight) return;
+        if (!shouldSendConversationTranscript(normalized)) {{
+          conversationIdleMisses += 1;
+          const waitMs = conversationIdleMisses >= 2 ? 1800 : 900;
+          setSpeechStatus("Ich höre weiter zu ...", "listening", "Bitte eine direkte Frage");
+          setTimeout(recordConversationTurn, waitMs);
+          return;
+        }}
+        conversationIdleMisses = 0;
         conversationTurnInFlight = true;
         disarmConversationBargeIn();
         appendSpeechTurn("user", normalized);
@@ -5425,26 +6316,29 @@ def _memorial_html(
             stopSpeechPlayback();
             speechObjectUrl = URL.createObjectURL(blob);
             speechAudio.src = speechObjectUrl;
+            speechAudio.onplaying = () => {{
+              setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+            }};
             speechAudio.onended = () => {{
               stopSpeechPlayback();
               disarmConversationBargeIn();
               if (!conversationActive) return;
-              setSpeechStatus("Ich höre wieder zu ...", "listening", "Das Gespräch läuft weiter");
-              setTimeout(recordConversationTurn, 220);
+              setSpeechStatus("Ich höre wieder zu ...", "listening", "Gespräch läuft weiter");
+              setTimeout(recordConversationTurn, 900);
             }};
             speechAudio.onerror = () => {{
               disarmConversationBargeIn();
               setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
               stopSpeechPlayback();
-              if (conversationActive) setTimeout(recordConversationTurn, 450);
+              if (conversationActive) setTimeout(recordConversationTurn, 1200);
             }};
             setSpeakingOverlayPreview(assistantText);
-            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+            setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
             await speechAudio.play();
             if (conversationActive) armConversationBargeIn();
           }} else if (conversationActive) {{
-            setSpeechStatus("Ich höre wieder zu ...", "listening", "Das Gespräch läuft weiter");
-            setTimeout(recordConversationTurn, 220);
+            setSpeechStatus("Ich höre wieder zu ...", "listening", "Gespräch läuft weiter");
+            setTimeout(recordConversationTurn, 900);
           }}
         }} catch (error) {{
           conversationActive = false;
@@ -5468,8 +6362,10 @@ def _memorial_html(
           const transcript = normalizeTranscriptText(result && result.transcript || "");
           if (!conversationActive) return;
           if (!transcript) {{
-            setSpeechStatus("Keine Frage erkannt. Ich höre gleich noch einmal zu.", "error", "Bitte kürzer und klarer sprechen");
-            setTimeout(recordConversationTurn, 450);
+            conversationIdleMisses += 1;
+            const waitMs = conversationIdleMisses >= 2 ? 2200 : 1200;
+            setSpeechStatus("Ich höre weiter zu ...", "listening", "Bitte eine direkte Frage");
+            setTimeout(recordConversationTurn, waitMs);
             return;
           }}
           await handleConversationTranscript(transcript);
@@ -5481,23 +6377,25 @@ def _memorial_html(
         }}
       }}
       function toggleConversation() {{
-        setSpeechStatus("Ich starte jetzt das Gespräch ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+        setSpeechStatus("Mikrofon wird vorbereitet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
         conversationActive = !conversationActive;
         setConversationUi(conversationActive);
         if (conversationActive) {{
-          setSpeechStatus("Gespräch gestartet. Ich höre dauerhaft zu.", "listening", "Offene Konversation aktiv");
+          conversationIdleMisses = 0;
+          setSpeechStatus("Gespräch gestartet. Ich höre auf deine Fragen.", "listening", "Gespräch aktiv");
           recordConversationTurn();
         }} else {{
+        conversationIdleMisses = 0;
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        setSpeechStatus("Gespräch beendet.", "idle", "Bereit für eine neue Runde");
+        setSpeechStatus("Gespräch beendet.", "idle", "Bereit");
       }}
       }}
       window.__memorialToggleConversation = () => toggleConversation();
       window.__memorialStartConversation = () => {{
-        setSpeechStatus("Ich starte jetzt das Gespräch ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+        setSpeechStatus("Mikrofon wird vorbereitet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
         if (!conversationActive) toggleConversation();
       }};
       form.addEventListener("submit", (event) => {{
@@ -5506,13 +6404,13 @@ def _memorial_html(
       }});
       if (listenButton) {{
         listenButton.addEventListener("click", () => {{
-          setSpeechStatus("Ich starte jetzt das Browser-Mikrofon ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+          setSpeechStatus("Browser-Mikrofon startet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
           startSpeechInput();
         }});
       }}
       if (serverSttButton) {{
         serverSttButton.addEventListener("click", () => {{
-          setSpeechStatus("Ich starte jetzt Server-STT ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+          setSpeechStatus("Server-STT startet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
           startServerSpeechInput();
         }});
       }}
@@ -5602,9 +6500,70 @@ def _memorial_html(
           installButton.hidden = true;
         }});
       }}
+      if (autostartOptin) {{
+        autostartOptin.addEventListener("change", () => {{
+          try {{
+            window.localStorage.setItem(memorialAutostartStorageKey, autostartOptin.checked ? "1" : "0");
+          }} catch (error) {{}}
+        }});
+      }}
+      if (personalMemoryOptin) {{
+        try {{
+          const stored = String(window.localStorage.getItem(memorialPersonalMemoryStorageKey) || "").trim().toLowerCase();
+          personalMemoryOptin.checked = stored === "1" || stored === "true" || stored === "yes" || stored === "on";
+        }} catch (error) {{
+          personalMemoryOptin.checked = false;
+        }}
+        personalMemoryOptin.addEventListener("change", () => {{
+          try {{
+            window.localStorage.setItem(memorialPersonalMemoryStorageKey, personalMemoryOptin.checked ? "1" : "0");
+          }} catch (error) {{}}
+          updatePersonalMemoryStatusUi();
+          void loadPersonalMemoryStatus();
+        }});
+      }}
+      if (personalMemoryForgetButton) {{
+        personalMemoryForgetButton.addEventListener("click", () => {{
+          void forgetPersonalMemory();
+        }});
+      }}
+      if (voiceAbOptions) {{
+        voiceAbOptions.addEventListener("change", (event) => {{
+          const target = event.target;
+          if (!(target instanceof HTMLInputElement)) return;
+          if (target.name !== "memorial-voice-ab") return;
+          voiceAbState.selected_variant = String(target.value || "a").trim().toLowerCase() || "a";
+          try {{
+            window.localStorage.setItem("memorial_voice_ab_selected_v1", voiceAbState.selected_variant);
+          }} catch (error) {{}}
+          renderVoiceAbOptions();
+        }});
+      }}
+      for (const button of voiceAbRatingButtons) {{
+        button.addEventListener("click", () => {{
+          void submitVoiceAbRating(String(button.getAttribute("data-voice-rating") || "equal"), "");
+        }});
+      }}
+      if (voiceAbApproveButton) {{
+        voiceAbApproveButton.addEventListener("click", () => {{
+          void submitVoiceAbRating(activeVoiceVariant(), activeVoiceVariant());
+        }});
+      }}
+      if (voiceAbPreviewAButton) {{
+        voiceAbPreviewAButton.addEventListener("click", () => {{
+          const text = String(voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.");
+          void speakText(text, null, voiceAbPluginConfig("a"));
+        }});
+      }}
+      if (voiceAbPreviewBButton) {{
+        voiceAbPreviewBButton.addEventListener("click", () => {{
+          const text = String(voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.");
+          void speakText(text, null, voiceAbPluginConfig("b"));
+        }});
+      }}
       if ("serviceWorker" in navigator) {{
         window.addEventListener("load", () => {{
-          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
+          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
         }});
       }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
@@ -5614,14 +6573,20 @@ def _memorial_html(
         }});
       }});
       window.addEventListener("load", () => {{
+        ensureMemorialVisitorId();
+        syncMemorialAutostartOptin();
+        updatePersonalMemoryStatusUi();
+        void loadPersonalMemoryStatus();
+        void loadVoiceAbConfig();
         const isStandalone = window.matchMedia("(display-mode: standalone)").matches || Boolean(window.navigator.standalone);
         if (isStandalone) document.body.classList.add("pwa-standalone");
         else if (installHint) installHint.hidden = false;
         const isPwaLaunch = isStandalone || new URLSearchParams(window.location.search).get("source") === "pwa";
         if (!isPwaLaunch) return;
+        if (!memorialAutostartEnabled()) return;
         window.setTimeout(() => {{
           if (conversationActive) return;
-          setSpeechStatus("Ich starte jetzt das Gespräch ...", "working", "Bitte Mikrofon erlauben, falls der Browser fragt");
+          setSpeechStatus("Mikrofon wird vorbereitet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
           if (window.__memorialStartConversation) window.__memorialStartConversation();
         }}, 420);
       }});
@@ -5667,6 +6632,51 @@ def public_memorial_pwa_icon(slug: str) -> Response:
 @router.get("/memorials/{slug}/voice-config")
 def public_memorial_voice_config(slug: str) -> JSONResponse:
     return JSONResponse(_load_voice_config(slug))
+
+
+@router.get("/memorials/{slug}/voice-ab")
+async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    context = _extract_personal_memory_request_context(request=request)
+    config = _load_voice_ab_config(slug)
+    ratings = _load_voice_ab_ratings(slug)
+    return JSONResponse(
+        {
+            "variants": config.get("variants", []),
+            "sample_text": _text(config.get("sample_text"), "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss."),
+            "personal_memory": _personal_memory_public_status(slug=slug, context=context),
+            "selected_variant": _text(_load_personal_memory_store(slug=slug, scope=_text(context.get("scope"), "")).get("approved_voice_choice"), "") if _text(context.get("scope"), "") else "",
+            "totals": ratings.get("totals", {}),
+        }
+    )
+
+
+@router.post("/memorials/{slug}/voice-ab/rate")
+async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_json")
+    context = _extract_personal_memory_request_context(request=request, body=body)
+    choice = _text(body.get("choice"), "").lower()
+    approved_variant = _text(body.get("approved_variant"), "").lower()
+    ratings = _record_voice_ab_rating(
+        slug=slug,
+        context=context,
+        choice=choice,
+        approved_variant=approved_variant if approved_variant in {"a", "b"} else "",
+        note=_text(body.get("note"), ""),
+    )
+    return JSONResponse(
+        {
+            "status": "ok",
+            "totals": ratings.get("totals", {}),
+            "personal_memory": _personal_memory_public_status(slug=slug, context=context),
+        }
+    )
 
 
 @router.post("/memorials/{slug}/voice-config")
@@ -5724,6 +6734,42 @@ def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
     return FileResponse(path, media_type=media_type, filename=path.name)
 
 
+@router.get("/memorials/{slug}/chat")
+async def public_memorial_chat_help(slug: str) -> JSONResponse:
+    _load_memorial(slug)
+    return JSONResponse(
+        {
+            "detail": "Use POST with JSON to chat with this memorial.",
+            "method": "POST",
+            "content_type": "application/json",
+            "endpoint": f"/memorials/{slug}/chat",
+            "example_body": {"question": "Wie hätte er Susanna schriftlich geschrieben?"},
+            "page": f"/memorials/{slug}",
+        }
+    )
+
+
+@router.get("/memorials/{slug}/personal-memory")
+async def public_memorial_personal_memory_status(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    context = _extract_personal_memory_request_context(request=request)
+    return JSONResponse(_personal_memory_public_status(slug=slug, context=context))
+
+
+@router.delete("/memorials/{slug}/personal-memory")
+async def public_memorial_personal_memory_forget(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    context = _extract_personal_memory_request_context(request=request)
+    scope = _text(context.get("scope"), "")
+    if scope:
+        store = _load_personal_memory_store(slug=slug, scope=scope)
+        store["items"] = []
+        store["frozen"] = False
+        store["approved_voice_choice"] = ""
+        _save_personal_memory_store(slug=slug, scope=scope, payload=store)
+    return JSONResponse({"status": "forgotten", **_personal_memory_public_status(slug=slug, context=context)})
+
+
 @router.post("/memorials/{slug}/chat")
 async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     try:
@@ -5738,6 +6784,7 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     container = getattr(request.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
     question_text = _text(body.get("question"))
+    personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
     if _is_memorial_transcript_relationship_question(question_text) or _is_memorial_mail_practice_question(question_text):
         answer = _memorial_chat_fallback_answer(
             payload,
@@ -5756,9 +6803,17 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
             requested_model=selected_model,
             slug=slug,
             memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
         )
+    _remember_personal_conversation_turn(
+        slug=slug,
+        context=personal_memory_context,
+        question=question_text,
+        answer=_text(answer.get("answer"), ""),
+    )
     if _is_memorial_ooda_question(question_text) and not answer.get("ooda"):
         answer["ooda"] = _memorial_ooda_struct(question_text)
+    answer["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
     return JSONResponse(answer)
 
 
@@ -5768,6 +6823,21 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
     return JSONResponse(_memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
+
+
+@router.get("/memorials/{slug}/speech-synthesize")
+async def public_memorial_speech_synthesize_help(slug: str) -> JSONResponse:
+    _load_memorial(slug)
+    return JSONResponse(
+        {
+            "detail": "Use POST with JSON to synthesize memorial speech.",
+            "method": "POST",
+            "content_type": "application/json",
+            "endpoint": f"/memorials/{slug}/speech-synthesize",
+            "example_body": {"text": "Rechtlich ist es so, dass man die Dinge sauber unterscheiden muss."},
+            "page": f"/memorials/{slug}",
+        }
+    )
 
 
 @router.post("/memorials/{slug}/speech-synthesize")
@@ -5782,6 +6852,10 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
     merged_config.update(body)
+    personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
+    voice_ab_variant = _voice_ab_variant_from_request(request=request, body=body)
+    if voice_ab_variant in {"a", "b"}:
+        merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=voice_ab_variant, context=personal_memory_context))
     tts_options = _tts_plugin_options(
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
@@ -5837,13 +6911,18 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
     container = getattr(request.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
+    personal_memory_context = _extract_personal_memory_request_context(request=request)
+    voice_ab_variant = _voice_ab_variant_from_request(request=request)
     response_payload = _build_memorial_conversation_turn_payload(
         slug=slug,
         audio_payload=audio_payload,
         content_type=content_type,
-        prefer_fast_tts=True,
+        prefer_fast_tts=False,
         memory_runtime=memory_runtime,
+        personal_memory_context=personal_memory_context,
+        voice_ab_variant=voice_ab_variant,
     )
+    response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
     return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
 
 
@@ -5854,6 +6933,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     await websocket.send_json({"type": "ready", "mode": "memorial_realtime_voice"})
     container = getattr(websocket.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
+    personal_memory_context = _extract_personal_memory_request_context(websocket=websocket)
+    current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket)
     current_content_type = "application/octet-stream"
     current_audio = bytearray()
     current_turn_id = ""
@@ -5896,6 +6977,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 selected_model,
                 slug=slug,
                 memory_runtime=memory_runtime,
+                personal_memory_context=personal_memory_context,
+            )
+            await asyncio.to_thread(
+                _remember_personal_conversation_turn,
+                slug=slug,
+                context=personal_memory_context,
+                question=transcript_text,
+                answer=_text(answer_payload.get("answer"), ""),
             )
             compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
             answer_payload["answer"] = compact_answer
@@ -5914,8 +7003,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": "Audio wird ausgeliefert"})
             base_config = _load_voice_config(slug)
             merged_config = dict(base_config)
-            merged_config["tts_plugin"] = PIPER_FAST_TTS_PLUGIN_ID
-            merged_config["tts_base_voice_variant"] = "high"
+            if current_voice_ab_variant in {"a", "b"}:
+                merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=current_voice_ab_variant, context=personal_memory_context))
             tts_options = _tts_plugin_options(
                 payload=merged_config,
                 voice_profile_ready=bool(base_config.get("voice_profile_ready")),
@@ -5971,6 +7060,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 payload=audio,
                 content_type=audio_content_type,
                 silence_ms=lead_in_ms,
+                extra_filters=_speech_postprocess_filters(selected_plugin),
             )
             audio_base64 = base64.b64encode(audio).decode("ascii")
             if audio_base64:
@@ -6038,6 +7128,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             except json.JSONDecodeError:
                 await websocket.send_json({"type": "error", "message": "invalid_realtime_message"})
                 continue
+            if isinstance(payload, dict):
+                personal_memory_context = _extract_personal_memory_request_context(websocket=websocket, body=payload)
+                current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket, body=payload)
             message_type = _text(payload.get("type"))
             if message_type == "ping":
                 await websocket.send_json({"type": "pong"})
