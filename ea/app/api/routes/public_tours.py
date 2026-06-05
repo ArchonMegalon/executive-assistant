@@ -1040,6 +1040,15 @@ def _public_shortlist_comparison_context(
     }
 
 
+def _public_tour_host_brand_label(hostname: str, *, fallback: str = "this domain") -> str:
+    host = str(hostname or "").strip().lower().rstrip(".")
+    if host.endswith("propertyquarry.com"):
+        return "PropertyQuarry"
+    if host.endswith("myexternalbrain.com"):
+        return "My External Brain"
+    return str(fallback or "this domain").strip() or "this domain"
+
+
 def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     scenes = [dict(row) for row in (payload.get("scenes") or []) if isinstance(row, dict)]
     if not scenes:
@@ -1057,6 +1066,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     source_virtual_tour_url = _embedded_live_360_url(payload)
     is_pure_360_cube = str(payload.get("scene_strategy") or "").strip() == "pure_360_cube"
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
+    hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
+    hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
@@ -2498,7 +2509,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
   </head>
   <body>
     <div class="topbar">
-      <div class="title"><b>{title_html}</b><span>Pure 360 hosted on My External Brain · {html.escape(str(payload.get("scene_count") or len(scene_data)))} locations</span></div>
+      <div class="title"><b>{title_html}</b><span>Pure 360 hosted on {hosted_brand_html} · {html.escape(str(payload.get("scene_count") or len(scene_data)))} locations</span></div>
       <div class="controls">
         <button id="prev" type="button">Prev</button>
         <button id="next" type="button">Next</button>
@@ -3265,6 +3276,7 @@ def public_tour_page(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse:
+    hostname = request_hostname(request)
     try:
         payload = _load_tour(slug)
         if _tour_payload_is_disabled_fallback(payload):
@@ -3280,7 +3292,7 @@ def public_tour_page(
             slug=slug,
             facts=dict(rendered_payload["facts"] or {}),
         )
-        return HTMLResponse(_tour_html(rendered_payload, hostname=request_hostname(request)))
+        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname))
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
         if exc.status_code == 404 and detail == "tour_disabled_fallback":
@@ -3319,7 +3331,7 @@ def public_tour_page(
                     {
                         "label": "Next step",
                         "value": "Request a fresh tour",
-                        "detail": "A current link will open the branded myexternalbrain view when the bundle is ready.",
+                        "detail": f"A current link will open the branded {_public_tour_host_brand_label(hostname, fallback='this domain')} view when the bundle is ready.",
                     },
                 ],
             )

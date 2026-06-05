@@ -4846,12 +4846,42 @@ def _property_alert_personal_fit_from_facts(
     property_url: str,
     property_facts_json: dict[str, object] | None,
     listing_id: str = "",
+    use_profile_preferences: bool = True,
 ) -> dict[str, object] | None:
+    object_id = str(listing_id or "").strip() or urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    facts = dict(property_facts_json or {})
+    if not use_profile_preferences:
+        neutral_assess = getattr(preference_profiles, "_assess_willhaben", None)
+        if callable(neutral_assess):
+            try:
+                result = dict(neutral_assess(object_id=object_id, object_payload=facts, nodes=[]) or {})
+            except Exception:
+                result = {}
+        else:
+            result = {}
+        if not result:
+            result = {
+                "domain": "willhaben",
+                "object_type": "listing",
+                "object_id": object_id,
+                "fit_score": 50.0,
+                "confidence": 0.0,
+                "predicted_reaction": "consider",
+                "recommendation": "mention",
+                "match_reasons_json": [],
+                "mismatch_reasons_json": [],
+                "unknowns_json": ["Stored feedback preferences were disabled for this search."],
+                "blocking_constraints_json": [],
+            }
+        result["stored_feedback_preferences_used"] = False
+        unknowns = [str(item).strip() for item in list(result.get("unknowns_json") or []) if str(item).strip()]
+        if not any("stored feedback" in item.lower() for item in unknowns):
+            unknowns.append("Stored feedback preferences were disabled for this search.")
+        result["unknowns_json"] = unknowns[:6]
+        return result
     assess_candidate = getattr(preference_profiles, "assess_candidate", None)
     if not callable(assess_candidate):
         return None
-    object_id = str(listing_id or "").strip() or urllib.parse.urldefrag(str(property_url or "").strip())[0]
-    facts = dict(property_facts_json or {})
     assessment = assess_candidate(
         principal_id=principal_id,
         person_id=str(person_id or "").strip() or "self",
@@ -4875,6 +4905,7 @@ def _property_alert_personal_fit_from_facts(
     )
     if upstream_personalization:
         result["upstream_personalization"] = upstream_personalization
+    result["stored_feedback_preferences_used"] = True
     return result
 
 
@@ -6648,15 +6679,20 @@ def _public_app_base_url() -> str:
 
 
 def _property_public_app_base_url() -> str:
-    return str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or _public_app_base_url()).strip().rstrip("/")
+    explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    inherited = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if inherited and "myexternalbrain.com" not in inherited.lower():
+        return inherited
+    return "https://propertyquarry.com"
 
 
 def _property_public_tour_base_url() -> str:
-    return str(
-        os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL")
-        or os.getenv("EA_PUBLIC_TOUR_BASE_URL")
-        or f"{_property_public_app_base_url()}/tours"
-    ).strip().rstrip("/")
+    explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    return f"{_property_public_app_base_url()}/tours"
 
 
 def _is_crezlo_tour_host(value: object) -> bool:
@@ -16169,6 +16205,10 @@ class ProductService:
             or os.getenv("EA_PROPERTY_SCOUT_DEFAULT_PERSON_ID")
             or "self"
         ).strip() or "self"
+        use_stored_feedback_preferences = not (
+            request_preferences.get("use_stored_feedback_preferences") is False
+            or str(request_preferences.get("use_stored_feedback_preferences") or "").strip().lower() in {"0", "false", "no", "n", "off"}
+        )
         location_hints = _property_search_location_hints(request_preferences)
         requested_property_type = normalize_property_type(request_preferences.get("property_type"))
         min_match_score = _property_search_effective_min_match_score(request_preferences)
@@ -16176,6 +16216,7 @@ class ProductService:
         require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
         request_preferences["min_match_score"] = min_match_score
         request_preferences["require_floorplan"] = require_floorplan
+        request_preferences["use_stored_feedback_preferences"] = use_stored_feedback_preferences
 
         specs = [
             dict(spec)
@@ -16200,6 +16241,7 @@ class ProductService:
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "require_floorplan": require_floorplan,
+                "use_stored_feedback_preferences": use_stored_feedback_preferences,
             },
             steps_delta=1,
             stages_total_override=2 + (len(specs) * max(8, (max(1, int(resolved_max_results or 2)) * 3) + 5)),
@@ -16225,6 +16267,7 @@ class ProductService:
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "require_floorplan": require_floorplan,
+                "use_stored_feedback_preferences": use_stored_feedback_preferences,
                 "watch_notified_total": 0,
                 "sources": [],
             }
@@ -16513,6 +16556,7 @@ class ProductService:
                     property_url=property_url,
                     property_facts_json=detailed_facts,
                     listing_id=str(preview.get("listing_id") or property_url).strip(),
+                    use_profile_preferences=use_stored_feedback_preferences,
                 )
                 ranked_rows.append(
                     {
@@ -16804,6 +16848,7 @@ class ProductService:
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "require_floorplan": require_floorplan,
+                    "use_stored_feedback_preferences": use_stored_feedback_preferences,
                     "raw_listing_total": raw_listing_count,
                     "scanned_listing_total": len(listing_urls),
                     "scan_truncated": scan_truncated,
@@ -16839,6 +16884,7 @@ class ProductService:
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
             "require_floorplan": require_floorplan,
+            "use_stored_feedback_preferences": use_stored_feedback_preferences,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,

@@ -1163,6 +1163,11 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         raw_require_floorplan is True
         or str(raw_require_floorplan or "").strip().lower() in {"1", "true", "yes", "y", "on"}
     )
+    raw_use_stored_feedback = payload.get("use_stored_feedback_preferences")
+    payload["use_stored_feedback_preferences"] = not (
+        raw_use_stored_feedback is False
+        or str(raw_use_stored_feedback or "").strip().lower() in {"0", "false", "no", "n", "off"}
+    )
     normalized_alert_frequency = str(payload.get("alert_frequency") or "").strip().lower() or "daily"
     if normalized_alert_frequency not in ALERT_FREQUENCY_LABELS:
         normalized_alert_frequency = "daily"

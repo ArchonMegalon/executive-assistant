@@ -180,11 +180,21 @@
     .pqx-link-button:focus-visible,
     .pqx-mode-button:focus-visible,
     .pqx-result:focus-visible,
-    .pqx-check:focus-within {
-      outline: 3px solid rgba(189, 139, 47, 0.34);
-      outline-offset: 2px;
-    }
-    .pqx-main {
+	    .pqx-check:focus-within {
+	      outline: 3px solid rgba(189, 139, 47, 0.34);
+	      outline-offset: 2px;
+	    }
+	    .pqx-field-link {
+	      width: fit-content;
+	      display: inline-flex;
+	      margin-top: 8px;
+	      color: var(--pq-gold-strong);
+	      font-size: 12px;
+	      font-weight: 760;
+	      text-decoration: underline;
+	      text-underline-offset: 3px;
+	    }
+	    .pqx-main {
       width: min(1760px, calc(100vw - 32px));
       margin: 0 auto;
       padding: clamp(16px, 2.6vw, 34px) 0 88px;
@@ -579,12 +589,31 @@
       font-size: 11px;
       text-transform: uppercase;
     }
-    .pqx-source-metrics b {
-      color: var(--pq-ink);
-      font-size: 1rem;
-      text-transform: none;
-    }
-    .pqx-results {
+	    .pqx-source-metrics b {
+	      color: var(--pq-ink);
+	      font-size: 1rem;
+	      text-transform: none;
+	    }
+	    .pqx-source-candidates {
+	      display: grid;
+	      gap: 7px;
+	      margin-top: 2px;
+	    }
+	    .pqx-source-candidate {
+	      display: grid;
+	      gap: 2px;
+	      padding: 9px 10px;
+	      border: 1px solid rgba(185, 173, 154, 0.72);
+	      border-radius: 8px;
+	      background: rgba(255, 253, 248, 0.72);
+	    }
+	    .pqx-source-candidate a {
+	      color: var(--pq-ink);
+	      font-weight: 760;
+	      text-decoration: underline;
+	      text-underline-offset: 3px;
+	    }
+	    .pqx-results {
       display: grid;
       grid-template-columns: minmax(420px, 1.02fr) minmax(420px, 0.98fr);
       gap: 16px;
@@ -1027,6 +1056,7 @@
                   <input type="checkbox" name="{{ field.name }}" value="{{ field.value or 'true' }}" {% if field.checked %}checked{% endif %}>
                   <span><span>{{ field.label }}</span></span>
                 </label>
+                {% if field.manage_href %}<a class="pqx-field-link" href="{{ field.manage_href }}">{{ field.manage_label or 'Manage' }}</a>{% endif %}
                 {% elif field.type == 'range' %}
                 <label class="pqx-range-label">
                   <span class="pqx-range-head">
@@ -1056,6 +1086,7 @@
                   {% else %}
                   <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
                   {% endif %}
+                  {% if field.manage_href %}<a class="pqx-field-link" href="{{ field.manage_href }}">{{ field.manage_label or 'Manage' }}</a>{% endif %}
                 </label>
                 {% endif %}
               </div>
@@ -1120,6 +1151,21 @@
                 <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
                 <span>No plan <b>{{ source.get('filtered_floorplan_total') or 0 }}</b></span>
               </div>
+              {% if source.get('top_candidates') %}
+              <div class="pqx-source-candidates">
+                {% for candidate in source.get('top_candidates')[:3] %}
+                <div class="pqx-source-candidate">
+                  {% if candidate.get('packet_url') %}
+                  <a href="{{ candidate.get('packet_url') }}">{{ candidate.get('title') or candidate.get('property_url') or 'Review candidate' }}</a>
+                  {% else %}
+                  <strong>{{ candidate.get('title') or candidate.get('property_url') or 'Review candidate' }}</strong>
+                  {% endif %}
+                  <span class="pqx-note">{{ candidate.get('fit_summary') or candidate.get('recommendation') or 'Open the review packet for OODA and feedback.' }}</span>
+                  {% if candidate.get('property_url') %}<a class="pqx-note" href="{{ candidate.get('property_url') }}">Source listing</a>{% endif %}
+                </div>
+                {% endfor %}
+              </div>
+              {% endif %}
               {% if source.get('message') or source.get('error') %}
               <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>
               {% endif %}
@@ -1256,7 +1302,11 @@
           </div>
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
+            {% if candidate.get('packet_url') %}
+            <a class="pqx-result" href="{{ candidate.get('packet_url') }}" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') }}" data-workbench-row>
+            {% else %}
             <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-workbench-row>
+            {% endif %}
               <span class="pqx-rank">{{ candidate.get('rank') }}</span>
               <span>
                 <span class="pqx-small">Candidate</span>
@@ -1266,7 +1316,7 @@
               <span><span class="pqx-pill{% if candidate.get('tour', {}).get('status') == 'ready' %} good{% else %} warn{% endif %}">{{ candidate.get('tour', {}).get('label') }}</span><span class="pqx-small">{{ candidate.get('tour', {}).get('eta_label') }}</span></span>
               <span><span class="pqx-small">Price</span><strong>{{ candidate.get('price_display') or 'n/a' }}</strong><span class="pqx-small">Layout · {{ candidate.get('layout_display') or 'n/a' }}</span></span>
               <span><span class="pqx-small">Investment</span><strong>{{ candidate.get('investment', {}).get('price_per_sqm') or 'n/a' }}</strong><span class="pqx-small">{{ candidate.get('risk', {}).get('summary') }}</span></span>
-            </button>
+            {% if candidate.get('packet_url') %}</a>{% else %}</button>{% endif %}
             {% endfor %}
           </div>
         </section>
@@ -1504,6 +1554,7 @@
           location_query: countryCode === 'AT' && regionCode === 'vienna' && allOfVienna ? 'Vienna' : selectedLocations.join(', '),
           keywords: checkedValues(form, 'keywords').join(', '),
           preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+          use_stored_feedback_preferences: Boolean(form.querySelector('input[name="use_stored_feedback_preferences"]')?.checked),
           max_price_eur: integerValue(form, 'max_price_eur'),
           min_rooms: integerValue(form, 'min_rooms'),
           min_area_m2: integerValue(form, 'min_area_m2'),

@@ -322,9 +322,10 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
-        assert page.locator("[data-workbench-dossier]", has_text="360 not ready").is_visible()
-        assert page.get_by_role("link", name="Review packet").first.is_visible()
+        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), timeout=5000)
+        assert page.locator("body", has_text="OODA summary").is_visible()
+        assert page.locator("body", has_text="Preference feedback").is_visible()
+        assert page.get_by_role("button", name="Save feedback").is_visible()
     finally:
         context.close()
 
@@ -351,11 +352,10 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert mobile_dock.is_visible()
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
-        page.locator('[data-workbench-mobile-mode="property"]').click()
-        assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
-        assert page.locator("[data-workbench-dossier]", has_text="360 not ready").is_visible()
-
-        review_action = page.get_by_role("link", name="Review packet").first.bounding_box()
+        page.wait_for_url(lambda url: "/app/research/" in str(url) and "run_id=run-42" in str(url), timeout=5000)
+        assert page.locator("body", has_text="OODA summary").is_visible()
+        assert page.locator("body", has_text="Preference feedback").is_visible()
+        review_action = page.get_by_role("button", name="Save feedback").bounding_box()
         assert review_action is not None and review_action["width"] <= 430
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
     finally:

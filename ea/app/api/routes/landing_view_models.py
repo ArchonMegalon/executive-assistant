@@ -503,6 +503,38 @@ def app_section_payload(
         for event in list(property_run.get("events") or [])[-6:]
         if isinstance(event, dict)
     ]
+    active_run_id = str(property_run.get("run_id") or "").strip()
+
+    def _packet_url_for_candidate(candidate: dict[str, object], *, source_label: str) -> str:
+        candidate_for_ref = dict(candidate)
+        candidate_for_ref.setdefault("source_label", source_label)
+        packet_ref = _property_candidate_ref(candidate_for_ref)
+        packet_url = f"/app/research/{packet_ref}"
+        if active_run_id:
+            packet_url = f"{packet_url}?run_id={active_run_id}"
+        return packet_url
+
+    enriched_sources: list[dict[str, object]] = []
+    for source in list(property_summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_row = dict(source)
+        source_label = str(source_row.get("source_label") or source_row.get("source_url") or "Source").strip()
+        enriched_candidates: list[dict[str, object]] = []
+        for candidate in list(source_row.get("top_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_row = dict(candidate)
+            candidate_row.setdefault("source_label", source_label)
+            if not str(candidate_row.get("packet_url") or "").strip():
+                candidate_row["packet_url"] = _packet_url_for_candidate(candidate_row, source_label=source_label)
+            enriched_candidates.append(candidate_row)
+        source_row["top_candidates"] = enriched_candidates
+        enriched_sources.append(source_row)
+    if enriched_sources:
+        property_summary["sources"] = enriched_sources
+        property_run["summary"] = property_summary
+
     property_source_rows = [
         row_item(
             str(source.get("source_label") or source.get("source_url") or "Source").strip(),
@@ -528,7 +560,6 @@ def app_section_payload(
     ]
     property_shortlist_rows: list[dict[str, str]] = []
     property_shortlist_cards: list[dict[str, object]] = []
-    active_run_id = str(property_run.get("run_id") or "").strip()
     for source in list(property_summary.get("sources") or []):
         if not isinstance(source, dict):
             continue
@@ -706,6 +737,7 @@ def app_section_payload(
         if property_plan_max_match_score < property_visible_max_match_score
         else ""
     )
+    profile_manage_href = f"/app/profile?run_id={active_run_id}" if active_run_id else "/app/profile"
     property_form = {
         "variant": "property_search",
         "title": "Run a premium market sweep",
@@ -802,6 +834,18 @@ def app_section_payload(
                 "label": "Preference profile",
                 "value": str(property_preferences.get("preference_person_id") or "self"),
                 "placeholder": "self",
+                "manage_href": profile_manage_href,
+                "manage_label": "Manage feedback preferences",
+                "step": "areas",
+            },
+            {
+                "type": "checkbox",
+                "name": "use_stored_feedback_preferences",
+                "label": "Use stored feedback preferences",
+                "value": "true",
+                "checked": bool(property_preferences.get("use_stored_feedback_preferences", True)),
+                "manage_href": profile_manage_href,
+                "manage_label": "Manage",
                 "step": "areas",
             },
             {

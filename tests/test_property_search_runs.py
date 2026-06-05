@@ -49,6 +49,16 @@ def test_property_plan_investment_research_levels_follow_tier() -> None:
     assert agent["max_match_score"] == 80
 
 
+def test_propertyquarry_public_urls_do_not_inherit_external_brain_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", raising=False)
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
+
+    assert product_service._property_public_app_base_url() == "https://propertyquarry.com"
+    assert product_service._property_public_tour_base_url() == "https://propertyquarry.com/tours"
+
+
 def test_property_search_location_matching_prefers_requested_districts() -> None:
     hints = _property_search_location_hints({"location_query": "1200 Vienna, 1020 Vienna, 1090"})
 
@@ -761,6 +771,7 @@ def test_property_search_preferences_update_preserves_existing_commercial_state(
             "location_query": "Wien",
             "selected_platforms": ["willhaben", "genossenschaften_at"],
             "investment_research_mode": "auto",
+            "use_stored_feedback_preferences": False,
         },
     )
     assert updated.status_code == 200
@@ -783,6 +794,7 @@ def test_property_search_preferences_update_preserves_existing_commercial_state(
     ) -> dict[str, object]:
         observed["selected_platforms"] = tuple(selected_platforms)
         observed["preference_person_id"] = str((property_search_preferences or {}).get("preference_person_id") or "").strip()
+        observed["use_stored_feedback_preferences"] = bool((property_search_preferences or {}).get("use_stored_feedback_preferences"))
         observed["max_results_per_source"] = max_results_per_source
         observed["force_refresh"] = bool(force_refresh)
         return {
@@ -809,6 +821,7 @@ def test_property_search_preferences_update_preserves_existing_commercial_state(
     assert started.status_code == 200
     assert set(observed.get("selected_platforms") or ()) == {"willhaben", "genossenschaften_at"}
     assert observed.get("preference_person_id") == "override"
+    assert observed.get("use_stored_feedback_preferences") is False
     assert observed.get("max_results_per_source") is None
 
 

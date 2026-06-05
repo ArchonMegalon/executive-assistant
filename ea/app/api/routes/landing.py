@@ -1264,6 +1264,7 @@ def _render_console_object_detail(
     object_sidebar_rows: list[dict[str, str]],
     object_sections: list[dict[str, object]],
     object_sidebar_form: dict[str, object] | None = None,
+    object_feedback: dict[str, object] | None = None,
 ) -> HTMLResponse:
     return _render_public_template(
         request,
@@ -1294,6 +1295,7 @@ def _render_console_object_detail(
             "object_sidebar_rows": object_sidebar_rows,
             "object_sections": object_sections,
             "object_sidebar_form": object_sidebar_form or {},
+            "object_feedback": object_feedback or {},
         },
     )
 
@@ -2018,6 +2020,7 @@ def property_research_packet(
     investment: int = Query(default=0),
 ) -> HTMLResponse:
     status = container.onboarding.status(principal_id=context.principal_id)
+    product = build_product_service(container)
     property_context = _property_console_context(
         container=container,
         principal_id=context.principal_id,
@@ -2041,6 +2044,7 @@ def property_research_packet(
     source_label = str(candidate.get("source_label") or "Property scout").strip() or "Property scout"
     title = str(candidate.get("title") or property_url or "Research packet").strip() or "Research packet"
     run_target = f"/app/research/{candidate_ref}" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else "")
+    preference_person_id = str(preferences.get("preference_person_id") or "self").strip() or "self"
     packet_score_rows = _property_packet_score_rows(
         facts=facts,
         preferences=preferences,
@@ -2091,6 +2095,10 @@ def property_research_packet(
     ]
     ooda_summary_rows.extend(_property_distance_ooda_rows(facts))
     investment_run_target = run_target + ("&investment=1" if "?" in run_target else "?investment=1")
+    try:
+        feedback_suggestions = dict(product.property_feedback_suggestions(property_facts=facts, assessment=assessment or candidate))
+    except Exception:
+        feedback_suggestions = {"negative": [], "positive": []}
     return _render_console_object_detail(
         request=request,
         context=context,
@@ -2229,6 +2237,17 @@ def property_research_packet(
                 or [_object_detail_row("No compare candidates yet", "Finish or widen the shortlist run to compare alternatives here.", "Waiting")],
             },
         ],
+        object_feedback={
+            "person_id": preference_person_id,
+            "profile_href": f"/app/profile" + (f"?run_id={urllib.parse.quote(run_id, safe='')}" if str(run_id or "").strip() else ""),
+            "suggestions": feedback_suggestions,
+            "property_url": property_url,
+            "property_title": title,
+            "property_facts": facts,
+            "assessment": assessment or candidate,
+            "property_slug": str(candidate_ref or "").strip(),
+            "save_endpoint": f"/app/api/people/{urllib.parse.quote(preference_person_id, safe='')}/preference-profile/property-feedback",
+        },
     )
 
 

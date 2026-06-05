@@ -287,6 +287,7 @@ class OnboardingPropertySearchPreferencesIn(BaseModel):
     min_area_m2: int | None = None
     max_results_per_source: int | None = None
     preference_person_id: str = "self"
+    use_stored_feedback_preferences: bool = True
     alert_frequency: str = "daily"
     alert_channels: list[str] = Field(default_factory=lambda: ["telegram"])
 

@@ -412,6 +412,16 @@
     color: var(--text-dim);
     font-size: 12px;
   }
+  .pq-field-link {
+    width: fit-content;
+    display: inline-flex;
+    margin-top: 8px;
+    color: var(--gold);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
   .pq-callout {
     border: 1px solid rgba(214, 166, 63, 0.24);
     border-radius: 14px;
@@ -783,6 +793,7 @@
                   {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
                 >
                 {% endif %}
+                {% if field.manage_href %}<a class="pq-field-link" href="{{ field.manage_href }}">{{ field.manage_label or 'Manage' }}</a>{% endif %}
               </label>
               {% endif %}
             </div>
@@ -1220,6 +1231,7 @@
         location_query: resolvedLocationQuery,
         keywords: selectedKeywords.join(', '),
         preference_person_id: fieldValue(form, 'preference_person_id') || 'self',
+        use_stored_feedback_preferences: checkedValue(form, 'use_stored_feedback_preferences'),
         max_price_eur: integerValue(form, 'max_price_eur'),
         min_rooms: integerValue(form, 'min_rooms'),
         min_area_m2: integerValue(form, 'min_area_m2'),

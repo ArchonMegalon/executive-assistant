@@ -22,6 +22,9 @@
   .object-panel,
   .object-section,
   .object-meta-card {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: linear-gradient(180deg, rgba(18, 23, 34, 0.98), rgba(15, 19, 26, 0.98));
@@ -37,12 +40,17 @@
   }
   .object-copy {
     color: var(--text-soft);
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .object-media-frame {
     overflow: hidden;
     padding: 0;
   }
   .object-media-frame-inner {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
     aspect-ratio: 16 / 9;
     min-height: 320px;
     border-radius: calc(var(--radius) - 2px);
@@ -58,11 +66,25 @@
     background: #0b1017;
   }
   .object-media-placeholder {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 100%;
     display: grid;
     align-content: center;
     gap: 10px;
     padding: 26px;
+  }
+  .object-panel h1,
+  .object-panel h2,
+  .object-panel h3,
+  .object-panel p,
+  .object-panel small,
+  .object-media-placeholder > * {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .object-media-status {
     display: inline-flex;
@@ -240,6 +262,44 @@
   .object-table-cell-copy {
     color: var(--text-dim);
     font-size: 12px;
+  }
+  .object-feedback {
+    margin-top: 18px;
+    border-top: 1px solid rgba(49, 60, 77, 0.72);
+    padding-top: 18px;
+  }
+  .object-feedback-row,
+  .object-feedback-reasons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .object-feedback-button,
+  .object-feedback-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 8px 11px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+  }
+  .object-feedback-button.active,
+  .object-feedback-chip.active {
+    border-color: rgba(214, 166, 63, 0.72);
+    background: rgba(214, 166, 63, 0.16);
+  }
+  .object-feedback textarea {
+    width: 100%;
+    min-height: 84px;
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
   }
   @media (max-width: 1080px) {
     .object-media-grid,
@@ -487,10 +547,37 @@
       {% endif %}
       {% endfor %}
       <button class="console-action" type="submit">{{ object_sidebar_form.get('submit_label') or 'Save' }}</button>
-    </form>
-    {% endif %}
-  </aside>
-</section>
+	    </form>
+	    {% endif %}
+	    {% if object_feedback %}
+	    <section class="object-feedback" data-object-feedback data-object-feedback-payload='{{ object_feedback|tojson|safe }}'>
+	      <div class="object-kicker">Preference feedback</div>
+	      <h2>Tune this search profile</h2>
+	      <p class="object-copy">Save a reaction and concrete reasons so future rankings can use the stored feedback profile.</p>
+	      <div class="object-feedback-row" aria-label="Property feedback reaction">
+	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="like">Like</button>
+	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="maybe">Maybe</button>
+	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="dislike">Dislike</button>
+	        <button class="object-feedback-button" type="button" data-object-feedback-reaction="hide">Hide</button>
+	      </div>
+	      <div class="object-feedback-reasons" data-object-feedback-reasons>
+	        {% for row in (object_feedback.get('suggestions') or {}).get('negative') or [] %}
+	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+	        {% endfor %}
+	        {% for row in (object_feedback.get('suggestions') or {}).get('positive') or [] %}
+	        <button class="object-feedback-chip" type="button" data-object-feedback-reason="{{ row.get('key') }}">{{ row.get('label') }}</button>
+	        {% endfor %}
+	      </div>
+	      <textarea data-object-feedback-note placeholder="Optional note"></textarea>
+	      <div class="object-actions">
+	        <button class="console-action" type="button" data-object-feedback-save>Save feedback</button>
+	        <a class="console-action" href="{{ object_feedback.get('profile_href') or '/app/profile' }}">Manage preferences</a>
+	      </div>
+	      <p class="object-copy" data-object-feedback-status></p>
+	    </section>
+	    {% endif %}
+	  </aside>
+	</section>
 
 <section class="object-sections">
   {% for section in object_sections %}
@@ -607,4 +694,72 @@
   </section>
   {% endfor %}
 </section>
+{% if object_feedback %}
+<script>
+(() => {
+  const root = document.querySelector('[data-object-feedback]');
+  if (!root) return;
+  let payload = {};
+  try {
+    payload = JSON.parse(root.getAttribute('data-object-feedback-payload') || '{}');
+  } catch (_error) {
+    payload = {};
+  }
+  const selectedReasons = new Set();
+  let reaction = '';
+  const status = root.querySelector('[data-object-feedback-status]');
+  root.querySelectorAll('[data-object-feedback-reaction]').forEach((button) => {
+    button.addEventListener('click', () => {
+      reaction = String(button.getAttribute('data-object-feedback-reaction') || '').trim();
+      root.querySelectorAll('[data-object-feedback-reaction]').forEach((candidate) => {
+        candidate.classList.toggle('active', candidate === button);
+      });
+    });
+  });
+  root.querySelectorAll('[data-object-feedback-reason]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = String(button.getAttribute('data-object-feedback-reason') || '').trim();
+      if (!key) return;
+      if (selectedReasons.has(key)) {
+        selectedReasons.delete(key);
+        button.classList.remove('active');
+      } else {
+        selectedReasons.add(key);
+        button.classList.add('active');
+      }
+    });
+  });
+  root.querySelector('[data-object-feedback-save]')?.addEventListener('click', async () => {
+    if (!reaction) {
+      if (status) status.textContent = 'Choose a reaction first.';
+      return;
+    }
+    if (status) status.textContent = 'Saving feedback...';
+    try {
+      const response = await fetch(String(payload.save_endpoint || ''), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          property_slug: String(payload.property_slug || ''),
+          property_url: String(payload.property_url || ''),
+          property_title: String(payload.property_title || ''),
+          property_facts: payload.property_facts || {},
+          reaction,
+          reason_keys: [...selectedReasons],
+          note: String(root.querySelector('[data-object-feedback-note]')?.value || ''),
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not save feedback.'));
+      const likes = Array.isArray(body.learning_summary?.likes) ? body.learning_summary.likes.length : 0;
+      const dislikes = Array.isArray(body.learning_summary?.dislikes) ? body.learning_summary.dislikes.length : 0;
+      if (status) status.textContent = `Saved. Profile now has ${likes} like signal(s) and ${dislikes} avoid signal(s).`;
+    } catch (error) {
+      if (status) status.textContent = error instanceof Error ? error.message : 'Could not save feedback.';
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

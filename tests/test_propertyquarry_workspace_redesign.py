@@ -188,6 +188,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "EUR 5,385/m2" in search.text
     assert "Open 360" in search.text
     assert "Review packet" in search.text
+    assert 'data-candidate-packet-url="/app/research/' in search.text
     assert "Launch search" not in search.text
     assert "Morning Memo" not in search.text
     assert "Office signals ingested" not in search.text
@@ -235,6 +236,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Researched" in packet.text
     assert "Hosted review" in packet.text
     assert "Original listing" in packet.text
+    assert "Preference feedback" in packet.text
+    assert "Tune this search profile" in packet.text
+    assert 'data-object-feedback-reaction="like"' in packet.text
+    assert 'data-object-feedback-save' in packet.text
+    assert "Manage preferences" in packet.text
 
     profile = client.get("/app/profile", params={"run_id": "run-42"}, headers=headers)
     assert profile.status_code == 200
@@ -329,6 +335,9 @@ def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:
     assert search.status_code == 200
     assert 'data-workbench-brief-drawer' in search.text
     assert 'name="all_of_vienna" value="true" checked' in search.text
+    assert 'name="use_stored_feedback_preferences" value="true" checked' in search.text
+    assert "Use stored feedback preferences" in search.text
+    assert "Manage feedback preferences" in search.text
     assert "All of Vienna" in search.text
     assert 'name="location_query"' in search.text
     assert re.search(
