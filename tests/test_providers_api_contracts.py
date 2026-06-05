@@ -7098,6 +7098,7 @@ def test_public_tour_routes_render_pdf_floorplan_scenes(
                         "role": "floorplan",
                         "asset_relpath": "floorplan-01.pdf",
                         "mime_type": "application/pdf",
+                        "privacy_class": "floorplan_pdf_public",
                     }
                 ],
             },
@@ -8270,11 +8271,11 @@ def test_public_tour_routes_use_listing_research_to_fill_decision_brief(
     assert "The building has only 8 residential units, which should keep internal traffic lower." in page.text
     assert "Availability is listed as Sofort." in page.text
     assert "Immersive 360 tour is available." not in page.text
-    assert "Hameaustraße 34" in page.text
+    assert "Hameaustraße 34" not in page.text
     assert "Supermarket" in page.text
     assert "Pharmacy" in page.text
     assert "Underground" in page.text
-    assert "Source research already filled: address, lift, floor plan, availability (Sofort), supermarket distance, pharmacy distance, playground distance, underground distance." in page.text
+    assert "Source research already filled: lift, floor plan, availability (Sofort), supermarket distance, pharmacy distance, playground distance, underground distance." in page.text
 
 
 def test_public_tour_routes_refuse_generated_fallback_tours(

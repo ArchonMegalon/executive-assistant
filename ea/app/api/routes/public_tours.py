@@ -14,12 +14,11 @@ from pathlib import Path, PurePosixPath
 import re
 import socket
 import time
-import urllib.error
-import urllib.request
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+import requests
 
 from app.api.dependencies import get_container
 from app.container import AppContainer
@@ -40,6 +39,7 @@ _PUBLIC_TOUR_ROUTE_LIMITS = {
     "file": (40, 60),
     "page": (24, 60),
     "feedback": (12, 60),
+    "request-details": (8, 60),
 }
 log = logging.getLogger(__name__)
 
@@ -147,6 +147,8 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "scenes",
         "video_relpath",
         "video_fallback_relpath",
+        "tour_privacy_mode",
+        "privacy_mode",
     }
 )
 _PUBLIC_TOUR_SCENE_KEYS = frozenset(
@@ -245,6 +247,13 @@ _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS = frozenset(
         ".webp",
     }
 )
+_PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES = frozenset(
+    {
+        "floorplan_pdf_public",
+        "floorplan_public",
+        "public_floorplan_pdf",
+    }
+)
 _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS = frozenset(
     {
         ".conf",
@@ -265,6 +274,103 @@ _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS = frozenset(
         ".yaml",
         ".yml",
         ".zip",
+    }
+)
+_PUBLIC_TOUR_PRIVACY_MODES = frozenset(
+    {
+        "anonymous_public",
+        "viewer_only",
+        "agent_share",
+        "family_review",
+        "owner_private",
+    }
+)
+_PUBLIC_TOUR_ADDRESS_ALLOWED_MODES = frozenset({"viewer_only", "agent_share", "family_review"})
+_PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS = frozenset(
+    {
+        "address",
+        "address_line",
+        "address_lines",
+        "exact_address",
+        "formatted_address",
+        "geojson",
+        "geocode",
+        "geocoded_address",
+        "house_number",
+        "lat",
+        "latitude",
+        "lng",
+        "lon",
+        "longitude",
+        "map_lat",
+        "map_lng",
+        "postcode",
+        "postal_code",
+        "reverse_geocode",
+        "street",
+        "street_address",
+        "street_name",
+    }
+)
+_PUBLIC_TOUR_ANONYMOUS_FACT_KEYS = frozenset(
+    {
+        "area_sqm",
+        "availability",
+        "balcony_sqm",
+        "bathrooms",
+        "bedrooms",
+        "city",
+        "country_code",
+        "district",
+        "district_name",
+        "energy_class",
+        "floor",
+        "floor_plan",
+        "floorplan_available",
+        "floorplan_count",
+        "garden_sqm",
+        "has_360",
+        "has_balcony",
+        "has_floorplan",
+        "has_garden",
+        "has_lift",
+        "has_loggia",
+        "has_terrace",
+        "heating_type",
+        "lift",
+        "elevator",
+        "livability_snapshot",
+        "municipality",
+        "parking_monthly_eur",
+        "personal_fit_assessment",
+        "postal_name",
+        "price_eur",
+        "property_type",
+        "purchase_price_eur",
+        "rooms",
+        "teaser_attributes",
+        "terrace_sqm",
+        "terrace_area_sqm",
+        "total_rent_eur",
+        "building_units",
+        "year_built",
+    }
+)
+_PUBLIC_TOUR_PUBLIC_ASSESSMENT_KEYS = frozenset(
+    {
+        "adjusted_fit_score",
+        "decision_summary",
+        "fit_score",
+        "good_fit_reasons",
+        "livability_snapshot",
+        "location_fit_score",
+        "match_reasons_json",
+        "mismatch_reasons_json",
+        "pros",
+        "cons",
+        "risk_flags",
+        "summary",
+        "unknowns_json",
     }
 )
 _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES = (
@@ -298,22 +404,78 @@ def _public_tour_safe_asset_relpath(value: object) -> str:
     return "/".join(path.parts)
 
 
-def _public_tour_asset_path_is_public(relpath: str) -> bool:
+def _public_tour_env_truthy(raw: object) -> bool:
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _public_tour_prod_mode_enabled() -> bool:
+    return str(os.getenv("EA_RUNTIME_MODE") or "").strip().lower() == "prod"
+
+
+def _public_tour_privacy_mode(payload: dict[str, object]) -> str:
+    raw = str(payload.get("tour_privacy_mode") or payload.get("privacy_mode") or "").strip().lower()
+    return raw if raw in _PUBLIC_TOUR_PRIVACY_MODES else "anonymous_public"
+
+
+def _require_public_tour_viewable(payload: dict[str, object]) -> None:
+    if _public_tour_privacy_mode(payload) == "owner_private":
+        raise HTTPException(status_code=404, detail="tour_not_found")
+
+
+def _public_tour_exact_address_allowed(payload: dict[str, object], *, privacy_mode: str) -> bool:
+    if privacy_mode not in _PUBLIC_TOUR_ADDRESS_ALLOWED_MODES:
+        return False
+    return _public_tour_env_truthy(
+        payload.get("public_address_allowed")
+        or payload.get("public_exact_location_allowed")
+        or payload.get("share_exact_location")
+    )
+
+
+def _public_tour_asset_path_is_public(
+    relpath: str,
+    *,
+    privacy_class: str = "",
+    role: str = "",
+    mime_type: str = "",
+) -> bool:
     safe_relpath = _public_tour_safe_asset_relpath(relpath)
     if not safe_relpath:
         return False
     suffix = PurePosixPath(safe_relpath).suffix.lower()
     if suffix in _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS:
         return False
-    return suffix in _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS
+    if suffix not in _PUBLIC_TOUR_ALLOWED_ASSET_EXTENSIONS:
+        return False
+    if suffix == ".pdf" or "pdf" in str(mime_type or "").strip().lower():
+        normalized_privacy = str(privacy_class or "").strip().lower()
+        normalized_role = str(role or "").strip().lower().replace("-", "_")
+        return normalized_privacy in _PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES and normalized_role in {
+            "floorplan",
+            "floor_plan",
+            "layout",
+            "valuation_floorplan",
+        }
+    return True
 
 
 def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
     refs: set[str] = set()
 
-    def _add(value: object) -> None:
+    def _add(
+        value: object,
+        *,
+        privacy_class: str = "",
+        role: str = "",
+        mime_type: str = "",
+    ) -> None:
         relpath = _public_tour_safe_asset_relpath(value)
-        if relpath and _public_tour_asset_path_is_public(relpath):
+        if relpath and _public_tour_asset_path_is_public(
+            relpath,
+            privacy_class=privacy_class,
+            role=role,
+            mime_type=mime_type,
+        ):
             refs.add(relpath)
 
     _add(payload.get("video_relpath"))
@@ -321,8 +483,11 @@ def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
+        scene_privacy = str(scene.get("privacy_class") or scene.get("privacy") or "").strip()
+        scene_role = str(scene.get("role") or "").strip()
+        scene_mime = str(scene.get("mime_type") or "").strip()
         for key in ("asset_relpath", "thumbnail_relpath", "preview_relpath", "floorplan_relpath"):
-            _add(scene.get(key))
+            _add(scene.get(key), privacy_class=scene_privacy, role=scene_role, mime_type=scene_mime)
         cube_faces = scene.get("cube_faces")
         if isinstance(cube_faces, dict):
             for value in cube_faces.values():
@@ -338,17 +503,15 @@ def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             privacy_class = str(row.get("privacy_class") or row.get("privacy") or "public").strip().lower()
             if privacy_class in {"private", "internal", "debug", "restricted"}:
                 continue
+            role = str(row.get("role") or row.get("asset_role") or "").strip()
+            mime_type = str(row.get("mime_type") or row.get("content_type") or "").strip()
             for key in ("path", "relpath", "asset_relpath"):
-                _add(row.get(key))
+                _add(row.get(key), privacy_class=privacy_class, role=role, mime_type=mime_type)
     return refs
 
 
 def _public_tour_allowed_asset_paths(payload: dict[str, object]) -> set[str]:
-    return {
-        relpath
-        for relpath in _public_tour_collect_asset_refs(payload)
-        if _public_tour_asset_path_is_public(relpath)
-    }
+    return set(_public_tour_collect_asset_refs(payload))
 
 
 def _public_tour_file_url(slug: str, relpath: str) -> str:
@@ -368,6 +531,13 @@ def _public_tour_safe_http_url(value: object) -> str:
     return normalized
 
 
+def _public_tour_external_media_url_allowed(value: object) -> bool:
+    normalized = _public_tour_safe_http_url(value)
+    if not normalized:
+        return False
+    return _public_tour_listing_research_url_allowed(normalized)
+
+
 def _redact_public_tour_value(value: object) -> object:
     if isinstance(value, dict):
         redacted: dict[str, object] = {}
@@ -381,6 +551,55 @@ def _redact_public_tour_value(value: object) -> object:
     if isinstance(value, tuple):
         return [_redact_public_tour_value(item) for item in value]
     return value
+
+
+def _redacted_public_tour_facts(
+    payload: dict[str, object],
+    facts: dict[str, object],
+    *,
+    privacy_mode: str,
+) -> dict[str, object]:
+    redacted_value = _redact_public_tour_value(facts if isinstance(facts, dict) else {})
+    redacted = dict(redacted_value) if isinstance(redacted_value, dict) else {}
+    exact_address_allowed = _public_tour_exact_address_allowed(payload, privacy_mode=privacy_mode)
+    for key in list(redacted.keys()):
+        normalized_key = str(key or "").strip().lower()
+        if normalized_key in _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS and not exact_address_allowed:
+            redacted.pop(key, None)
+    if privacy_mode != "anonymous_public":
+        return redacted
+
+    def _redacted_public_livability(value: object) -> dict[str, object]:
+        if not isinstance(value, dict):
+            return {}
+        return {
+            str(livability_key): _redact_public_tour_value(livability_value)
+            for livability_key, livability_value in value.items()
+            if str(livability_key or "").strip().lower().startswith("nearest_")
+        }
+
+    public_facts: dict[str, object] = {}
+    for key, value in redacted.items():
+        normalized_key = str(key or "").strip().lower()
+        if normalized_key in _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS:
+            continue
+        if normalized_key.startswith("nearest_") or normalized_key in _PUBLIC_TOUR_ANONYMOUS_FACT_KEYS:
+            if normalized_key == "personal_fit_assessment" and isinstance(value, dict):
+                assessment: dict[str, object] = {}
+                for assessment_key, assessment_value in value.items():
+                    normalized_assessment_key = str(assessment_key or "").strip().lower()
+                    if normalized_assessment_key not in _PUBLIC_TOUR_PUBLIC_ASSESSMENT_KEYS:
+                        continue
+                    if normalized_assessment_key == "livability_snapshot":
+                        assessment[str(assessment_key)] = _redacted_public_livability(assessment_value)
+                    else:
+                        assessment[str(assessment_key)] = _redact_public_tour_value(assessment_value)
+                public_facts[str(key)] = assessment
+            elif normalized_key == "livability_snapshot":
+                public_facts[str(key)] = _redacted_public_livability(value)
+            else:
+                public_facts[str(key)] = value
+    return public_facts
 
 
 def _redacted_public_tour_scenes(
@@ -418,12 +637,12 @@ def _redacted_public_tour_scenes(
                     rendered[key] = cube_faces
                 continue
             if key == "image_url":
-                safe_url = _public_tour_safe_http_url(value)
+                safe_url = _public_tour_external_media_url_allowed(value) and _public_tour_safe_http_url(value)
                 if safe_url:
                     rendered[key] = safe_url
                 continue
             rendered[str(key)] = _redact_public_tour_value(value)
-        if rendered:
+        if rendered and ("image_url" in rendered or "asset_relpath" in rendered or "cube_faces" in rendered):
             rows.append(rendered)
     return rows
 
@@ -435,11 +654,19 @@ def _redacted_public_tour_payload(
 ) -> dict[str, object]:
     rendered: dict[str, object] = {}
     slug = str(payload.get("slug") or "").strip()
+    privacy_mode = _public_tour_privacy_mode(payload)
     for key in _PUBLIC_TOUR_TOP_LEVEL_KEYS:
         if key not in payload or _public_tour_key_is_private(key):
             continue
         if key in {"facts", "brief"}:
-            rendered[key] = _redact_public_tour_value(payload.get(key) if isinstance(payload.get(key), dict) else {})
+            if key == "facts":
+                rendered[key] = _redacted_public_tour_facts(
+                    payload,
+                    payload.get(key) if isinstance(payload.get(key), dict) else {},
+                    privacy_mode=privacy_mode,
+                )
+            else:
+                rendered[key] = _redact_public_tour_value(payload.get(key) if isinstance(payload.get(key), dict) else {})
             continue
         if key == "scenes":
             rendered[key] = _redacted_public_tour_scenes(payload, expose_asset_relpaths=expose_asset_relpaths)
@@ -455,6 +682,7 @@ def _redacted_public_tour_payload(
             continue
         rendered[key] = _redact_public_tour_value(payload.get(key))
     rendered["slug"] = slug
+    rendered["tour_privacy_mode"] = privacy_mode
     rendered.setdefault("facts", {})
     rendered.setdefault("brief", {})
     rendered.setdefault("scenes", [])
@@ -472,6 +700,7 @@ def _redacted_public_tour_payload(
 
 def _asset_file(slug: str, asset_path: str) -> Path:
     payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     if not safe_relpath or safe_relpath not in _public_tour_allowed_asset_paths(payload):
         raise HTTPException(status_code=404, detail="tour_file_not_found")
@@ -483,6 +712,13 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if not candidate.exists() or not candidate.is_file():
         raise HTTPException(status_code=404, detail="tour_file_not_found")
+    if candidate.suffix.lower() == ".pdf":
+        max_bytes = max(int(os.getenv("PROPERTYQUARRY_PUBLIC_PDF_MAX_BYTES") or "15728640"), 1)
+        try:
+            if candidate.stat().st_size > max_bytes:
+                raise HTTPException(status_code=404, detail="tour_file_not_found")
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
     return candidate
 
 
@@ -586,11 +822,12 @@ def _reverse_geocode(lat: float, lon: float) -> dict[str, object]:
         "https://nominatim.openstreetmap.org/reverse?"
         f"format=jsonv2&lat={lat:.8f}&lon={lon:.8f}&zoom=18&addressdetails=1"
     )
-    request = urllib.request.Request(url, headers={"User-Agent": "EA/1.0"})
     try:
-        with urllib.request.urlopen(request, timeout=6.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        # Fixed OpenStreetMap reverse-geocode endpoint for map context.
+        response = requests.get(url, headers={"User-Agent": "EA/1.0"}, timeout=6.0)
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -611,15 +848,17 @@ def _fetch_nearby_poi_research(lat: float, lon: float) -> dict[str, object]:
 );
 out center tags;
 """
-    request = urllib.request.Request(
-        "https://overpass-api.de/api/interpreter",
-        data=query.encode("utf-8"),
-        headers={"User-Agent": "EA/1.0"},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=15.0) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        # Fixed Overpass API endpoint for nearby POI context.
+        response = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data=query.encode("utf-8"),
+            headers={"User-Agent": "EA/1.0"},
+            timeout=15.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError, json.JSONDecodeError):
         return {}
     elements = list(payload.get("elements") or []) if isinstance(payload, dict) else []
     if not elements:
@@ -673,17 +912,19 @@ def _fetch_listing_research(url: str) -> dict[str, object]:
         return {}
     if not _public_tour_listing_research_url_allowed(normalized):
         return {}
-    request = urllib.request.Request(
-        normalized,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-            "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=4.0) as response:
-            raw_html = response.read().decode("utf-8", errors="ignore")
-    except (urllib.error.URLError, TimeoutError, ValueError):
+        # Listing URL fetch is guarded by host allowlist and public-IP checks above.
+        response = requests.get(
+            normalized,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
+            },
+            timeout=4.0,
+        )
+        response.raise_for_status()
+        raw_html = response.text
+    except (requests.RequestException, ValueError):
         return {}
     text = html.unescape(re.sub(r"<[^>]+>", " ", raw_html))
     lowered = " ".join(text.split()).lower()
@@ -905,21 +1146,21 @@ def _enforce_public_tour_feedback_memory_rate_limit(*, key: str, now: float) -> 
 def _prune_public_tour_feedback_file_rate_limit(rate_dir: Path, *, now: float) -> None:
     try:
         files = sorted(rate_dir.glob("*.json"), key=lambda item: item.stat().st_mtime)
-    except Exception:
+    except OSError:
         return
     stale_before = now - (_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS * 4)
     for path in files:
         try:
             if path.stat().st_mtime < stale_before:
                 path.unlink(missing_ok=True)
-        except Exception:
+        except OSError:
             continue
     if len(files) <= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS:
         return
     for path in files[: max(0, len(files) - _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS)]:
         try:
             path.unlink(missing_ok=True)
-        except Exception:
+        except OSError:
             continue
 
 
@@ -962,6 +1203,8 @@ def _enforce_public_tour_feedback_file_rate_limit(*, key: str, now: float) -> bo
         raise
     except Exception:
         log.exception("public tour feedback durable rate limit failed")
+        if _public_tour_env_truthy(os.getenv("PROPERTYQUARRY_PUBLIC_RATE_LIMIT_FAIL_CLOSED")) or _public_tour_prod_mode_enabled():
+            raise HTTPException(status_code=503, detail="public_tour_feedback_rate_limit_unavailable")
         return False
 
 
@@ -1276,7 +1519,7 @@ def _shortlist_tour_manifest_index(root: str) -> tuple[dict[str, object], ...]:
             continue
         try:
             payload = json.loads(payload_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, ValueError, json.JSONDecodeError):
             continue
         if isinstance(payload, dict):
             rows.append(dict(payload))
@@ -2050,7 +2293,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     concern_lines = personalized_caution or bad_fit_reasons[:4] or _feature_concerns()
     unknown_lines = personalized_unknowns or unknowns[:4]
     completed_research_line = ""
-    if researched_facts:
+    if researched_facts or _public_tour_env_truthy(payload.get("_public_research_completed")):
         research_fragments: list[str] = []
         if _fact_text("street_address", "exact_address"):
             research_fragments.append("address")
@@ -2889,7 +3132,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 title="{title_html}"
                 allowfullscreen
                 loading="eager"
-                referrerpolicy="no-referrer-when-downgrade"
+                referrerpolicy="no-referrer"
               ></iframe>
             </div>
           </section>
@@ -3177,7 +3420,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
               title="{title_html} live 360 viewer"
               loading="lazy"
               allowfullscreen
-              referrerpolicy="no-referrer-when-downgrade"
+              referrerpolicy="no-referrer"
             ></iframe>
           </div>
         </section>'''
@@ -3564,8 +3807,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           </div>
         </div>
         <div id="viewer" class="viewer">
-          <img id="stage-image" src="{html.escape(scene_data[0]['image_url'])}" alt="{html.escape(scene_data[0]['name'])}">
-          <iframe id="stage-frame" src="" title="{html.escape(scene_data[0]['name'])}" hidden></iframe>
+          <img id="stage-image" src="{html.escape(scene_data[0]['image_url'])}" alt="{html.escape(scene_data[0]['name'])}" referrerpolicy="no-referrer">
+          <iframe id="stage-frame" src="" title="{html.escape(scene_data[0]['name'])}" referrerpolicy="no-referrer" hidden></iframe>
           <div class="caption">
             <small id="stage-role">{html.escape(scene_data[0]['role'])}</small>
             <div id="stage-name">{html.escape(scene_data[0]['name'])}</div>
@@ -3605,7 +3848,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
           button.innerHTML = isPdf
             ? `<span class="badge">${{scene.role}}</span><span class="thumb-doc">PDF</span>`
-            : `<span class="badge">${{scene.role}}</span><img src="${{scene.image_url}}" alt="${{scene.name}}">`;
+            : `<span class="badge">${{scene.role}}</span><img src="${{scene.image_url}}" alt="${{scene.name}}" referrerpolicy="no-referrer">`;
           button.addEventListener("click", () => setActive(index));
           thumbs.appendChild(button);
         }});
@@ -3703,18 +3946,42 @@ def _render_tour_unavailable_page(
     )
     response.status_code = status_code
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
     return response
+
+
+def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[str, str]:
+    return {
+        "Cache-Control": cache_control,
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "base-uri 'none'; "
+            "object-src 'none'; "
+            "frame-ancestors 'self'; "
+            "img-src 'self' data: https:; "
+            "media-src 'self' https:; "
+            "frame-src 'self' https:; "
+            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai; "
+            "style-src 'self' 'unsafe-inline'; "
+            "connect-src 'self'"
+        ),
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+    }
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
 def public_tour_payload(slug: str, request: Request) -> JSONResponse:
     _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="json")
     payload = _load_tour(slug)
+    _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     return JSONResponse(
         _redacted_public_tour_payload(payload, expose_asset_relpaths=False),
-        headers={"Cache-Control": "no-store"},
+        headers=_public_tour_security_headers(),
     )
 
 
@@ -3723,7 +3990,11 @@ def public_tour_file(slug: str, asset_path: str, request: Request) -> FileRespon
     _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="file")
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-    return FileResponse(file_path, media_type=media_type, headers={"Cache-Control": "no-store"})
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers=_public_tour_security_headers(cache_control="public, max-age=86400, immutable"),
+    )
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)
@@ -3732,6 +4003,7 @@ async def public_tour_request_details(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
+    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="request-details")
     payload = _load_tour(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -3754,6 +4026,7 @@ async def public_tour_feedback(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
+    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="feedback")
     payload = _load_tour(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -3800,7 +4073,7 @@ async def public_tour_feedback(
             source_id=f"public-tour:{slug}",
             dedupe_key="",
         )
-    except Exception:
+    except Exception as exc:
         log.exception(
             "public tour feedback persistence failed slug=%s principal_hash=%s reaction=%s",
             slug,
@@ -3855,16 +4128,22 @@ def public_tour_page(
     hostname = request_hostname(request)
     try:
         payload = _load_tour(slug)
+        _require_public_tour_viewable(payload)
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
-        rendered_facts, _ = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
+        rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
         rendered_facts.pop("public_preference_snapshot", None)
-        rendered_payload["facts"] = dict(_redact_public_tour_value(rendered_facts))
+        rendered_payload["facts"] = _redacted_public_tour_facts(
+            payload,
+            rendered_facts,
+            privacy_mode=str(rendered_payload.get("tour_privacy_mode") or "anonymous_public"),
+        )
+        rendered_payload["_public_research_completed"] = bool(research_snapshot)
         rendered_payload["_feedback_suggestions"] = {}
         rendered_payload["_learning_summary"] = {}
         rendered_payload["_shortlist_compare"] = {"current": {}, "items": [], "metric_specs": list(_shortlist_metric_labels())}
-        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname))
+        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname), headers=_public_tour_security_headers())
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
         if exc.status_code == 404 and detail == "tour_disabled_fallback":
