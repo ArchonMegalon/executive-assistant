@@ -7047,6 +7047,17 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert payload_body["slug"] == slug
     assert payload_body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
     assert payload_body["facts"]["personal_fit_assessment"]["fit_score"] == 81
+    assert payload_body["public_assets"] == [
+        {
+            "mime_type": "image/jpeg",
+            "path": "scene-01.jpg",
+            "privacy_class": "public",
+            "role": "photo",
+            "sha256": hashlib.sha256(b"fake-jpeg-data").hexdigest(),
+            "size_bytes": len(b"fake-jpeg-data"),
+            "url": f"/tours/files/{slug}/scene-01.jpg",
+        }
+    ]
     serialized_payload = json.dumps(payload_body, sort_keys=True)
     for private_marker in (
         "principal_id",
@@ -7064,6 +7075,8 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert asset.status_code == 200
     assert asset.content == b"fake-jpeg-data"
     assert asset.headers["content-type"].startswith("image/jpeg")
+    assert asset.headers["x-propertyquarry-asset-sha256"] == hashlib.sha256(b"fake-jpeg-data").hexdigest()
+    assert asset.headers["x-propertyquarry-asset-privacy"] == "public"
     assert client.get(f"/tours/files/{slug}/tour.json").status_code == 404
     assert client.get(f"/tours/files/{slug}/raw-payload.json").status_code == 404
     assert client.get(f"/tours/files/{slug}/debug.log").status_code == 404
@@ -7116,10 +7129,24 @@ def test_public_tour_routes_render_pdf_floorplan_scenes(
     assert 'id="stage-frame"' in page.text
     assert "thumb-doc" in page.text
     assert '"mime_type": "application/pdf"' in page.text
+    payload = client.get(f"/tours/{slug}.json")
+    assert payload.status_code == 200
+    assert payload.json()["public_assets"] == [
+        {
+            "mime_type": "application/pdf",
+            "path": "floorplan-01.pdf",
+            "privacy_class": "floorplan_pdf_public",
+            "role": "floorplan",
+            "sha256": hashlib.sha256(b"%PDF-1.7 floorplan").hexdigest(),
+            "size_bytes": len(b"%PDF-1.7 floorplan"),
+            "url": f"/tours/files/{slug}/floorplan-01.pdf",
+        }
+    ]
 
     asset = client.get(f"/tours/files/{slug}/floorplan-01.pdf")
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("application/pdf")
+    assert asset.headers["x-propertyquarry-asset-privacy"] == "floorplan_pdf_public"
 
 
 def test_public_results_no_longer_shadow_tour_routes(

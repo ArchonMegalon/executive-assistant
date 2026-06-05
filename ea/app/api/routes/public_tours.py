@@ -514,6 +514,98 @@ def _public_tour_allowed_asset_paths(payload: dict[str, object]) -> set[str]:
     return set(_public_tour_collect_asset_refs(payload))
 
 
+def _public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str, str]]:
+    metadata: dict[str, dict[str, str]] = {}
+
+    def _record(
+        value: object,
+        *,
+        privacy_class: str = "",
+        role: str = "",
+        mime_type: str = "",
+    ) -> None:
+        relpath = _public_tour_safe_asset_relpath(value)
+        if not relpath or not _public_tour_asset_path_is_public(
+            relpath,
+            privacy_class=privacy_class,
+            role=role,
+            mime_type=mime_type,
+        ):
+            return
+        row = metadata.setdefault(relpath, {})
+        normalized_privacy = str(privacy_class or "").strip().lower()
+        normalized_role = str(role or "").strip().lower().replace("-", "_")
+        if normalized_privacy:
+            row["privacy_class"] = normalized_privacy
+        if normalized_role:
+            row["role"] = normalized_role
+        if mime_type:
+            row["mime_type"] = str(mime_type).strip()
+
+    _record(payload.get("video_relpath"), role="video")
+    _record(payload.get("video_fallback_relpath"), role="video")
+    for scene in list(payload.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        scene_privacy = str(scene.get("privacy_class") or scene.get("privacy") or "").strip()
+        scene_role = str(scene.get("role") or "").strip()
+        scene_mime = str(scene.get("mime_type") or "").strip()
+        for key in ("asset_relpath", "thumbnail_relpath", "preview_relpath", "floorplan_relpath"):
+            _record(scene.get(key), privacy_class=scene_privacy, role=scene_role, mime_type=scene_mime)
+        cube_faces = scene.get("cube_faces")
+        if isinstance(cube_faces, dict):
+            for value in cube_faces.values():
+                _record(value, role="cube_face")
+    public_assets = payload.get("public_assets")
+    if isinstance(public_assets, list):
+        for row in public_assets:
+            if isinstance(row, str):
+                _record(row)
+                continue
+            if not isinstance(row, dict):
+                continue
+            privacy_class = str(row.get("privacy_class") or row.get("privacy") or "public").strip().lower()
+            if privacy_class in {"private", "internal", "debug", "restricted"}:
+                continue
+            role = str(row.get("role") or row.get("asset_role") or "").strip()
+            mime_type = str(row.get("mime_type") or row.get("content_type") or "").strip()
+            for key in ("path", "relpath", "asset_relpath"):
+                _record(row.get(key), privacy_class=privacy_class, role=role, mime_type=mime_type)
+    return metadata
+
+
+def _public_tour_manifest(payload: dict[str, object], *, only_relpath: str = "") -> dict[str, dict[str, object]]:
+    slug = str(payload.get("slug") or "").strip()
+    bundle_dir = _tour_bundle_dir(slug)
+    only_safe_relpath = _public_tour_safe_asset_relpath(only_relpath)
+    manifest: dict[str, dict[str, object]] = {}
+    for relpath, metadata in sorted(_public_tour_asset_metadata(payload).items()):
+        if only_safe_relpath and relpath != only_safe_relpath:
+            continue
+        row: dict[str, object] = {
+            "path": relpath,
+            "url": _public_tour_file_url(slug, relpath),
+            "mime_type": metadata.get("mime_type") or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
+            "privacy_class": metadata.get("privacy_class") or "public",
+        }
+        if metadata.get("role"):
+            row["role"] = metadata["role"]
+        if bundle_dir is not None:
+            candidate = (bundle_dir / relpath).resolve()
+            try:
+                if bundle_dir.resolve() in candidate.parents and candidate.exists() and candidate.is_file():
+                    row["size_bytes"] = candidate.stat().st_size
+                    digest = hashlib.sha256()
+                    with candidate.open("rb") as handle:
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    row["sha256"] = digest.hexdigest()
+            except OSError:
+                pass
+        manifest[relpath] = row
+    return manifest
+
+
 def _public_tour_file_url(slug: str, relpath: str) -> str:
     safe_relpath = _public_tour_safe_asset_relpath(relpath)
     if not slug or not safe_relpath:
@@ -687,14 +779,7 @@ def _redacted_public_tour_payload(
     rendered.setdefault("brief", {})
     rendered.setdefault("scenes", [])
     if not expose_asset_relpaths:
-        rendered["public_assets"] = [
-            {
-                "path": relpath,
-                "url": _public_tour_file_url(slug, relpath),
-                "mime_type": mimetypes.guess_type(relpath)[0] or "application/octet-stream",
-            }
-            for relpath in sorted(_public_tour_allowed_asset_paths(payload))
-        ]
+        rendered["public_assets"] = list(_public_tour_manifest(payload).values())
     return rendered
 
 
@@ -702,7 +787,8 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
-    if not safe_relpath or safe_relpath not in _public_tour_allowed_asset_paths(payload):
+    manifest = _public_tour_manifest(payload, only_relpath=safe_relpath)
+    if not safe_relpath or safe_relpath not in manifest:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     bundle_dir = _tour_bundle_dir(slug)
     if bundle_dir is None:
@@ -3988,12 +4074,20 @@ def public_tour_payload(slug: str, request: Request) -> JSONResponse:
 @router.get("/tours/files/{slug}/{asset_path:path}")
 def public_tour_file(slug: str, asset_path: str, request: Request) -> FileResponse:
     _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="file")
+    payload = _load_tour(slug)
+    safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
+    if manifest_row.get("sha256"):
+        headers["X-PropertyQuarry-Asset-SHA256"] = str(manifest_row["sha256"])
+    if manifest_row.get("privacy_class"):
+        headers["X-PropertyQuarry-Asset-Privacy"] = str(manifest_row["privacy_class"])
     return FileResponse(
         file_path,
         media_type=media_type,
-        headers=_public_tour_security_headers(cache_control="public, max-age=86400, immutable"),
+        headers=headers,
     )
 
 
