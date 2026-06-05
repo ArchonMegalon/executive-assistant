@@ -207,7 +207,11 @@ operator_curl() {
     operator_container="$(resolve_api_container)"
     if [[ -n "${operator_container}" ]] && docker exec "${operator_container}" /bin/sh -lc 'for i in 1 2 3 4 5; do curl -fsS http://127.0.0.1:8090/health >/dev/null && exit 0; sleep 1; done; exit 1' >/dev/null 2>&1; then
       local arg
-      local translated=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
+      local translated=()
+      for arg in "${AUTH_ARGS[@]}"; do
+        translated+=("$(printf '%q' "${arg}")")
+      done
+      translated+=(-H "$(printf '%q' "X-EA-Principal-ID: ${PRINCIPAL_ID}")")
       for arg in "$@"; do
         if [[ "${arg}" == "${BASE}"* ]]; then
           arg="${arg/${BASE}/http://127.0.0.1:8090}"
