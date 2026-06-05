@@ -3,7 +3,11 @@ set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXTRA_COMPOSE_OVERRIDES=()
-export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-propertyquarry}"
+if [[ "${PROPERTYQUARRY_USE_LEGACY_STACK:-0}" == "1" ]]; then
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ea}"
+else
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-propertyquarry}"
+fi
 
 memory_only="${PROPERTYQUARRY_MEMORY_ONLY:-${EA_MEMORY_ONLY:-0}}"
 bootstrap_db="${PROPERTYQUARRY_BOOTSTRAP_DB:-${EA_BOOTSTRAP_DB:-0}}"

@@ -21,13 +21,13 @@ deploy:
 	docker compose -f docker-compose.property.yml up -d --build --remove-orphans
 
 deploy-legacy-ea-stack:
-	PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
+	COMPOSE_PROJECT_NAME=ea PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
 
 deploy-memory:
-	PROPERTYQUARRY_USE_LEGACY_STACK=1 EA_MEMORY_ONLY=1 bash scripts/deploy.sh
+	COMPOSE_PROJECT_NAME=ea PROPERTYQUARRY_USE_LEGACY_STACK=1 EA_MEMORY_ONLY=1 bash scripts/deploy.sh
 
 deploy-bootstrap:
-	PROPERTYQUARRY_USE_LEGACY_STACK=1 EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
+	COMPOSE_PROJECT_NAME=ea PROPERTYQUARRY_USE_LEGACY_STACK=1 EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh
 
 bootstrap:
 	bash scripts/db_bootstrap.sh
