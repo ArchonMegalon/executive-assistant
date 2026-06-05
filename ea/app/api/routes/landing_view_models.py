@@ -1582,6 +1582,34 @@ def property_workspace_payload(
             return ""
         return f"EUR {price / area:,.0f}/m2"
 
+    def _missing_fact_items(facts: dict[str, object]) -> list[dict[str, object]]:
+        research = facts.get("missing_fact_research")
+        if not isinstance(research, dict):
+            return []
+        items = research.get("items")
+        if not isinstance(items, list):
+            return []
+        return [dict(item) for item in items if isinstance(item, dict)]
+
+    def _missing_fact_item(facts: dict[str, object], field: str) -> dict[str, object]:
+        normalized = str(field or "").strip()
+        for item in _missing_fact_items(facts):
+            if str(item.get("field") or "").strip() == normalized:
+                return item
+        return {}
+
+    def _rooms_layout_part(facts: dict[str, object]) -> str:
+        label = str(facts.get("rooms_label") or "").strip()
+        if label:
+            return label
+        raw_value = facts.get("rooms") or facts.get("room_count")
+        if raw_value:
+            return f"{raw_value} rooms"
+        item = _missing_fact_item(facts, "rooms")
+        if item:
+            return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
+        return ""
+
     def _risk_summary(candidate: dict[str, object], facts: dict[str, object]) -> dict[str, str]:
         mismatch = [str(item).strip() for item in list(candidate.get("mismatch_reasons") or []) if str(item).strip()]
         missing: list[str] = []
@@ -1595,6 +1623,9 @@ def property_workspace_payload(
             missing.append("address")
         if not (facts.get("heating") or facts.get("heating_type")):
             missing.append("heating")
+        for item in _missing_fact_items(facts):
+            if str(item.get("status") or "").strip().lower() != "filled":
+                missing.append(str(item.get("label") or item.get("field") or "research fact").strip())
         if mismatch:
             return {"level": "medium", "summary": mismatch[0]}
         if len(missing) >= 2:
@@ -1634,6 +1665,18 @@ def property_workspace_payload(
                 "detail": match_reasons[0] if match_reasons else (mismatch_reasons[0] if mismatch_reasons else "Open the packet for the full decision read."),
             },
         )
+        for item in _missing_fact_items(facts):
+            if str(item.get("status") or "").strip().lower() == "filled":
+                continue
+            ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
+            label = str(item.get("label") or item.get("field") or "Missing fact").strip()
+            rows.append(
+                {
+                    "label": "Research",
+                    "value": str(item.get("display_value") or label).strip(),
+                    "detail": str(ooda.get("act") or item.get("evidence") or "Missing-fact OODA queued.").strip(),
+                }
+            )
         return rows[:6]
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, str]:
@@ -1660,8 +1703,8 @@ def property_workspace_payload(
             or ""
         ).strip() or "n/a"
         layout_parts = [
-            f"{facts.get('rooms')} rooms" if facts.get("rooms") else "",
-            f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
+            _rooms_layout_part(facts),
+            f"{facts.get('area_m2') or facts.get('area_sqm')} m2" if (facts.get("area_m2") or facts.get("area_sqm")) else "",
             str(facts.get("postal_name") or "").strip(),
         ]
         packet_url = str(candidate.get("packet_url") or candidate.get("review_url") or "").strip()

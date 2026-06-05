@@ -51,6 +51,7 @@ from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.product.service import (
+    _property_enrich_missing_fact_research,
     _property_investment_area_sqm,
     _property_investment_location_seed,
     _property_investment_price_eur,
@@ -1411,7 +1412,44 @@ def _property_enriched_candidate_facts(*, candidate: dict[str, object]) -> dict[
                 if postal_name:
                     facts["postal_name"] = postal_name
                     facts.setdefault("address", postal_name)
-    return facts
+    return _property_enrich_missing_fact_research(
+        facts=facts,
+        property_url=str(candidate.get("property_url") or "").strip(),
+        title=title,
+        summary=summary,
+        source_label=str(candidate.get("source_label") or "").strip(),
+    )
+
+
+def _property_missing_fact_items(facts: dict[str, object]) -> list[dict[str, object]]:
+    research = facts.get("missing_fact_research")
+    if not isinstance(research, dict):
+        return []
+    items = research.get("items")
+    if not isinstance(items, list):
+        return []
+    return [dict(item) for item in items if isinstance(item, dict)]
+
+
+def _property_missing_fact_item(facts: dict[str, object], field: str) -> dict[str, object]:
+    normalized = str(field or "").strip()
+    for item in _property_missing_fact_items(facts):
+        if str(item.get("field") or "").strip() == normalized:
+            return item
+    return {}
+
+
+def _property_rooms_display(facts: dict[str, object]) -> str:
+    label = str(facts.get("rooms_label") or "").strip()
+    if label:
+        return label
+    raw_value = facts.get("rooms") or facts.get("room_count")
+    if raw_value not in (None, "", []):
+        return f"{raw_value} rooms"
+    item = _property_missing_fact_item(facts, "rooms")
+    if item:
+        return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
+    return ""
 
 
 def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
@@ -1704,11 +1742,11 @@ def _property_packet_score_rows(
     if price_value:
         rows.append(_object_detail_row("Budget signal", price_value, "Budget"))
     area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
-    rooms_value = str(facts.get("rooms") or facts.get("room_count") or "").strip()
+    rooms_value = _property_rooms_display(facts)
     if area_value or rooms_value:
         detail = " | ".join(
             part for part in (
-                f"{rooms_value} rooms" if rooms_value else "",
+                rooms_value,
                 f"{area_value} m2" if area_value else "",
             ) if part
         )
@@ -1747,6 +1785,13 @@ def _property_packet_missing_rows(
             continue
         severity = "Critical" if key in {"address", "heating_type", "has_lift"} else "Important"
         rows.append(_object_detail_row(title, detail, severity))
+    for item in _property_missing_fact_items(facts):
+        if str(item.get("status") or "").strip().lower() == "filled":
+            continue
+        label = str(item.get("label") or item.get("field") or "Missing fact").strip()
+        ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
+        detail = str(ooda.get("act") or item.get("evidence") or "Missing-fact OODA queued.").strip()
+        rows.append(_object_detail_row(label, detail, "OODA"))
     return rows
 
 
@@ -1799,7 +1844,7 @@ def _property_packet_compare_rows(
         fact_line = " | ".join(
             part for part in (
                 str(facts.get("price_display") or facts.get("rent_display") or facts.get("price") or "").strip(),
-                f"{facts.get('rooms')} rooms" if facts.get("rooms") else "",
+                _property_rooms_display(facts),
                 f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
             ) if part
         )
@@ -2029,10 +2074,10 @@ def _property_packet_compare_table(
         ).strip()
         layout_value = " | ".join(
             part for part in (
-                f"{facts.get('rooms')} rooms" if facts.get("rooms") else "",
+                _property_rooms_display(facts),
                 f"{facts.get('area_m2')} m2" if facts.get("area_m2") else "",
             ) if part
-        ) or "Unknown"
+        ) or "Layout under research"
         tour_state = _tour_state_for(candidate)
         return [
             {
@@ -2148,6 +2193,17 @@ def property_research_packet(
         else _object_detail_row("Main concern", "Some evidence is still missing, so this packet should be treated as a research view, not final diligence.", "Risk"),
         _object_detail_row("Current recommendation", str(candidate.get("tag") or candidate.get("recommendation") or "Candidate").strip() or "Candidate", "Decision"),
     ]
+    for item in _property_missing_fact_items(facts):
+        if str(item.get("status") or "").strip().lower() == "filled":
+            continue
+        ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
+        ooda_summary_rows.append(
+            _object_detail_row(
+                str(item.get("label") or item.get("field") or "Missing fact").strip(),
+                str(ooda.get("orient") or ooda.get("act") or item.get("evidence") or "Missing-fact research queued.").strip(),
+                "Research",
+            )
+        )
     ooda_summary_rows.extend(_property_distance_ooda_rows(facts))
     investment_run_target = run_target + ("&investment=1" if "?" in run_target else "?investment=1")
     try:

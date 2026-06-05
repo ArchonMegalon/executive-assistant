@@ -501,6 +501,171 @@ def _property_facts_have_floorplan(
     return False
 
 
+def _property_numeric_room_count(value: object) -> float | None:
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if 0.0 < parsed <= 30.0 else None
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"\d+(?:[,.]\d+)?", text)
+    if not match:
+        return None
+    try:
+        parsed = float(match.group(0).replace(",", "."))
+    except ValueError:
+        return None
+    return parsed if 0.0 < parsed <= 30.0 else None
+
+
+def _property_format_rooms_label(value: float) -> str:
+    if float(value).is_integer():
+        formatted = str(int(value))
+    else:
+        formatted = f"{value:g}"
+    return "1 room" if formatted == "1" else f"{formatted} rooms"
+
+
+def _property_extract_rooms_from_text(text: object) -> tuple[float | None, str]:
+    normalized = " ".join(str(text or "").split())
+    if not normalized:
+        return None, ""
+    patterns = (
+        r"\b(\d+(?:[,.]\d+)?)\s*[- ]?\s*(?:zimmer|room|rooms|bedroom|bedrooms|pi[eè]ce|pi[eè]ces|locali|vani|kamers|habitación|habitaciones)\b",
+        r"\b(?:zimmer|rooms?|bedrooms?|pi[eè]ces?|locali|vani|kamers|habitaciones?)\s*[:：]?\s*(\d+(?:[,.]\d+)?)\b",
+        r"\b(\d+(?:[,.]\d+)?)\s*zi(?:mmer)?\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not match:
+            continue
+        value = _property_numeric_room_count(match.group(1))
+        if value is not None:
+            return value, compact_text(match.group(0), fallback="", limit=80)
+    return None, ""
+
+
+def _property_extract_rooms_from_floorplan_refs(refs: object) -> tuple[float | None, str]:
+    for ref in _property_nonempty_sequence(refs):
+        decoded = urllib.parse.unquote(ref)
+        value, evidence = _property_extract_rooms_from_text(decoded.replace("_", " ").replace("-", " "))
+        if value is not None:
+            return value, evidence or compact_text(decoded, fallback="", limit=80)
+    return None, ""
+
+
+def _property_missing_fact_research_items(facts: dict[str, object] | None) -> list[dict[str, object]]:
+    payload = dict(facts or {})
+    research = payload.get("missing_fact_research")
+    if isinstance(research, dict):
+        items = research.get("items")
+        if isinstance(items, list):
+            return [dict(item) for item in items if isinstance(item, dict)]
+    return []
+
+
+def _property_enrich_missing_fact_research(
+    *,
+    facts: dict[str, object] | None,
+    property_url: str = "",
+    title: str = "",
+    summary: str = "",
+    source_label: str = "",
+    floorplan_urls: tuple[str, ...] = (),
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    existing_items = _property_missing_fact_research_items(enriched)
+    items_by_field = {str(item.get("field") or "").strip(): item for item in existing_items if str(item.get("field") or "").strip()}
+
+    rooms_value = _property_numeric_room_count(enriched.get("rooms") or enriched.get("room_count"))
+    if rooms_value is not None:
+        enriched["rooms"] = int(rooms_value) if float(rooms_value).is_integer() else rooms_value
+        enriched.setdefault("rooms_label", _property_format_rooms_label(rooms_value))
+        items_by_field.pop("rooms", None)
+    else:
+        provider_channel = str(enriched.get("provider_channel") or "").strip().lower()
+        sale_channel = str(enriched.get("sale_channel") or "").strip().lower()
+        has_floorplan = _property_facts_have_floorplan(enriched) or bool(floorplan_urls)
+        should_research_rooms = bool(has_floorplan or sale_channel == "judicial_auction" or "auction" in provider_channel)
+        if should_research_rooms:
+            text_parts = [
+                title,
+                summary,
+                source_label,
+                property_url,
+                str(enriched.get("listing_research_snapshot") or ""),
+                str(enriched.get("street_address") or ""),
+                str(enriched.get("postal_name") or ""),
+                " ".join(_property_nonempty_sequence(enriched.get("floorplan_urls_json"))),
+                " ".join(str(item or "").strip() for item in floorplan_urls if str(item or "").strip()),
+            ]
+            inferred_rooms, evidence = _property_extract_rooms_from_text(" ".join(part for part in text_parts if str(part or "").strip()))
+            if inferred_rooms is None:
+                inferred_rooms, evidence = _property_extract_rooms_from_floorplan_refs(
+                    floorplan_urls or tuple(_property_nonempty_sequence(enriched.get("floorplan_urls_json")))
+                )
+            if inferred_rooms is not None:
+                enriched["rooms"] = int(inferred_rooms) if float(inferred_rooms).is_integer() else inferred_rooms
+                enriched["rooms_label"] = _property_format_rooms_label(inferred_rooms)
+                enriched["rooms_research_status"] = "filled_by_missing_fact_ooda"
+                enriched["rooms_research_confidence"] = "medium"
+                items_by_field["rooms"] = {
+                    "field": "rooms",
+                    "label": "Rooms",
+                    "status": "filled",
+                    "value": enriched["rooms"],
+                    "display_value": enriched["rooms_label"],
+                    "evidence": evidence or "Extracted from listing text or floorplan reference.",
+                    "ooda": {
+                        "observe": "Room count was absent from the structured listing facts.",
+                        "orient": "The listing exposes floorplan or auction-document evidence, so the missing value is researchable.",
+                        "decide": "Use the extracted room cue as a medium-confidence fact and keep the evidence visible.",
+                        "act": "Filled rooms from source/floorplan text; verify manually during detailed review.",
+                    },
+                }
+            else:
+                enriched.setdefault("rooms_label", "Rooms under research")
+                enriched["rooms_research_status"] = "queued_missing_fact_ooda"
+                items_by_field["rooms"] = {
+                    "field": "rooms",
+                    "label": "Rooms",
+                    "status": "research_needed",
+                    "display_value": "Rooms under research",
+                    "evidence": "No reliable room count in structured facts yet.",
+                    "ooda": {
+                        "observe": "Room count is missing while floorplan or auction-document evidence exists.",
+                        "orient": "The correct next move is detail-document parsing, floorplan OCR, and source-page recheck, not showing a question mark.",
+                        "decide": "Keep the candidate eligible, mark the room count as an active research gap, and surface it in the review packet.",
+                        "act": "Queue missing-fact research: inspect downloadable auction/cooperative documents, OCR floorplans, and rerun source extraction.",
+                    },
+                    "next_actions": [
+                        "Parse downloadable ZIP/PDF court or cooperative document bundles.",
+                        "Run OCR/object detection over floorplan images when present.",
+                        "Recheck the source listing and provider detail pages for room labels.",
+                    ],
+                }
+
+    items = [item for item in items_by_field.values() if item]
+    if items:
+        open_items = [item for item in items if str(item.get("status") or "").strip().lower() != "filled"]
+        enriched["missing_fact_research"] = {
+            "status": "queued" if open_items else "completed",
+            "updated_at": _now_iso(),
+            "items": items,
+        }
+        missing_fields = [str(item.get("field") or "").strip() for item in open_items if str(item.get("field") or "").strip()]
+        if missing_fields:
+            enriched["missing_facts_json"] = missing_fields
+        else:
+            enriched.pop("missing_facts_json", None)
+    else:
+        enriched.pop("missing_fact_research", None)
+        enriched.pop("missing_facts_json", None)
+    return enriched
+
+
 def _property_search_scan_cap_per_source() -> int:
     raw_value = str(os.getenv("EA_PROPERTY_SEARCH_SCAN_CAP_PER_SOURCE") or "").strip()
     if not raw_value:
@@ -1589,6 +1754,12 @@ def _property_zvg_auction_facts(source_url: str, source_html: str, plain_text: s
     area = _property_extract_area_value(" ".join((_property_extract_fact_from_labels(labels, "wohnfläche", "fläche"), plain_text)))
     if area is not None:
         facts["area_sqm"] = area
+    rooms, evidence = _property_extract_rooms_from_text(plain_text)
+    if rooms is not None:
+        facts["rooms"] = int(rooms) if float(rooms).is_integer() else rooms
+        facts["rooms_label"] = _property_format_rooms_label(rooms)
+        if evidence:
+            facts["rooms_evidence"] = evidence
     address_text = _property_extract_fact_from_labels(labels, "anschrift", "lage", "ort")
     address_lines = _property_extract_address_lines(address_text) or _property_extract_address_lines(plain_text)
     if address_lines:
@@ -1645,6 +1816,12 @@ def _property_justiz_edikte_facts(source_url: str, source_html: str, plain_text:
     )
     if area is not None:
         facts["area_sqm"] = area
+    rooms, evidence = _property_extract_rooms_from_text(plain_text)
+    if rooms is not None:
+        facts["rooms"] = int(rooms) if float(rooms).is_integer() else rooms
+        facts["rooms_label"] = _property_format_rooms_label(rooms)
+        if evidence:
+            facts["rooms_evidence"] = evidence
     occupancy_text = _property_extract_fact_from_labels(labels, "nutzung", "sonstige informationen")
     occupancy = _property_extract_occupancy_status(occupancy_text) or _property_extract_occupancy_status(plain_text)
     if occupancy:
@@ -2312,6 +2489,13 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
                         "provider_channel": parsed_host,
                     }
                 )
+            property_facts = _property_enrich_missing_fact_research(
+                facts=property_facts,
+                property_url=normalized,
+                title=normalized,
+                summary="Document bundle with extracted floor plan material.",
+                floorplan_urls=tuple(floorplan_urls[:6]),
+            )
             return {
                 "listing_id": normalized,
                 "title": normalized,
@@ -2368,6 +2552,14 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     summary = _property_preview_summary_from_facts(
         base_summary=og_description or meta_description,
         property_facts=property_facts,
+    )
+    property_facts = _property_enrich_missing_fact_research(
+        facts=property_facts,
+        property_url=normalized,
+        title=og_title or title or normalized,
+        summary=summary,
+        source_label=urllib.parse.urlparse(normalized).netloc.lower(),
+        floorplan_urls=tuple(floorplan_urls[:6]),
     )
     return {
         "listing_id": normalized,
@@ -2755,20 +2947,23 @@ def _merge_property_facts_with_source_research(
 ) -> dict[str, object]:
     merged = dict(property_facts or {})
     research = _property_source_research_snapshot(property_url, image_urls)
-    if not research:
-        return merged
-    for key, value in research.items():
-        existing = merged.get(key)
-        if _property_fact_value_is_weak(existing):
-            merged[key] = value
-    merged["listing_research_snapshot"] = dict(research)
-    merged["listing_research_meta"] = {
-        "captured_at": _now_iso(),
-        "source_url": str(property_url or "").strip(),
-        "field_count": len(research),
-        "strategy": "provider_html_plus_geo",
-    }
-    return merged
+    if research:
+        for key, value in research.items():
+            existing = merged.get(key)
+            if _property_fact_value_is_weak(existing):
+                merged[key] = value
+        merged["listing_research_snapshot"] = dict(research)
+        merged["listing_research_meta"] = {
+            "captured_at": _now_iso(),
+            "source_url": str(property_url or "").strip(),
+            "field_count": len(research),
+            "strategy": "provider_html_plus_geo",
+        }
+    return _property_enrich_missing_fact_research(
+        facts=merged,
+        property_url=property_url,
+        floorplan_urls=tuple(_property_nonempty_sequence(merged.get("floorplan_urls_json"))) or image_urls,
+    )
 
 
 def _property_scout_candidate_payload_from_preview(*, property_url: str, preview: dict[str, object]) -> dict[str, object]:
@@ -2801,7 +2996,13 @@ def _property_scout_candidate_payload_from_preview(*, property_url: str, preview
             property_facts["heating_type"] = "Gasheizung"
         elif "fernwärme" in text or "fernwaerme" in text:
             property_facts["heating_type"] = "Fernwaerme"
-    return property_facts
+    return _property_enrich_missing_fact_research(
+        facts=property_facts,
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        floorplan_urls=tuple(_property_nonempty_sequence(property_facts.get("floorplan_urls_json"))),
+    )
 
 
 def _property_investment_price_eur(facts: dict[str, object]) -> float | None:

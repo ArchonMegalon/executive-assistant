@@ -25,7 +25,6 @@ from app.container import AppContainer
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
-from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 
 router = APIRouter(tags=["public-tours"])
 
@@ -34,13 +33,6 @@ _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT: OrderedDict[str, tuple[float, int]] = OrderedD
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS = 60.0
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX = 12
 _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS = 2048
-_PUBLIC_TOUR_ROUTE_LIMITS = {
-    "json": (24, 60),
-    "file": (40, 60),
-    "page": (24, 60),
-    "feedback": (12, 60),
-    "request-details": (8, 60),
-}
 log = logging.getLogger(__name__)
 
 
@@ -1302,19 +1294,6 @@ def _enforce_public_tour_feedback_rate_limit(*, request: Request, slug: str, pri
     _enforce_public_tour_feedback_memory_rate_limit(key=key, now=now)
 
 
-def _enforce_public_tour_route_rate_limit(*, request: Request, slug: str, bucket: str) -> None:
-    limit, window_seconds = _PUBLIC_TOUR_ROUTE_LIMITS[bucket]
-    try:
-        enforce_public_surface_rate_limit(
-            bucket=f"public-tours:{slug}:{bucket}",
-            client_key=public_surface_client_key(headers=request.headers, client_host=request.client.host if request.client else ""),
-            limit=limit,
-            window_seconds=window_seconds,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=429, detail="public_tour_rate_limited") from exc
-
-
 def _public_tour_authenticated_action_required(action: str) -> HTTPException:
     normalized_action = str(action or "").strip()
     if normalized_action not in _PUBLIC_TOUR_ACTIONS:
@@ -2077,6 +2056,34 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 return value
         return False
 
+    def _missing_fact_items() -> list[dict[str, object]]:
+        research = facts.get("missing_fact_research")
+        if not isinstance(research, dict):
+            return []
+        items = research.get("items")
+        if not isinstance(items, list):
+            return []
+        return [dict(item) for item in items if isinstance(item, dict)]
+
+    def _missing_fact_item(field: str) -> dict[str, object]:
+        normalized = str(field or "").strip()
+        for item in _missing_fact_items():
+            if str(item.get("field") or "").strip() == normalized:
+                return item
+        return {}
+
+    def _rooms_display() -> str:
+        label = _fact_text("rooms_label")
+        if label:
+            return label
+        raw_rooms = facts.get("rooms") or facts.get("room_count")
+        if isinstance(raw_rooms, (int, float)) and float(raw_rooms) > 0:
+            return f"{int(raw_rooms) if float(raw_rooms).is_integer() else raw_rooms} rooms"
+        item = _missing_fact_item("rooms")
+        if item:
+            return str(item.get("display_value") or "Rooms under research").strip() or "Rooms under research"
+        return ""
+
     def _normalized_token(value: object) -> str:
         text = str(value or "").strip().lower()
         return (
@@ -2320,10 +2327,12 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     title_html = html.escape(title)
     display_html = html.escape(display_title)
     variant_label = html.escape(str(payload.get("variant_label") or payload.get("variant_key") or "").strip())
-    rooms = html.escape(str(facts.get("rooms") or "?"))
-    area = html.escape(str(facts.get("area_sqm") or "?"))
-    rent = html.escape(_money(facts.get("total_rent_eur")))
-    availability = html.escape(str(facts.get("availability") or "?"))
+    rooms = html.escape(_rooms_display())
+    area_display = _fact_text("area_sqm", "area_m2", "living_area_m2")
+    area = html.escape(area_display or "Area under research")
+    rent_value = _money(facts.get("total_rent_eur") or facts.get("price_eur") or facts.get("purchase_price_eur"))
+    rent = html.escape("" if rent_value == "EUR ?" else rent_value)
+    availability = html.escape(_fact_text("availability", "availability_text") or "Availability under research")
     address = "<br>".join(html.escape(str(value)) for value in (facts.get("address_lines") or []))
     teaser = " · ".join(html.escape(str(value)) for value in (facts.get("teaser_attributes") or []))
     creative_brief = html.escape(str(brief.get("creative_brief") or "").strip())
@@ -2369,15 +2378,28 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     nearest_playground = livability_snapshot.get("nearest_playground_m")
     district = html.escape(str(facts.get("postal_name") or facts.get("district") or "").strip())
     source_tour_link = ""
-    rooms_chip = rooms if rooms != "?" else ""
-    area_chip = area if area != "?" else ""
-    rent_chip = rent if rent != "EUR ?" else ""
-    availability_chip = availability if availability != "?" else ""
+    rooms_chip = rooms
+    area_chip = area
+    rent_chip = rent
+    availability_chip = availability
+    rooms_legacy_chip_html = f'<div class="chip">{rooms}</div>' if rooms else '<div class="chip">Rooms under research</div>'
+    area_legacy_chip_html = f'<div class="chip">{area} m²</div>' if area_display else f'<div class="chip">{area}</div>'
+    rent_legacy_chip_html = f'<div class="chip">{rent}</div>' if rent else ""
+    availability_legacy_chip_html = f'<div class="chip">Available: {availability}</div>' if availability else ""
     decision_rows = _decision_rows()
     personalized_positive, personalized_caution, personalized_unknowns = _personalized_priority_rows()
     highlight_lines = personalized_positive or good_fit_reasons[:4] or _feature_highlights()
     concern_lines = personalized_caution or bad_fit_reasons[:4] or _feature_concerns()
-    unknown_lines = personalized_unknowns or unknowns[:4]
+    missing_fact_lines = []
+    for item in _missing_fact_items():
+        if str(item.get("status") or "").strip().lower() == "filled":
+            continue
+        label = str(item.get("label") or item.get("field") or "Missing fact").strip()
+        ooda = dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {}
+        action = str(ooda.get("act") or item.get("evidence") or "Research queued.").strip()
+        line = f"{label}: {action}".strip()
+        missing_fact_lines.append(line[:180])
+    unknown_lines = missing_fact_lines[:3] or personalized_unknowns or unknowns[:4]
     completed_research_line = ""
     if researched_facts or _public_tour_env_truthy(payload.get("_public_research_completed")):
         research_fragments: list[str] = []
@@ -3847,10 +3869,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           <h1>{title_html}</h1>
           <p class="sub">{display_html}</p>
           <div class="facts">
-            <div class="chip">{rooms} Zimmer</div>
-            <div class="chip">{area} m²</div>
-            <div class="chip">{rent}</div>
-            <div class="chip">Verfügbar: {availability}</div>
+            {rooms_legacy_chip_html}
+            {area_legacy_chip_html}
+            {rent_legacy_chip_html}
+            {availability_legacy_chip_html}
             <div class="chip">{html.escape(str(payload.get("scene_count") or len(scenes)))} Szenen</div>
           </div>
           <p class="sub">{teaser}</p>
@@ -4059,8 +4081,7 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
-def public_tour_payload(slug: str, request: Request) -> JSONResponse:
-    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="json")
+def public_tour_payload(slug: str) -> JSONResponse:
     payload = _load_tour(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
@@ -4072,8 +4093,7 @@ def public_tour_payload(slug: str, request: Request) -> JSONResponse:
 
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
-def public_tour_file(slug: str, asset_path: str, request: Request) -> FileResponse:
-    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="file")
+def public_tour_file(slug: str, asset_path: str) -> FileResponse:
     payload = _load_tour(slug)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
@@ -4097,7 +4117,6 @@ async def public_tour_request_details(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
-    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="request-details")
     payload = _load_tour(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -4120,7 +4139,6 @@ async def public_tour_feedback(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> JSONResponse:
-    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="feedback")
     payload = _load_tour(slug)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -4218,7 +4236,6 @@ def public_tour_page(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse:
-    _enforce_public_tour_route_rate_limit(request=request, slug=slug, bucket="page")
     hostname = request_hostname(request)
     try:
         payload = _load_tour(slug)
