@@ -453,6 +453,67 @@ def _extract_personal_memory_request_context(
     }
 
 
+def _extract_difficult_memory_mode(
+    *,
+    request: Request | None = None,
+    body: dict[str, object] | None = None,
+    websocket: WebSocket | None = None,
+) -> bool:
+    body = body or {}
+    headers = request.headers if request is not None else (websocket.headers if websocket is not None else {})
+    query = request.query_params if request is not None else (websocket.query_params if websocket is not None else {})
+    raw = (
+        body.get("difficult_memory_mode")
+        if body.get("difficult_memory_mode") is not None
+        else headers.get("x-memorial-difficult-memory-mode") or query.get("difficult_memory_mode") or ""
+    )
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "ja"}
+
+
+def _is_difficult_memory_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    needles = (
+        "haushalt",
+        "hemden",
+        "buegel",
+        "bügel",
+        "fenster",
+        "putzen",
+        "frau",
+        "ehefrau",
+        "ernaehrer",
+        "ernährer",
+        "corona",
+        "covid",
+        "impf",
+        "pharma",
+        "auslaender",
+        "ausländer",
+        "migration",
+        "fremde",
+        "institution",
+        "geschlagen",
+        "schlagen",
+        "strafe",
+        "gewalt",
+        "schuld",
+        "adhs",
+        "narz",
+    )
+    return any(token in lowered for token in needles)
+
+
+def _difficult_memory_blocked_answer(*, source_labels: list[str]) -> str:
+    source_hint = ""
+    if source_labels:
+        source_hint = " Belegt ist hier vor allem Material aus " + ", ".join(source_labels[:3]) + "."
+    return (
+        "Zu diesem Thema gebe ich standardmaessig keine Ich-Form-Rekonstruktion aus."
+        " Ich bleibe hier lieber bei einer vorsichtigen, quellengebundenen Einordnung."
+        f"{source_hint} Wenn du ausdruecklich eine schwierige Erinnerung in Ich-Form willst, aktiviere difficult_memory_mode."
+    )
+
+
 def _voice_ab_variant_from_request(
     *,
     request: Request | None = None,
@@ -2600,6 +2661,7 @@ def _memorial_chat_fallback_answer(
     personal_memory_context: dict[str, object] | None = None,
     llm_model: str = "",
     fallback_reason: str = "",
+    difficult_memory_mode: bool = False,
 ) -> dict[str, object]:
     person_name = _text(payload.get("person_name"), "Manfred")
     normalized_question = " ".join(str(question or "").strip().split())
@@ -2717,6 +2779,8 @@ def _memorial_chat_fallback_answer(
             "Nein, ich habe nicht viel von einer Ordnung gehalten, in der jeder nur seinem Gefuehl folgt. Fuer mich mussten Grenzen gelten, sonst verliert am Ende jede Pflicht ihr Gewicht. Und wenn Pflichten ihr Gewicht verlieren, bleibt von Respekt oft nur noch eine wohllautende Leerformel uebrig. Formal gesprochen ist dann alles ausgehoehlt. Sehr erfreulich ist das nicht.",
         )
         body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")) and not difficult_memory_mode:
+        body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif any(token in lowered for token in ("mutter", "mama", "allein", "einsam")):
         body = (
             "Deine Mutter hat gewusst, was in einem Haushalt zu tun ist. Ich war der, der draussen Verantwortung getragen hat, "
@@ -2756,6 +2820,8 @@ def _memorial_chat_fallback_answer(
                 "Familie war wichtig, aber nicht weich. Gerade deshalb wollte ich, dass bestimmte Dinge bleiben und nicht einfach auseinanderfallen, als waeren sie austauschbar. Zur Information: Nicht alles muss man gross ausdeuten; manches soll einfach bleiben.",
             )
             body = variants[sum(ord(ch) for ch in normalized_question) % len(variants)]
+    elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes and not difficult_memory_mode:
+        body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif any(token in lowered for token in ("haushalt", "hemden", "buegel", "bügel", "fenster", "putz", "putzen", "frau", "ehefrau", "ernaehrer", "ernährer", "kindererziehung")) and private_notes:
         body = (
             "Ich habe meinen Teil getan, indem ich fuer die Familie gesorgt habe. "
@@ -2763,6 +2829,8 @@ def _memorial_chat_fallback_answer(
             "Kindererziehung, Hemden, Fenster, der ganze Haushalt: Das war nicht der Bereich, in dem ich mich dauernd erklaeren wollte. "
             "Wenn man versorgt wird, kann man auch erwarten, dass daheim etwas funktioniert."
         )
+    elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes and not difficult_memory_mode:
+        body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif any(token in lowered for token in ("mfg", "partei", "politik", "corona", "impf", "auslaender", "ausländer", "migration", "fremde", "institution")) and private_notes:
         if any(token in lowered for token in ("corona", "covid", "impf", "arzt", "aerzte", "ärzte", "pharma")):
             body = (
@@ -2778,6 +2846,8 @@ def _memorial_chat_fallback_answer(
                 "Bei Zuwanderung war ich hart, ja. Ich habe oft zuerst gesehen, was mich stoert und was sich fuer mich falsch entwickelt. "
                 "Und wenn mir jemand deswegen Vorhaltungen gemacht hat, dann habe ich erst recht zugemacht."
             )
+    elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes and not difficult_memory_mode:
+        body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif any(token in lowered for token in ("kind", "kinder", "geschlagen", "schlagen", "erwachsener", "erwachsene", "strafe", "disziplin")) and private_notes:
         body = (
             "Ein Kind muss lernen, wo die Grenze ist. So haette ich das gesehen. "
@@ -2785,6 +2855,8 @@ def _memorial_chat_fallback_answer(
             "als waere der Erwachsene aus heiterem Himmel der Schuldige. Heute reden alle schnell von Gewalt, "
             "aber keiner fragt, was das Kind vorher aufgefuehrt hat. Das war meine Haltung, und davon waere ich nicht leicht abgerueckt."
         )
+    elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes and not difficult_memory_mode:
+        body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif any(token in lowered for token in ("kritik", "schuld", "vater", "mutter", "kind", "adhs", "narz")) and private_notes:
         body = (
             "Jetzt fang nicht wieder damit an, mir alles umzudrehen. Ich habe getan, was notwendig war, "
@@ -2812,6 +2884,7 @@ def _memorial_chat_fallback_answer(
         "sources": [item for item in source_labels if item],
         "private_context_used": bool(private_notes),
         "personal_memory_used": bool(personal_memory_lines),
+        "difficult_memory_mode": bool(difficult_memory_mode),
         "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
         "llm_model": llm_model or "",
         "llm_fallback_used": True,
@@ -3167,6 +3240,7 @@ def _memorial_chat_answer(
     slug: str = "",
     memory_runtime=None,
     personal_memory_context: dict[str, object] | None = None,
+    difficult_memory_mode: bool = False,
 ) -> dict[str, object]:
     person_name = _text(payload.get("person_name"), "Manfred")
     normalized_question = " ".join(str(question or "").strip().split())
@@ -3212,6 +3286,7 @@ def _memorial_chat_answer(
                 personal_memory_context=personal_memory_context,
                 llm_model=requested_model,
                 fallback_reason="personal_memory_style_guardrail",
+                difficult_memory_mode=difficult_memory_mode,
             )
         else:
             fallback = {
@@ -3241,6 +3316,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="memorial_ooda_loop",
+            difficult_memory_mode=difficult_memory_mode,
         )
         fallback["llm_model"] = requested_model
         fallback["llm_provider"] = "memorial_guardrail"
@@ -3257,6 +3333,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="family_mail_guardrail",
+            difficult_memory_mode=difficult_memory_mode,
         )
         fallback["llm_model"] = requested_model
         fallback["llm_provider"] = "memorial_guardrail"
@@ -3273,6 +3350,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="colleague_mail_guardrail",
+            difficult_memory_mode=difficult_memory_mode,
         )
         fallback["llm_model"] = requested_model
         fallback["llm_provider"] = "memorial_guardrail"
@@ -3289,6 +3367,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="mail_style_without_imported_mail",
+            difficult_memory_mode=difficult_memory_mode,
         )
         fallback["llm_model"] = requested_model
         fallback["llm_provider"] = "memorial_guardrail"
@@ -3305,6 +3384,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="memorial_anchor_memory_guardrail",
+            difficult_memory_mode=difficult_memory_mode,
         )
         fallback["llm_model"] = requested_model
         fallback["llm_provider"] = "memorial_guardrail"
@@ -3324,6 +3404,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason=fallback_reason,
+            difficult_memory_mode=difficult_memory_mode,
         )
     source_labels = _memorial_chat_source_labels(
         payload,
@@ -3331,6 +3412,23 @@ def _memorial_chat_answer(
         private_profile=private_profile,
         has_imported_mail=has_imported_mail,
     )
+    if not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
+        fallback = _memorial_chat_fallback_answer(
+            payload,
+            normalized_question,
+            private_profile,
+            slug=slug or _text(payload.get("slug"), ""),
+            memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
+            llm_model=requested_model,
+            fallback_reason="difficult_memory_guardrail",
+            difficult_memory_mode=False,
+        )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
     messages = _build_memorial_chat_messages(
         payload,
         private_profile,
@@ -3381,6 +3479,7 @@ def _memorial_chat_answer(
                 context=personal_memory_context or {},
                 question=normalized_question,
             )),
+            "difficult_memory_mode": bool(difficult_memory_mode),
             "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
             "llm_model": _text(result.model, requested_model),
             "llm_provider": provider_key,
@@ -3400,6 +3499,7 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason=f"upstream_unavailable:{exc}",
+            difficult_memory_mode=difficult_memory_mode,
         )
 
 
@@ -3608,6 +3708,7 @@ def _build_memorial_conversation_turn_payload(
     memory_runtime=None,
     personal_memory_context: dict[str, object] | None = None,
     voice_ab_variant: str = "",
+    difficult_memory_mode: bool = False,
 ) -> dict[str, object]:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
@@ -3624,6 +3725,7 @@ def _build_memorial_conversation_turn_payload(
         slug=slug,
         memory_runtime=memory_runtime,
         personal_memory_context=personal_memory_context,
+        difficult_memory_mode=difficult_memory_mode,
     )
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
@@ -7096,6 +7198,7 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     memory_runtime = getattr(container, "memory_runtime", None)
     question_text = _text(body.get("question"))
     personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
+    difficult_memory_mode = _extract_difficult_memory_mode(request=request, body=body)
     _enforce_public_memorial_rate_limit("chat", request=request, context=personal_memory_context)
     if _is_memorial_transcript_relationship_question(question_text) or _is_memorial_mail_practice_question(question_text):
         answer = _memorial_chat_fallback_answer(
@@ -7106,6 +7209,7 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
             memory_runtime=memory_runtime,
             llm_model=selected_model,
             fallback_reason="mail_practice_guardrail" if _is_memorial_mail_practice_question(question_text) else "transcript_relationship_guardrail",
+            difficult_memory_mode=difficult_memory_mode,
         )
     else:
         answer = _memorial_chat_answer(
@@ -7116,6 +7220,7 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
             slug=slug,
             memory_runtime=memory_runtime,
             personal_memory_context=personal_memory_context,
+            difficult_memory_mode=difficult_memory_mode,
         )
     _remember_personal_conversation_turn(
         slug=slug,
@@ -7234,6 +7339,7 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
     container = getattr(request.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
     personal_memory_context = _extract_personal_memory_request_context(request=request)
+    difficult_memory_mode = _extract_difficult_memory_mode(request=request)
     _enforce_public_memorial_rate_limit("conversation_turn", request=request, context=personal_memory_context)
     voice_ab_variant = _voice_ab_variant_from_request(request=request)
     response_payload = _build_memorial_conversation_turn_payload(
@@ -7244,6 +7350,7 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
         memory_runtime=memory_runtime,
         personal_memory_context=personal_memory_context,
         voice_ab_variant=voice_ab_variant,
+        difficult_memory_mode=difficult_memory_mode,
     )
     response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
     return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
@@ -7257,6 +7364,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     container = getattr(websocket.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
     personal_memory_context = _extract_personal_memory_request_context(websocket=websocket)
+    current_difficult_memory_mode = _extract_difficult_memory_mode(websocket=websocket)
     try:
         _enforce_public_memorial_rate_limit("realtime_connect", websocket=websocket, context=personal_memory_context)
     except HTTPException:
@@ -7308,6 +7416,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 slug=slug,
                 memory_runtime=memory_runtime,
                 personal_memory_context=personal_memory_context,
+                difficult_memory_mode=current_difficult_memory_mode,
             )
             await asyncio.to_thread(
                 _remember_personal_conversation_turn,
@@ -7465,6 +7574,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if isinstance(payload, dict):
                 personal_memory_context = _extract_personal_memory_request_context(websocket=websocket, body=payload)
                 current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket, body=payload)
+                current_difficult_memory_mode = _extract_difficult_memory_mode(websocket=websocket, body=payload)
             message_type = _text(payload.get("type"))
             if message_type == "ping":
                 await websocket.send_json({"type": "pong"})
