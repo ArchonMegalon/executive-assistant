@@ -1664,6 +1664,90 @@ def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds
     assert tour_calls[0]["allow_below_threshold"] is True
 
 
+def test_property_scout_min_area_filters_before_scoring(monkeypatch) -> None:
+    principal_id = "cf-email:min-area.search@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Area Office")
+    candidate_urls = (
+        "https://www.willhaben.at/iad/object?adId=small",
+        "https://www.willhaben.at/iad/object?adId=large",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "small",
+            "title": "Kompakte Wohnung",
+            "summary": "Wohnung mit 45 m2.",
+            "property_facts_json": {"property_type": "apartment", "area_sqm": 45},
+        },
+        candidate_urls[1]: {
+            "listing_id": "large",
+            "title": "Familienwohnung mit Grundriss",
+            "summary": "Wohnung mit 78 m2, Lift und Balkon.",
+            "property_facts_json": {"property_type": "apartment", "area_sqm": 78},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+    assessed: list[str] = []
+
+    def _fake_assess_candidate(**kwargs):
+        assessed.append(str(kwargs.get("object_id") or ""))
+        return {
+            "fit_score": 72.0,
+            "confidence": 0.9,
+            "predicted_reaction": "consider",
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Clears the hard area filter."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "min_area_m2": 70,
+            "min_match_score": 65,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    assert result["min_area_m2"] == 70
+    assert result["listing_total"] == 1
+    assert result["filtered_area_total"] == 1
+    assert result["sources"][0]["filtered_area_total"] == 1
+    assert result["sources"][0]["top_candidates"][0]["title"] == "Familienwohnung mit Grundriss"
+    assert assessed == ["large"]
+
+
 def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(monkeypatch) -> None:
     principal_id = "cf-email:floorplan-tour@example.com"
     client = build_product_client(principal_id=principal_id)

@@ -446,10 +446,12 @@ def _property_search_run_default_summary(property_preferences: dict[str, object]
         "tour_created_total": 0,
         "tour_existing_total": 0,
         "high_fit_total": 0,
+        "filtered_area_total": 0,
         "filtered_floorplan_total": 0,
         "filtered_low_fit_total": 0,
         "high_match_min_score": min_match_score,
         "max_match_score": _property_search_match_score_cap(property_preferences),
+        "min_area_m2": dict(property_preferences or {}).get("min_area_m2") or 0,
         "watch_notified_total": 0,
         "top_fit_score": 0.0,
         "sources": [],
@@ -3229,6 +3231,55 @@ def _property_candidate_matches_requested_property_type(
     if requested_type == "house" and has_apartment_marker and not has_house_marker:
         return False
     return True
+
+
+def _property_candidate_area_sqm(
+    *,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> float | None:
+    facts = dict(property_facts or {})
+    for key in (
+        "area_sqm",
+        "area_m2",
+        "living_area_m2",
+        "living_area_sqm",
+        "usable_area_m2",
+        "usable_area_sqm",
+        "wohnflaeche_sqm",
+        "wohnfläche_sqm",
+    ):
+        area = _float_or_none(facts.get(key))
+        if isinstance(area, float) and area > 0.0:
+            return area
+    text = _property_candidate_text(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    )
+    return _property_extract_area_value(text)
+
+
+def _property_candidate_matches_min_area(
+    *,
+    min_area_m2: float,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    if min_area_m2 <= 0.0:
+        return True
+    area = _property_candidate_area_sqm(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=property_facts,
+    )
+    return isinstance(area, float) and area >= min_area_m2
 
 
 def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
@@ -16575,8 +16626,13 @@ class ProductService:
         requested_property_type = normalize_property_type(request_preferences.get("property_type"))
         min_match_score = _property_search_effective_min_match_score(request_preferences)
         match_score_cap = _property_search_match_score_cap(request_preferences)
+        min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
+        if min_area_m2 < 0.0:
+            min_area_m2 = 0.0
         require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
         request_preferences["min_match_score"] = min_match_score
+        if min_area_m2 > 0.0:
+            request_preferences["min_area_m2"] = int(min_area_m2) if min_area_m2.is_integer() else round(min_area_m2, 2)
         request_preferences["require_floorplan"] = require_floorplan
         request_preferences["use_stored_feedback_preferences"] = use_stored_feedback_preferences
 
@@ -16602,6 +16658,7 @@ class ProductService:
                 "sources_total": len(specs),
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
+                "min_area_m2": request_preferences.get("min_area_m2") or 0,
                 "require_floorplan": require_floorplan,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
             },
@@ -16624,10 +16681,12 @@ class ProductService:
                 "high_fit_total": 0,
                 "failed_total": 0,
                 "filtered_property_type_total": 0,
+                "filtered_area_total": 0,
                 "filtered_floorplan_total": 0,
                 "filtered_low_fit_total": 0,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
+                "min_area_m2": request_preferences.get("min_area_m2") or 0,
                 "require_floorplan": require_floorplan,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
                 "watch_notified_total": 0,
@@ -16645,6 +16704,7 @@ class ProductService:
         high_fit_total = 0
         failed_total = 0
         filtered_property_type_total = 0
+        filtered_area_total = 0
         filtered_floorplan_total = 0
         filtered_low_fit_total = 0
         watch_notified_total = 0
@@ -16663,6 +16723,7 @@ class ProductService:
             if effective_force_refresh:
                 source_preference_person_id = preference_person_id
             filtered_property_type_for_source = 0
+            filtered_area_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
 
@@ -16724,6 +16785,7 @@ class ProductService:
                     "scan_truncated": scan_truncated,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
+                    "min_area_m2": request_preferences.get("min_area_m2") or 0,
                 },
                 stages_total_override=2 + (len(specs) * max(8, (max(1, len(listing_urls)) * 2) + 6)),
             )
@@ -16763,6 +16825,46 @@ class ProductService:
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                    )
+                    continue
+                if min_area_m2 > 0.0 and not _property_candidate_matches_min_area(
+                    min_area_m2=min_area_m2,
+                    property_url=property_url,
+                    title=preview_title,
+                    summary=preview_summary,
+                    property_facts=preview_facts,
+                ):
+                    try:
+                        detailed_area_preview = _property_scout_page_preview(property_url)
+                        if isinstance(detailed_area_preview, dict) and detailed_area_preview:
+                            preview = detailed_area_preview
+                            preview_facts = (
+                                dict(preview.get("property_facts_json") or {})
+                                if isinstance(preview.get("property_facts_json"), dict)
+                                else {}
+                            )
+                            preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
+                            preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                    except Exception:
+                        pass
+                if min_area_m2 > 0.0 and not _property_candidate_matches_min_area(
+                    min_area_m2=min_area_m2,
+                    property_url=property_url,
+                    title=preview_title,
+                    summary=preview_summary,
+                    property_facts=preview_facts,
+                ):
+                    filtered_area_total += 1
+                    filtered_area_for_source += 1
+                    _report(
+                        step="source_area_filter",
+                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} below {int(min_area_m2)}/m2 or without clear area for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_area_total": filtered_area_total,
+                            "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                        },
                     )
                     continue
                 if require_floorplan and not _property_candidate_has_floorplan(
@@ -16889,6 +16991,26 @@ class ProductService:
                         status="in_progress",
                         steps_delta=0,
                         summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                    )
+                    continue
+                if min_area_m2 > 0.0 and not _property_candidate_matches_min_area(
+                    min_area_m2=min_area_m2,
+                    property_url=property_url,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
+                ):
+                    filtered_area_total += 1
+                    filtered_area_for_source += 1
+                    _report(
+                        step="source_area_filter",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} below {int(min_area_m2)}/m2 or without clear area for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_area_total": filtered_area_total,
+                            "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                        },
                     )
                     continue
                 if require_floorplan and not _property_candidate_has_floorplan(
@@ -17205,10 +17327,12 @@ class ProductService:
                     "listing_total": len(ranked_rows),
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
+                    "filtered_area_total": filtered_area_for_source,
                     "filtered_floorplan_total": filtered_floorplan_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
+                    "min_area_m2": request_preferences.get("min_area_m2") or 0,
                     "require_floorplan": require_floorplan,
                     "use_stored_feedback_preferences": use_stored_feedback_preferences,
                     "raw_listing_total": raw_listing_count,
@@ -17241,10 +17365,12 @@ class ProductService:
             "listing_total": listing_total,
             "duplicate_listing_total": duplicate_listing_total,
             "filtered_property_type_total": filtered_property_type_total,
+            "filtered_area_total": filtered_area_total,
             "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
+            "min_area_m2": request_preferences.get("min_area_m2") or 0,
             "require_floorplan": require_floorplan,
             "use_stored_feedback_preferences": use_stored_feedback_preferences,
             "review_created_total": review_created_total,
