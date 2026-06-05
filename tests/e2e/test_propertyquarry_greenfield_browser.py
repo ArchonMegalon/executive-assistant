@@ -204,6 +204,45 @@ def _new_context(browser: Browser, *, mobile: bool = False) -> BrowserContext:
     )
 
 
+def _assert_property_shell_visual_gates(page: Page, *, max_appbar_height: int) -> None:
+    appbar = page.locator(".pq-appbar, .pqx-topbar").first
+    appbar_box = appbar.bounding_box()
+    assert appbar_box is not None
+    assert appbar_box["height"] <= max_appbar_height
+    offenders = page.evaluate(
+        """
+        () => {
+          const boxSelectors = ['.pq-appbar', '.pqx-topbar', '.pq-hero', '.pq-card', '.pq-shortlist-card', '.object-panel', '.pqx-panel', '.pqx-card', '.pqx-table-card'];
+          const textSelectors = ['h1', 'h2', 'h3', 'p', 'small', '.pq-copy', '.pq-shortlist-meta', '.pq-shortlist-copy', '.object-copy', '.pqx-note', '.pqx-small'];
+          const rows = [];
+          for (const box of document.querySelectorAll(boxSelectors.join(','))) {
+            const boxRect = box.getBoundingClientRect();
+            if (boxRect.width <= 0 || boxRect.height <= 0) continue;
+            for (const child of box.querySelectorAll(textSelectors.join(','))) {
+              const childRect = child.getBoundingClientRect();
+              if (childRect.width <= 0 || childRect.height <= 0) continue;
+              if (
+                childRect.left < boxRect.left - 1 ||
+                childRect.right > boxRect.right + 1 ||
+                childRect.top < boxRect.top - 1 ||
+                childRect.bottom > boxRect.bottom + 1
+              ) {
+                rows.push({
+                  box: box.className,
+                  text: (child.textContent || '').trim().slice(0, 100),
+                  deltaRight: Math.round(childRect.right - boxRect.right),
+                  deltaBottom: Math.round(childRect.bottom - boxRect.bottom),
+                });
+              }
+            }
+          }
+          return rows;
+        }
+        """
+    )
+    assert offenders == []
+
+
 def test_propertyquarry_greenfield_workspace_in_real_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -229,6 +268,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         assert "Review packet" in content
         assert "Open 360" in content
         assert "OODA" in content
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
@@ -258,6 +298,7 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         assert mode_box is not None and mode_box["width"] <= 430
         mobile_dock = page.locator("[data-property-mobile-dock]")
         assert mobile_dock.is_visible()
+        _assert_property_shell_visual_gates(page, max_appbar_height=130)
         page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").click()
         page.locator('[data-workbench-mobile-mode="property"]').click()
         assert page.locator("[data-workbench-dossier]", has_text="Family flat near Tiergarten").is_visible()
@@ -265,6 +306,32 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
 
         review_action = page.get_by_role("link", name="Review packet").first.bounding_box()
         assert review_action is not None and review_action["width"] <= 430
+        _assert_property_shell_visual_gates(page, max_appbar_height=130)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42", wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.get_by_role("heading", name="Best candidates to review now").first.is_visible()
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
+
+        packet_href = page.locator('a[href*="/app/research/"]').first.get_attribute("href")
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        assert page.locator(".object-media-frame").is_visible()
+        assert page.get_by_text("OODA summary").first.is_visible()
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
     finally:
         context.close()
 

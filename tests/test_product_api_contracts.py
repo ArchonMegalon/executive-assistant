@@ -1293,6 +1293,104 @@ def test_property_scout_route_uses_explicit_preference_person_and_creates_review
     assert all(float(item["payload"].get("willhaben_fit_score") or 0.0) > 0.0 for item in created)
 
 
+def test_property_scout_scans_beyond_result_limit_until_high_fit_matches(monkeypatch) -> None:
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Scan Depth Office")
+    candidate_urls = (
+        "https://www.willhaben.at/iad/object?adId=garage",
+        "https://www.willhaben.at/iad/object?adId=low",
+        "https://www.willhaben.at/iad/object?adId=high-one",
+        "https://www.willhaben.at/iad/object?adId=high-two",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung/wien",
+                "label": "Willhaben apartments",
+                "platform": "willhaben",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 2,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: candidate_urls)
+    previews = {
+        candidate_urls[0]: {
+            "listing_id": "garage",
+            "title": "Garagenplatz zu vermieten, 10 m2, EUR 190,-, (1030 Wien) - willhaben",
+            "summary": "Garagenplatz zu vermieten.",
+            "property_facts_json": {},
+        },
+        candidate_urls[1]: {
+            "listing_id": "low",
+            "title": "Wohnung ohne Balkon",
+            "summary": "Wohnung, aber wenig passend.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+        candidate_urls[2]: {
+            "listing_id": "high-one",
+            "title": "Helle Wohnung mit Lift und Balkon",
+            "summary": "Wohnung mit Lift, Balkon und guter Nahversorgung.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+        candidate_urls[3]: {
+            "listing_id": "high-two",
+            "title": "Familienwohnung nahe Park",
+            "summary": "Wohnung mit Lift, Balkon und Spielplatznaehe.",
+            "property_facts_json": {"property_type": "apartment"},
+        },
+    }
+    monkeypatch.setattr(product_service, "_property_scout_page_preview", lambda url, prefer_fast=False: dict(previews[url]))
+    assessed: list[str] = []
+
+    def _fake_assess_candidate(**kwargs):
+        object_id = str(kwargs.get("object_id") or "")
+        assessed.append(object_id)
+        score = 42.0
+        if object_id.endswith("high-one"):
+            score = 66.0
+        elif object_id.endswith("high-two"):
+            score = 70.0
+        return {
+            "fit_score": score,
+            "confidence": 0.8,
+            "predicted_reaction": "consider",
+            "recommendation": "view_if_compelling",
+            "match_reasons_json": ["Above the matching threshold."] if score > 65 else [],
+            "mismatch_reasons_json": [] if score > 65 else ["Below the matching threshold."],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(client.app.state.container.preference_profiles, "assess_candidate", _fake_assess_candidate)
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={"property_type": "apartment"},
+        max_results_per_source=2,
+        force_refresh=True,
+    )
+
+    titles = [row["title"] for row in result["sources"][0]["top_candidates"]]
+    assert result["listing_total"] == 2
+    assert result["sources"][0]["filtered_property_type_total"] == 1
+    assert result["sources"][0]["filtered_low_fit_total"] == 1
+    assert result["sources"][0]["high_match_min_score"] == 65.0
+    assert "Garagenplatz" not in " ".join(titles)
+    assert titles == ["Familienwohnung nahe Park", "Helle Wohnung mit Lift und Balkon"]
+    assert "high-one" in assessed
+    assert "high-two" in assessed
+
+
 def test_property_scout_route_deduplicates_duplicate_listings_across_sources(monkeypatch) -> None:
     principal_id = "cf-email:elizabeth.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

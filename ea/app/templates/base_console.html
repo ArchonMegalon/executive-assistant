@@ -723,36 +723,39 @@
       min-width: 0;
       display: grid;
       grid-template-rows: auto 1fr;
-      gap: 16px;
-      padding: 18px 18px 28px;
+      gap: 10px;
+      padding: 12px 14px 22px;
     }
     .pq-appbar {
       position: sticky;
-      top: 14px;
+      top: 8px;
       z-index: 30;
       display: grid;
-      gap: 12px;
-      padding: 16px 18px;
+      gap: 6px;
+      padding: 10px 12px;
       border: 1px solid rgba(49, 60, 77, 0.72);
-      border-radius: 20px;
+      border-radius: 16px;
       background:
         linear-gradient(180deg, rgba(12, 15, 22, 0.92), rgba(10, 13, 19, 0.88)),
         rgba(10, 13, 19, 0.88);
       backdrop-filter: blur(18px);
-      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
     }
     .pq-appbar-row {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 14px;
+    }
+    .pq-appbar-overview-row {
+      display: none;
     }
     .pq-appbar-breadcrumbs {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
       color: var(--text-dim);
-      font-size: 12px;
+      font-size: 10px;
       letter-spacing: 0.05em;
       text-transform: uppercase;
     }
@@ -773,18 +776,34 @@
     }
     .pq-topbar-copy {
       min-width: 0;
-      display: grid;
-      gap: 4px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
     }
     .pq-topbar-copy h1 {
-      font-size: 1.45rem;
+      font-size: 1.02rem;
+      line-height: 1.22;
       max-width: none;
       margin: 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
     .pq-topbar-copy p,
     .pq-topbar-copy .context {
       color: var(--text-dim);
-      font-size: 13px;
+      font-size: 12px;
+    }
+    .pq-topbar-copy p {
+      display: none;
+    }
+    .pq-topbar-copy .context {
+      flex: 0 0 auto;
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .pq-appbar-meta {
       display: flex;
@@ -823,7 +842,7 @@
       overflow: hidden;
     }
     .pq-stage-window-bar {
-      display: flex;
+      display: none;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
@@ -866,7 +885,7 @@
       font-weight: 620;
     }
     .pq-surface {
-      padding: 18px 18px 96px;
+      padding: 14px 14px 96px;
       min-width: 0;
     }
     .pq-mobile-nav {
@@ -895,7 +914,7 @@
         display: none;
       }
       .pq-stage {
-        padding: 12px 12px 94px;
+        padding: 8px 8px 94px;
       }
       .pq-mobile-nav {
         position: fixed;
@@ -948,12 +967,20 @@
         align-items: flex-start;
         flex-direction: column;
       }
+      .pq-topbar-copy {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .pq-topbar-copy .context {
+        max-width: min(100%, 320px);
+      }
       .pq-topbar-actions {
         width: 100%;
         justify-content: flex-start;
       }
       .pq-surface {
-        padding: 16px 14px 98px;
+        padding: 12px 10px 98px;
       }
       .pq-stage-window-bar {
         align-items: flex-start;
@@ -1039,7 +1066,7 @@
             {% endif %}
           </div>
         </div>
-        <div class="pq-appbar-row">
+        <div class="pq-appbar-row pq-appbar-overview-row">
           <div class="pq-appbar-meta">
             <span class="pq-meta-pill">Single workspace app</span>
             <span class="pq-meta-pill">Run-first results</span>

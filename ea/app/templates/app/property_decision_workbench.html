@@ -696,7 +696,21 @@
       .pqx-topbar {
         position: static;
         grid-template-columns: 1fr;
-        gap: 10px;
+        gap: 8px;
+        padding: 10px;
+      }
+      .pqx-brand {
+        gap: 8px;
+      }
+      .pqx-brand .pqx-mark {
+        width: 30px;
+        height: 30px;
+      }
+      .pqx-brand > span > span {
+        display: none;
+      }
+      .pqx-state-strip {
+        display: none;
       }
       .pqx-top-actions {
         justify-content: stretch;
@@ -704,6 +718,7 @@
       .pqx-top-actions .pqx-link-button,
       .pqx-top-actions .pqx-button {
         flex: 1 1 0;
+        min-height: 34px;
       }
       .pqx-main {
         width: min(100vw - 20px, 760px);

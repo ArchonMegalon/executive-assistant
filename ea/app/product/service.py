@@ -120,6 +120,7 @@ from app.services.property_market_catalog import (
     normalize_listing_mode,
     normalize_property_platform,
     normalize_property_search_preferences,
+    normalize_property_type,
     resolve_country_code,
     property_platform_keys,
     property_provider_for_platform,
@@ -253,6 +254,8 @@ _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
+_PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE = 65.0
+_PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -339,10 +342,23 @@ def _property_search_run_default_summary() -> dict[str, object]:
         "tour_created_total": 0,
         "tour_existing_total": 0,
         "high_fit_total": 0,
+        "filtered_low_fit_total": 0,
+        "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
         "watch_notified_total": 0,
         "top_fit_score": 0.0,
         "sources": [],
     }
+
+
+def _property_search_scan_cap_per_source() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_SCAN_CAP_PER_SOURCE") or "").strip()
+    if not raw_value:
+        return _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE
+    return max(0, min(parsed, 1000))
 
 
 def _property_candidate_supports_live_tour(candidate: dict[str, object]) -> bool:
@@ -513,7 +529,7 @@ def _new_property_search_run_record(
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
         "status": "queued",
-        "status_url": "",
+        "status_url": f"/app/api/signals/property/search/run/{str(run_id or '').strip()}",
         "selected_platforms": list(selected_platforms),
         "progress": 0,
         "current_step": "queued",
@@ -2607,6 +2623,117 @@ def _property_candidate_matches_requested_location(
         if hint_tokens and all(token in raw_text or token in normalized_text for token in hint_tokens):
             return True
     return False
+
+
+_PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS = (
+    "garagenplatz",
+    "garageplatz",
+    "garage zu vermieten",
+    "garage zu verkaufen",
+    "tiefgaragenplatz",
+    "tiefgaragenstellplatz",
+    "kfz-stellplatz",
+    "kfz stellplatz",
+    "autoabstellplatz",
+    "stellplatz zu vermieten",
+    "stellplatz zu verkaufen",
+    "parkplatz zu vermieten",
+    "parkplatz zu verkaufen",
+    "parking space",
+    "parking spot",
+    "garage space",
+    "storage unit",
+    "lagerraum zu vermieten",
+    "lagerplatz",
+    "bueroflaeche",
+    "bürofläche",
+    "office space",
+    "geschaeftslokal",
+    "geschäftslokal",
+)
+
+_PROPERTY_APARTMENT_TEXT_MARKERS = (
+    "apartment",
+    "flat",
+    "wohnung",
+    "dachgeschosswohnung",
+    "maisonette",
+    "penthouse",
+)
+
+_PROPERTY_HOUSE_TEXT_MARKERS = (
+    "house",
+    "haus",
+    "einfamilienhaus",
+    "reihenhaus",
+    "doppelhaus",
+    "villa",
+    "townhouse",
+)
+
+
+def _property_candidate_text(
+    *,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> str:
+    facts = dict(property_facts or {})
+    fact_values: list[str] = []
+    for value in facts.values():
+        if isinstance(value, (str, int, float)):
+            fact_values.append(str(value))
+        elif isinstance(value, (list, tuple)):
+            fact_values.extend(str(item) for item in value if isinstance(item, (str, int, float)))
+    return " ".join(
+        part
+        for part in (
+            str(property_url or ""),
+            str(title or ""),
+            str(summary or ""),
+            *fact_values,
+        )
+        if str(part or "").strip()
+    ).strip().lower()
+
+
+def _property_candidate_matches_requested_property_type(
+    *,
+    property_type: object,
+    property_url: str,
+    title: str = "",
+    summary: str = "",
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    requested_type = normalize_property_type(property_type)
+    if requested_type not in {"apartment", "house"}:
+        return True
+    facts = dict(property_facts or {})
+    fact_type = normalize_property_type(
+        facts.get("property_type")
+        or facts.get("object_type")
+        or facts.get("category")
+        or facts.get("listing_type")
+    )
+    if fact_type in {"apartment", "house"}:
+        return fact_type == requested_type
+    text = _property_candidate_text(
+        property_url=property_url,
+        title=title,
+        summary=summary,
+        property_facts=facts,
+    )
+    compact_text_value = re.sub(r"[^a-z0-9äöüß]+", "", text)
+    if any(marker in text or marker.replace(" ", "") in compact_text_value for marker in _PROPERTY_NON_RESIDENTIAL_ONLY_MARKERS):
+        return False
+    has_apartment_marker = any(marker in text for marker in _PROPERTY_APARTMENT_TEXT_MARKERS)
+    has_house_marker = any(marker in text for marker in _PROPERTY_HOUSE_TEXT_MARKERS)
+    if requested_type == "apartment" and has_house_marker and not has_apartment_marker:
+        return False
+    if requested_type == "house" and has_apartment_marker and not has_house_marker:
+        return False
+    return True
 
 
 def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
@@ -14802,12 +14929,15 @@ class ProductService:
             run_id=normalized_run_id,
             state=dict(state),
         )
-        return {
+        snapshot = {
             **dict(state),
             "summary": dict(dict(state.get("summary") or {})),
             "events": [dict(item) for item in list(state.get("events") or [])],
             "selected_platforms": list(state.get("selected_platforms") or ()),
         }
+        if not str(snapshot.get("status_url") or "").strip():
+            snapshot["status_url"] = f"/app/api/signals/property/search/run/{normalized_run_id}"
+        return snapshot
 
 
     def _record_property_search_run_event(
@@ -15673,6 +15803,7 @@ class ProductService:
             or "self"
         ).strip() or "self"
         location_hints = _property_search_location_hints(request_preferences)
+        requested_property_type = normalize_property_type(request_preferences.get("property_type"))
 
         specs = [
             dict(spec)
@@ -15711,6 +15842,9 @@ class ProductService:
                 "tour_existing_total": 0,
                 "high_fit_total": 0,
                 "failed_total": 0,
+                "filtered_property_type_total": 0,
+                "filtered_low_fit_total": 0,
+                "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
                 "watch_notified_total": 0,
                 "sources": [],
             }
@@ -15725,6 +15859,8 @@ class ProductService:
         tour_existing_total = 0
         high_fit_total = 0
         failed_total = 0
+        filtered_property_type_total = 0
+        filtered_low_fit_total = 0
         watch_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
@@ -15740,6 +15876,8 @@ class ProductService:
             source_preference_person_id = str(source_spec.get("preference_person_id") or "").strip() or preference_person_id
             if effective_force_refresh:
                 source_preference_person_id = preference_person_id
+            filtered_property_type_for_source = 0
+            filtered_low_fit_for_source = 0
 
             _report(
                 step="source_started",
@@ -15778,13 +15916,28 @@ class ProductService:
                 )
                 continue
 
-            listing_urls = listing_urls[: max_results * 4]
+            raw_listing_count = len(listing_urls)
+            scan_cap = _property_search_scan_cap_per_source()
+            scan_truncated = bool(scan_cap and len(listing_urls) > scan_cap)
+            if scan_cap:
+                listing_urls = listing_urls[:scan_cap]
             _report(
                 step="source_rank_prep",
-                message=f"Found {len(listing_urls)} raw listing candidates for {source_label}.",
+                message=(
+                    f"Found {raw_listing_count} raw listing candidates for {source_label}; "
+                    f"scanning {len(listing_urls)} for up to {max_results} match(es) above "
+                    f"{int(_PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE)}/100."
+                ),
                 status="in_progress",
                 steps_delta=1,
-                summary_updates={"sources": source_summaries},
+                summary_updates={
+                    "sources": source_summaries,
+                    "raw_listing_total": raw_listing_count,
+                    "scan_cap_per_source": scan_cap,
+                    "scan_truncated": scan_truncated,
+                    "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+                },
+                stages_total_override=2 + (len(specs) * max(8, (max(1, len(listing_urls)) * 2) + 6)),
             )
             preliminary_rows: list[dict[str, object]] = []
             for ordinal, property_url in enumerate(listing_urls, start=1):
@@ -15804,22 +15957,42 @@ class ProductService:
                         "summary": "",
                         "property_facts_json": {},
                     }
+                preview_facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
+                preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
+                preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
+                if not _property_candidate_matches_requested_property_type(
+                    property_type=requested_property_type,
+                    property_url=property_url,
+                    title=preview_title,
+                    summary=preview_summary,
+                    property_facts=preview_facts,
+                ):
+                    filtered_property_type_total += 1
+                    filtered_property_type_for_source += 1
+                    _report(
+                        step="source_type_filter",
+                        message=f"Skipped non-residential candidate {ordinal} of {len(listing_urls)} for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                    )
+                    continue
                 preliminary_rows.append(
                     {
                         "property_url": property_url,
                         "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
-                        "title": compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160),
-                        "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
-                        "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                        "title": preview_title,
+                        "summary": preview_summary,
+                        "property_facts": preview_facts,
                         "assessment": {},
                         "fit_score": 0.0,
                         "ordinal": ordinal,
                         "location_match": _property_candidate_matches_requested_location(
                             location_hints=location_hints,
                             property_url=property_url,
-                            title=str(preview.get("title") or property_url).strip(),
-                            summary=str(preview.get("summary") or "").strip(),
-                            property_facts=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                            title=preview_title,
+                            summary=preview_summary,
+                            property_facts=preview_facts,
                         ),
                     }
                 )
@@ -15845,9 +16018,11 @@ class ProductService:
                 preliminary_matching_rows = [row for row in preliminary_rows if bool(row.get("location_match"))]
                 if preliminary_matching_rows:
                     preliminary_rows = preliminary_matching_rows
-            analysis_limit = min(len(preliminary_rows), max(max_results, max_results * 2))
+            analysis_limit = len(preliminary_rows)
             ranked_rows: list[dict[str, object]] = []
             for ordinal, row in enumerate(preliminary_rows[:analysis_limit], start=1):
+                if len(ranked_rows) >= max_results:
+                    break
                 property_url = str(row.get("property_url") or "").strip()
                 _report(
                     step="source_assessing",
@@ -15868,29 +16043,49 @@ class ProductService:
                             preview = detailed_preview
                     except Exception:
                         pass
+                detailed_facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
+                detailed_title = str(preview.get("title") or property_url).strip() or property_url
+                detailed_summary = str(preview.get("summary") or "").strip()
+                if not _property_candidate_matches_requested_property_type(
+                    property_type=requested_property_type,
+                    property_url=property_url,
+                    title=detailed_title,
+                    summary=detailed_summary,
+                    property_facts=detailed_facts,
+                ):
+                    filtered_property_type_total += 1
+                    filtered_property_type_for_source += 1
+                    _report(
+                        step="source_type_filter",
+                        message=f"Skipped non-residential shortlist candidate {ordinal} of {analysis_limit} for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={"filtered_property_type_total": filtered_property_type_total},
+                    )
+                    continue
                 assessment = _property_alert_personal_fit_from_facts(
                     preference_profiles=self._preference_profiles,
                     principal_id=principal_id,
                     person_id=source_preference_person_id,
                     property_url=property_url,
-                    property_facts_json=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                    property_facts_json=detailed_facts,
                     listing_id=str(preview.get("listing_id") or property_url).strip(),
                 )
                 ranked_rows.append(
                     {
                         "property_url": property_url,
                         "listing_id": str(preview.get("listing_id") or property_url).strip() or property_url,
-                        "title": compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160),
-                        "summary": compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240),
-                        "property_facts": dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                        "title": compact_text(detailed_title, fallback=property_url, limit=160),
+                        "summary": compact_text(detailed_summary, fallback="", limit=240),
+                        "property_facts": detailed_facts,
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "fit_score": 0.0,
                         "location_match": _property_candidate_matches_requested_location(
                             location_hints=location_hints,
                             property_url=property_url,
-                            title=str(preview.get("title") or property_url).strip(),
-                            summary=str(preview.get("summary") or "").strip(),
-                            property_facts=dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {},
+                            title=detailed_title,
+                            summary=detailed_summary,
+                            property_facts=detailed_facts,
                         ),
                     }
                 )
@@ -15903,6 +16098,21 @@ class ProductService:
                         ordinal=int(row.get("ordinal") or ordinal),
                     ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
+                if float(ranked_rows[-1].get("fit_score") or 0.0) <= _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE:
+                    filtered_low_fit_total += 1
+                    filtered_low_fit_for_source += 1
+                    ranked_rows.pop()
+                    _report(
+                        step="source_low_fit_filter",
+                        message=(
+                            f"Skipped candidate below {int(_PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE)}/100 "
+                            f"for {source_label}."
+                        ),
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={"filtered_low_fit_total": filtered_low_fit_total},
+                    )
+                    continue
                 if ordinal == 1 or ordinal == analysis_limit or ordinal % 2 == 0:
                     _report(
                         step="source_ranking",
@@ -15918,7 +16128,6 @@ class ProductService:
                     ranked_rows = matching_rows
                 else:
                     ranked_rows = []
-            ranked_rows = ranked_rows[:max_results]
             duplicate_for_source = 0
             unique_ranked_rows: list[dict[str, object]] = []
             for row in ranked_rows:
@@ -16140,6 +16349,12 @@ class ProductService:
                     "preference_person_id": source_preference_person_id,
                     "listing_total": len(ranked_rows),
                     "duplicate_listing_total": duplicate_for_source,
+                    "filtered_property_type_total": filtered_property_type_for_source,
+                    "filtered_low_fit_total": filtered_low_fit_for_source,
+                    "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
+                    "raw_listing_total": raw_listing_count,
+                    "scanned_listing_total": len(listing_urls),
+                    "scan_truncated": scan_truncated,
                     "review_created_total": created_for_source,
                     "review_existing_total": existing_for_source,
                     "notified_total": notified_for_source,
@@ -16166,6 +16381,9 @@ class ProductService:
             "sources_total": len(specs),
             "listing_total": listing_total,
             "duplicate_listing_total": duplicate_listing_total,
+            "filtered_property_type_total": filtered_property_type_total,
+            "filtered_low_fit_total": filtered_low_fit_total,
+            "high_match_min_score": _PROPERTY_SEARCH_HIGH_MATCH_MIN_SCORE,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,

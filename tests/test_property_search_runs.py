@@ -63,6 +63,71 @@ def test_property_search_location_matching_prefers_requested_districts() -> None
     ) is False
 
 
+def test_property_search_type_filter_blocks_garage_for_residential_searches() -> None:
+    garage_title = "Garagenplatz zu vermieten, 10 m2, EUR 190,-, (1030 Wien) - willhaben"
+
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="apartment",
+            property_url="https://www.willhaben.at/iad/object?adId=1835567057",
+            title=garage_title,
+            summary="Garagenplatz zu vermieten.",
+            property_facts={},
+        )
+        is False
+    )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="house",
+            property_url="https://www.willhaben.at/iad/object?adId=1835567057",
+            title=garage_title,
+            summary="Garagenplatz zu vermieten.",
+            property_facts={},
+        )
+        is False
+    )
+    assert (
+        product_service._property_candidate_matches_requested_property_type(
+            property_type="apartment",
+            property_url="https://www.willhaben.at/iad/object?adId=1",
+            title="Wohnung mit Balkon und optionalem Garagenplatz",
+            summary="Helle Wohnung, Lift, Terrasse, Garagenplatz optional anmietbar.",
+            property_facts={"property_type": "apartment"},
+        )
+        is True
+    )
+
+
+def test_property_search_run_status_reconstructs_missing_status_url() -> None:
+    principal_id = "exec-property-search-missing-status-url"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"legacy-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "in_progress",
+            "status_url": "",
+            "selected_platforms": ["willhaben"],
+            "progress": 25,
+            "current_step": "source_started",
+            "message": "Scanning source.",
+            "stages_total": 4,
+            "steps_completed": 1,
+            "summary": {"sources_total": 1},
+            "events": [],
+            "property_search_preferences": {},
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert status["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
+
+
 def test_property_alert_personal_fit_snapshot_times_out_fast(monkeypatch) -> None:
     class _Profiles:
         def assess_candidate(self, **kwargs):  # type: ignore[no-untyped-def]
