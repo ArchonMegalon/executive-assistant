@@ -514,6 +514,8 @@ def _property_console_context(
 
     recent_matches: list[dict[str, object]] = []
     learning_summary: dict[str, object] = {}
+    preference_bundle: dict[str, object] = {}
+    preference_person_id = str(preferences.get("preference_person_id") or "self").strip() or "self"
     try:
         for handoff in product.list_handoffs(principal_id=principal_id, limit=12, status=None):
             task_type = str(getattr(handoff, "task_type", "") or "").strip()
@@ -552,10 +554,20 @@ def _property_console_context(
     except Exception:
         recent_matches = []
     try:
+        preference_bundle = dict(
+            product.get_preference_profile(
+                principal_id=principal_id,
+                person_id=preference_person_id,
+            )
+            or {}
+        )
+    except Exception:
+        preference_bundle = {}
+    try:
         learning_summary = dict(
             product.property_feedback_learning_summary(
                 principal_id=principal_id,
-                person_id=str(preferences.get("preference_person_id") or "self").strip() or "self",
+                person_id=preference_person_id,
                 domain="willhaben",
             )
             or {}
@@ -589,6 +601,8 @@ def _property_console_context(
         "run": run_payload,
         "recent_matches": recent_matches,
         "learning_summary": learning_summary,
+        "preference_bundle": preference_bundle,
+        "preference_person_id": preference_person_id,
         "start_endpoint": "/app/api/signals/property/search/run",
         "preferences_endpoint": "/v1/onboarding/property-search/preferences",
         "commercial": commercial,

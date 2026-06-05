@@ -208,6 +208,61 @@ class PreferenceProfileService:
             "correction": correction,
         }
 
+    def archive_preference_node(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+        node_id: str,
+        reason: str = "",
+        corrected_by: str = "",
+    ) -> dict[str, object]:
+        normalized_node_id = str(node_id or "").strip()
+        if not normalized_node_id:
+            raise ValueError("preference_node_id_required")
+        existing = next(
+            (
+                row
+                for row in self._repo.list_preference_nodes(
+                    principal_id=principal_id,
+                    person_id=person_id,
+                    limit=500,
+                )
+                if str(row.get("node_id") or "").strip() == normalized_node_id
+            ),
+            None,
+        )
+        if not isinstance(existing, dict):
+            raise KeyError("preference_node_not_found")
+        updated = self.upsert_preference_node(
+            principal_id=principal_id,
+            person_id=person_id,
+            domain=str(existing.get("domain") or "willhaben"),
+            category=str(existing.get("category") or "soft_preference"),
+            key=str(existing.get("key") or ""),
+            value_json=copy.deepcopy(existing.get("value_json")),
+            strength=str(existing.get("strength") or "medium"),
+            confidence=_normalize_confidence(existing.get("confidence"), default=0.5),
+            source_mode="explicit_correction",
+            status="inactive",
+            decay_policy="manual_only",
+            last_confirmed_at=str(existing.get("updated_at") or ""),
+        )
+        correction = self._repo.record_profile_correction(
+            principal_id=principal_id,
+            person_id=person_id,
+            target_type="preference_node",
+            target_id=str(updated.get("node_id") or normalized_node_id),
+            old_value_json=dict(existing),
+            new_value_json=dict(updated),
+            reason=str(reason or "Removed from the active search profile.").strip(),
+            corrected_by=corrected_by,
+        )
+        return {
+            "node": updated,
+            "correction": correction,
+        }
+
     def record_evidence_event(
         self,
         *,

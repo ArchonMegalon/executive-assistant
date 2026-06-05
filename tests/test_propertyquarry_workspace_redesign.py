@@ -59,6 +59,18 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
         },
     )
     assert stored.status_code == 200, stored.text
+    profile_node = client.post(
+        "/app/api/people/elisabeth/preference-profile/nodes",
+        json={
+            "domain": "willhaben",
+            "category": "soft_preference",
+            "key": "prefer_balcony",
+            "value_json": True,
+            "strength": "medium",
+            "confidence": 0.9,
+        },
+    )
+    assert profile_node.status_code == 200, profile_node.text
 
     top_candidate = {
         "title": "Altbau near U6",
@@ -283,6 +295,11 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert profile.status_code == 200
     assert "Make the learning loop visible and editable." in profile.text
     assert 'data-property-learning-list' in profile.text
+    assert 'data-property-preference-manager' in profile.text
+    assert "Prefer Balcony (Soft Preference)" in profile.text
+    assert 'data-preference-remove' in profile.text
+    assert 'data-preference-add-form' in profile.text
+    assert 'name="key" list="pq-preference-key-options"' in profile.text
 
     alerts = client.get("/app/alerts", params={"run_id": "run-42"}, headers=headers)
     assert alerts.status_code == 200

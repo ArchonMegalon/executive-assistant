@@ -1289,6 +1289,83 @@ def test_property_scout_floorplan_extractor_materializes_cooperative_download_zi
     _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
 
 
+def test_property_scout_page_preview_materializes_direct_auction_document_bundle(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    document_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/abc123!OpenDocument"
+    floorplan_payload = b"%PDF-1.7 direct auction floorplan"
+    archive_payload = _property_floorplan_zip_bytes(
+        {
+            "Gerichtliche Unterlagen/Grundriss Wohnung Top 4.pdf": floorplan_payload,
+            "Gerichtliche Unterlagen/Gutachten.pdf": b"valuation",
+        }
+    )
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == document_url
+        return archive_payload, "application/zip"
+
+    def _fetch_html(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("direct archive preview should not fetch HTML after ZIP floorplans were extracted")
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", _fetch_html)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+
+    preview = product_service._property_scout_page_preview(document_url, prefer_fast=False)
+
+    facts = dict(preview["property_facts_json"])
+    assert facts["has_floorplan"] is True
+    assert facts["provider_channel"] == "justiz_edikte_at"
+    assert facts["sale_channel"] == "judicial_auction"
+    assert "grundriss-wohnung-top-4.pdf" in preview["floorplan_urls_json"][0]
+    _assert_public_floorplan_asset(preview["floorplan_urls_json"][0], root=tmp_path, expected_payload=floorplan_payload)
+
+
+def test_property_scout_floorplan_extractor_reads_script_and_form_archive_links(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_url = "https://www.siedlungsunion.at/wohnen/sofort/top-7"
+    script_archive_url = "https://www.siedlungsunion.at/service/unterlagen.zip"
+    form_archive_url = "https://www.siedlungsunion.at/download?id=plan7"
+    script_payload = b"%PDF-1.7 script floorplan"
+    form_payload = b"%PDF-1.7 form floorplan"
+    archive_payloads = {
+        script_archive_url: _property_floorplan_zip_bytes({"downloads/Grundriss Top 7.pdf": script_payload}),
+        form_archive_url: _property_floorplan_zip_bytes({"plaene/Plan_Top_7.pdf": form_payload}),
+    }
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        return archive_payloads[url], "application/zip"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+    html = """
+      <button onclick="window.open('/service/unterlagen.zip')">Unterlagen herunterladen</button>
+      <form action="/download?id=plan7"><button>Grundriss und Wohnungsunterlagen</button></form>
+    """
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url=source_url,
+        html=html,
+        resolve_archives=True,
+    )
+
+    assert len(urls) == 2
+    assert any("grundriss-top-7.pdf" in url for url in urls)
+    assert any("plan_top_7.pdf" in url or "plan-top-7.pdf" in url for url in urls)
+    _assert_public_floorplan_asset(next(url for url in urls if "grundriss-top-7.pdf" in url), root=tmp_path, expected_payload=script_payload)
+    _assert_public_floorplan_asset(
+        next(url for url in urls if "plan_top_7.pdf" in url or "plan-top-7.pdf" in url),
+        root=tmp_path,
+        expected_payload=form_payload,
+    )
+
+
 def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
     monkeypatch_json = json.dumps(
         [
@@ -4625,6 +4702,14 @@ def test_preference_profile_endpoints_and_willhaben_assessment_flow() -> None:
     )
     assert node.status_code == 200
     assert node.json()["key"] == "require_floorplan"
+
+    archived = client.post(
+        f"/app/api/people/self/preference-profile/nodes/{urllib.parse.quote(node.json()['node_id'], safe='')}/archive",
+        json={"reason": "Do not force this for every future search."},
+    )
+    assert archived.status_code == 200
+    assert archived.json()["node"]["status"] == "inactive"
+    assert archived.json()["correction"]["old_value_json"]["status"] == "active"
 
     evidence = client.post(
         "/app/api/people/self/preference-profile/evidence",

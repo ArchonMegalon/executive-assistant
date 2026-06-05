@@ -36,6 +36,7 @@ from app.api.routes.product_api_contracts import (
     PreferenceEvidenceApplyOut,
     PreferenceEvidenceEventIn,
     PreferenceLearningSummaryOut,
+    PreferenceNodeArchiveIn,
     PreferenceNodeOut,
     PreferenceNodeUpsertIn,
     PreferenceProfileBundleOut,
@@ -702,6 +703,31 @@ def upsert_preference_node(
             decay_policy=body.decay_policy,
         )
     )
+
+
+@router.post("/people/{person_id}/preference-profile/nodes/{node_id}/archive", response_model=PreferenceCorrectionApplyOut)
+def archive_preference_node(
+    person_id: str,
+    node_id: str,
+    body: PreferenceNodeArchiveIn | None = None,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PreferenceCorrectionApplyOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
+    try:
+        result = service.archive_preference_node(
+            principal_id=context.principal_id,
+            person_id=person_id,
+            node_id=node_id,
+            reason=(body.reason if body is not None else ""),
+            corrected_by=actor,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="preference_node_not_found")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return PreferenceCorrectionApplyOut(**result)
 
 
 @router.post("/people/{person_id}/preference-profile/corrections", response_model=PreferenceCorrectionApplyOut)

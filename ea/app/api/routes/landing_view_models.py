@@ -1276,6 +1276,13 @@ def property_workspace_payload(
     property_meta = dict(property_form.get("meta") or {})
     commercial = dict(property_state.get("commercial") or {})
     property_preferences = dict(property_state.get("preferences") or {})
+    preference_person_id = str(property_state.get("preference_person_id") or property_preferences.get("preference_person_id") or "self").strip() or "self"
+    preference_bundle = dict(property_state.get("preference_bundle") or {})
+    raw_preference_nodes = [
+        dict(row)
+        for row in list(preference_bundle.get("preference_nodes") or [])
+        if isinstance(row, dict)
+    ]
     workspace = dict(status.get("workspace") or {})
     channels = dict(status.get("channels") or {})
     google = dict(channels.get("google") or {})
@@ -1306,6 +1313,48 @@ def property_workspace_payload(
     run_message = str(run_payload.get("message") or "").strip()
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     run_in_progress = bool(run_id and run_status_value and run_status_value not in {"processed", "completed", "failed", "noop", "cancelled", "not started"})
+
+    def _preference_value_label(value: object) -> str:
+        if isinstance(value, list):
+            return ", ".join(str(item).strip() for item in value if str(item).strip()) or "empty list"
+        if isinstance(value, dict):
+            return ", ".join(f"{key}: {item}" for key, item in value.items() if str(key).strip()) or "empty object"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        return str(value if value is not None else "").strip() or "empty"
+
+    def _preference_key_label(row: dict[str, object]) -> str:
+        key = str(row.get("key") or "").strip().replace("_", " ")
+        category = str(row.get("category") or "").strip().replace("_", " ")
+        return (key or "Preference").title() + (f" ({category.title()})" if category else "")
+
+    preference_manager_nodes = [
+        {
+            "node_id": str(row.get("node_id") or "").strip(),
+            "domain": str(row.get("domain") or "").strip() or "willhaben",
+            "category": str(row.get("category") or "").strip() or "soft_preference",
+            "key": str(row.get("key") or "").strip(),
+            "label": _preference_key_label(row),
+            "value_label": _preference_value_label(row.get("value_json")),
+            "value_json": row.get("value_json"),
+            "strength": str(row.get("strength") or "medium").strip() or "medium",
+            "confidence": row.get("confidence") or 0,
+            "source_mode": str(row.get("source_mode") or "").strip(),
+            "status": str(row.get("status") or "").strip().lower() or "active",
+            "updated_at": str(row.get("updated_at") or "").strip(),
+        }
+        for row in raw_preference_nodes
+        if str(row.get("node_id") or "").strip()
+    ]
+    preference_manager_nodes.sort(key=lambda row: (str(row.get("status") or "") != "active", str(row.get("label") or "").lower()))
+    preference_manager = {
+        "person_id": preference_person_id,
+        "nodes": preference_manager_nodes,
+        "active_nodes": [row for row in preference_manager_nodes if str(row.get("status") or "") == "active"],
+        "bundle_endpoint": f"/app/api/people/{preference_person_id}/preference-profile",
+        "node_endpoint": f"/app/api/people/{preference_person_id}/preference-profile/nodes",
+        "archive_endpoint_template": f"/app/api/people/{preference_person_id}/preference-profile/nodes/__NODE_ID__/archive",
+    }
 
     def _tour_source_gap_detail(candidate: dict[str, object]) -> str:
         blocked_reason = str(candidate.get("blocked_reason") or "").strip()
@@ -2063,6 +2112,7 @@ def property_workspace_payload(
     payload["current_plan_label"] = current_plan_label
     payload["run_payload"] = run_payload
     payload["run_summary"] = run_summary
+    payload["preference_manager"] = preference_manager
     payload["decision_workbench"] = {
         "run": {
             "run_id": run_id,

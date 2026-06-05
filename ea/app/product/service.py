@@ -1231,21 +1231,14 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
     floorplan_urls: list[str] = []
     seen: set[str] = set()
     seen_archives: set[str] = set()
+    candidate_links: list[tuple[str, str, str]] = []
     attr_pattern = re.compile(
-        r"""(href|src|data-href|data-url|data-src|data-original|data-lazy-src|data-background-image)=["']([^"']+)["']""",
+        r"""(href|src|action|data-href|data-url|data-src|data-original|data-lazy-src|data-background-image)=["']([^"']+)["']""",
         re.IGNORECASE,
     )
     for match in attr_pattern.finditer(normalized_html):
         attr_name = str(match.group(1) or "").strip().lower()
         raw_url = str(match.group(2) or "").strip()
-        try:
-            normalized = urllib.parse.urljoin(source_url, raw_url)
-        except ValueError:
-            continue
-        normalized = urllib.parse.urldefrag(normalized)[0]
-        if not normalized or normalized in seen:
-            continue
-        lowered_url = urllib.parse.unquote(normalized).lower()
         tag_start = normalized_html.rfind("<", 0, match.start())
         tag_end = normalized_html.find(">", match.end())
         if tag_start < 0:
@@ -1257,6 +1250,39 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
             close = normalized_html.find("</a>", tag_end)
             if close >= 0 and close - tag_end < 320:
                 context += normalized_html[tag_end + 1 : close + 4].lower()
+        elif attr_name == "action":
+            close = normalized_html.find("</form>", tag_end)
+            if close >= 0 and close - tag_end < 520:
+                context += normalized_html[tag_end + 1 : close + 7].lower()
+        candidate_links.append((attr_name, raw_url, context))
+    js_url_pattern = re.compile(
+        r"""(?:window\.open|location(?:\.href)?|document\.location)\s*(?:=|\()\s*["']([^"']+)["']""",
+        re.IGNORECASE,
+    )
+    for match in js_url_pattern.finditer(normalized_html):
+        raw_url = str(match.group(1) or "").strip()
+        context = normalized_html[max(0, match.start() - 180) : min(len(normalized_html), match.end() + 360)].lower()
+        candidate_links.append(("script", raw_url, context))
+    embedded_download_pattern = re.compile(
+        r"""["']((?:https?://[^"']+|/(?:[^"'<>{}\s]+)|(?:alldoc/[^"']+|download[^"']*|downloads/[^"']+)))["']""",
+        re.IGNORECASE,
+    )
+    for match in embedded_download_pattern.finditer(normalized_html):
+        raw_url = str(match.group(1) or "").strip()
+        context = normalized_html[max(0, match.start() - 180) : min(len(normalized_html), match.end() + 360)].lower()
+        combined = f"{raw_url} {context}".lower()
+        if not any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten", "grundriss", "floorplan", "plan")):
+            continue
+        candidate_links.append(("embedded", raw_url, context))
+    for attr_name, raw_url, context in candidate_links:
+        try:
+            normalized = urllib.parse.urljoin(source_url, raw_url)
+        except ValueError:
+            continue
+        normalized = urllib.parse.urldefrag(normalized)[0]
+        if not normalized or normalized in seen:
+            continue
+        lowered_url = urllib.parse.unquote(normalized).lower()
         if resolve_archives and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
             if normalized not in seen_archives:
                 seen_archives.add(normalized)
@@ -2180,6 +2206,46 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
             }
         except RuntimeError:
             pass
+    if not prefer_fast and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=normalized):
+        floorplan_urls = _property_scout_extract_floorplan_urls_from_archive(
+            source_url=normalized,
+            archive_url=normalized,
+            context=normalized,
+        )
+        if floorplan_urls:
+            parsed_host = urllib.parse.urlparse(normalized).netloc.lower()
+            property_facts: dict[str, object] = {
+                "has_floorplan": True,
+                "floorplan_count": len(floorplan_urls),
+                "floorplan_urls_json": list(floorplan_urls),
+                "media_count": 0,
+                "has_360": False,
+            }
+            if "edikte" in parsed_host or "justiz" in parsed_host:
+                property_facts.update(
+                    {
+                        "distressed_sale": True,
+                        "sale_channel": "judicial_auction",
+                        "provider_channel": "justiz_edikte_at",
+                    }
+                )
+            if any(marker in parsed_host for marker in ("gesiba.at", "siedlungsunion.at", "wbv-gpa.at", "frieden.at", "sozialbau.at")):
+                property_facts.update(
+                    {
+                        "provider_group": "genossenschaften_at",
+                        "provider_channel": parsed_host,
+                    }
+                )
+            return {
+                "listing_id": normalized,
+                "title": normalized,
+                "summary": "Document bundle with extracted floor plan material.",
+                "property_facts_json": property_facts,
+                "media_urls_json": (),
+                "floorplan_urls_json": floorplan_urls[:6],
+                "source_virtual_tour_url": "",
+                "panorama_source": "",
+            }
     html = _property_scout_fetch_html(normalized, timeout_seconds=4.0)
     title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     title = compact_text(title_match.group(1) if title_match else "", fallback="", limit=160)
@@ -8105,6 +8171,24 @@ class ProductService:
             key=key,
             value_json=value_json,
             strength=strength,
+            reason=reason,
+            corrected_by=corrected_by,
+        )
+
+    def archive_preference_node(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+        node_id: str,
+        reason: str = "",
+        corrected_by: str = "",
+    ) -> dict[str, object]:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        return self._preference_profiles.archive_preference_node(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            node_id=node_id,
             reason=reason,
             corrected_by=corrected_by,
         )

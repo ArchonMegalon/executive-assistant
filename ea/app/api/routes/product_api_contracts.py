@@ -776,6 +776,10 @@ class PreferenceNodeUpsertIn(BaseModel):
     decay_policy: str = "reinforce_only"
 
 
+class PreferenceNodeArchiveIn(BaseModel):
+    reason: str = ""
+
+
 class PreferenceEvidenceEventIn(BaseModel):
     domain: str = Field(min_length=1)
     event_type: str = Field(min_length=1)

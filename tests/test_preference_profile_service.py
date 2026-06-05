@@ -57,6 +57,35 @@ def test_preference_profile_service_applies_correction_and_records_receipt() -> 
     assert bundle["recent_corrections"][0]["corrected_by"] == "operator-1"
 
 
+def test_preference_profile_service_archives_node_and_records_receipt() -> None:
+    service = _service()
+    node = service.upsert_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        domain="willhaben",
+        category="soft_preference",
+        key="prefer_balcony",
+        value_json=True,
+        strength="medium",
+        confidence=0.8,
+    )
+
+    archived = service.archive_preference_node(
+        principal_id="pref-principal",
+        person_id="self",
+        node_id=str(node["node_id"]),
+        reason="Outdoor space was over-weighted.",
+        corrected_by="operator-1",
+    )
+    bundle = service.get_profile_bundle(principal_id="pref-principal", person_id="self")
+
+    assert archived["node"]["status"] == "inactive"
+    assert archived["node"]["source_mode"] == "explicit_correction"
+    assert archived["correction"]["old_value_json"]["status"] == "active"
+    assert archived["correction"]["new_value_json"]["status"] == "inactive"
+    assert bundle["preference_nodes"][0]["status"] == "inactive"
+
+
 def test_preference_profile_service_records_evidence_and_applies_preference_hints() -> None:
     service = _service()
     service.ensure_profile(

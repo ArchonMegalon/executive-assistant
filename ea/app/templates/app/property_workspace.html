@@ -2,6 +2,7 @@
 {% block content %}
 {% set property_meta = console_form.get('meta') or {} %}
 {% set shortlist_candidates = property_meta.get('shortlist_candidates') or [] %}
+{% set preference_manager = preference_manager or {} %}
 <style>
   .pq-page,
   .pq-grid,
@@ -517,6 +518,67 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+  .pq-preference-manager {
+    display: grid;
+    gap: 16px;
+  }
+  .pq-preference-list {
+    display: grid;
+    gap: 10px;
+  }
+  .pq-preference-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255, 253, 248, 0.72);
+  }
+  .pq-preference-row.is-removing {
+    opacity: 0.62;
+  }
+  .pq-preference-row strong,
+  .pq-preference-row small {
+    display: block;
+  }
+  .pq-preference-row small {
+    color: var(--text-dim);
+    margin-top: 4px;
+    line-height: 1.45;
+  }
+  .pq-preference-form {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(214, 166, 63, 0.24);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(189, 139, 47, 0.1), rgba(255, 253, 248, 0.72));
+  }
+  .pq-preference-form-grid {
+    display: grid;
+    grid-template-columns: minmax(130px, 0.4fr) minmax(160px, 0.7fr) minmax(180px, 0.9fr) minmax(120px, 0.4fr);
+    gap: 10px;
+  }
+  .pq-preference-form label {
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .pq-preference-form input,
+  .pq-preference-form select {
+    width: 100%;
+    min-height: 40px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    padding: 9px 10px;
+  }
   .pq-chip {
     cursor: pointer;
   }
@@ -560,7 +622,9 @@
       font-size: 1.6rem;
     }
     .pq-step-grid,
-    .pq-form-grid {
+    .pq-form-grid,
+    .pq-preference-form-grid,
+    .pq-preference-row {
       grid-template-columns: 1fr;
     }
     .pq-step-grid {
@@ -957,6 +1021,101 @@
       </section>
       {% endif %}
 
+      {% if current_nav == 'profile' %}
+      <section
+        class="pq-panel pq-preference-manager"
+        data-property-preference-manager
+        data-preference-person-id="{{ preference_manager.get('person_id') or 'self' }}"
+        data-preference-node-endpoint="{{ preference_manager.get('node_endpoint') or '/app/api/people/self/preference-profile/nodes' }}"
+        data-preference-archive-endpoint-template="{{ preference_manager.get('archive_endpoint_template') or '/app/api/people/self/preference-profile/nodes/__NODE_ID__/archive' }}"
+      >
+        <div>
+          <div class="pq-kicker">Preference manager</div>
+          <h3>Active ranking preferences</h3>
+          <p class="pq-copy">Keep the learned search profile editable: remove weak learned assumptions and add explicit rules before the next run.</p>
+        </div>
+        <div class="pq-preference-list" data-preference-node-list>
+          {% for node in preference_manager.get('active_nodes') or [] %}
+          <div
+            class="pq-preference-row"
+            data-preference-node
+            data-node-id="{{ node.get('node_id') }}"
+            data-node-domain="{{ node.get('domain') }}"
+            data-node-category="{{ node.get('category') }}"
+            data-node-key="{{ node.get('key') }}"
+            data-node-value='{{ node.get("value_json")|tojson|safe }}'
+            data-node-strength="{{ node.get('strength') }}"
+          >
+            <div>
+              <strong>{{ node.get('label') }}</strong>
+              <small>{{ node.get('value_label') }} | {{ node.get('strength') }} strength | {{ node.get('source_mode') or 'manual' }}</small>
+            </div>
+            <div class="pq-actions">
+              <button class="pq-action" type="button" data-preference-remove>Remove</button>
+            </div>
+          </div>
+          {% else %}
+          <div class="pq-row" data-preference-empty>
+            <div>
+              <strong>No active learned preferences yet</strong>
+              <small>Add explicit profile rules here or save feedback on review packets.</small>
+            </div>
+            <div class="pq-actions"><span class="pq-tag">Waiting</span></div>
+          </div>
+          {% endfor %}
+        </div>
+        <form class="pq-preference-form" data-preference-add-form>
+          <div class="pq-card-eyebrow">Add a criterion manually</div>
+          <div class="pq-preference-form-grid">
+            <label>
+              Category
+              <select name="category">
+                <option value="soft_preference">Preference</option>
+                <option value="constraint">Hard rule</option>
+                <option value="aversion">Avoid</option>
+              </select>
+            </label>
+            <label>
+              Key
+              <input name="key" list="pq-preference-key-options" placeholder="prefer_balcony" autocomplete="off">
+              <datalist id="pq-preference-key-options">
+                <option value="prefer_balcony"></option>
+                <option value="prefer_lift"></option>
+                <option value="require_lift"></option>
+                <option value="require_floorplan"></option>
+                <option value="prefer_360_for_remote_review"></option>
+                <option value="prefer_subway_nearby"></option>
+                <option value="prefer_supermarket_nearby"></option>
+                <option value="prefer_pharmacy_nearby"></option>
+                <option value="prefer_playgrounds_nearby"></option>
+                <option value="preferred_districts"></option>
+                <option value="avoided_districts"></option>
+                <option value="min_area_sqm_preference"></option>
+                <option value="max_total_rent_eur"></option>
+              </datalist>
+            </label>
+            <label>
+              Value
+              <input name="value" placeholder="true, 70, or 1020 Wien, 1200 Wien" autocomplete="off">
+            </label>
+            <label>
+              Strength
+              <select name="strength">
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+          </div>
+          <div class="pq-actions">
+            <button class="pq-action primary" type="submit">Add preference</button>
+            <span class="pq-inline-status" data-preference-status></span>
+            <span class="pq-inline-error" data-preference-error></span>
+          </div>
+        </form>
+      </section>
+      {% endif %}
+
       {% if primary_cards %}
       <div class="pq-card-grid">
         {% for card in primary_cards if card %}
@@ -1088,6 +1247,46 @@
 
   const propertyFeedbackReasonsEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback/suggestions`;
   const propertyFeedbackSaveEndpoint = (personId) => `/app/api/people/${encodeURIComponent(personId || 'self')}/preference-profile/property-feedback`;
+  const preferenceLabel = (key, category) => {
+    const readableKey = titleCase(String(key || 'Preference').replaceAll('_', ' '));
+    const readableCategory = titleCase(String(category || '').replaceAll('_', ' '));
+    return readableCategory ? `${readableKey} (${readableCategory})` : readableKey;
+  };
+  const preferenceValueLabel = (value) => {
+    if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean).join(', ') || 'empty list';
+    if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}: ${item}`).join(', ') || 'empty object';
+    if (typeof value === 'boolean') return value ? 'yes' : 'no';
+    return String(value ?? '').trim() || 'empty';
+  };
+  const parsePreferenceValue = (rawValue, key) => {
+    const raw = String(rawValue || '').trim();
+    const normalizedKey = String(key || '').trim().toLowerCase();
+    if (!raw && /^(prefer_|require_|requires_)/.test(normalizedKey)) return true;
+    if (!raw) return '';
+    const lowered = raw.toLowerCase();
+    if (['true', 'yes', 'ja', '1'].includes(lowered)) return true;
+    if (['false', 'no', 'nein', '0'].includes(lowered)) return false;
+    if (raw.includes(',')) return raw.split(',').map((item) => item.trim()).filter(Boolean);
+    const numeric = Number(raw.replace(',', '.'));
+    if (Number.isFinite(numeric) && /^-?\d+(?:[,.]\d+)?$/.test(raw)) return numeric;
+    return raw;
+  };
+  const renderPreferenceNodeRow = (node) => {
+    const nodeId = String(node?.node_id || '').trim();
+    const category = String(node?.category || 'soft_preference').trim();
+    const key = String(node?.key || '').trim();
+    const value = node?.value_json;
+    const strength = String(node?.strength || 'medium').trim();
+    const sourceMode = String(node?.source_mode || 'manual').trim();
+    return `
+      <div class="pq-preference-row" data-preference-node data-node-id="${escapeHtml(nodeId)}" data-node-domain="${escapeHtml(node?.domain || 'willhaben')}" data-node-category="${escapeHtml(category)}" data-node-key="${escapeHtml(key)}" data-node-value="${escapeHtml(JSON.stringify(value))}" data-node-strength="${escapeHtml(strength)}">
+        <div>
+          <strong>${escapeHtml(preferenceLabel(key, category))}</strong>
+          <small>${escapeHtml(preferenceValueLabel(value))} | ${escapeHtml(strength)} strength | ${escapeHtml(sourceMode || 'manual')}</small>
+        </div>
+        <div class="pq-actions"><button class="pq-action" type="button" data-preference-remove>Remove</button></div>
+      </div>`;
+  };
 
   const learningSummaryRows = (summary) => {
     const likes = Array.isArray(summary?.likes) ? summary.likes.slice(0, 4) : [];
@@ -1464,6 +1663,107 @@
     }
   };
 
+  const initPreferenceManager = (root) => {
+    const manager = root.querySelector('[data-property-preference-manager]');
+    if (!manager) return;
+    const listNode = manager.querySelector('[data-preference-node-list]');
+    const form = manager.querySelector('[data-preference-add-form]');
+    const statusNode = manager.querySelector('[data-preference-status]');
+    const errorNode = manager.querySelector('[data-preference-error]');
+    const nodeEndpoint = String(manager.getAttribute('data-preference-node-endpoint') || '').trim();
+    const archiveEndpointTemplate = String(manager.getAttribute('data-preference-archive-endpoint-template') || '').trim();
+
+    const setStatus = (message, isError = false) => {
+      if (statusNode) statusNode.textContent = isError ? '' : message;
+      if (errorNode) errorNode.textContent = isError ? message : '';
+    };
+    const ensureEmptyState = () => {
+      if (!listNode) return;
+      if (listNode.querySelector('[data-preference-node]')) return;
+      listNode.innerHTML = `
+        <div class="pq-row" data-preference-empty>
+          <div><strong>No active learned preferences yet</strong><small>Add explicit profile rules here or save feedback on review packets.</small></div>
+          <div class="pq-actions"><span class="pq-tag">Waiting</span></div>
+        </div>`;
+    };
+    const bindRemoveButtons = () => {
+      for (const button of [...manager.querySelectorAll('[data-preference-remove]')]) {
+        if (button.getAttribute('data-bound') === 'true') continue;
+        button.setAttribute('data-bound', 'true');
+        button.addEventListener('click', async () => {
+          const row = button.closest('[data-preference-node]');
+          const nodeId = String(row?.getAttribute('data-node-id') || '').trim();
+          if (!row || !nodeId || !archiveEndpointTemplate) return;
+          row.classList.add('is-removing');
+          button.disabled = true;
+          setStatus('Removing preference...');
+          try {
+            const response = await fetch(archiveEndpointTemplate.replace('__NODE_ID__', encodeURIComponent(nodeId)), {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ reason: 'Removed from the PropertyQuarry profile manager.' }),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(String(body.detail || 'Could not remove preference.'));
+            row.remove();
+            ensureEmptyState();
+            setStatus('Preference removed from active ranking.');
+          } catch (error) {
+            row.classList.remove('is-removing');
+            button.disabled = false;
+            setStatus(error instanceof Error ? error.message : 'Could not remove preference.', true);
+          }
+        });
+      }
+    };
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!nodeEndpoint || !listNode) return;
+      const category = String(form.querySelector('[name="category"]')?.value || 'soft_preference').trim();
+      const key = String(form.querySelector('[name="key"]')?.value || '').trim().toLowerCase();
+      const valueInput = form.querySelector('[name="value"]');
+      const strength = String(form.querySelector('[name="strength"]')?.value || 'medium').trim();
+      if (!key) {
+        setStatus('Add a preference key first.', true);
+        return;
+      }
+      const payload = {
+        domain: 'willhaben',
+        category,
+        key,
+        value_json: parsePreferenceValue(valueInput?.value || '', key),
+        strength,
+        confidence: 1,
+        source_mode: 'explicit',
+        status: 'active',
+        decay_policy: 'manual_only',
+      };
+      setStatus('Adding preference...');
+      try {
+        const response = await fetch(nodeEndpoint, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(String(body.detail || 'Could not add preference.'));
+        manager.querySelector('[data-preference-empty]')?.remove();
+        const existing = listNode.querySelector(`[data-node-id="${CSS.escape(String(body.node_id || ''))}"]`);
+        if (existing) existing.remove();
+        listNode.insertAdjacentHTML('afterbegin', renderPreferenceNodeRow(body));
+        bindRemoveButtons();
+        form.reset();
+        setStatus('Preference added to active ranking.');
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Could not add preference.', true);
+      }
+    });
+    bindRemoveButtons();
+    ensureEmptyState();
+  };
+
   for (const root of roots) {
     const meta = parseMeta(root);
     const form = root.querySelector('[data-console-form-variant="property_search"]');
@@ -1583,6 +1883,7 @@
     }
 
     initFeedbackCards(root, meta);
+    initPreferenceManager(root);
   }
 })();
 </script>
