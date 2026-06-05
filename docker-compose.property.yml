@@ -1,0 +1,84 @@
+services:
+  propertyquarry-api:
+    build:
+      context: .
+      dockerfile: ea/Dockerfile.property
+    image: propertyquarry-runtime:latest
+    container_name: propertyquarry-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EA_ROLE: api
+      EA_PORT: "8090"
+      EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
+      EA_ALLOW_LOOPBACK_NO_AUTH: "${EA_ALLOW_LOOPBACK_NO_AUTH:-0}"
+      EA_ARTIFACTS_DIR: /data/artifacts
+      EA_PUBLIC_TOUR_DIR: /data/public_property_tours
+      EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
+      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
+      PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES: "${PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES:-0}"
+      PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS: "${PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS:-0}"
+      PROPERTYQUARRY_ENABLE_PUBLIC_TOURS: "${PROPERTYQUARRY_ENABLE_PUBLIC_TOURS:-0}"
+      PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "${PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES:-0}"
+      HOME: /home/ea
+      TZ: Europe/Vienna
+    ports:
+      - "${EA_HOST_PORT:-8090}:8090"
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - propertyquarry_artifacts:/data/artifacts
+      - propertyquarry_public_tours:/data/public_property_tours
+      - propertyquarry_provider_ledger:/data/provider-ledger
+    depends_on:
+      propertyquarry-db:
+        condition: service_healthy
+
+  propertyquarry-scheduler:
+    image: propertyquarry-runtime:latest
+    container_name: propertyquarry-scheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      EA_ROLE: scheduler
+      EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
+      PROPERTYQUARRY_SCHEDULER_PROFILE: "${PROPERTYQUARRY_SCHEDULER_PROFILE:-property_only}"
+      EA_ARTIFACTS_DIR: /data/artifacts
+      EA_PUBLIC_TOUR_DIR: /data/public_property_tours
+      EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
+      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
+      HOME: /home/ea
+      TZ: Europe/Vienna
+    volumes:
+      - ./config:/config:ro
+      - ./config:/app/config:ro
+      - propertyquarry_artifacts:/data/artifacts
+      - propertyquarry_public_tours:/data/public_property_tours
+      - propertyquarry_provider_ledger:/data/provider-ledger
+    depends_on:
+      propertyquarry-db:
+        condition: service_healthy
+      propertyquarry-api:
+        condition: service_started
+
+  propertyquarry-db:
+    image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
+    container_name: propertyquarry-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}"
+    volumes:
+      - propertyquarry_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  propertyquarry_artifacts: {}
+  propertyquarry_pgdata: {}
+  propertyquarry_public_tours: {}
+  propertyquarry_provider_ledger: {}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.container import AppContainer
+from app.domain.property_preference_events import (
+    FLIPLINK_FEEDBACK_SOURCE,
+    PREFERENCE_EVENT_FEEDBACK_ACCEPTED,
+    PREFERENCE_OBJECT_FEEDBACK,
+    PROPERTY_PACKET_FEEDBACK_SOURCE,
+    PROPERTY_PREFERENCE_DOMAIN,
+)
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.public_branding import request_brand
@@ -115,6 +123,133 @@ def _publication_out(row: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _feedback_text(*, custom_fields: dict[str, object], note: str = "") -> str:
+    parts = [str(note or "")]
+    for key in ("reaction", "question", "intent", "viewer_role"):
+        parts.append(str(custom_fields.get(key) or ""))
+    return " ".join(" ".join(part.split()) for part in parts if str(part or "").strip()).strip().lower()
+
+
+def _feedback_preference_hints(*, custom_fields: dict[str, object], action: str, note: str = "") -> list[dict[str, object]]:
+    text = _feedback_text(custom_fields=custom_fields, note=note)
+    hard = str(action or "").strip() == "convert_to_hard_rule"
+    strength = "high" if hard else "medium"
+    source_mode = "explicit_correction" if hard else "explicit_feedback"
+    hints: list[dict[str, object]] = []
+
+    def add(category: str, key: str, value_json: object, *, merge_mode: str = "replace") -> None:
+        hint = {
+            "domain": PROPERTY_PREFERENCE_DOMAIN,
+            "category": category,
+            "key": key,
+            "value_json": value_json,
+            "strength": strength,
+            "confidence": 0.95 if hard else 0.75,
+            "source_mode": source_mode,
+        }
+        if merge_mode != "replace":
+            hint["merge_mode"] = merge_mode
+        if hint not in hints:
+            hints.append(hint)
+
+    if any(marker in text for marker in ("floorplan", "floor plan", "grundriss", "plan")):
+        add("constraint" if hard else "soft_preference", "require_floorplan" if hard else "requires_floorplan_for_remote_review", True)
+    if any(marker in text for marker in ("360", "tour", "virtual")):
+        add("constraint" if hard else "soft_preference", "require_360" if hard else "prefer_360_for_remote_review", True)
+    if any(marker in text for marker in ("lift", "elevator", "aufzug")):
+        add("constraint" if hard else "soft_preference", "require_lift" if hard else "prefer_lift", True)
+    if any(marker in text for marker in ("quiet", "noise", "noisy", "traffic", "street noise", "laerm", "lärm", "ruhig")):
+        add("constraint" if hard else "soft_preference", "require_quiet_micro_location" if hard else "prefer_quiet_micro_location", True)
+    if any(marker in text for marker in ("balcony", "terrace", "garden", "outdoor", "balkon", "terrasse", "garten")):
+        add("soft_preference", "prefer_outdoor_space", True)
+    if any(marker in text for marker in ("playground", "spielplatz")):
+        add("soft_preference", "prefer_playgrounds_nearby", True)
+    if any(marker in text for marker in ("supermarket", "grocery", "supermarkt")):
+        add("soft_preference", "prefer_supermarket_nearby", True)
+    if any(marker in text for marker in ("pharmacy", "apotheke")):
+        add("soft_preference", "prefer_pharmacy_nearby", True)
+    if any(marker in text for marker in ("subway", "underground", "metro", "u-bahn", "tube")):
+        add("soft_preference", "prefer_subway_nearby", True)
+    if any(marker in text for marker in ("gas heating", "gasheizung", "gas heater", "gas boiler")):
+        add("aversion", "avoid_heating_types", ["Gasheizung"], merge_mode="append_unique")
+    return hints
+
+
+def _apply_feedback_preferences(
+    *,
+    container: AppContainer,
+    context: RequestContext,
+    event_id: str,
+    review_event: dict[str, object],
+    action: str,
+    note: str,
+    actor: str,
+) -> dict[str, object]:
+    payload = dict(review_event.get("payload_json") or {})
+    target_payload = dict(payload.get("target_payload") or {})
+    custom_fields = dict(target_payload.get("custom_fields") or {})
+    hints = _feedback_preference_hints(custom_fields=custom_fields, action=action, note=note)
+    interpreted: dict[str, object] = {
+        "trust": "owner_reviewed",
+        "accepted_as": action,
+        "feedback_source": PROPERTY_PACKET_FEEDBACK_SOURCE,
+        "external_source": FLIPLINK_FEEDBACK_SOURCE,
+    }
+    if hints:
+        interpreted["preference_hints"] = hints
+    evidence = container.preference_profiles.record_evidence_event(
+        principal_id=context.principal_id,
+        person_id="self",
+        domain=PROPERTY_PREFERENCE_DOMAIN,
+        event_type=PREFERENCE_EVENT_FEEDBACK_ACCEPTED,
+        object_type=PREFERENCE_OBJECT_FEEDBACK,
+        object_id=event_id,
+        source_ref=f"fliplink:event:{event_id}",
+        raw_signal_json={
+            "event_id": event_id,
+            "action": action,
+            "note": note,
+            "property_ref": str(target_payload.get("property_ref") or ""),
+            "packet_kind": str(target_payload.get("packet_kind") or ""),
+            "privacy_mode": str(target_payload.get("privacy_mode") or ""),
+            "custom_fields": custom_fields,
+        },
+        interpreted_signal_json=interpreted,
+        signal_strength=0.7 if action == "accept_as_preference_signal" else 0.9,
+        reversible=True,
+    )
+    application: dict[str, object] = {
+        "evidence_event_id": str(dict(evidence.get("event") or {}).get("event_id") or ""),
+        "applied_nodes": list(evidence.get("applied_nodes") or []),
+    }
+    if action == "convert_to_hard_rule":
+        if not hints:
+            raise ValueError("fliplink_feedback_no_supported_hard_rule_candidate")
+        primary = hints[0]
+        correction = container.preference_profiles.apply_correction(
+            principal_id=context.principal_id,
+            person_id="self",
+            domain=str(primary.get("domain") or PROPERTY_PREFERENCE_DOMAIN),
+            category=str(primary.get("category") or "soft_preference"),
+            key=str(primary.get("key") or ""),
+            value_json=primary.get("value_json"),
+            strength="high",
+            reason=str(note or f"Converted FlipLink feedback {event_id} into an owner-confirmed property rule.").strip(),
+            corrected_by=actor,
+        )
+        application["hard_rule_node"] = dict(correction.get("node") or {})
+        application["correction"] = dict(correction.get("correction") or {})
+    return application
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 @authenticated_router.get("/app/properties/packets", response_class=HTMLResponse)
 def property_packets_dashboard(
     request: Request,
@@ -179,21 +314,21 @@ def review_property_packet_feedback(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    preference_application: dict[str, object] = {}
     if body.action in {"accept_as_preference_signal", "convert_to_hard_rule"}:
-        container.preference_profiles.record_evidence_event(
-            principal_id=context.principal_id,
-            person_id="self",
-            domain="property_scout",
-            event_type="fliplink_external_feedback_accepted",
-            object_type="property_packet_feedback",
-            object_id=event_id,
-            source_ref=f"fliplink:event:{event_id}",
-            raw_signal_json={"event_id": event_id, "action": body.action, "note": body.note},
-            interpreted_signal_json={"trust": "owner_reviewed", "accepted_as": body.action},
-            signal_strength=0.7 if body.action == "accept_as_preference_signal" else 0.9,
-            reversible=True,
-        )
-    return {"status": "reviewed", "event": dict(event)}
+        try:
+            preference_application = _apply_feedback_preferences(
+                container=container,
+                context=context,
+                event_id=event_id,
+                review_event=event,
+                action=body.action,
+                note=body.note,
+                actor=_actor(context),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "reviewed", "event": dict(event), "preference_application": preference_application}
 
 
 @authenticated_router.get("/app/api/properties/packets/{publication_id}/pdf")
@@ -208,8 +343,11 @@ def download_property_packet_pdf(
         raise HTTPException(status_code=404, detail="property_packet_publication_not_found")
     artifact_root = Path(str(container.settings.storage.artifacts_dir or "/tmp/ea_artifacts")).resolve()
     pdf_path = Path(str(row.get("source_pdf_artifact_ref") or "")).resolve()
-    if not str(pdf_path).startswith(str(artifact_root)) or not pdf_path.is_file():
+    if (pdf_path != artifact_root and artifact_root not in pdf_path.parents) or not pdf_path.is_file():
         raise HTTPException(status_code=404, detail="property_packet_pdf_not_found")
+    expected_sha = str(row.get("source_pdf_sha256") or "").strip().lower()
+    if expected_sha and _sha256_file(pdf_path) != expected_sha:
+        raise HTTPException(status_code=409, detail="property_packet_pdf_hash_mismatch")
     return FileResponse(
         str(pdf_path),
         media_type="application/pdf",
@@ -297,16 +435,21 @@ async def fliplink_webhook(
         raise HTTPException(status_code=413, detail="fliplink_webhook_payload_too_large")
     service = build_fliplink_packet_service(container)
     try:
-        service.verify_webhook_secret(
+        secret_mode = service.verify_webhook_secret(
             provided_header=str(request.headers.get("x-propertyquarry-webhook-secret") or ""),
             provided_query=secret,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     try:
-        payload = await request.json()
+        raw_body = await request.body()
+        if len(raw_body) > 64_000:
+            raise HTTPException(status_code=413, detail="fliplink_webhook_payload_too_large")
+        payload = json.loads(raw_body)
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise exc
         raise HTTPException(status_code=400, detail="invalid_fliplink_webhook_json") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=422, detail="fliplink_webhook_object_required")
-    return service.ingest_lead_webhook(payload=payload)
+    return service.ingest_lead_webhook(payload=payload, secret_mode=secret_mode)

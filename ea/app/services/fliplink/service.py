@@ -22,6 +22,7 @@ from app.services.fliplink.models import (
 )
 from app.services.fliplink.pdf_renderer import render_property_packet_pdf
 from app.services.fliplink.webhooks import FlipLinkLeadWebhook, normalize_lead_webhook
+from app.services.fliplink.webhooks import safe_custom_fields
 
 
 class FlipLinkPacketService:
@@ -186,18 +187,33 @@ class FlipLinkPacketService:
         )
         return updated
 
-    def verify_webhook_secret(self, *, provided_header: str = "", provided_query: str = "") -> None:
+    def verify_webhook_secret(self, *, provided_header: str = "", provided_query: str = "") -> str:
         settings = fliplink_settings_from_env()
         if not settings.webhook_allowed:
             raise PermissionError("fliplink_webhook_disabled")
         expected = settings.webhook_secret
         if not expected:
             raise PermissionError("fliplink_webhook_secret_not_configured")
-        provided = str(provided_header or provided_query or "").strip()
+        header = str(provided_header or "").strip()
+        query = str(provided_query or "").strip()
+        if header:
+            if not hmac.compare_digest(header, expected):
+                raise PermissionError("fliplink_webhook_secret_invalid")
+            return "header"
+        if query and not settings.webhook_allow_query_secret:
+            raise PermissionError("fliplink_webhook_query_secret_disabled")
+        provided = query
         if not provided or not hmac.compare_digest(provided, expected):
             raise PermissionError("fliplink_webhook_secret_invalid")
+        return "query"
 
-    def ingest_lead_webhook(self, *, payload: dict[str, object], actor: str = "fliplink_webhook") -> dict[str, object]:
+    def ingest_lead_webhook(
+        self,
+        *,
+        payload: dict[str, object],
+        actor: str = "fliplink_webhook",
+        secret_mode: str = "",
+    ) -> dict[str, object]:
         lead = normalize_lead_webhook(payload)
         publication = self._repo.find_publication(publication_id=lead.publication_id, fliplink_url=lead.fliplink_url)
         if publication is None:
@@ -205,6 +221,7 @@ class FlipLinkPacketService:
                 "status": "accepted_unmatched",
                 "trust": "untrusted_external",
                 "publication_id": "",
+                "secret_mode": str(secret_mode or ""),
             }
         safe_payload = lead.safe_payload()
         event = self._repo.record_event(
@@ -218,6 +235,7 @@ class FlipLinkPacketService:
                     "property_ref": str(publication.get("property_ref") or ""),
                     "packet_kind": str(publication.get("packet_kind") or ""),
                     "privacy_mode": str(publication.get("privacy_mode") or ""),
+                    "secret_mode": str(secret_mode or ""),
                 },
             }
         )
@@ -226,6 +244,7 @@ class FlipLinkPacketService:
             "trust": "untrusted_external",
             "publication_id": str(publication.get("publication_id") or ""),
             "event_id": str(event.get("event_id") or ""),
+            "secret_mode": str(secret_mode or ""),
         }
 
     def feedback_inbox(self, *, principal_id: str, limit: int = 100) -> dict[str, object]:
@@ -299,6 +318,7 @@ class FlipLinkPacketService:
                     "action": normalized_action,
                     "note": str(note or "").strip()[:1000],
                     "trust": "owner_reviewed",
+                    "target_payload": _review_target_payload(target),
                 },
             }
         )
@@ -314,6 +334,24 @@ def _folder_for(packet_kind: PropertyPacketKind) -> str:
         PropertyPacketKind.PAID_MARKET_REPORT: "Paid Market Reports",
         PropertyPacketKind.OPEN_HOUSE_QR: "Family Review Packets",
     }.get(packet_kind, "Owner Review Packets")
+
+
+def _review_target_payload(target: dict[str, object]) -> dict[str, object]:
+    payload = dict(target.get("payload_json") or {})
+    return {
+        "publication_id": str(target.get("publication_id") or payload.get("publication_id") or "")[:160],
+        "property_ref": str(payload.get("property_ref") or "")[:500],
+        "packet_kind": str(payload.get("packet_kind") or "")[:80],
+        "privacy_mode": str(payload.get("privacy_mode") or "")[:80],
+        "custom_fields": safe_custom_fields(payload.get("custom_fields") or {}),
+        "reviewer": {
+            "name": str(payload.get("name") or "")[:160],
+            "email_hash": str(payload.get("email_hash") or "")[:80],
+            "email_masked": str(payload.get("email_masked") or "")[:160],
+            "company": str(payload.get("company") or "")[:160],
+            "job_title": str(payload.get("job_title") or "")[:160],
+        },
+    }
 
 
 def build_fliplink_packet_service(container: AppContainer) -> FlipLinkPacketService:

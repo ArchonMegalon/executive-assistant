@@ -77,6 +77,7 @@ class FlipLinkSettings:
     custom_domain: str = "packets.propertyquarry.com"
     webhook_secret: str = ""
     webhook_allowed: bool = True
+    webhook_allow_query_secret: bool = False
     browseract_enabled: bool = False
 
 
@@ -104,5 +105,7 @@ def fliplink_settings_from_env() -> FlipLinkSettings:
         custom_domain=str(os.getenv("FLIPLINK_CUSTOM_DOMAIN") or "packets.propertyquarry.com").strip().lower().rstrip("."),
         webhook_secret=str(os.getenv("FLIPLINK_WEBHOOK_SECRET") or "").strip(),
         webhook_allowed=str(os.getenv("FLIPLINK_WEBHOOK_ALLOWED") or "1").strip().lower() not in {"0", "false", "no", "off"},
+        webhook_allow_query_secret=str(os.getenv("FLIPLINK_WEBHOOK_ALLOW_QUERY_SECRET") or "0").strip().lower()
+        in {"1", "true", "yes", "on"},
         browseract_enabled=str(os.getenv("FLIPLINK_BROWSERACT_ENABLED") or "0").strip().lower() in {"1", "true", "yes", "on"},
     )

@@ -160,6 +160,24 @@ def test_public_voice_ab_payload_hides_raw_voice_ids(
     assert all(set(item.keys()) <= {"id", "label", "description"} for item in body["variants"])
     assert "voice-a-private" not in json.dumps(body)
     assert "voice-b-private" not in json.dumps(body)
+    assert [item["id"] for item in body["dimension_spec"]] == [
+        "identity",
+        "intelligibility",
+        "naturalness",
+        "warmth",
+        "authority",
+        "artifact_control",
+    ]
+    assert set(body["analysis"].keys()) >= {
+        "target_profile",
+        "target_profile_summary",
+        "weak_dimensions",
+        "weak_dimension_labels",
+        "hypothesis",
+        "sample_size",
+        "current_round_dimension_average",
+        "candidates",
+    }
     assert set(body["pool"].keys()) == {"needs_new_clone", "remaining_challenger_count", "current_index", "active", "next_challenger"}
 
 
@@ -203,6 +221,42 @@ def test_public_voice_ab_totals_are_scope_deduplicated(
     assert body["totals"] == {"a": 0, "b": 1, "equal": 0, "approved": 0}
     assert body["raw_totals"] == {"a": 1, "b": 1, "equal": 0, "approved": 0}
     assert body["round"] == 1
+
+
+def test_public_voice_ab_rating_persists_dimension_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-voice-dimensions")
+    assert client.get(f"/memorials/{slug}").status_code == 200
+    response = client.post(
+        f"/memorials/{slug}/voice-ab/rate",
+        json={
+            "choice": "a",
+            "dimensions": {
+                "identity": 5,
+                "intelligibility": 4,
+                "naturalness": 3,
+                "warmth": 2,
+                "authority": 5,
+                "artifact_control": 2,
+            },
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "analysis" in body
+
+    stored = json.loads(((tmp_path / "artifacts" / "memorial_voice_ab" / slug / "ratings.json").read_text(encoding="utf-8")))
+    assert stored["events"][0]["dimensions"]["identity"] == 5
+    assert stored["events"][0]["dimensions"]["artifact_control"] == 2
 
 
 def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
@@ -259,7 +313,7 @@ def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
 
     stored_config = json.loads((voice_ab_root / "voice_ab.json").read_text(encoding="utf-8"))
     variant_b = next(item for item in stored_config["variants"] if item["id"] == "b")
-    assert variant_b["tts_plugin_voice_id"] == "c381af52-a4de-4b0e-a974-99ebc1cfd0b3"
+    assert variant_b["tts_plugin_voice_id"] == "26858715-06e2-4bd3-a100-e0c1c1676466"
 
     stored_ratings = json.loads((voice_ab_root / "ratings.json").read_text(encoding="utf-8"))
     assert stored_ratings["round"] == 2

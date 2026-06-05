@@ -92,6 +92,15 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "realtime_turn": (16, 60),
     "voice_ab_rate": (10, 60),
 }
+_VOICE_AB_DIMENSION_DEFS: tuple[dict[str, str], ...] = (
+    {"id": "identity", "label": "Identitaet", "description": "Wie nah klingt die Stimme wirklich nach Manfred."},
+    {"id": "intelligibility", "label": "Verstaendlichkeit", "description": "Wie gut versteht man jedes Wort."},
+    {"id": "naturalness", "label": "Natuerlichkeit", "description": "Wie wenig synthetisch oder steif klingt es."},
+    {"id": "warmth", "label": "Waerme", "description": "Wie warm statt kalt oder drahtig klingt es."},
+    {"id": "authority", "label": "Autoritaet", "description": "Wie glaubhaft wirkt die Stimme als bestimmter, eloquenter Sprecher."},
+    {"id": "artifact_control", "label": "Blech/Hall", "description": "Wie gut Blech, Hall und stoerende Artefakte kontrolliert sind."},
+)
+_VOICE_AB_DIMENSION_KEYS = tuple(item["id"] for item in _VOICE_AB_DIMENSION_DEFS)
 _PUBLIC_MEMORIAL_RATE_DB = Path("/data/artifacts/memorial_rate_limits.sqlite3")
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
@@ -828,6 +837,90 @@ def _voice_ab_private_pool_path(slug: str) -> Path:
     return (_VOICE_AB_ROOT / _safe_slug(slug) / "voice_ab_challengers.json").resolve()
 
 
+def _voice_ab_dimension_spec() -> list[dict[str, str]]:
+    return [dict(item) for item in _VOICE_AB_DIMENSION_DEFS]
+
+
+def _voice_ab_default_dimensions() -> dict[str, int]:
+    return {key: 3 for key in _VOICE_AB_DIMENSION_KEYS}
+
+
+def _voice_ab_dimension_labels() -> dict[str, str]:
+    return {str(item.get("id") or ""): str(item.get("label") or item.get("id") or "") for item in _VOICE_AB_DIMENSION_DEFS}
+
+
+def _voice_ab_default_feature_profile(
+    *,
+    source_mix: str,
+    source_count: int,
+    identity_bias: int,
+    intelligibility_bias: int,
+    naturalness_bias: int,
+    warmth_bias: int,
+    authority_bias: int,
+    metallic_risk: int,
+    hall_risk: int,
+) -> dict[str, object]:
+    return {
+        "source_mix": str(source_mix or "unknown").strip() or "unknown",
+        "source_count": max(1, int(source_count or 1)),
+        "identity_bias": max(1, min(int(identity_bias or 3), 5)),
+        "intelligibility_bias": max(1, min(int(intelligibility_bias or 3), 5)),
+        "naturalness_bias": max(1, min(int(naturalness_bias or 3), 5)),
+        "warmth_bias": max(1, min(int(warmth_bias or 3), 5)),
+        "authority_bias": max(1, min(int(authority_bias or 3), 5)),
+        "metallic_risk": max(1, min(int(metallic_risk or 3), 5)),
+        "hall_risk": max(1, min(int(hall_risk or 3), 5)),
+    }
+
+
+def _voice_ab_normalize_feature_profile(value: object, *, fallback: dict[str, object] | None = None) -> dict[str, object]:
+    base = dict(fallback or {})
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    merged = {
+        "source_mix": _text(payload.get("source_mix"), _text(base.get("source_mix"), "unknown")) or "unknown",
+        "source_count": max(1, min(int(payload.get("source_count", base.get("source_count", 1)) or 1), 12)),
+        "identity_bias": max(1, min(int(payload.get("identity_bias", base.get("identity_bias", 3)) or 3), 5)),
+        "intelligibility_bias": max(1, min(int(payload.get("intelligibility_bias", base.get("intelligibility_bias", 3)) or 3), 5)),
+        "naturalness_bias": max(1, min(int(payload.get("naturalness_bias", base.get("naturalness_bias", 3)) or 3), 5)),
+        "warmth_bias": max(1, min(int(payload.get("warmth_bias", base.get("warmth_bias", 3)) or 3), 5)),
+        "authority_bias": max(1, min(int(payload.get("authority_bias", base.get("authority_bias", 3)) or 3), 5)),
+        "metallic_risk": max(1, min(int(payload.get("metallic_risk", base.get("metallic_risk", 3)) or 3), 5)),
+        "hall_risk": max(1, min(int(payload.get("hall_risk", base.get("hall_risk", 3)) or 3), 5)),
+    }
+    return merged
+
+
+def _voice_ab_normalize_dimensions(value: object) -> dict[str, int]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    normalized = _voice_ab_default_dimensions()
+    for key in _VOICE_AB_DIMENSION_KEYS:
+        raw = payload.get(key)
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            continue
+        normalized[key] = max(1, min(parsed, 5))
+    return normalized
+
+
+def _voice_ab_variant_snapshot(variant: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": _text(variant.get("id"), ""),
+        "label": _text(variant.get("label"), ""),
+        "voice_id": _text(variant.get("tts_plugin_voice_id"), ""),
+        "description": _text(variant.get("description"), ""),
+        "feature_profile": _voice_ab_normalize_feature_profile(variant.get("feature_profile")),
+    }
+
+
+def _voice_ab_candidate_analysis_key(variant_snapshot: dict[str, object]) -> str:
+    voice_id = _text(variant_snapshot.get("voice_id"), "")
+    if voice_id:
+        return voice_id
+    return _text(variant_snapshot.get("id"), "") or "unknown"
+
+
 def _default_voice_ab_config(slug: str) -> dict[str, object]:
     base = _load_voice_config(slug)
     slug_key = _safe_slug(slug).upper()
@@ -851,6 +944,17 @@ def _default_voice_ab_config(slug: str) -> dict[str, object]:
                 "unmixr_speaking_pitch": _text(base.get("unmixr_speaking_pitch"), "medium"),
                 "unmixr_speaking_volume": _text(base.get("unmixr_speaking_volume"), "high"),
                 "description": "Aktuell beste Verstaendlichkeit",
+                "feature_profile": _voice_ab_default_feature_profile(
+                    source_mix="hybrid_curated",
+                    source_count=4,
+                    identity_bias=4,
+                    intelligibility_bias=5,
+                    naturalness_bias=4,
+                    warmth_bias=3,
+                    authority_bias=4,
+                    metallic_risk=2,
+                    hall_risk=2,
+                ),
             },
             {
                 "id": "b",
@@ -861,10 +965,22 @@ def _default_voice_ab_config(slug: str) -> dict[str, object]:
                 "unmixr_speaking_pitch": "medium",
                 "unmixr_speaking_volume": "high",
                 "description": "Neuer Challenger aus reinen Interviewspuren",
+                "feature_profile": _voice_ab_default_feature_profile(
+                    source_mix="youtube_only",
+                    source_count=4,
+                    identity_bias=3,
+                    intelligibility_bias=4,
+                    naturalness_bias=4,
+                    warmth_bias=2,
+                    authority_bias=5,
+                    metallic_risk=2,
+                    hall_risk=1,
+                ),
             },
         ],
         "sample_text": "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.",
         "updated_at": _utc_now_iso(),
+        "dimension_spec": _voice_ab_dimension_spec(),
     }
 
 
@@ -896,6 +1012,7 @@ def _load_voice_ab_config(slug: str) -> dict[str, object]:
                     "unmixr_speaking_pitch": _text(item.get("unmixr_speaking_pitch"), "medium"),
                     "unmixr_speaking_volume": _text(item.get("unmixr_speaking_volume"), "high"),
                     "description": _text(item.get("description"), ""),
+                    "feature_profile": _voice_ab_normalize_feature_profile(item.get("feature_profile")),
                 }
             )
         if cleaned:
@@ -921,6 +1038,18 @@ def _default_voice_ab_pool(slug: str) -> dict[str, object]:
                 "unmixr_speaking_rate": "low",
                 "unmixr_speaking_pitch": "medium",
                 "unmixr_speaking_volume": "high",
+                "feature_profile": _voice_ab_default_feature_profile(
+                    source_mix="hospital_hybrid",
+                    source_count=3,
+                    identity_bias=5,
+                    intelligibility_bias=3,
+                    naturalness_bias=3,
+                    warmth_bias=3,
+                    authority_bias=4,
+                    metallic_risk=3,
+                    hall_risk=3,
+                ),
+                "hypothesis": "Mehr Identitaet, etwas hoehere Artefaktrisiken.",
             },
             {
                 "voice_id": "26858715-06e2-4bd3-a100-e0c1c1676466",
@@ -929,6 +1058,18 @@ def _default_voice_ab_pool(slug: str) -> dict[str, object]:
                 "unmixr_speaking_rate": "low",
                 "unmixr_speaking_pitch": "medium",
                 "unmixr_speaking_volume": "high",
+                "feature_profile": _voice_ab_default_feature_profile(
+                    source_mix="youtube_curated",
+                    source_count=4,
+                    identity_bias=3,
+                    intelligibility_bias=4,
+                    naturalness_bias=4,
+                    warmth_bias=4,
+                    authority_bias=4,
+                    metallic_risk=2,
+                    hall_risk=2,
+                ),
+                "hypothesis": "Weniger Blech, weichere Prosodie, etwas weniger Identitaetsdruck.",
             },
         ]
     else:
@@ -955,7 +1096,15 @@ def _load_voice_ab_pool(slug: str) -> dict[str, object]:
     merged.update({k: v for k, v in payload.items() if k != "challengers"})
     challengers = payload.get("challengers")
     if isinstance(challengers, list) and challengers:
-        merged["challengers"] = [dict(item) for item in challengers if isinstance(item, dict)]
+        cleaned_challengers: list[dict[str, object]] = []
+        for item in challengers:
+            if not isinstance(item, dict):
+                continue
+            cleaned = dict(item)
+            cleaned["feature_profile"] = _voice_ab_normalize_feature_profile(item.get("feature_profile"))
+            cleaned["hypothesis"] = _text(item.get("hypothesis"), "")
+            cleaned_challengers.append(cleaned)
+        merged["challengers"] = cleaned_challengers
     return merged
 
 
@@ -1006,6 +1155,151 @@ def _voice_ab_pool_status(slug: str) -> dict[str, object]:
             },
         },
         "next_challenger": next_challenger,
+    }
+
+
+def _voice_ab_dimension_average(events: list[dict[str, object]]) -> dict[str, float]:
+    sums = {key: 0.0 for key in _VOICE_AB_DIMENSION_KEYS}
+    counts = {key: 0 for key in _VOICE_AB_DIMENSION_KEYS}
+    for event in events:
+        dims = _voice_ab_normalize_dimensions(event.get("dimensions"))
+        for key in _VOICE_AB_DIMENSION_KEYS:
+            sums[key] += float(dims.get(key, 3))
+            counts[key] += 1
+    return {
+        key: round((sums[key] / counts[key]) if counts[key] else 0.0, 2)
+        for key in _VOICE_AB_DIMENSION_KEYS
+    }
+
+
+def _voice_ab_round_analysis_events(ratings: dict[str, object]) -> list[dict[str, object]]:
+    combined: list[dict[str, object]] = []
+    for round_entry in [dict(item) for item in ratings.get("rounds", []) if isinstance(item, dict)]:
+        for event in [dict(item) for item in round_entry.get("events", []) if isinstance(item, dict)]:
+            combined.append(event)
+    for event in [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]:
+        combined.append(event)
+    return combined
+
+
+def _voice_ab_analysis(slug: str, ratings: dict[str, object] | None = None) -> dict[str, object]:
+    config = _load_voice_ab_config(slug)
+    ratings = ratings or _load_voice_ab_ratings(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
+    active_by_id = {_text(item.get("id"), ""): item for item in variants}
+    events = _voice_ab_round_analysis_events(ratings)
+    labels = _voice_ab_dimension_labels()
+    candidate_map: dict[str, dict[str, object]] = {}
+    for event in events:
+        choice = _text(event.get("choice"), "equal")
+        approved_variant = _text(event.get("approved_variant"), "")
+        dims = _voice_ab_normalize_dimensions(event.get("dimensions"))
+        snapshots = dict(event.get("variant_snapshot") or {})
+        for variant_id in ("a", "b"):
+            snapshot = dict(snapshots.get(variant_id) or {})
+            if not snapshot:
+                continue
+            key = _voice_ab_candidate_analysis_key(snapshot)
+            entry = candidate_map.setdefault(
+                key,
+                {
+                    "voice_id": _text(snapshot.get("voice_id"), ""),
+                    "label": _text(snapshot.get("label"), f"Stimme {variant_id.upper()}"),
+                    "feature_profile": _voice_ab_normalize_feature_profile(snapshot.get("feature_profile")),
+                    "shown": 0,
+                    "preferred": 0,
+                    "rejected": 0,
+                    "approved": 0,
+                    "dimension_sum": {name: 0.0 for name in _VOICE_AB_DIMENSION_KEYS},
+                    "dimension_count": 0,
+                },
+            )
+            entry["shown"] = int(entry.get("shown", 0) or 0) + 1
+            if choice == variant_id:
+                entry["preferred"] = int(entry.get("preferred", 0) or 0) + 1
+                for name in _VOICE_AB_DIMENSION_KEYS:
+                    entry["dimension_sum"][name] = float(entry["dimension_sum"].get(name, 0.0) or 0.0) + float(dims.get(name, 3))
+                entry["dimension_count"] = int(entry.get("dimension_count", 0) or 0) + 1
+            elif choice in {"a", "b"} and choice != variant_id:
+                entry["rejected"] = int(entry.get("rejected", 0) or 0) + 1
+            if approved_variant == variant_id:
+                entry["approved"] = int(entry.get("approved", 0) or 0) + 1
+    candidates: list[dict[str, object]] = []
+    weighted_target_sum = {name: 0.0 for name in _VOICE_AB_DIMENSION_KEYS}
+    weighted_target_weight = 0.0
+    for entry in candidate_map.values():
+        preferred = int(entry.get("preferred", 0) or 0)
+        approved = int(entry.get("approved", 0) or 0)
+        weight = float(preferred + approved * 2)
+        avg_dimensions = {
+            name: round(
+                (
+                    float(entry["dimension_sum"].get(name, 0.0) or 0.0)
+                    / max(1, int(entry.get("dimension_count", 0) or 0))
+                ),
+                2,
+            )
+            if int(entry.get("dimension_count", 0) or 0)
+            else 0.0
+            for name in _VOICE_AB_DIMENSION_KEYS
+        }
+        for name in _VOICE_AB_DIMENSION_KEYS:
+            if weight > 0 and avg_dimensions[name] > 0:
+                weighted_target_sum[name] += avg_dimensions[name] * weight
+        weighted_target_weight += weight
+        candidates.append(
+            {
+                "voice_id": entry["voice_id"],
+                "label": entry["label"],
+                "feature_profile": entry["feature_profile"],
+                "shown": int(entry.get("shown", 0) or 0),
+                "preferred": preferred,
+                "rejected": int(entry.get("rejected", 0) or 0),
+                "approved": approved,
+                "average_dimensions": avg_dimensions,
+                "score": preferred - int(entry.get("rejected", 0) or 0) + approved,
+            }
+        )
+    candidates.sort(key=lambda item: (int(item.get("score", 0) or 0), int(item.get("preferred", 0) or 0)), reverse=True)
+    target_profile = {
+        name: round((weighted_target_sum[name] / weighted_target_weight), 2) if weighted_target_weight > 0 else 0.0
+        for name in _VOICE_AB_DIMENSION_KEYS
+    }
+    active_scores: dict[str, dict[str, float]] = {}
+    for variant_id, variant in active_by_id.items():
+        snapshot = _voice_ab_variant_snapshot(variant)
+        candidate = next((item for item in candidates if _text(item.get("voice_id"), "") == _text(snapshot.get("voice_id"), "")), None)
+        active_scores[variant_id] = dict(candidate.get("average_dimensions") or {}) if candidate else {}
+    comparative_gaps: list[tuple[float, str]] = []
+    for name in _VOICE_AB_DIMENSION_KEYS:
+        a_score = float(active_scores.get("a", {}).get(name, 0.0) or 0.0)
+        b_score = float(active_scores.get("b", {}).get(name, 0.0) or 0.0)
+        comparative_gaps.append((a_score - b_score, name))
+    comparative_gaps.sort(reverse=True)
+    weak_dimensions = [name for gap, name in comparative_gaps if gap >= 0.35][:3]
+    if not weak_dimensions and target_profile:
+        weak_dimensions = [name for name, score in sorted(target_profile.items(), key=lambda item: item[1], reverse=True)[:2] if score > 0]
+    hypothesis = "Mehr Daten noetig."
+    if weak_dimensions:
+        focus = ", ".join(labels.get(name, name) for name in weak_dimensions[:2])
+        hypothesis = f"Naechster Challenger sollte vor allem {focus} verbessern, ohne die Identitaet zu verlieren."
+    target_profile_summary = [
+        {"id": "identity", "label": labels.get("identity", "Identitaet"), "value": round((target_profile.get("identity", 0.0) + target_profile.get("authority", 0.0)) / 2, 2)},
+        {"id": "intelligibility", "label": labels.get("intelligibility", "Verstaendlichkeit"), "value": round((target_profile.get("intelligibility", 0.0) + target_profile.get("artifact_control", 0.0)) / 2, 2)},
+        {"id": "naturalness", "label": "Waerme/Natuerlichkeit", "value": round((target_profile.get("warmth", 0.0) + target_profile.get("naturalness", 0.0)) / 2, 2)},
+    ]
+    return {
+        "target_profile": target_profile,
+        "target_profile_summary": target_profile_summary,
+        "weak_dimensions": weak_dimensions,
+        "weak_dimension_labels": [labels.get(name, name) for name in weak_dimensions],
+        "hypothesis": hypothesis,
+        "sample_size": {
+            "effective": len([dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]),
+            "historical": len(events),
+        },
+        "current_round_dimension_average": _voice_ab_dimension_average([dict(item) for item in ratings.get("events", []) if isinstance(item, dict)]),
+        "candidates": candidates[:8],
     }
 
 
@@ -1106,18 +1400,55 @@ def _recompute_voice_ab_effective_totals(events: list[dict[str, object]]) -> dic
 
 def _voice_ab_next_challenger(slug: str, *, excluded_voice_ids: set[str]) -> dict[str, object] | None:
     pool = _load_voice_ab_pool(slug)
+    analysis = _voice_ab_analysis(slug)
     challengers = [dict(item) for item in pool.get("challengers", []) if isinstance(item, dict)]
     if not challengers:
         return None
-    start_index = int(pool.get("current_index", 0) or 0)
-    total = len(challengers)
-    for offset in range(total):
-        index = (start_index + offset) % total
-        challenger = challengers[index]
+    target = dict(analysis.get("target_profile") or {})
+    weak_dimensions = [str(item).strip() for item in (analysis.get("weak_dimensions") or []) if str(item).strip()]
+    scored: list[tuple[float, int, dict[str, object]]] = []
+    for index, challenger in enumerate(challengers):
         voice_id = _text(challenger.get("voice_id"), "")
         if not voice_id or voice_id in excluded_voice_ids:
             continue
-        pool["current_index"] = (index + 1) % total
+        features = _voice_ab_normalize_feature_profile(challenger.get("feature_profile"))
+        score = 0.0
+        for dimension in _VOICE_AB_DIMENSION_KEYS:
+            desired = float(target.get(dimension, 0.0) or 0.0)
+            if desired <= 0:
+                continue
+            if dimension == "identity":
+                candidate_value = float(features.get("identity_bias", 3))
+            elif dimension == "intelligibility":
+                candidate_value = float(features.get("intelligibility_bias", 3))
+            elif dimension == "naturalness":
+                candidate_value = float(features.get("naturalness_bias", 3))
+            elif dimension == "warmth":
+                candidate_value = float(features.get("warmth_bias", 3))
+            elif dimension == "authority":
+                candidate_value = float(features.get("authority_bias", 3))
+            else:
+                artifact_risk = (float(features.get("metallic_risk", 3)) + float(features.get("hall_risk", 3))) / 2.0
+                candidate_value = max(1.0, 6.0 - artifact_risk)
+            score += 5.0 - abs(desired - candidate_value)
+        for dimension in weak_dimensions:
+            if dimension == "identity":
+                score += float(features.get("identity_bias", 3))
+            elif dimension == "intelligibility":
+                score += float(features.get("intelligibility_bias", 3))
+            elif dimension == "naturalness":
+                score += float(features.get("naturalness_bias", 3))
+            elif dimension == "warmth":
+                score += float(features.get("warmth_bias", 3))
+            elif dimension == "authority":
+                score += float(features.get("authority_bias", 3))
+            elif dimension == "artifact_control":
+                score += max(1.0, 6.0 - ((float(features.get("metallic_risk", 3)) + float(features.get("hall_risk", 3))) / 2.0))
+        scored.append((score, index, challenger))
+    if scored:
+        scored.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+        _, selected_index, challenger = scored[0]
+        pool["current_index"] = (selected_index + 1) % max(1, len(challengers))
         _save_voice_ab_pool(slug, pool)
         return challenger
     return None
@@ -1164,6 +1495,7 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
         "unmixr_speaking_pitch": _text(challenger.get("unmixr_speaking_pitch"), "medium"),
         "unmixr_speaking_volume": _text(challenger.get("unmixr_speaking_volume"), "high"),
         "description": _text(challenger.get("description"), "Neuer Challenger"),
+        "feature_profile": _voice_ab_normalize_feature_profile(challenger.get("feature_profile")),
     }
     config["variants"] = [variant_a, variant_b]
     config["updated_at"] = _utc_now_iso()
@@ -1177,6 +1509,8 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
             "effective_totals": dict(effective),
             "replaced_voice_id": current_b_id if winner == "a" else current_a_id,
             "new_b_voice_id": _text(variant_b.get("tts_plugin_voice_id"), ""),
+            "events": [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)],
+            "analysis": _voice_ab_analysis(slug, ratings),
             "created_at": _utc_now_iso(),
         }
     )
@@ -1207,8 +1541,11 @@ def _record_voice_ab_rating(
     approved_variant: str = "",
     note: str = "",
     dedupe_key: str = "",
+    dimensions: dict[str, int] | None = None,
 ) -> dict[str, object]:
     ratings = _load_voice_ab_ratings(slug)
+    config = _load_voice_ab_config(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
     choice_key = choice if choice in {"a", "b", "equal"} else "equal"
     ratings["totals"][choice_key] = int(ratings["totals"].get(choice_key, 0) or 0) + 1
     if approved_variant in {"a", "b"}:
@@ -1222,6 +1559,12 @@ def _record_voice_ab_rating(
             "choice": choice_key,
             "approved_variant": approved_variant,
             "note": _text(note, "")[:240],
+            "dimensions": _voice_ab_normalize_dimensions(dimensions),
+            "variant_snapshot": {
+                _text(item.get("id"), ""): _voice_ab_variant_snapshot(item)
+                for item in variants
+                if _text(item.get("id"), "") in {"a", "b"}
+            },
             "created_at": _utc_now_iso(),
         }
     )
@@ -5544,6 +5887,7 @@ def _memorial_html(
           <h2 style="margin-top:0;">Stimmvergleich</h2>
           <p class="lead" style="margin-bottom:10px;">A und B anhören, dann wählen.</p>
           <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
+          <div id="memorial-voice-ab-analysis" class="status-note" style="margin-bottom:10px;">Muster werden geladen.</div>
           <div class="voice-actions" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
             <div style="display:flex;flex-direction:column;gap:8px;">
               <strong>Stimme A</strong>
@@ -5556,6 +5900,7 @@ def _memorial_html(
               <button type="button" data-voice-rating="b">B besser</button>
             </div>
           </div>
+          <div id="memorial-voice-ab-dimensions" class="voice-grid" style="margin-bottom:10px;"></div>
           <div class="voice-actions">
             <button type="button" data-voice-rating="equal">Beide ok</button>
             <button type="button" id="memorial-voice-ab-approve">Passt</button>
@@ -5699,6 +6044,8 @@ def _memorial_html(
       const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
       const personalMemoryForgetButton = document.getElementById("memorial-personal-memory-forget");
       const voiceAbOptions = document.getElementById("memorial-voice-ab-options");
+      const voiceAbAnalysis = document.getElementById("memorial-voice-ab-analysis");
+      const voiceAbDimensions = document.getElementById("memorial-voice-ab-dimensions");
       const voiceAbPreviewAButton = document.getElementById("memorial-voice-ab-preview-a");
       const voiceAbPreviewBButton = document.getElementById("memorial-voice-ab-preview-b");
       const voiceAbStatus = document.getElementById("memorial-voice-ab-status");
@@ -5778,6 +6125,9 @@ def _memorial_html(
         sample_text: "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.",
         selected_variant: "a",
         frozen: false,
+        dimension_spec: [],
+        analysis: {{}},
+        dimension_values: {{}},
       }};
       function personalMemoryEnabled() {{
         return Boolean(personalMemoryOptin && personalMemoryOptin.checked);
@@ -5809,6 +6159,71 @@ def _memorial_html(
         }}
         return String(voiceAbState.selected_variant || "a").trim().toLowerCase() || "a";
       }}
+      function currentVoiceAbDimensions() {{
+        const result = {{}};
+        const spec = Array.isArray(voiceAbState.dimension_spec) ? voiceAbState.dimension_spec : [];
+        for (const item of spec) {{
+          const key = String(item.id || "").trim();
+          if (!key) continue;
+          const raw = Number((voiceAbState.dimension_values && voiceAbState.dimension_values[key]) || 3);
+          result[key] = Math.max(1, Math.min(5, Number.isFinite(raw) ? raw : 3));
+        }}
+        return result;
+      }}
+      function renderVoiceAbDimensionControls() {{
+        if (!voiceAbDimensions) return;
+        const spec = Array.isArray(voiceAbState.dimension_spec) ? voiceAbState.dimension_spec : [];
+        if (!spec.length) {{
+          voiceAbDimensions.innerHTML = "";
+          return;
+        }}
+        voiceAbDimensions.innerHTML = spec.map((item) => {{
+          const key = String(item.id || "").trim();
+          const label = String(item.label || key);
+          const description = String(item.description || "");
+          const value = Number((voiceAbState.dimension_values && voiceAbState.dimension_values[key]) || 3);
+          return '<label class="voice-field" style="display:flex;flex-direction:column;gap:6px;"><span><strong>' + label + '</strong></span><input type="range" min="1" max="5" step="1" value="' + value + '" data-voice-dimension=\"' + key + '\"' + (voiceAbState.frozen ? ' disabled' : '') + '><span class=\"status-note\">' + description + ' · ' + value + '/5</span></label>';
+        }}).join("");
+        Array.from(voiceAbDimensions.querySelectorAll("[data-voice-dimension]")).forEach((input) => {{
+          input.addEventListener("input", () => {{
+            const key = String(input.getAttribute("data-voice-dimension") || "").trim();
+            const value = Math.max(1, Math.min(5, Number(input.value || 3) || 3));
+            if (!voiceAbState.dimension_values) voiceAbState.dimension_values = {{}};
+            voiceAbState.dimension_values[key] = value;
+            const note = input.parentElement ? input.parentElement.querySelector(".status-note") : null;
+            const item = spec.find((entry) => String(entry.id || "") === key);
+            if (note) note.textContent = String((item && item.description) || "") + " · " + value + "/5";
+          }});
+        }});
+      }}
+      function renderVoiceAbAnalysis() {{
+        if (!voiceAbAnalysis) return;
+        const analysis = voiceAbState.analysis && typeof voiceAbState.analysis === "object" ? voiceAbState.analysis : {{}};
+        const hypothesis = String(analysis.hypothesis || "").trim();
+        const weak = Array.isArray(analysis.weak_dimension_labels)
+          ? analysis.weak_dimension_labels
+          : (Array.isArray(analysis.weak_dimensions) ? analysis.weak_dimensions : []);
+        const weakText = weak.length ? ("Schwachstellen: " + weak.join(", ")) : "";
+        const targetSummary = Array.isArray(analysis.target_profile_summary)
+          ? analysis.target_profile_summary
+              .map((item) => {{
+                const label = String((item && item.label) || "").trim();
+                const value = Number((item && item.value) || 0);
+                if (!label || !Number.isFinite(value) || value <= 0) return "";
+                return label + " " + value.toFixed(1) + "/5";
+              }})
+              .filter(Boolean)
+          : [];
+        const targetText = targetSummary.length ? ("Zielbild: " + targetSummary.join(" · ")) : "";
+        const sample = analysis.sample_size && typeof analysis.sample_size === "object" ? analysis.sample_size : {{}};
+        const sampleEffective = Number(sample.effective || 0);
+        const sampleHistorical = Number(sample.historical || 0);
+        const sampleText = sampleHistorical > 0
+          ? ("Lernbasis: " + sampleEffective + " aktuelle / " + sampleHistorical + " gesamt")
+          : "";
+        voiceAbAnalysis.textContent = [hypothesis, weakText, targetText, sampleText].filter(Boolean).join(" · ")
+          || "Noch zu wenig Daten fuer erkennbare Muster.";
+      }}
       function renderVoiceAbOptions() {{
         if (!voiceAbOptions) return;
         const variants = Array.isArray(voiceAbState.variants) ? voiceAbState.variants : [];
@@ -5825,6 +6240,8 @@ def _memorial_html(
           button.disabled = voiceAbState.frozen;
         }}
         if (voiceAbApproveButton) voiceAbApproveButton.disabled = voiceAbState.frozen;
+        renderVoiceAbDimensionControls();
+        renderVoiceAbAnalysis();
       }}
       async function loadVoiceAbConfig() {{
         try {{
@@ -5836,6 +6253,11 @@ def _memorial_html(
           voiceAbState.variants = Array.isArray(payload.variants) ? payload.variants : [];
           voiceAbState.sample_text = String(payload.sample_text || voiceAbState.sample_text || "");
           voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
+          voiceAbState.dimension_spec = Array.isArray(payload.dimension_spec) ? payload.dimension_spec : [];
+          voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : {{}};
+          if (!voiceAbState.dimension_values || !Object.keys(voiceAbState.dimension_values).length) {{
+            voiceAbState.dimension_values = Object.fromEntries(voiceAbState.dimension_spec.map((item) => [String(item.id || ""), 3]));
+          }}
           if (payload.personal_memory) personalMemoryStatusPayload = payload.personal_memory;
           const approved = String((payload.personal_memory && payload.personal_memory.approved_voice_choice) || "").trim().toLowerCase();
           if (approved) {{
@@ -5864,6 +6286,7 @@ def _memorial_html(
             body: JSON.stringify({{
               choice: String(choice || "equal"),
               approved_variant: String(approvedVariant || ""),
+              dimensions: currentVoiceAbDimensions(),
               personal_memory_enabled: personalMemoryEnabled(),
             }}),
           }});
@@ -5871,6 +6294,7 @@ def _memorial_html(
           const payload = await response.json();
           if (payload.personal_memory) personalMemoryStatusPayload = payload.personal_memory;
           voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
+          voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : voiceAbState.analysis;
           if (voiceAbState.frozen && String(payload.personal_memory.approved_voice_choice || "").trim()) {{
             voiceAbState.selected_variant = String(payload.personal_memory.approved_voice_choice || "").trim().toLowerCase();
           }}
@@ -5879,7 +6303,13 @@ def _memorial_html(
           }} catch (error) {{}}
           renderVoiceAbOptions();
           updatePersonalMemoryStatusUi();
-          if (voiceAbStatus) voiceAbStatus.textContent = voiceAbState.frozen ? "Stimme bestätigt. Vergleich beendet." : "Auswahl gespeichert.";
+          if (voiceAbStatus) {{
+            const totals = payload && payload.totals ? payload.totals : {{}};
+            const activeLabel = voiceAbState.selected_variant === "b" ? "Aktiv: B" : "Aktiv: A";
+            voiceAbStatus.textContent = voiceAbState.frozen
+              ? ("Stimme bestätigt. " + activeLabel + " · A " + String(totals.a || 0) + " · B " + String(totals.b || 0))
+              : ("Auswahl gespeichert. " + activeLabel + " · A " + String(totals.a || 0) + " · B " + String(totals.b || 0));
+          }}
         }} catch (error) {{
           if (voiceAbStatus) voiceAbStatus.textContent = "Auswahl konnte nicht gespeichert werden.";
         }}
@@ -7213,7 +7643,6 @@ def _memorial_html(
             setSpeakingOverlayPreview(assistantText);
             setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
             await speechAudio.play();
-            if (conversationActive) armConversationBargeIn();
           }} else if (conversationActive) {{
             setSpeechStatus("Ich höre wieder zu ...", "listening", "Gespräch läuft weiter");
             setTimeout(recordConversationTurn, 900);
@@ -7515,16 +7944,19 @@ async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
     context = _extract_personal_memory_request_context(request=request)
     config = _load_voice_ab_config(slug)
     ratings = _load_voice_ab_ratings(slug)
+    analysis = _voice_ab_analysis(slug, ratings)
     return JSONResponse(
         {
             "variants": [_public_voice_ab_variant_payload(dict(item or {})) for item in list(config.get("variants") or [])],
             "sample_text": _text(config.get("sample_text"), "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss."),
+            "dimension_spec": _voice_ab_dimension_spec(),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
             "selected_variant": _text(_load_personal_memory_store(slug=slug, scope=_text(context.get("scope"), "")).get("approved_voice_choice"), "") if _text(context.get("scope"), "") else "",
             "totals": ratings.get("effective_totals", ratings.get("totals", {})),
             "raw_totals": ratings.get("totals", {}),
             "round": int(ratings.get("round", 1) or 1),
             "pool": _voice_ab_pool_status(slug),
+            "analysis": analysis,
         }
     )
 
@@ -7551,7 +7983,9 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
         approved_variant=approved_variant if approved_variant in {"a", "b"} else "",
         note=_text(body.get("note"), ""),
         dedupe_key=_public_memorial_client_key(request=request, context=context),
+        dimensions=_voice_ab_normalize_dimensions(body.get("dimensions")),
     )
+    analysis = _voice_ab_analysis(slug, ratings)
     return JSONResponse(
         {
             "status": "ok",
@@ -7560,6 +7994,7 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
             "round": int(ratings.get("round", 1) or 1),
             "pool": _voice_ab_pool_status(slug),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
+            "analysis": analysis,
         }
     )
 
@@ -7577,6 +8012,7 @@ async def public_memorial_voice_ab_admin(slug: str, request: Request) -> JSONRes
             "raw_totals": ratings.get("totals", {}),
             "rounds": ratings.get("rounds", []),
             "pool": _voice_ab_pool_status(slug),
+            "analysis": _voice_ab_analysis(slug, ratings),
             "pool_config": {
                 "current_index": int(pool.get("current_index", 0) or 0),
                 "challenger_count": len([item for item in pool.get("challengers", []) if isinstance(item, dict)]),

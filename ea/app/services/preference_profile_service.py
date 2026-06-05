@@ -611,6 +611,13 @@ class PreferenceProfileService:
             or "lift" in _normalize_key(facts.get("headline_hook"))
             or "lift" in _normalize_key(attributes.get("GENERAL_TEXT_ADVERT/Ausstattung"))
         )
+        quiet_score = float(facts.get("quiet_score") or facts.get("micro_location_quiet_score") or 0.0)
+        noise_risk = _normalize_key(
+            facts.get("street_noise_risk")
+            or facts.get("noise_risk")
+            or facts.get("traffic_noise_risk")
+            or ""
+        )
         nearest_subway_m = float(facts.get("nearest_subway_m") or 0.0)
         nearest_supermarket_m = float(facts.get("nearest_supermarket_m") or 0.0)
         nearest_pharmacy_m = float(facts.get("nearest_pharmacy_m") or 0.0)
@@ -806,10 +813,30 @@ class PreferenceProfileService:
                         mismatch_reasons.append("Nearby playground access looks weaker than preferred.")
                     else:
                         unknowns.append("Playground proximity still needs local verification.")
+            elif category == "soft_preference" and key == "prefer_quiet_micro_location":
+                if bool(value):
+                    if quiet_score >= 0.7 or noise_risk in {"low", "quiet", "calm"}:
+                        score += 5.0 * weight
+                        match_reasons.append("The micro-location looks quiet enough to match the stated preference.")
+                    elif quiet_score > 0.0 or noise_risk in {"medium", "moderate", "high", "busy", "noisy"}:
+                        score -= 5.0 * weight
+                        mismatch_reasons.append("Noise or street exposure looks weaker than the stated quiet-location preference.")
+                    else:
+                        unknowns.append("Street noise and quietness still need local verification.")
             elif category == "constraint" and key == "require_lift":
                 if bool(value) and not has_lift:
                     blocking_constraints.append("Lift access is required, but the listing does not clearly provide it.")
                     score -= 10.0
+            elif category == "constraint" and key == "require_quiet_micro_location":
+                if bool(value):
+                    if quiet_score > 0.0 and quiet_score < 0.45:
+                        blocking_constraints.append("A quiet micro-location is required, but the available signals indicate elevated noise risk.")
+                        score -= 12.0
+                    elif noise_risk in {"high", "busy", "noisy"}:
+                        blocking_constraints.append("A quiet micro-location is required, but the listing appears exposed to street or traffic noise.")
+                        score -= 12.0
+                    elif quiet_score <= 0.0 and not noise_risk:
+                        unknowns.append("Quiet micro-location is required, but noise signals still need verification.")
 
         if has_360:
             score += 4.0

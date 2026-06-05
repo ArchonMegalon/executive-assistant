@@ -78,6 +78,20 @@ def test_fliplink_webhook_requires_secret_and_records_untrusted_feedback(monkeyp
     denied = client.post("/v1/integrations/fliplink/webhook", json={"publication_id": publication_id})
     assert denied.status_code == 401
 
+    query_secret_denied = client.post(
+        f"/v1/integrations/fliplink/webhook?secret=webhook-secret",
+        json={"publication_id": publication_id},
+    )
+    assert query_secret_denied.status_code == 401
+    assert query_secret_denied.json()["error"]["code"] == "fliplink_webhook_query_secret_disabled"
+
+    oversized = client.post(
+        "/v1/integrations/fliplink/webhook",
+        headers={"x-propertyquarry-webhook-secret": "webhook-secret", "content-type": "application/json"},
+        content=b'{"publication_id":"' + publication_id.encode("utf-8") + b'","blob":"' + (b"x" * 65_000) + b'"}',
+    )
+    assert oversized.status_code == 413
+
     accepted = client.post(
         "/v1/integrations/fliplink/webhook",
         headers={"x-propertyquarry-webhook-secret": "webhook-secret"},
@@ -89,12 +103,15 @@ def test_fliplink_webhook_requires_secret_and_records_untrusted_feedback(monkeyp
                 "viewer_role": "family",
                 "reaction": "maybe",
                 "question": "How noisy is the street?",
+                "rawNested": {"must": "not persist"},
+                "unexpected_field": "not needed",
             },
         },
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["status"] == "accepted"
     assert accepted.json()["trust"] == "untrusted_external"
+    assert accepted.json()["secret_mode"] == "header"
 
     inbox = client.get("/app/api/properties/packets/feedback-inbox")
     assert inbox.status_code == 200
@@ -104,13 +121,37 @@ def test_fliplink_webhook_requires_secret_and_records_untrusted_feedback(monkeyp
     assert items[0]["status"] == "pending_owner_review"
     assert items[0]["reviewer"]["email_masked"] == "al***@example.com"
     assert "alex@example.com" not in str(items[0])
+    assert items[0]["custom_fields"]["question"] == "How noisy is the street?"
+    assert items[0]["custom_fields"]["custom_fields_extra_redacted"] is True
+    assert "rawNested" not in str(items[0])
 
     reviewed = client.post(
         f"/app/api/properties/packets/feedback/{items[0]['event_id']}/review",
-        json={"action": "accept_as_preference_signal", "note": "Useful family concern."},
+        json={"action": "convert_to_hard_rule", "note": "Quiet micro-location should be a hard screening rule."},
     )
     assert reviewed.status_code == 200, reviewed.text
     assert reviewed.json()["status"] == "reviewed"
+    applied = reviewed.json()["preference_application"]
+    assert applied["hard_rule_node"]["key"] == "require_quiet_micro_location"
+    assert applied["hard_rule_node"]["category"] == "constraint"
+    bundle = client.app.state.container.preference_profiles.get_profile_bundle(
+        principal_id="fliplink-webhook-owner",
+        person_id="self",
+    )
+    nodes_by_key = {node["key"]: node for node in bundle["preference_nodes"]}
+    assert nodes_by_key["require_quiet_micro_location"]["value_json"] is True
+    recent_event = bundle["recent_evidence_events"][0]
+    assert recent_event["domain"] == "property"
+    assert recent_event["event_type"] == "feedback_inbox_accepted"
+    assert recent_event["object_type"] == "feedback"
+
+    monkeypatch.setenv("FLIPLINK_WEBHOOK_ALLOW_QUERY_SECRET", "1")
+    query_accepted = client.post(
+        f"/v1/integrations/fliplink/webhook?secret=webhook-secret",
+        json={"publication_id": publication_id, "custom_fields": {"viewer_role": "agent", "intent": "viewing"}},
+    )
+    assert query_accepted.status_code == 200, query_accepted.text
+    assert query_accepted.json()["secret_mode"] == "query"
 
 
 def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_path: Path) -> None:

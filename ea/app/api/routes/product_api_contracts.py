@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.domain.models import ExecutionEvent
+from app.domain.property_preference_events import (
+    PREFERENCE_EVENT_FEEDBACK_ACCEPTED,
+    PREFERENCE_EVENT_FEEDBACK_REJECTED,
+    PREFERENCE_OBJECT_FEEDBACK,
+    PROPERTY_PREFERENCE_DOMAIN,
+)
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DeadlineItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
 
 
@@ -762,7 +768,7 @@ class PersonCorrectionIn(BaseModel):
 _PROPERTY_PREFERENCE_DOMAINS = frozenset(
     {
         "willhaben",
-        "property",
+        PROPERTY_PREFERENCE_DOMAIN,
         "propertyquarry",
         "immmo",
         "derstandard",
@@ -798,8 +804,8 @@ _PREFERENCE_DECAY_POLICIES = frozenset({"manual_only", "reinforce_only", "decay_
 _PREFERENCE_EVIDENCE_EVENT_TYPES = frozenset(
     {
         "document_pattern_detected",
-        "feedback_inbox_accepted",
-        "feedback_inbox_rejected",
+        PREFERENCE_EVENT_FEEDBACK_ACCEPTED,
+        PREFERENCE_EVENT_FEEDBACK_REJECTED,
         "filter_applied",
         "listing_rejected",
         "listing_saved",
@@ -819,7 +825,7 @@ _PREFERENCE_EVIDENCE_OBJECT_TYPES = frozenset(
     {
         "conversation",
         "document",
-        "feedback",
+        PREFERENCE_OBJECT_FEEDBACK,
         "listing",
         "manual_note",
         "profile",
@@ -838,6 +844,7 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("constraint", "require_floorplan"): "bool",
     ("constraint", "require_360"): "bool",
     ("constraint", "require_lift"): "bool",
+    ("constraint", "require_quiet_micro_location"): "bool",
     ("soft_preference", "preferred_districts"): "text_list",
     ("soft_preference", "requires_floorplan_for_remote_review"): "bool",
     ("soft_preference", "prefer_balcony"): "bool",
@@ -848,6 +855,7 @@ _PROPERTY_PREFERENCE_VALUE_SPECS = {
     ("soft_preference", "prefer_supermarket_nearby"): "bool",
     ("soft_preference", "prefer_pharmacy_nearby"): "bool",
     ("soft_preference", "prefer_playgrounds_nearby"): "bool",
+    ("soft_preference", "prefer_quiet_micro_location"): "bool",
     ("soft_preference", "prefer_bike_infrastructure"): "bool",
     ("soft_preference", "prefer_running_green_space"): "bool",
     ("soft_preference", "prefer_unlimited_lease"): "bool",

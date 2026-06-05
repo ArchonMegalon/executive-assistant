@@ -1,0 +1,23 @@
+title = "PropertyQuarry secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secret hashes and deterministic inherited test identifiers"
+regexTarget = "line"
+paths = [
+  '''^config/onemin_slot_owners\.json$''',
+  '''^scripts/smoke_api\.sh$''',
+  '''^scripts/smoke_api_tibor\.sh$''',
+  '''^tests/smoke_runtime_api_suite_2\.py$''',
+  '''^tests/test_chummer6_guide_media_worker\.py$''',
+  '''^tests/test_task_contract_step_templates\.py$''',
+]
+regexes = [
+  '''"secret_sha256":\s*"[0-9a-f]{64}"''',
+  '''"idempotency_key":\s*"delivery-msg-1"''',
+  '''"idempotency_key":"smoke-delivery-1"''',
+  '''"secret_env_name":\s*"ONEMIN_RESOLVED_SLOT_1"''',
+  '''task_key="chummer6_prompt_brain"''',
+]

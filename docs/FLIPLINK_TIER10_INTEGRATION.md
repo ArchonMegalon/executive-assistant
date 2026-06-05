@@ -27,6 +27,7 @@ FLIPLINK_ACTIVE_PUBLICATION_CAP=1000
 FLIPLINK_CUSTOM_DOMAIN=packets.propertyquarry.com
 FLIPLINK_WEBHOOK_SECRET=
 FLIPLINK_WEBHOOK_ALLOWED=1
+FLIPLINK_WEBHOOK_ALLOW_QUERY_SECRET=0
 FLIPLINK_DEFAULT_FORMAT=smart_document
 FLIPLINK_BROWSERACT_ENABLED=0
 ```
@@ -78,9 +79,10 @@ Receipts are internal only and are not published to FlipLink.
 FlipLink webhook data must be secret-gated and treated as untrusted:
 
 - `X-PropertyQuarry-Webhook-Secret: <secret>` is preferred.
-- `?secret=<secret>` is accepted only for providers that cannot send custom headers.
+- `?secret=<secret>` is disabled by default and should only be enabled with `FLIPLINK_WEBHOOK_ALLOW_QUERY_SECRET=1` for providers that cannot send custom headers.
 - Email addresses are stored as masked/hash values in packet events.
 - Owner acceptance is required before any preference evidence is recorded.
+- Custom fields are allowlisted to `viewer_role`, `reaction`, `question`, `intent`, `property_ref`, `packet_kind`, and `privacy_mode`; extra or nested fields are marked as redacted.
 
 ## Source References
 

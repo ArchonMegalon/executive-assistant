@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXTRA_COMPOSE_OVERRIDES=()
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-propertyquarry}"
+
+memory_only="${PROPERTYQUARRY_MEMORY_ONLY:-${EA_MEMORY_ONLY:-0}}"
+bootstrap_db="${PROPERTYQUARRY_BOOTSTRAP_DB:-${EA_BOOTSTRAP_DB:-0}}"
+enable_fastestvpn="${PROPERTYQUARRY_ENABLE_FASTESTVPN:-${EA_ENABLE_FASTESTVPN:-0}}"
+enable_cloudflared="${PROPERTYQUARRY_ENABLE_CLOUDFLARED:-${EA_ENABLE_CLOUDFLARED:-auto}}"
+run_runtime_hard_exit_gates="${PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES:-${EA_RUN_RUNTIME_HARD_EXIT_GATES:-1}}"
+cf_tunnel_token_name="${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,11 +23,16 @@ Options:
   --compose-override <file>  Layer an extra compose override onto the deploy topology.
 
 Environment:
-  EA_MEMORY_ONLY=1       Deploy API service using docker-compose.memory.yml override.
-  EA_BOOTSTRAP_DB=1      Run db bootstrap after deploy (ignored if EA_MEMORY_ONLY=1).
-  EA_ENABLE_FASTESTVPN=1 Layer docker-compose.fastestvpn.yml when FastestVPN *.ovpn profiles are present.
-  EA_ENABLE_CLOUDFLARED=1|0  Force Cloudflare tunnel override on or off (default: auto when EA_CF_TUNNEL_TOKEN is set).
-  EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0  Run runtime hard exit gates after health goes green (default: 1).
+  PROPERTYQUARRY_MEMORY_ONLY=1            Deploy API service using docker-compose.memory.yml override.
+  PROPERTYQUARRY_BOOTSTRAP_DB=1           Run db bootstrap after deploy (ignored if PROPERTYQUARRY_MEMORY_ONLY=1).
+  PROPERTYQUARRY_ENABLE_FASTESTVPN=1      Layer docker-compose.fastestvpn.yml when FastestVPN *.ovpn profiles are present.
+  PROPERTYQUARRY_ENABLE_CLOUDFLARED=1|0   Force Cloudflare tunnel override on or off (default: auto when PROPERTYQUARRY_CF_TUNNEL_TOKEN is set).
+  PROPERTYQUARRY_CF_TUNNEL_TOKEN=<token>  PropertyQuarry Cloudflare tunnel token alias.
+  PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES=1|0  Run runtime hard exit gates after health goes green (default: 1).
+
+Backward-compatible aliases:
+  EA_MEMORY_ONLY, EA_BOOTSTRAP_DB, EA_ENABLE_FASTESTVPN, EA_ENABLE_CLOUDFLARED,
+  EA_CF_TUNNEL_TOKEN, EA_RUN_RUNTIME_HARD_EXIT_GATES
 EOF
       exit 0
       ;;
@@ -38,11 +51,24 @@ EOF
   esac
 done
 
-echo "== EA rewrite deploy: ${EA_ROOT} =="
+if [[ "${PROPERTYQUARRY_USE_LEGACY_STACK:-0}" != "1" ]]; then
+  cat >&2 <<'EOF'
+Refusing to deploy the inherited EA mega-stack from the standalone PropertyQuarry repo.
 
-if [[ ! -f "${EA_ROOT}/.env" ]]; then
-  cp "${EA_ROOT}/.env.example" "${EA_ROOT}/.env"
-  chmod 600 "${EA_ROOT}/.env"
+Use the hardened property-only runtime instead:
+  docker compose -f docker-compose.property.yml up -d --build
+
+If you intentionally need the legacy assistant topology for migration work, rerun with:
+  PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
+EOF
+  exit 2
+fi
+
+echo "== PropertyQuarry deploy: ${APP_ROOT} (project=${COMPOSE_PROJECT_NAME}) =="
+
+if [[ ! -f "${APP_ROOT}/.env" ]]; then
+  cp "${APP_ROOT}/.env.example" "${APP_ROOT}/.env"
+  chmod 600 "${APP_ROOT}/.env"
   echo "Created .env from .env.example. Fill values and rerun."
   exit 1
 fi
@@ -56,28 +82,28 @@ fi
 COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.prod.yml)
 FASTESTVPN_OVERLAY_ENABLED=0
 CLOUDFLARED_OVERLAY_ENABLED=0
-if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
-  if find "${EA_ROOT}/vpn/fastestvpn" -maxdepth 1 -type f -name '*.ovpn' | grep -q .; then
+if [[ "${enable_fastestvpn}" == "1" ]]; then
+  if find "${APP_ROOT}/vpn/fastestvpn" -maxdepth 1 -type f -name '*.ovpn' | grep -q .; then
     COMPOSE_ARGS+=(-f docker-compose.fastestvpn.yml)
     FASTESTVPN_OVERLAY_ENABLED=1
   else
-    echo "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${EA_ROOT}/vpn/fastestvpn" >&2
+    echo "PROPERTYQUARRY_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${APP_ROOT}/vpn/fastestvpn" >&2
     exit 1
   fi
 fi
 
 for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
-  if [[ ! -f "${EA_ROOT}/${override}" && ! -f "${override}" ]]; then
+  if [[ ! -f "${APP_ROOT}/${override}" && ! -f "${override}" ]]; then
     echo "Compose override not found: ${override}" >&2
     exit 1
   fi
   COMPOSE_ARGS+=(-f "${override}")
 done
 
-if [[ "${EA_MEMORY_ONLY:-0}" != "1" ]]; then
-  should_enable_cloudflared="${EA_ENABLE_CLOUDFLARED:-auto}"
+if [[ "${memory_only}" != "1" ]]; then
+  should_enable_cloudflared="${enable_cloudflared}"
   cloudflared_override="docker-compose.cloudflared.yml"
-  if [[ "${should_enable_cloudflared}" == "1" || ( "${should_enable_cloudflared}" == "auto" && -n "$(grep -E '^EA_CF_TUNNEL_TOKEN=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- | tr -d '[:space:]')" ) ]]; then
+  if [[ "${should_enable_cloudflared}" == "1" || ( "${should_enable_cloudflared}" == "auto" && -n "${cf_tunnel_token_name}" ) || ( "${should_enable_cloudflared}" == "auto" && -n "$(grep -E '^(PROPERTYQUARRY_CF_TUNNEL_TOKEN|EA_CF_TUNNEL_TOKEN)=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- | tr -d '[:space:]')" ) ]]; then
     COMPOSE_ARGS+=(-f "${cloudflared_override}")
     CLOUDFLARED_OVERLAY_ENABLED=1
   fi
@@ -132,8 +158,8 @@ service_container_ready() {
   [[ -z "${health}" || "${health}" == "healthy" ]] || return 1
 }
 
-cd "${EA_ROOT}"
-if [[ "${EA_MEMORY_ONLY:-0}" == "1" ]]; then
+cd "${APP_ROOT}"
+if [[ "${memory_only}" == "1" ]]; then
   COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.memory.yml)
   TOPOLOGY_SERVICES=(ea-api)
   FAILURE_LOG_SERVICES=(ea-api)
@@ -166,16 +192,16 @@ else
   fi
 fi
 
-if [[ "${EA_BOOTSTRAP_DB:-0}" == "1" ]]; then
-  if [[ "${EA_MEMORY_ONLY:-0}" == "1" ]]; then
-    echo "EA_BOOTSTRAP_DB=1 ignored because EA_MEMORY_ONLY=1"
+if [[ "${bootstrap_db}" == "1" ]]; then
+  if [[ "${memory_only}" == "1" ]]; then
+    echo "PROPERTYQUARRY_BOOTSTRAP_DB=1 ignored because PROPERTYQUARRY_MEMORY_ONLY=1"
   else
-    echo "EA_BOOTSTRAP_DB=1 -> applying kernel migrations"
-    bash "${EA_ROOT}/scripts/db_bootstrap.sh"
+    echo "PROPERTYQUARRY_BOOTSTRAP_DB=1 -> applying kernel migrations"
+    bash "${APP_ROOT}/scripts/db_bootstrap.sh"
   fi
 fi
 
-HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
 HOST_PORT="${HOST_PORT:-8090}"
 
 for _ in $(seq 1 60); do
@@ -199,14 +225,15 @@ for _ in $(seq 1 60); do
     if [[ "${stable_checks}" != "1" ]]; then
       continue
     fi
-    python3 "${EA_ROOT}/scripts/materialize_ea_browser_workflow_proof.py" >/dev/null
-    python3 "${EA_ROOT}/scripts/materialize_ea_flagship_release_gate.py" >/dev/null
-    python3 "${EA_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null
-    if [[ "${EA_RUN_RUNTIME_HARD_EXIT_GATES:-1}" != "0" ]]; then
-      bash "${EA_ROOT}/scripts/runtime_hard_exit_gates.sh"
+    python3 "${APP_ROOT}/scripts/materialize_ea_browser_workflow_proof.py" >/dev/null
+    python3 "${APP_ROOT}/scripts/materialize_ea_flagship_release_gate.py" >/dev/null
+    python3 "${APP_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null
+    if [[ "${run_runtime_hard_exit_gates}" != "0" ]]; then
+      bash "${APP_ROOT}/scripts/runtime_hard_exit_gates.sh"
     fi
     if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
-      for public_url in ${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-https://propertyquarry.com/sign-in}; do
+      public_smoke_urls="${PROPERTYQUARRY_CLOUDFLARED_PUBLIC_SMOKE_URLS:-${EA_CLOUDFLARED_PUBLIC_SMOKE_URLS:-https://propertyquarry.com/sign-in}}"
+      for public_url in ${public_smoke_urls}; do
         for _public in $(seq 1 20); do
           if curl -fsS --max-time 10 "${public_url}" >/dev/null 2>&1; then
             break
@@ -219,7 +246,7 @@ for _ in $(seq 1 60); do
         fi
       done
     fi
-    echo "EA rewrite baseline healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
+    echo "PropertyQuarry runtime healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
     exit 0
   fi
   sleep 1
