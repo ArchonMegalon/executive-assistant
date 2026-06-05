@@ -92,6 +92,28 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
 _PUBLIC_MEMORIAL_RATE_DB = Path("/data/artifacts/memorial_rate_limits.sqlite3")
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
+_PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
+    "slug",
+    "person_name",
+    "title",
+    "subtitle",
+    "intro",
+    "disclosure",
+    "audio_clips",
+    "memory_cards",
+    "candidate_recordings",
+    "source_grounded_profile",
+    "external_sources",
+    "suggested_prompts",
+    "character_notes",
+    "conversation_style",
+    "voice_label",
+    "tts_plugin",
+    "tts_base_voice_variant",
+    "voice_profile_ready",
+    "voice_profile_generated_at",
+}
+_PUBLIC_TTS_ALLOWED_BODY_FIELDS = {"text", "voice_ab_variant", "personal_memory_enabled"}
 
 
 def _memorial_dir_candidates() -> list[Path]:
@@ -203,6 +225,19 @@ def _verified_memorial_guest_cookie_value(raw_value: object) -> str:
     return normalized
 
 
+def _cookie_value_from_header(raw_cookie_header: object, name: str) -> str:
+    raw = str(raw_cookie_header or "").strip()
+    if not raw:
+        return ""
+    cookie = SimpleCookie()
+    try:
+        cookie.load(raw)
+    except Exception:
+        return ""
+    morsel = cookie.get(name)
+    return str(morsel.value or "").strip() if morsel else ""
+
+
 def _ensure_memorial_guest_cookie(response: Response, request: Request, *, slug: str) -> None:
     verified = _verified_memorial_guest_cookie_value(request.cookies.get(_MEMORIAL_GUEST_COOKIE))
     visitor_id = verified or uuid.uuid4().hex
@@ -225,8 +260,6 @@ def _public_memorial_client_key(
 ) -> str:
     context = context or {}
     scope = _text(context.get("scope"), "")
-    if scope:
-        return scope
     headers = request.headers if request is not None else (websocket.headers if websocket is not None else {})
     forwarded = _text(headers.get("cf-connecting-ip"), _text(headers.get("x-forwarded-for"), ""))
     ip = forwarded.split(",", 1)[0].strip()
@@ -235,7 +268,7 @@ def _public_memorial_client_key(
             ip = _text(request.client.host, "")
         elif websocket is not None and websocket.client:
             ip = _text(websocket.client.host, "")
-    return _safe_scope_token(f"ip:{ip}", "ip:unknown")
+    return _safe_scope_token(f"ip:{ip}:scope:{scope or 'none'}", "ip:unknown")
 
 
 def _enforce_public_memorial_rate_limit(
@@ -401,7 +434,9 @@ def _extract_personal_memory_request_context(
     headers = request.headers if request is not None else (websocket.headers if websocket is not None else {})
     query = request.query_params if request is not None else (websocket.query_params if websocket is not None else {})
     cookies = request.cookies if request is not None else {}
-    visitor_id = _verified_memorial_guest_cookie_value(cookies.get(_MEMORIAL_GUEST_COOKIE))
+    visitor_id = _verified_memorial_guest_cookie_value(
+        cookies.get(_MEMORIAL_GUEST_COOKIE) if request is not None else _cookie_value_from_header(headers.get("cookie"), _MEMORIAL_GUEST_COOKIE)
+    )
     personal_memory_enabled = str(
         body.get("personal_memory_enabled")
         if body.get("personal_memory_enabled") is not None
@@ -436,6 +471,99 @@ def _memorial_evidence_block(title: str, lines: list[str]) -> str:
     if not cleaned:
         return ""
     return f"[EVIDENCE:{title}]\n" + "\n".join(f"- {line}" for line in cleaned) + "\n[/EVIDENCE]"
+
+
+def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in payload.items() if key in _PUBLIC_MEMORIAL_SAFE_JSON_KEYS}
+
+
+def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "slug": slug,
+        "tts_plugin": _safe_tts_plugin_id(payload.get("tts_plugin")),
+        "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), "default"),
+        "voice_label": _text(payload.get("voice_label"), "Manfreds Stimme"),
+        "voice_profile_ready": bool(payload.get("voice_profile_ready")),
+        "voice_profile_generated_at": _text(payload.get("voice_profile_generated_at"), ""),
+        "lang": _text(payload.get("lang"), "de-AT"),
+        "rate": payload.get("rate"),
+        "pitch": payload.get("pitch"),
+        "volume": payload.get("volume"),
+        "notes": [str(item).strip() for item in list(payload.get("notes") or [])[:6] if str(item or "").strip()],
+    }
+
+
+def _public_voice_ab_variant_payload(variant: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": _text(variant.get("id"), ""),
+        "label": _text(variant.get("label"), "Stimme"),
+        "description": _text(variant.get("description"), ""),
+    }
+
+
+def _public_voice_profile_payload(summary: dict[str, object]) -> dict[str, object]:
+    public_summary = dict(summary)
+    assets: list[dict[str, object]] = []
+    for raw_item in list(summary.get("voice_profile_sample_assets") or [])[:4]:
+        item = dict(raw_item or {})
+        kind = _text(item.get("kind"), "sample")
+        source = _text(item.get("source_label"), "").lower()
+        coarse_label = "public_clip"
+        if "youtube" in source or "youtube" in kind.lower():
+            coarse_label = "youtube_audio"
+        elif "upload" in source or "upload" in kind.lower():
+            coarse_label = "uploaded_sample"
+        assets.append(
+            {
+                "kind": kind,
+                "source_label": coarse_label,
+                "analysis_status": _text(item.get("analysis_status"), ""),
+                "duration_seconds": item.get("duration_seconds"),
+                "size_bytes": item.get("size_bytes"),
+            }
+        )
+    public_summary["voice_profile_sample_assets"] = assets
+    return public_summary
+
+
+def _resolved_voice_consent(payload: dict[str, object]) -> dict[str, object]:
+    explicit = dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {}
+    if explicit:
+        return explicit
+    basis = _text(payload.get("consent_basis"), "").lower()
+    if not basis:
+        slug = _text(payload.get("slug"), "")
+        if slug:
+            try:
+                voice_payload = _load_voice_config(slug)
+            except Exception:
+                voice_payload = {}
+            if isinstance(voice_payload, dict):
+                basis = _text(voice_payload.get("consent_basis"), "").lower()
+    if basis in {
+        "generic_or_owner_consented_voice",
+        "owner_consented_voice",
+        "family_consented_voice",
+        "generic_or_owner_consented_voice_clone",
+        "owner_consented_voice_clone",
+        "family_consented_voice_clone",
+    }:
+        return {
+            "status": "approved",
+            "scope": ["synthesize", "public_playback", "conversation_turn", "realtime"],
+            "legacy_basis": basis,
+            "revoked": False,
+        }
+    return {}
+
+
+def _require_voice_consent(payload: dict[str, object], action: str) -> None:
+    consent = _resolved_voice_consent(payload)
+    if consent.get("status") != "approved" or bool(consent.get("revoked")):
+        raise HTTPException(status_code=403, detail="voice_consent_required")
+    scope = {str(item).strip() for item in list(consent.get("scope") or []) if str(item or "").strip()}
+    if action not in scope:
+        raise HTTPException(status_code=403, detail="voice_consent_scope_missing")
 
 
 def _personal_memory_public_status(*, slug: str, context: dict[str, object]) -> dict[str, object]:
@@ -5947,20 +6075,6 @@ def _memorial_html(
           voice_ab_variant: selectedVariant,
         }};
       }}
-      function voiceAbPluginConfig(variantId) {{
-        const normalized = String(variantId || "").trim().toLowerCase();
-        const variant = Array.isArray(voiceAbState.variants)
-          ? voiceAbState.variants.find((item) => String(item && item.id || "").trim().toLowerCase() === normalized)
-          : null;
-        if (!variant) return currentTtsOptionOrDefault();
-        return {{
-          tts_plugin: String(variant.tts_plugin || memorialVoiceConfig.tts_plugin || ""),
-          tts_plugin_voice_id: String(variant.tts_plugin_voice_id || memorialVoiceConfig.tts_plugin_voice_id || ""),
-          tts_plugin_label: String(variant.label || "Stimme"),
-          tts_plugin_enabled: true,
-          voice_ab_variant: normalized || activeVoiceVariant(),
-        }};
-      }}
       async function parseSpeakError(response) {{
         const raw = await response.text();
         try {{
@@ -6029,7 +6143,7 @@ def _memorial_html(
           if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
         }}
       }}
-      async function speakText(value, onDone = null, pluginOverride = null) {{
+      async function speakText(value, onDone = null, pluginOverride = null, voiceVariantOverride = "") {{
         const text = normalizeTranscriptText(value || lastAnswerText || "");
         if (!text) {{
           if (onDone) onDone();
@@ -6037,6 +6151,9 @@ def _memorial_html(
         }}
         stopSpeechPlayback();
         const pluginConfig = pluginOverride || currentTtsOptionOrDefault();
+        const selectedVoiceVariant = String(
+          voiceVariantOverride || pluginConfig.voice_ab_variant || activeVoiceVariant() || ""
+        ).trim().toLowerCase();
         if (!pluginConfig.tts_plugin_enabled) {{
           setSpeechStatus("Ausgewähltes TTS-Plugin ist nicht aktiviert.", "error", "TTS nicht aktiv");
           if (onDone) onDone();
@@ -6092,11 +6209,7 @@ def _memorial_html(
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{
               text: text,
-              tts_plugin: pluginConfig.tts_plugin,
-              tts_plugin_voice_id: pluginConfig.tts_plugin_voice_id,
-              tts_base_voice_variant: currentBaseVoiceVariant(),
-              voice_ab_variant: pluginConfig.voice_ab_variant,
-              visitor_id: ensureMemorialVisitorId(),
+              voice_ab_variant: selectedVoiceVariant,
               personal_memory_enabled: personalMemoryEnabled(),
             }}),
           }}, 60000);
@@ -6749,13 +6862,13 @@ def _memorial_html(
       if (voiceAbPreviewAButton) {{
         voiceAbPreviewAButton.addEventListener("click", () => {{
           const text = String(voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.");
-          void speakText(text, null, voiceAbPluginConfig("a"));
+          void speakText(text, null, null, "a");
         }});
       }}
       if (voiceAbPreviewBButton) {{
         voiceAbPreviewBButton.addEventListener("click", () => {{
           const text = String(voiceAbState.sample_text || "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.");
-          void speakText(text, null, voiceAbPluginConfig("b"));
+          void speakText(text, null, null, "b");
         }});
       }}
       if ("serviceWorker" in navigator) {{
@@ -6797,7 +6910,7 @@ def _memorial_html(
 
 @router.get("/memorials/{slug}.json")
 def public_memorial_manifest(slug: str) -> JSONResponse:
-    return JSONResponse(_load_memorial(slug))
+    return JSONResponse(_public_memorial_payload(_load_memorial(slug)))
 
 
 @router.get("/memorials/{slug}/app.webmanifest")
@@ -6828,7 +6941,7 @@ def public_memorial_pwa_icon(slug: str) -> Response:
 
 @router.get("/memorials/{slug}/voice-config")
 def public_memorial_voice_config(slug: str) -> JSONResponse:
-    return JSONResponse(_load_voice_config(slug))
+    return JSONResponse(_public_voice_config_payload(slug, _load_voice_config(slug)))
 
 
 @router.get("/memorials/{slug}/voice-ab")
@@ -6839,7 +6952,7 @@ async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
     ratings = _load_voice_ab_ratings(slug)
     return JSONResponse(
         {
-            "variants": config.get("variants", []),
+            "variants": [_public_voice_ab_variant_payload(dict(item or {})) for item in list(config.get("variants") or [])],
             "sample_text": _text(config.get("sample_text"), "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss."),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
             "selected_variant": _text(_load_personal_memory_store(slug=slug, scope=_text(context.get("scope"), "")).get("approved_voice_choice"), "") if _text(context.get("scope"), "") else "",
@@ -6893,13 +7006,14 @@ async def public_memorial_voice_config_update(slug: str, request: Request) -> JS
 @router.get("/memorials/{slug}/voice-profile")
 def public_memorial_voice_profile(slug: str) -> JSONResponse:
     _load_memorial(slug)
-    return JSONResponse(_public_voice_profile_summary(slug))
+    return JSONResponse(_public_voice_profile_payload(_public_voice_profile_summary(slug)))
 
 
 @router.post("/memorials/{slug}/voice-profile/build")
 async def public_memorial_voice_profile_build(slug: str, request: Request) -> JSONResponse:
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    _require_voice_consent(memorial, "profile_build")
     try:
         payload = await request.json()
     except Exception as exc:
@@ -7041,16 +7155,19 @@ async def public_memorial_speech_synthesize_help(slug: str) -> JSONResponse:
 
 @router.post("/memorials/{slug}/speech-synthesize")
 async def public_memorial_speech_synthesize(slug: str, request: Request) -> Response:
-    _load_memorial(slug)
+    memorial = _load_memorial(slug)
+    _require_voice_consent(memorial, "synthesize")
     try:
         body = await request.json()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="invalid_json") from exc
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid_json")
+    unexpected_fields = set(body.keys()) - _PUBLIC_TTS_ALLOWED_BODY_FIELDS
+    if unexpected_fields:
+        raise HTTPException(status_code=400, detail="unsupported_public_tts_fields")
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
-    merged_config.update(body)
     personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
     _enforce_public_memorial_rate_limit("speech_synthesize", request=request, context=personal_memory_context)
     voice_ab_variant = _voice_ab_variant_from_request(request=request, body=body)
@@ -7107,6 +7224,11 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
 
 @router.post("/memorials/{slug}/conversation-turn")
 async def public_memorial_conversation_turn(slug: str, request: Request) -> JSONResponse:
+    memorial = _load_memorial(slug)
+    _require_voice_consent(memorial, "conversation_turn")
+    content_length = int(str(request.headers.get("content-length") or "0") or "0")
+    if content_length > _MAX_SPEECH_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="audio_too_large")
     audio_payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
     container = getattr(request.app.state, "container", None)
@@ -7129,7 +7251,8 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
 
 @router.websocket("/memorials/{slug}/realtime")
 async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
-    _load_memorial(slug)
+    memorial = _load_memorial(slug)
+    _require_voice_consent(memorial, "realtime")
     await websocket.accept()
     container = getattr(websocket.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
@@ -7427,6 +7550,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
 async def public_memorial_voice_clone(slug: str, request: Request) -> JSONResponse:
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    _require_voice_consent(memorial, "clone")
     try:
         body = await request.json()
     except Exception as exc:
