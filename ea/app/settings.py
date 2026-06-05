@@ -92,6 +92,7 @@ class FeatureSettings:
     public_results_enabled: bool = False
     public_tours_enabled: bool = False
     public_memorials_enabled: bool = False
+    legacy_runtime_surfaces_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -212,6 +213,10 @@ class Settings:
     @property
     def public_memorials_enabled(self) -> bool:
         return self.features.public_memorials_enabled
+
+    @property
+    def legacy_runtime_surfaces_enabled(self) -> bool:
+        return self.features.legacy_runtime_surfaces_enabled
 
 
 def _runtime_mode(raw: str) -> str:
@@ -430,10 +435,21 @@ def get_settings() -> Settings:
     approval_required_chars = max(1, _to_int(os.environ.get("EA_APPROVAL_THRESHOLD_CHARS") or "5000", 5000))
     approval_ttl_minutes = max(1, _to_int(os.environ.get("EA_APPROVAL_TTL_MINUTES") or "120", 120))
     default_list_limit = max(1, min(500, _to_int(os.environ.get("EA_CHANNEL_DEFAULT_LIMIT") or "50", 50)))
-    raw_public_side_surfaces_enabled = os.environ.get("EA_ENABLE_PUBLIC_SIDE_SURFACES")
-    raw_public_results_enabled = os.environ.get("EA_ENABLE_PUBLIC_RESULTS")
-    raw_public_tours_enabled = os.environ.get("EA_ENABLE_PUBLIC_TOURS")
-    raw_public_memorials_enabled = os.environ.get("EA_ENABLE_PUBLIC_MEMORIALS")
+    raw_public_side_surfaces_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES")
+    if raw_public_side_surfaces_enabled is None:
+        raw_public_side_surfaces_enabled = os.environ.get("EA_ENABLE_PUBLIC_SIDE_SURFACES")
+    raw_public_results_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS")
+    if raw_public_results_enabled is None:
+        raw_public_results_enabled = os.environ.get("EA_ENABLE_PUBLIC_RESULTS")
+    raw_public_tours_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS")
+    if raw_public_tours_enabled is None:
+        raw_public_tours_enabled = os.environ.get("EA_ENABLE_PUBLIC_TOURS")
+    raw_public_memorials_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_PUBLIC_MEMORIALS")
+    if raw_public_memorials_enabled is None:
+        raw_public_memorials_enabled = os.environ.get("EA_ENABLE_PUBLIC_MEMORIALS")
+    raw_legacy_runtime_surfaces_enabled = os.environ.get("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES")
+    if raw_legacy_runtime_surfaces_enabled is None:
+        raw_legacy_runtime_surfaces_enabled = os.environ.get("EA_ENABLE_LEGACY_RUNTIME_SURFACES")
     public_side_surfaces_enabled = _env_truthy(raw_public_side_surfaces_enabled)
     public_results_enabled = (
         public_side_surfaces_enabled
@@ -450,6 +466,7 @@ def get_settings() -> Settings:
         if raw_public_memorials_enabled is None
         else _env_truthy(raw_public_memorials_enabled)
     )
+    legacy_runtime_surfaces_enabled = _env_truthy(raw_legacy_runtime_surfaces_enabled)
 
     settings = Settings(
         core=CoreSettings(
@@ -493,6 +510,7 @@ def get_settings() -> Settings:
             public_results_enabled=public_results_enabled,
             public_tours_enabled=public_tours_enabled,
             public_memorials_enabled=public_memorials_enabled,
+            legacy_runtime_surfaces_enabled=legacy_runtime_surfaces_enabled,
         ),
     )
     ensure_prod_api_token_configured(settings)

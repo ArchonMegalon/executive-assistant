@@ -1128,6 +1128,7 @@
         </div>
       </div>
       <div class="pqx-top-actions" data-pq-context-actions>
+        <a class="pqx-link-button subtle" href="/app/properties/packets">Packets</a>
         <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         {% if has_results and selected.get('tour', {}).get('url') %}
         <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-pqx-top-tour>Open 360</a>
@@ -1521,6 +1522,7 @@
               <div class="pqx-context-actions" data-pw-actions>
                 {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
                 {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review packet</a>{% endif %}
+                <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create FlipLink packet</button>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
               </div>
             </div>
@@ -1703,8 +1705,46 @@
       return [
         tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
         candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Review packet</a>` : '',
+        `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Create FlipLink packet</button>`,
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
       ].filter(Boolean).join('');
+    };
+    const candidatePropertyRef = (candidate) => String(
+      candidate?.source_url ||
+      candidate?.property_url ||
+      candidate?.candidate_ref ||
+      candidate?.title ||
+      'property'
+    ).trim() || 'property';
+    const createFlipLinkPacket = async (candidate, button) => {
+      if (!candidate) return;
+      const original = button?.textContent || 'Create FlipLink packet';
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Rendering packet...';
+      }
+      try {
+        const response = await fetch(`/app/api/properties/${encodeURIComponent(candidatePropertyRef(candidate))}/packets/render`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            packet_kind: 'family_review',
+            privacy_mode: 'family_review',
+            fliplink_format: 'flipbook_3d',
+            search_run_id: String(data.run?.run_id || meta.run_id || ''),
+            property_payload: candidate,
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not render FlipLink packet.'));
+        window.location.href = '/app/properties/packets';
+      } catch (error) {
+        if (button) {
+          button.disabled = false;
+          button.textContent = String(error?.message || original);
+          window.setTimeout(() => { button.textContent = original; }, 4200);
+        }
+      }
     };
     const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
       const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
@@ -1755,9 +1795,18 @@
     };
     root.querySelectorAll('[data-candidate-ref]').forEach((row) => {
       row.addEventListener('click', () => {
+        if (row.matches('[data-fliplink-packet]')) return;
         selectCandidate(row.getAttribute('data-candidate-ref'));
         setMode('property');
       });
+    });
+    root.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-fliplink-packet]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const ref = button.getAttribute('data-candidate-ref') || root.querySelector('[aria-selected="true"][data-candidate-ref]')?.getAttribute('data-candidate-ref') || '';
+      createFlipLinkPacket(candidateByRef.get(ref) || candidates[0], button);
     });
     const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
     if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });

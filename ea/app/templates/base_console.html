@@ -1046,14 +1046,14 @@
 </style>
 </head>
 <body>
-  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'shortlist', 'research', 'profile', 'alerts', 'billing', 'settings'] %}
+  {% set property_app_nav = brand.key == 'propertyquarry' and current_nav in ['properties', 'shortlist', 'research', 'packets', 'profile', 'alerts', 'billing', 'settings'] %}
   {% if property_app_nav %}
   {% set mobile_nav = namespace(items=[]) %}
   {% set run_query = request.url.query %}
   {% set query_suffix = ('?' ~ run_query) if run_query else '' %}
   {% for group in nav_groups %}
     {% for item in group["items"] %}
-      {% if mobile_nav.items|length < 5 %}
+      {% if mobile_nav.items|length < 6 %}
         {% set mobile_nav.items = mobile_nav.items + [item] %}
       {% endif %}
     {% endfor %}

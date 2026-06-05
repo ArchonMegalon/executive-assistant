@@ -28,6 +28,7 @@ PROPERTY_APP_NAV_GROUPS = (
             {"href": "/app/properties", "label": "Search", "key": "properties"},
             {"href": "/app/shortlist", "label": "Shortlist", "key": "shortlist"},
             {"href": "/app/research", "label": "Research", "key": "research"},
+            {"href": "/app/properties/packets", "label": "Packets", "key": "packets"},
             {"href": "/app/profile", "label": "Profile", "key": "profile"},
             {"href": "/app/alerts", "label": "Alerts", "key": "alerts"},
             {"href": "/app/billing", "label": "Billing", "key": "billing"},
