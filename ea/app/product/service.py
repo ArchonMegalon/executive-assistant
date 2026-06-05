@@ -247,6 +247,9 @@ _PROPERTY_SCOUT_360_HOST_MARKERS = (
 )
 _PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
+_PROPERTY_SCOUT_ARCHIVE_EXTENSIONS = (".zip",)
+_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MAX_BYTES = 40 * 1024 * 1024
+_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES = 16 * 1024 * 1024
 _PROPERTY_SCOUT_FLOORPLAN_MARKERS = (
     "floorplan",
     "floor-plan",
@@ -260,6 +263,46 @@ _PROPERTY_SCOUT_FLOORPLAN_MARKERS = (
     "plan_top",
     "plan top",
     "wohnungsplan",
+)
+_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS = (
+    *_PROPERTY_SCOUT_FLOORPLAN_MARKERS,
+    "zip",
+    "unterlage",
+    "unterlagen",
+    "dokument",
+    "dokumente",
+    "download",
+    "beilage",
+    "beilagen",
+    "anlage",
+    "anhang",
+    "schätzungsgutachten",
+    "schaetzungsgutachten",
+    "gutachten",
+    "exposé",
+    "expose",
+)
+_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MARKERS = (
+    *_PROPERTY_SCOUT_FLOORPLAN_MARKERS,
+    "plan",
+    "pläne",
+    "plaene",
+    "top",
+    "grund",
+    "gutachten",
+    "schätzung",
+    "schaetzung",
+    "expose",
+    "exposé",
+)
+_PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS = (
+    "edikte.justiz.gv.at",
+    "edikte2.justiz.gv.at",
+    "gesiba.at",
+    "siedlungsunion.at",
+    "wbv-gpa.at",
+    "frieden.at",
+    "sozialbau.at",
 )
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
@@ -1025,6 +1068,140 @@ def _property_scout_is_asset_url(url: str, *, extensions: tuple[str, ...]) -> bo
     return bool(path.endswith(extensions))
 
 
+def _property_scout_is_archive_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    path = urllib.parse.unquote(parsed.path or "").lower()
+    return bool(path.endswith(_PROPERTY_SCOUT_ARCHIVE_EXTENSIONS))
+
+
+def _property_scout_is_floorplan_archive_candidate_url(*, url: str, context: str) -> bool:
+    normalized = urllib.parse.urldefrag(str(url or "").strip())[0]
+    if not normalized:
+        return False
+    if _property_scout_is_archive_url(normalized):
+        return True
+    parsed = urllib.parse.urlparse(normalized)
+    host = parsed.netloc.lower()
+    combined = urllib.parse.unquote(f"{host}{parsed.path}?{parsed.query}").lower()
+    lowered_context = str(context or "").lower()
+    if not any(marker in host for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_HOST_MARKERS):
+        return False
+    if any(marker in combined for marker in ("zip", "alldoc", "download", "dokument", "beilage", "anlage", "unterlag", "gutachten")):
+        return True
+    return any(marker in lowered_context for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
+
+
+def _property_scout_download_bytes(
+    url: str,
+    *,
+    timeout_seconds: float = 12.0,
+    max_bytes: int = _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MAX_BYTES,
+) -> tuple[bytes, str]:
+    request = urllib.request.Request(
+        str(url or "").strip(),
+        headers={
+            "User-Agent": _PROPERTY_SCOUT_USER_AGENT,
+            "Accept": "application/zip,application/octet-stream,*/*;q=0.8",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=float(timeout_seconds)) as response:
+        try:
+            content_length = int(str(response.headers.get("Content-Length") or "0").strip() or "0")
+        except Exception:
+            content_length = 0
+        if content_length and content_length > max_bytes:
+            raise ValueError("property_floorplan_archive_too_large")
+        payload = response.read(max_bytes + 1)
+        if len(payload) > max_bytes:
+            raise ValueError("property_floorplan_archive_too_large")
+        return payload, str(response.headers.get("Content-Type") or "").strip()
+
+
+def _property_scout_public_asset_slug(*, source_url: str, archive_url: str) -> str:
+    digest = hashlib.sha256(f"{source_url}|{archive_url}".encode("utf-8")).hexdigest()[:16]
+    return f"property-assets-{digest}"
+
+
+def _property_scout_public_asset_filename(*, member_name: str, ordinal: int) -> str:
+    suffix = Path(str(member_name or "floorplan.pdf")).suffix.lower()
+    if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+        suffix = ".pdf"
+    stem = Path(str(member_name or "floorplan")).stem
+    safe_stem = re.sub(r"[^a-zA-Z0-9._-]+", "-", stem).strip(".-").lower()[:72] or "floorplan"
+    return f"floorplan-{ordinal:02d}-{safe_stem}{suffix}"
+
+
+def _property_scout_zip_member_is_floorplan_candidate(member_name: str) -> bool:
+    normalized = urllib.parse.unquote(str(member_name or "")).replace("_", " ").replace("-", " ").lower()
+    suffix = Path(normalized).suffix.lower()
+    if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+        return False
+    return any(marker in normalized for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MARKERS)
+
+
+def _property_scout_extract_floorplan_urls_from_archive(
+    *,
+    source_url: str,
+    archive_url: str,
+    context: str,
+) -> tuple[str, ...]:
+    try:
+        payload, _content_type = _property_scout_download_bytes(archive_url)
+    except Exception:
+        return ()
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+    except (zipfile.BadZipFile, ValueError):
+        return ()
+    strong_context = any(marker in str(context or "").lower() for marker in _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_CONTEXT_MARKERS)
+    selected_members: list[zipfile.ZipInfo] = []
+    fallback_members: list[zipfile.ZipInfo] = []
+    try:
+        for info in archive.infolist()[:120]:
+            if info.is_dir() or info.file_size <= 0 or info.file_size > _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES:
+                continue
+            suffix = Path(str(info.filename or "")).suffix.lower()
+            if suffix not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+                continue
+            if _property_scout_zip_member_is_floorplan_candidate(info.filename):
+                selected_members.append(info)
+            elif strong_context:
+                fallback_members.append(info)
+        if not selected_members:
+            selected_members = fallback_members[:3]
+        selected_members = selected_members[:6]
+        if not selected_members:
+            return ()
+        slug = _property_scout_public_asset_slug(source_url=source_url, archive_url=archive_url)
+        public_root = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+        target_dir = public_root / slug
+        target_dir.mkdir(parents=True, exist_ok=True)
+        public_base = _property_public_app_base_url().rstrip("/")
+        urls: list[str] = []
+        seen: set[str] = set()
+        for ordinal, info in enumerate(selected_members, start=1):
+            try:
+                content = archive.read(info)
+            except Exception:
+                continue
+            if not content or len(content) > _PROPERTY_SCOUT_FLOORPLAN_ARCHIVE_MEMBER_MAX_BYTES:
+                continue
+            filename = _property_scout_public_asset_filename(member_name=info.filename, ordinal=ordinal)
+            target = target_dir / filename
+            target.write_bytes(content)
+            public_url = (
+                f"{public_base}/tours/files/"
+                f"{urllib.parse.quote(slug, safe='')}/"
+                f"{urllib.parse.quote(filename, safe='-._~')}"
+            )
+            if public_url not in seen:
+                seen.add(public_url)
+                urls.append(public_url)
+        return tuple(urls)
+    finally:
+        archive.close()
+
+
 def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> tuple[str, ...]:
     normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
     raw_urls: list[str] = []
@@ -1049,12 +1226,13 @@ def _property_scout_extract_detail_media_urls(*, source_url: str, html: str) -> 
     return tuple(media_urls)
 
 
-def _property_scout_extract_floorplan_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolve_archives: bool = False) -> tuple[str, ...]:
     normalized_html = str(html or "").replace("\\u002F", "/").replace("\\/", "/").replace("&amp;", "&")
     floorplan_urls: list[str] = []
     seen: set[str] = set()
+    seen_archives: set[str] = set()
     attr_pattern = re.compile(
-        r"""(href|src|data-src|data-original|data-lazy-src|data-background-image)=["']([^"']+)["']""",
+        r"""(href|src|data-href|data-url|data-src|data-original|data-lazy-src|data-background-image)=["']([^"']+)["']""",
         re.IGNORECASE,
     )
     for match in attr_pattern.finditer(normalized_html):
@@ -1066,8 +1244,6 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str) -> tup
             continue
         normalized = urllib.parse.urldefrag(normalized)[0]
         if not normalized or normalized in seen:
-            continue
-        if not _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS):
             continue
         lowered_url = urllib.parse.unquote(normalized).lower()
         tag_start = normalized_html.rfind("<", 0, match.start())
@@ -1081,6 +1257,20 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str) -> tup
             close = normalized_html.find("</a>", tag_end)
             if close >= 0 and close - tag_end < 320:
                 context += normalized_html[tag_end + 1 : close + 4].lower()
+        if resolve_archives and _property_scout_is_floorplan_archive_candidate_url(url=normalized, context=context):
+            if normalized not in seen_archives:
+                seen_archives.add(normalized)
+                for archived_floorplan_url in _property_scout_extract_floorplan_urls_from_archive(
+                    source_url=source_url,
+                    archive_url=normalized,
+                    context=context,
+                ):
+                    if archived_floorplan_url not in seen:
+                        seen.add(archived_floorplan_url)
+                        floorplan_urls.append(archived_floorplan_url)
+            continue
+        if not _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS):
+            continue
         if not any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
             continue
         seen.add(normalized)
@@ -1997,7 +2187,7 @@ def _property_scout_page_preview(property_url: str, *, prefer_fast: bool = False
     og_description = _property_scout_extract_meta_content(html, "og:description")
     meta_description = _property_scout_extract_meta_content(html, "description")
     media_urls = _property_scout_extract_detail_media_urls(source_url=normalized, html=html)
-    floorplan_urls = _property_scout_extract_floorplan_urls(source_url=normalized, html=html)
+    floorplan_urls = _property_scout_extract_floorplan_urls(source_url=normalized, html=html, resolve_archives=not prefer_fast)
     source_virtual_tour_url = _property_scout_extract_source_virtual_tour_url(source_url=normalized, html=html)
     property_facts = _property_distressed_sale_preview_facts(normalized, html)
     cooperative_facts = _property_cooperative_housing_facts(normalized, html, _property_html_fragment_text(html))

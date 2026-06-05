@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import json
 import os
 import urllib.parse
@@ -1199,6 +1200,93 @@ def test_property_cooperative_preview_fact_parsers_extract_structured_fields() -
     assert frieden["area_sqm"] == 61.89
     assert frieden["heating_type"].startswith("Fu")
     assert frieden["has_lift"] is True
+
+
+def _property_floorplan_zip_bytes(entries: dict[str, bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name, payload in entries.items():
+            archive.writestr(name, payload)
+    return buffer.getvalue()
+
+
+def _assert_public_floorplan_asset(public_url: str, *, root: Path, expected_payload: bytes) -> None:
+    parsed = urllib.parse.urlparse(public_url)
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "propertyquarry.test"
+    prefix = "/tours/files/"
+    assert parsed.path.startswith(prefix)
+    slug, filename = parsed.path[len(prefix) :].split("/", 1)
+    target = root / urllib.parse.unquote(slug) / urllib.parse.unquote(filename)
+    assert target.read_bytes() == expected_payload
+
+
+def test_property_scout_floorplan_extractor_materializes_auction_zip_floorplans(monkeypatch, tmp_path: Path) -> None:
+    archive_url = "https://edikte.justiz.gv.at/edikte/0/alldoc.zip"
+    floorplan_payload = b"%PDF-1.7 auction floorplan"
+    archive_payload = _property_floorplan_zip_bytes(
+        {
+            "Unterlagen/Grundriss Top 12.pdf": floorplan_payload,
+            "Unterlagen/Lichtbild.jpg": b"photo",
+        }
+    )
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == archive_url
+        return archive_payload, "application/zip"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url="https://edikte.justiz.gv.at/edikte/0/edikt.xhtml",
+        html=f'<a href="{archive_url}">Alle Unterlagen als ZIP herunterladen</a>',
+        resolve_archives=True,
+    )
+
+    assert len(urls) == 1
+    assert "grundriss-top-12.pdf" in urls[0]
+    _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
+
+
+def test_property_scout_floorplan_extractor_materializes_cooperative_download_zip_without_zip_suffix(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    download_url = "https://www.gesiba.at/download?id=42"
+    floorplan_payload = b"fake-png-plan"
+    archive_payload = _property_floorplan_zip_bytes(
+        {
+            "plaene/Plan_Top_3.png": floorplan_payload,
+            "bilder/fassade.jpg": b"photo",
+        }
+    )
+
+    def _download(url: str, **_kwargs: object) -> tuple[bytes, str]:
+        assert url == download_url
+        return archive_payload, "application/zip"
+
+    monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_BASE_URL", "https://propertyquarry.test")
+    html = '<a href="/download?id=42">Wohnungsunterlagen herunterladen</a>'
+    source_url = "https://www.gesiba.at/immobilien/wohnungen/objekt?objektnummer=01000103511"
+
+    assert product_service._property_scout_extract_floorplan_urls(
+        source_url=source_url,
+        html=html,
+        resolve_archives=False,
+    ) == ()
+    urls = product_service._property_scout_extract_floorplan_urls(
+        source_url=source_url,
+        html=html,
+        resolve_archives=True,
+    )
+
+    assert len(urls) == 1
+    assert "plan_top_3.png" in urls[0] or "plan-top-3.png" in urls[0]
+    _assert_public_floorplan_asset(urls[0], root=tmp_path, expected_payload=floorplan_payload)
 
 
 def test_property_scout_source_specs_infers_platform_from_url_host() -> None:
