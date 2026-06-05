@@ -15,7 +15,7 @@ import tempfile
 from datetime import datetime, timezone
 from functools import lru_cache
 from http.cookies import SimpleCookie
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sqlite3
 import threading
 from urllib.error import HTTPError, URLError
@@ -88,6 +88,7 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "conversation_turn": (8, 60),
     "realtime_connect": (6, 60),
     "realtime_turn": (16, 60),
+    "voice_ab_rate": (10, 60),
 }
 _PUBLIC_MEMORIAL_RATE_DB = Path("/data/artifacts/memorial_rate_limits.sqlite3")
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
@@ -114,6 +115,18 @@ _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
     "voice_profile_generated_at",
 }
 _PUBLIC_TTS_ALLOWED_BODY_FIELDS = {"text", "voice_ab_variant", "personal_memory_enabled"}
+_BLOCKED_PUBLIC_ASSET_NAMES = {
+    "memorial.json",
+    "tts_voice.json",
+    "voice_ab.json",
+    "ratings.json",
+    "llm_profile_notes.json",
+    "transcript_signal_report.json",
+}
+_ALLOWED_PUBLIC_ASSET_SUFFIXES = {
+    ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm",
+    ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
+}
 
 
 def _memorial_dir_candidates() -> list[Path]:
@@ -261,8 +274,7 @@ def _public_memorial_client_key(
     context = context or {}
     scope = _text(context.get("scope"), "")
     headers = request.headers if request is not None else (websocket.headers if websocket is not None else {})
-    forwarded = _text(headers.get("cf-connecting-ip"), _text(headers.get("x-forwarded-for"), ""))
-    ip = forwarded.split(",", 1)[0].strip()
+    ip = _text(headers.get("cf-connecting-ip"), "")
     if not ip:
         if request is not None and request.client:
             ip = _text(request.client.host, "")
@@ -591,30 +603,15 @@ def _resolved_voice_consent(payload: dict[str, object]) -> dict[str, object]:
     explicit = dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {}
     if explicit:
         return explicit
-    basis = _text(payload.get("consent_basis"), "").lower()
-    if not basis:
-        slug = _text(payload.get("slug"), "")
-        if slug:
-            try:
-                voice_payload = _load_voice_config(slug)
-            except Exception:
-                voice_payload = {}
-            if isinstance(voice_payload, dict):
-                basis = _text(voice_payload.get("consent_basis"), "").lower()
-    if basis in {
-        "generic_or_owner_consented_voice",
-        "owner_consented_voice",
-        "family_consented_voice",
-        "generic_or_owner_consented_voice_clone",
-        "owner_consented_voice_clone",
-        "family_consented_voice_clone",
-    }:
-        return {
-            "status": "approved",
-            "scope": ["synthesize", "public_playback", "conversation_turn", "realtime"],
-            "legacy_basis": basis,
-            "revoked": False,
-        }
+    slug = _text(payload.get("slug"), "")
+    if slug:
+        try:
+            voice_payload = _load_voice_config(slug)
+        except Exception:
+            voice_payload = {}
+        explicit = dict(voice_payload.get("voice_consent") or {}) if isinstance(voice_payload.get("voice_consent"), dict) else {}
+        if explicit:
+            return explicit
     return {}
 
 
@@ -776,6 +773,15 @@ def _voice_ab_config_path(slug: str) -> Path:
 
 def _default_voice_ab_config(slug: str) -> dict[str, object]:
     base = _load_voice_config(slug)
+    slug_key = _safe_slug(slug).upper()
+    voice_a_id = _text(
+        os.getenv(f"EA_MEMORIAL_{slug_key}_VOICE_A_ID"),
+        _text(os.getenv("EA_MEMORIAL_VOICE_A_ID"), ""),
+    )
+    voice_b_id = _text(
+        os.getenv(f"EA_MEMORIAL_{slug_key}_VOICE_B_ID"),
+        _text(os.getenv("EA_MEMORIAL_VOICE_B_ID"), ""),
+    )
     return {
         "slug": _safe_slug(slug),
         "variants": [
@@ -783,7 +789,7 @@ def _default_voice_ab_config(slug: str) -> dict[str, object]:
                 "id": "a",
                 "label": "Stimme A · klarer",
                 "tts_plugin": UNMIXR_TTS_PLUGIN_ID,
-                "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+                "tts_plugin_voice_id": voice_a_id,
                 "unmixr_speaking_rate": _text(base.get("unmixr_speaking_rate"), "low"),
                 "unmixr_speaking_pitch": _text(base.get("unmixr_speaking_pitch"), "medium"),
                 "unmixr_speaking_volume": _text(base.get("unmixr_speaking_volume"), "high"),
@@ -793,7 +799,7 @@ def _default_voice_ab_config(slug: str) -> dict[str, object]:
                 "id": "b",
                 "label": "Stimme B · naeher an ihm",
                 "tts_plugin": UNMIXR_TTS_PLUGIN_ID,
-                "tts_plugin_voice_id": "e8eced7f-35fa-4036-af46-ba2b748afd70",
+                "tts_plugin_voice_id": voice_b_id,
                 "unmixr_speaking_rate": "low",
                 "unmixr_speaking_pitch": "medium",
                 "unmixr_speaking_volume": "high",
@@ -1004,8 +1010,6 @@ def _require_public_memorial_write_access(*, slug: str, request: Request, memori
     provided = str(
         request.headers.get("x-memorial-write-token")
         or request.headers.get("x-memorial-admin-token")
-        or request.query_params.get("memorial_write_token")
-        or request.query_params.get("token")
         or ""
     ).strip()
     if not provided:
@@ -1018,12 +1022,41 @@ def _require_public_memorial_write_access(*, slug: str, request: Request, memori
 
 def _asset_file(slug: str, asset_path: str) -> Path:
     bundle_dir = _memorial_bundle(slug)
+    payload = _load_memorial(slug)
     candidate = (bundle_dir / str(asset_path or "")).resolve()
     if candidate != bundle_dir.resolve() and bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
     if not candidate.exists() or not candidate.is_file():
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
+    lower_name = candidate.name.lower()
+    lower_suffix = candidate.suffix.lower()
+    if lower_name in _BLOCKED_PUBLIC_ASSET_NAMES:
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
+    if lower_suffix not in _ALLOWED_PUBLIC_ASSET_SUFFIXES:
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
+    allowed_relpaths: set[str] = set()
+    for clip in _list_of_dicts(payload.get("audio_clips")):
+        rel = _text(clip.get("asset_relpath"), "")
+        if rel:
+            allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
+    for doc in _list_of_dicts(payload.get("public_documents")):
+        rel = _text(doc.get("asset_relpath"), "")
+        if rel:
+            allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
+    relative_path = candidate.relative_to(bundle_dir).as_posix().lstrip("/")
+    if relative_path not in allowed_relpaths:
+        raise HTTPException(status_code=404, detail="memorial_file_not_found")
     return candidate
+
+
+def _content_length_or_zero(request: Request) -> int:
+    raw = str(request.headers.get("content-length") or "0").strip()
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid_content_length") from exc
 
 
 def _text(value: object, fallback: str = "") -> str:
@@ -1444,6 +1477,7 @@ def _load_voice_config(slug: str) -> dict[str, object]:
                     "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), _text(default_config.get("tts_base_voice_variant"), "high")) or "high",
                     "consent_basis": _text(payload.get("consent_basis"), str(default_config["consent_basis"])),
                     "notes": _text(payload.get("notes"), str(default_config["notes"])),
+                    "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else dict(default_config.get("voice_consent") or {}),
                 }
             )
     voice_profile_summary = _public_voice_profile_summary(slug)
@@ -1503,6 +1537,8 @@ def _voice_config_to_public_payload(payload: dict[str, object], slug: str) -> di
     }
     safe_config["tts_mode"] = selected_plugin
     safe_config["consent_basis"] = _text(payload.get("consent_basis"), "generic_or_owner_consented_voice")
+    if isinstance(payload.get("voice_consent"), dict):
+        safe_config["voice_consent"] = dict(payload.get("voice_consent") or {})
     return safe_config
 
 
@@ -1550,6 +1586,7 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant") if isinstance(payload, dict) else None, str(default_config["tts_base_voice_variant"])) or "high",
         "consent_basis": _text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
         "notes": _text(payload.get("notes") if isinstance(payload, dict) else None, str(default_config["notes"])),
+        "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {},
         "tts_mode": requested_plugin,
     }
 
@@ -1571,7 +1608,18 @@ def _normalize_voice_build_payload(payload: dict[str, object]) -> tuple[list[str
         youtube_limit = 5
     youtube_limit = max(1, min(youtube_limit, 12))
     query = _text(payload.get("youtube_query"), _text(payload.get("query"), _text(payload.get("search", ""))))
-    return list(dict.fromkeys(url_candidates)), query, youtube_limit
+    allowed_urls: list[str] = []
+    for candidate in url_candidates:
+        try:
+            parsed = urllib.parse.urlparse(candidate)
+        except Exception:
+            continue
+        host = str(parsed.netloc or "").lower()
+        if parsed.scheme not in {"http", "https"}:
+            continue
+        if host == "youtu.be" or host.endswith(".youtu.be") or host == "youtube.com" or host.endswith(".youtube.com"):
+            allowed_urls.append(candidate)
+    return list(dict.fromkeys(allowed_urls)), query, youtube_limit
 
 
 def _compact_public_facts(payload: dict[str, object]) -> list[str]:
@@ -7073,8 +7121,11 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="invalid_json")
     context = _extract_personal_memory_request_context(request=request, body=body)
+    _enforce_public_memorial_rate_limit("voice_ab_rate", request=request, context=context)
     choice = _text(body.get("choice"), "").lower()
     approved_variant = _text(body.get("approved_variant"), "").lower()
+    if approved_variant and not bool(context.get("personal_memory_enabled")):
+        raise HTTPException(status_code=400, detail="personal_memory_required_for_voice_approval")
     ratings = _record_voice_ab_rating(
         slug=slug,
         context=context,
@@ -7238,6 +7289,9 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
     _load_memorial(slug)
     _enforce_public_memorial_rate_limit("speech_transcribe", request=request)
+    content_length = _content_length_or_zero(request)
+    if content_length > _MAX_SPEECH_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="audio_too_large")
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
     return JSONResponse(_memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
