@@ -605,6 +605,10 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
                 "title": "BG Leopoldstadt, 082 25 E 89/25g",
                 "source_label": "Justiz Edikte Auctions | Austria | Buy | 1020 Vienna",
                 "fit_summary": "Sparse but relevant auction with floorplan and enough area.",
+                "price_label": "EUR 310,000",
+                "area_label": "82 m2",
+                "rooms_label": "3 rooms",
+                "location_label": "1020 Vienna",
                 "review_url": "https://propertyquarry.com/app/research/run-1/prop-1",
                 "tour_status": "queued",
             },
@@ -621,6 +625,17 @@ def test_property_search_results_email_serializes_emailit_meta(monkeypatch: pyte
     assert "Best matches:" in payload["text"]
     assert "BG Leopoldstadt" in payload["text"]
     assert "https://propertyquarry.com/app/properties?run_id=run-1" in payload["text"]
+    html = str(payload["html"])
+    assert "<table" in html
+    assert "Best matches" in html
+    assert 'href="https://propertyquarry.com/app/research/run-1/prop-1"' in html
+    assert ">BG Leopoldstadt, 082 25 E 89/25g</a>" in html
+    assert "EUR 310,000" in html
+    assert "82 m2" in html
+    assert 'href="https://propertyquarry.com/app/properties?run_id=run-1"' in html
+    assert ">Open full results</a>" in html
+    assert ">https://propertyquarry.com/app/research/run-1/prop-1</a>" not in html
+    assert ">https://propertyquarry.com/app/properties?run_id=run-1</a>" not in html
     assert isinstance(payload["meta"]["top_property_refs"], str)
     assert isinstance(json.loads(payload["meta"]["top_property_refs"]), list)
     assert payload["meta"]["results_ref"]

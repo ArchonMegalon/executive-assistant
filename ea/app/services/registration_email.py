@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.request
 import hashlib
+import html
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -185,11 +186,196 @@ def _digest_preview_excerpt(plain_text: str, *, max_lines: int = 8, max_chars: i
     return excerpt
 
 
+_EMAIL_LINK_STYLE = "color:#0b57d0;text-decoration:underline;"
+
+
+def _html_escape(value: object) -> str:
+    return html.escape(str(value or "").strip(), quote=True)
+
+
+def _html_link(*, href: object, label: object) -> str:
+    url = str(href or "").strip()
+    text = str(label or "").strip() or url
+    if not url:
+        return _html_escape(text)
+    return f'<a href="{_html_escape(url)}" style="{_EMAIL_LINK_STYLE}">{_html_escape(text)}</a>'
+
+
+def _html_email_shell(*, title: str, body_html: str) -> str:
+    return (
+        '<!doctype html><html><body style="margin:0;padding:0;background:#f6f3ee;'
+        'font-family:Arial,Helvetica,sans-serif;color:#191714;">'
+        '<div style="max-width:760px;margin:0 auto;padding:24px;">'
+        '<div style="border:1px solid #ded6c8;border-radius:10px;background:#fffdf8;padding:20px;">'
+        f'<h1 style="margin:0 0 14px;font-size:22px;line-height:1.2;">{_html_escape(title)}</h1>'
+        f"{body_html}"
+        "</div></div></body></html>"
+    )
+
+
+def _property_email_facts(row: dict[str, object]) -> list[tuple[str, str]]:
+    fact_specs = (
+        ("Fit", row.get("fit_summary")),
+        ("Source", row.get("source_label")),
+        ("Price", row.get("price_label")),
+        ("Area", row.get("area_label")),
+        ("Rooms", row.get("rooms_label")),
+        ("Location", row.get("location_label")),
+        ("360", str(row.get("tour_status") or "").strip().replace("_", " ")),
+    )
+    facts: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for label, value in fact_specs:
+        normalized = str(value or "").strip()
+        if not normalized:
+            continue
+        key = (label, normalized)
+        if key in seen:
+            continue
+        seen.add(key)
+        facts.append((label, normalized))
+    return facts
+
+
+def _property_search_results_ready_html(
+    *,
+    results_url: str,
+    result_total: int,
+    hosted_tour_total: int,
+    property_rows: list[dict[str, object]],
+) -> str:
+    metric_table = (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+        'style="border-collapse:collapse;margin:0 0 16px;">'
+        "<tr>"
+        '<td style="padding:10px;border:1px solid #ded6c8;background:#fdf9f1;">'
+        '<div style="font-size:12px;color:#6c675f;text-transform:uppercase;">Ranked results</div>'
+        f'<strong style="font-size:18px;">{max(int(result_total), 0)}</strong>'
+        "</td>"
+        '<td style="padding:10px;border:1px solid #ded6c8;background:#fdf9f1;">'
+        '<div style="font-size:12px;color:#6c675f;text-transform:uppercase;">Hosted tours ready</div>'
+        f'<strong style="font-size:18px;">{max(int(hosted_tour_total), 0)}</strong>'
+        "</td>"
+        "</tr></table>"
+    )
+    rows_html: list[str] = []
+    for index, row in enumerate(property_rows[:5], start=1):
+        title = str(row.get("title") or "Property match").strip() or "Property match"
+        review_url = str(row.get("review_url") or "").strip()
+        tour_url = str(row.get("tour_url") or "").strip()
+        property_url = str(row.get("property_url") or "").strip()
+        primary_url = review_url or tour_url or property_url
+        facts_html = "".join(
+            "<tr>"
+            f'<td style="padding:4px 8px 4px 0;color:#6c675f;font-size:12px;white-space:nowrap;">{_html_escape(label)}</td>'
+            f'<td style="padding:4px 0;color:#191714;font-size:13px;">{_html_escape(value)}</td>'
+            "</tr>"
+            for label, value in _property_email_facts(row)
+        ) or '<tr><td style="padding:4px 0;color:#6c675f;font-size:13px;" colspan="2">No structured facts captured.</td></tr>'
+        action_links = [
+            _html_link(href=review_url, label="Review packet") if review_url else "",
+            _html_link(href=tour_url, label="Open 360") if tour_url else "",
+            _html_link(href=property_url, label="Source") if property_url else "",
+        ]
+        action_html = " &nbsp; ".join(link for link in action_links if link) or _html_link(href=primary_url, label="Open")
+        rows_html.append(
+            "<tr>"
+            f'<td style="width:38px;vertical-align:top;padding:12px;border-top:1px solid #ded6c8;color:#6c675f;">#{index}</td>'
+            '<td style="vertical-align:top;padding:12px;border-top:1px solid #ded6c8;">'
+            f'<div style="font-weight:700;margin-bottom:8px;">{_html_link(href=primary_url, label=title)}</div>'
+            '<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">'
+            f"{facts_html}</table>"
+            f'<div style="margin-top:10px;font-size:13px;">{action_html}</div>'
+            "</td></tr>"
+        )
+    properties_table = ""
+    if rows_html:
+        properties_table = (
+            '<h2 style="font-size:16px;margin:18px 0 8px;">Best matches</h2>'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            'style="border-collapse:collapse;border:1px solid #ded6c8;background:#fffefa;">'
+            + "".join(rows_html)
+            + "</table>"
+        )
+    results_link = (
+        f'<p style="margin:18px 0 0;">{_html_link(href=results_url, label="Open full results")}</p>'
+        if str(results_url or "").strip()
+        else ""
+    )
+    return _html_email_shell(
+        title="PropertyQuarry results are ready",
+        body_html=(
+            '<p style="margin:0 0 14px;color:#383633;">Your ranked shortlist is ready.</p>'
+            f"{metric_table}{properties_table}{results_link}"
+        ),
+    )
+
+
+def _property_match_html(
+    *,
+    title: str,
+    provider: str,
+    primary_link: str,
+    review_url: str,
+    tour_url: str,
+    property_url: str,
+    fit_summary: str,
+    decision_summary: dict[str, object],
+) -> str:
+    good_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("good_fit_reasons") or []) if str(value or "").strip()]
+    bad_fit_reasons = [str(value or "").strip() for value in list(decision_summary.get("bad_fit_reasons") or []) if str(value or "").strip()]
+    unknowns = [str(value or "").strip() for value in list(decision_summary.get("unknowns") or []) if str(value or "").strip()]
+    facts = [
+        ("Source", provider),
+        ("Fit", fit_summary),
+        ("360", "ready" if tour_url else "pending"),
+    ]
+    facts_html = "".join(
+        "<tr>"
+        f'<td style="padding:6px 10px;color:#6c675f;font-size:12px;white-space:nowrap;border-bottom:1px solid #ded6c8;">{_html_escape(label)}</td>'
+        f'<td style="padding:6px 10px;color:#191714;font-size:13px;border-bottom:1px solid #ded6c8;">{_html_escape(value)}</td>'
+        "</tr>"
+        for label, value in facts
+        if str(value or "").strip()
+    )
+    links = [
+        _html_link(href=review_url or primary_link, label="Review packet") if (review_url or primary_link) else "",
+        _html_link(href=tour_url, label="Open 360") if tour_url else "",
+        _html_link(href=property_url, label="Source") if property_url else "",
+    ]
+    reason_sections: list[str] = []
+    for heading, values in (
+        ("Why it stands out", good_fit_reasons[:4]),
+        ("What may be weak", bad_fit_reasons[:3]),
+        ("What still needs checking", unknowns[:3]),
+    ):
+        if not values:
+            continue
+        reason_sections.append(
+            f'<h2 style="font-size:15px;margin:16px 0 6px;">{_html_escape(heading)}</h2>'
+            "<ul style=\"margin:0;padding-left:20px;\">"
+            + "".join(f'<li style="margin:4px 0;">{_html_escape(value)}</li>' for value in values)
+            + "</ul>"
+        )
+    return _html_email_shell(
+        title=f"Property match: {title}",
+        body_html=(
+            f'<p style="margin:0 0 12px;">{_html_link(href=primary_link, label=title)}</p>'
+            '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+            'style="border-collapse:collapse;border:1px solid #ded6c8;background:#fffefa;">'
+            f"{facts_html}</table>"
+            f'<p style="margin:14px 0 0;">{" &nbsp; ".join(link for link in links if link)}</p>'
+            + "".join(reason_sections)
+        ),
+    )
+
+
 def _send_emailit_email(
     *,
     recipient_email: str,
     subject: str,
     text: str,
+    html_body: str = "",
     kind: str,
     meta: dict[str, object] | None = None,
     sender_email: str = "",
@@ -205,7 +391,7 @@ def _send_emailit_email(
         "to": str(recipient_email or "").strip(),
         "subject": str(subject or "").strip(),
         "text": str(text or "").strip(),
-        "html": "",
+        "html": str(html_body or "").strip(),
         "reply_to": resolved_sender_email,
         "tracking": False,
         "meta": _emailit_meta_payload(kind=kind, recipient_email=recipient_email, meta=meta),
@@ -571,6 +757,16 @@ def send_property_match_email(
         recipient_email=recipient_email,
         subject=subject[:220],
         text="\n".join(body).strip() + "\n",
+        html_body=_property_match_html(
+            title=title,
+            provider=provider,
+            primary_link=primary_link,
+            review_url=review_url,
+            tour_url=tour_url,
+            property_url=property_url,
+            fit_summary=fit_summary,
+            decision_summary=decision_summary,
+        ),
         kind="ea_property_match_delivery",
         meta={
             "review_ref": _meta_ref(review_url or primary_link),
@@ -649,10 +845,17 @@ def send_property_search_results_ready_email(
                 body.append(f"   Review packet: {review_url}")
     if str(results_url or "").strip():
         body.extend(["", f"Open the results page: {results_url}"])
+    html_body = _property_search_results_ready_html(
+        results_url=str(results_url or "").strip(),
+        result_total=result_total,
+        hosted_tour_total=hosted_tour_total,
+        property_rows=property_rows,
+    )
     return _send_emailit_email(
         recipient_email=recipient_email,
         subject="PropertyQuarry results ready"[:220],
         text="\n".join(body).strip() + "\n",
+        html_body=html_body,
         kind="ea_property_search_results_ready_delivery",
         meta={
             "results_ref": _meta_ref(results_url),

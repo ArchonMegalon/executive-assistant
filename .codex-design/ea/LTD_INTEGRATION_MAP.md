@@ -28,6 +28,21 @@ Use for:
 - board-prep packs
 - support bundles
 
+## FlipLink.me
+
+Use for:
+
+- redacted PropertyQuarry review-packet flipbooks
+- shareable property shortlist packets
+- customer-facing packet presentation downstream of PropertyQuarry facts
+
+Do not use for:
+
+- listing truth
+- ranking truth
+- entitlement truth
+- public-tour asset truth
+
 ## Hedy
 
 Use for:

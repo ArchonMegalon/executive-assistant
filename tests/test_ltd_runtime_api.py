@@ -30,6 +30,7 @@ Updated: 2026-05-02
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for operator docs and cited answers. |
+| `FlipLink.me` | `Tier 10` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials plus bounded PropertyQuarry review-packet flipbook lane | Use only for shareable redacted review packets downstream of PropertyQuarry. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | BrowserAct workspace reader exists even though the direct provider lane is not executable. |
 """.strip()
 
@@ -39,6 +40,7 @@ def _client(*, principal_id: str = "ops-1") -> TestClient:
     os.environ["EA_API_TOKEN"] = "test-token"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
     os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id
+    os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     from app.api.app import create_app
 
     client = TestClient(create_app())
@@ -70,13 +72,20 @@ def test_ltd_runtime_catalog_route_lists_profiles(monkeypatch: pytest.MonkeyPatc
     assert response.status_code == 200
     body = response.json()
     service_names = {row["service_name"] for row in body}
-    assert {"1min.AI", "Documentation.AI", "Emailit", "MarkupGo"} <= service_names
+    assert {"1min.AI", "Documentation.AI", "Emailit", "FlipLink.me", "MarkupGo"} <= service_names
 
     documentation = next(row for row in body if row["service_name"] == "Documentation.AI")
     assert documentation["runtime_state"] == "browseract_ui_ready"
     assert {action["action_key"] for action in documentation["actions"]} == {
         "discover_account",
         "inspect_workspace",
+    }
+
+    fliplink = next(row for row in body if row["service_name"] == "FlipLink.me")
+    assert fliplink["runtime_state"] == "runtime_managed"
+    assert {action["action_key"] for action in fliplink["actions"]} == {
+        "discover_account",
+        "publish_property_flipbook",
     }
 
 

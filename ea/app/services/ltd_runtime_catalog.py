@@ -460,6 +460,36 @@ def _emailit_runtime_action(row: LtdInventoryRow) -> LtdRuntimeAction | None:
     )
 
 
+def _fliplink_property_flipbook_action(row: LtdInventoryRow) -> LtdRuntimeAction | None:
+    if _normalize_lookup(row.service_name) not in {"fliplink", "fliplink_me"}:
+        return None
+    encoded_service = quote(row.service_name, safe="")
+    return LtdRuntimeAction(
+        action_key="publish_property_flipbook",
+        label="Publish Property Flipbook",
+        description="Publish a redacted PropertyQuarry review packet as a shareable FlipLink flipbook.",
+        execution_mode="runtime_lane",
+        executable=False,
+        tool_name="",
+        action_kind="property_review_packet.flipbook_publish",
+        route_path=f"/v1/ltds/runtime-catalog/{encoded_service}",
+        provider_key="fliplink",
+        input_schema_json={
+            "type": "object",
+            "properties": {
+                "property_packet_json": {"type": "object"},
+                "public_asset_manifest_json": {"type": "object"},
+                "privacy_mode": {"type": "string"},
+                "result_title": {"type": "string"},
+            },
+        },
+        notes=(
+            "Bounded Tier 10 lane for shareable review packets. PropertyQuarry remains source of truth for "
+            "search, ranking, redaction, entitlement, and public-tour assets."
+        ),
+    )
+
+
 def _unique_actions(actions: tuple[LtdRuntimeAction | None, ...]) -> tuple[LtdRuntimeAction, ...]:
     deduped: list[LtdRuntimeAction] = []
     seen: set[str] = set()
@@ -524,12 +554,14 @@ class LtdRuntimeCatalogService:
                     _browseract_ui_action(row, browseract_ui_service) if browseract_ui_service is not None else None,
                     _crezlo_property_tour_action(row),
                     _emailit_runtime_action(row),
+                    _fliplink_property_flipbook_action(row),
                     *(_onemin_specialized_actions(provider_binding, row.service_name) if provider_binding is not None else ()),
                     *(_provider_actions(provider_binding, row.service_name) if provider_binding is not None else ()),
                 )
             )
             aliases = _alias_variants(
                 row.service_name,
+                "FlipLink" if _normalize_lookup(row.service_name) == "fliplink_me" else "",
                 provider_binding.display_name if provider_binding is not None else "",
                 browseract_ui_service.service_key if browseract_ui_service is not None else "",
                 *(browseract_ui_service.aliases if browseract_ui_service is not None else ()),

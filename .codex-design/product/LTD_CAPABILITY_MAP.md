@@ -34,6 +34,7 @@ It does not imply that every owned tool must be integrated.
 * `First Book ai` - long-form player, GM, and creator authoring lane
 * `Lunacal` - booking and human-escalation lane
 * `MarkupGo` - bounded document rendering and formatted artifact output
+* `FlipLink.me` - shareable review-packet and flipbook projection lane downstream of approved source packets
 * `AvoMap` - route and location visualization lane
 * `PeekShot` - preview/share-card adapter lane
 * `Mootion` - bounded video generation lane
@@ -129,6 +130,7 @@ Working rule:
 * `hedy.ai` - `chummer6-hub` for consent-gated coaching packet orchestration, `chummer6-media-factory` for transcript prep and rendered recap packet support
 * `Nonverbia` - `chummer6-hub` for coaching analysis and privacy gating, `chummer6-media-factory` for bounded rendered outputs
 * `Unmixr AI` - `chummer6-media-factory` for bounded voice experiments
+* `FlipLink.me` - `executive-assistant` and PropertyQuarry for redacted review-packet projection only
 
 ## Composed product systems
 
@@ -136,7 +138,7 @@ The owned LTD stack should be evaluated as governed product loops, not isolated 
 
 * Public Growth System - `ClickRank`, `Katteb`, `ProductLift`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` route public discovery into first-party pages, changelog proof, and closeout.
 * Discovery System - `ProductLift`, `Deftform`, `Icanpreneur`, `MetaSurvey`, `Lunacal`, `Teable`, and Product Governor convert public demand into Chummer-owned packets and decisions.
-* Artifact Factory - `vidBoard`, `MarkupGo`, `PeekShot`, `Taja`, `Soundmadeseen`, `Unmixr AI`, and `First Book ai` render approved source packets into repeatable media, document, and share artifacts.
+* Artifact Factory - `vidBoard`, `MarkupGo`, `PeekShot`, `FlipLink.me`, `Taja`, `Soundmadeseen`, `Unmixr AI`, and `First Book ai` render approved source packets into repeatable media, document, flipbook, and share artifacts.
 * BLACK LEDGER Ops - Hub, `Teable`, `NextStep`, `ApproveThis`, `Signitic`, `Emailit`, and first-party map infrastructure run world ticks, faction operations, open-run closeout, and operator review.
 * Table Pulse / Companion Lab - `hedy.ai`, `Nonverbia`, `Unmixr AI`, `Soundmadeseen`, `MarkupGo`, `PeekShot`, `Prompting Systems`, `ChatPlayground AI`, and `Teable` support consent-gated debriefs and reviewed line packs.
 * Trust / Closure System - Hub, Registry, Fleet, Product Governor, `ProductLift`, `Emailit`, and first-party analytics/observability prove that install, support, roadmap, and release promises actually closed.

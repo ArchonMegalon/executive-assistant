@@ -26,6 +26,7 @@ Updated: 2026-05-02
 | Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
 |---|---|---|---|---|---|---|---|
 | `Documentation.AI` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` username/password only | Owned for operator docs and cited answers. |
+| `FlipLink.me` | `Tier 10` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials plus bounded PropertyQuarry review-packet flipbook lane | Use only for shareable redacted review packets downstream of PropertyQuarry. |
 | `MarkupGo` | `7x code-based` | `7 codes` | `Activated` |  | `Tier 3` | None | BrowserAct workspace reader exists even though the direct provider lane is not executable. |
 """.strip()
 
@@ -107,6 +108,18 @@ def test_ltd_runtime_catalog_derives_provider_ui_and_runtime_managed_profiles(tm
         "delivery_outbox",
         "discover_account",
     }
+
+    fliplink = catalog.get_profile("FlipLink")
+    assert fliplink is not None
+    assert fliplink.runtime_state == "runtime_managed"
+    assert {action.action_key for action in fliplink.actions} == {
+        "discover_account",
+        "publish_property_flipbook",
+    }
+    flipbook_action = next(action for action in fliplink.actions if action.action_key == "publish_property_flipbook")
+    assert flipbook_action.provider_key == "fliplink"
+    assert flipbook_action.executable is False
+    assert flipbook_action.input_schema_json["properties"]["privacy_mode"]["type"] == "string"
 
     hedy = catalog.get_profile("hedy.ai")
     assert hedy is not None

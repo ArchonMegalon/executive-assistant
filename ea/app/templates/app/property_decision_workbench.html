@@ -762,6 +762,27 @@
       max-width: 11ch;
     }
     .pqx-theater-placeholder span { color: #d7cdbb; }
+    .pqx-theater-frame.is-unavailable {
+      min-height: 0;
+      place-items: stretch;
+    }
+    .pqx-theater-frame.is-unavailable .pqx-theater-placeholder {
+      min-height: 104px;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      justify-items: start;
+      padding: 14px 16px;
+      text-align: left;
+    }
+    .pqx-theater-frame.is-unavailable .pqx-theater-placeholder strong {
+      max-width: none;
+      font-size: 1.05rem;
+      line-height: 1.2;
+    }
+    .pqx-theater-frame.is-unavailable .pqx-theater-placeholder span {
+      font-size: 13px;
+      line-height: 1.35;
+    }
     .pqx-dossier {
       display: grid;
       gap: 12px;
@@ -951,6 +972,9 @@
       .pqx-theater-frame {
         min-height: 330px;
       }
+      .pqx-theater-frame.is-unavailable {
+        min-height: 0;
+      }
       .pqx-theater iframe {
         height: 400px;
       }
@@ -1048,6 +1072,13 @@
       }
       .pqx-theater-frame {
         min-height: 260px;
+      }
+      .pqx-theater-frame.is-unavailable {
+        min-height: 0;
+      }
+      .pqx-theater-frame.is-unavailable .pqx-theater-placeholder {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
       }
       .pqx-theater iframe {
         height: 310px;
@@ -1472,7 +1503,7 @@
       <section class="pqx-stage pqx-results">
         <section class="pqx-review" data-pqx-mobile-panel="property" data-workbench-dossier>
           <div class="pqx-theater" data-pq-theater>
-            <div class="pqx-theater-frame" data-pw-tour>
+            <div class="pqx-theater-frame{% if not selected.get('tour', {}).get('embed_url') %} is-unavailable{% endif %}" data-pw-tour>
               {% if selected.get('tour', {}).get('embed_url') %}
               <iframe src="{{ selected.get('tour', {}).get('embed_url') }}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>
               {% else %}
@@ -1688,8 +1719,10 @@
       const tourNode = root.querySelector('[data-pw-tour]');
       const tour = candidate.tour || {};
       if (tourNode && tour.embed_url) {
+        tourNode.classList.remove('is-unavailable');
         tourNode.innerHTML = `<iframe src="${escapeHtml(tour.embed_url)}" title="Property 360 tour" loading="lazy" allowfullscreen></iframe>`;
       } else if (tourNode) {
+        tourNode.classList.add('is-unavailable');
         const tourMessage = tour.url
           ? 'The tour is available as a separate review page. It is not embedded here because the host is not PropertyQuarry-branded.'
           : (tour.eta_label || 'The tour queue is tracked here while the property can still be reviewed.');

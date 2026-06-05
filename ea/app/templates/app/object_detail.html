@@ -19,6 +19,9 @@
     grid-template-columns: 1fr;
     margin-bottom: 18px;
   }
+  .object-media-grid.is-compact {
+    margin-bottom: 12px;
+  }
   .object-panel,
   .object-section,
   .object-meta-card {
@@ -77,6 +80,39 @@
     align-content: center;
     gap: 10px;
     padding: 26px;
+  }
+  .object-media-placeholder-copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .object-media-grid.is-compact .object-panel {
+    padding: 0;
+  }
+  .object-media-grid.is-compact .object-media-frame-inner {
+    aspect-ratio: auto;
+    min-height: 0;
+  }
+  .object-media-grid.is-compact .object-media-placeholder {
+    min-height: 104px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    align-content: center;
+    gap: 14px;
+    padding: 14px 16px;
+    text-align: left;
+  }
+  .object-media-grid.is-compact .object-media-placeholder h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    line-height: 1.2;
+  }
+  .object-media-grid.is-compact .object-media-placeholder .object-copy {
+    margin: 0;
+  }
+  .object-media-grid.is-compact .object-actions {
+    margin-top: 0;
+    justify-content: flex-end;
   }
   .object-panel h1,
   .object-panel h2,
@@ -361,6 +397,13 @@
     .object-media-toolbar .object-actions {
       justify-content: stretch;
     }
+    .object-media-grid.is-compact .object-media-placeholder {
+      grid-template-columns: minmax(0, 1fr);
+      align-items: stretch;
+    }
+    .object-media-grid.is-compact .object-actions {
+      justify-content: stretch;
+    }
     .object-tag {
       align-self: flex-start;
     }
@@ -372,11 +415,14 @@
     .object-media-frame-inner {
       min-height: 320px;
     }
+    .object-media-grid.is-compact .object-media-frame-inner {
+      min-height: 0;
+    }
   }
 </style>
 
 {% if object_media %}
-<section class="object-media-grid" data-object-media-stage>
+<section class="object-media-grid{% if not object_media.get('embed_href') %} is-compact{% endif %}" data-object-media-stage>
   <section class="object-panel object-media-frame">
     <div class="object-media-frame-inner">
       {% if object_media.get('embed_href') %}
@@ -392,8 +438,10 @@
       {% else %}
       <div class="object-media-placeholder">
         <div class="object-media-status">{{ object_media.get('status_label') or '360 pending' }}</div>
-        <h2>{{ object_media.get('status_label') or '360 pending' }}</h2>
-        <p class="object-copy">{{ object_media.get('status_detail') or 'The tour lane is still catching up.' }}</p>
+        <div class="object-media-placeholder-copy">
+          <h2>{{ object_media.get('status_label') or '360 pending' }}</h2>
+          <p class="object-copy">{{ object_media.get('status_detail') or 'The tour lane is still catching up.' }}</p>
+        </div>
         <div class="object-actions">
           {% if object_media.get('primary_href') %}<a class="console-action" href="{{ object_media.get('primary_href') }}">{{ object_media.get('primary_label') or 'Open packet' }}</a>{% endif %}
           {% if object_media.get('secondary_href') %}<a class="console-action" href="{{ object_media.get('secondary_href') }}">{{ object_media.get('secondary_label') or 'Open hosted review' }}</a>{% endif %}

@@ -13902,6 +13902,19 @@ class ProductService:
                 score=100 if property_url else 82,
                 context_json={"property_url": property_url},
             )
+            _add_recommendation(
+                service_key="FlipLink.me",
+                action_key="publish_property_flipbook",
+                reason=(
+                    "Signal references a property review workflow that can benefit from a redacted, shareable "
+                    "FlipLink review packet after PropertyQuarry has built the source dossier."
+                ),
+                score=78 if property_url else 68,
+                context_json={
+                    "property_url": property_url,
+                    "packet_policy": "propertyquarry_redacted_review_packet",
+                },
+            )
         if wants_approval_review:
             _add_recommendation(
                 service_key="ApproveThis",
@@ -16328,6 +16341,28 @@ class ProductService:
                     fit_score = float(candidate.get("fit_score") or 0.0)
                 except Exception:
                     fit_score = 0.0
+                candidate_facts = (
+                    dict(candidate.get("property_facts") or {})
+                    if isinstance(candidate.get("property_facts"), dict)
+                    else {}
+                )
+                if isinstance(candidate.get("property_facts_json"), dict):
+                    candidate_facts = {**candidate_facts, **dict(candidate.get("property_facts_json") or {})}
+                price_label = _first_non_empty_text(
+                    candidate.get("price_label"),
+                    candidate_facts.get("price_label"),
+                    candidate_facts.get("total_price_label"),
+                    candidate_facts.get("rent_label"),
+                    candidate_facts.get("total_rent_label"),
+                )
+                area_label = _first_non_empty_text(candidate.get("area_label"), candidate_facts.get("area_label"))
+                rooms_label = _first_non_empty_text(candidate.get("rooms_label"), candidate_facts.get("rooms_label"))
+                location_label = _first_non_empty_text(
+                    candidate.get("location_label"),
+                    candidate_facts.get("location_label"),
+                    candidate_facts.get("postal_name"),
+                    candidate_facts.get("district_label"),
+                )
                 rows.append(
                     {
                         "title": compact_text(
@@ -16346,6 +16381,10 @@ class ProductService:
                         "tour_url": tour_url,
                         "property_url": property_url,
                         "tour_status": str(candidate.get("tour_status") or ("ready" if tour_url else "pending")).strip(),
+                        "price_label": compact_text(price_label, fallback="", limit=80),
+                        "area_label": compact_text(area_label, fallback="", limit=80),
+                        "rooms_label": compact_text(rooms_label, fallback="", limit=80),
+                        "location_label": compact_text(location_label, fallback="", limit=120),
                     }
                 )
         rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)

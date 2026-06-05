@@ -505,6 +505,10 @@ def test_signal_ingest_email_thread_records_ooda_ltd_recommendations_for_propert
     assert body["ooda_loop"]["reviewed"] is True
     recommendations = body["ooda_loop"]["ltd_review"]["recommended_actions"]
     assert any(item["service_name"] == "Crezlo Tours" and item["action_key"] == "create_property_tour" for item in recommendations)
+    assert any(
+        item["service_name"] == "FlipLink.me" and item["action_key"] == "publish_property_flipbook"
+        for item in recommendations
+    )
     assert any(item["service_name"] == "Emailit" and item["action_key"] == "delivery_outbox" for item in recommendations)
 
     events = client.get("/app/api/events", params={"channel": "product", "event_type": "office_signal_ooda_evaluated"})
@@ -512,6 +516,7 @@ def test_signal_ingest_email_thread_records_ooda_ltd_recommendations_for_propert
     evaluated = next(item for item in events.json()["items"] if item["source_id"] == "gmail-thread:ooda-property-1")
     evaluated_actions = evaluated["payload"]["ooda_loop"]["ltd_review"]["recommended_actions"]
     assert any(item["task_key"].startswith("ltd_runtime__crezlo_tours__create_property_tour") for item in evaluated_actions)
+    assert any(item["task_key"].startswith("ltd_runtime__fliplink_me__publish_property_flipbook") for item in evaluated_actions)
 
 
 def test_signal_ingest_willhaben_search_agent_mail_skips_commitment_staging_but_keeps_ooda_ltd_review() -> None:
@@ -707,6 +712,44 @@ def test_signal_ingest_property_alert_sends_workspace_review_link_for_cf_email_p
     assert handoffs.status_code == 200
     property_handoff = next(item for item in handoffs.json() if item["task_type"] == "property_alert_review")
     assert property_handoff["editor_url"].startswith("/app/handoffs/human_task:")
+
+
+def test_property_alert_handoff_page_compacts_unavailable_360_state() -> None:
+    principal_id = "exec-product-property-handoff-compact-360"
+    client = build_product_client(principal_id=principal_id)
+    seeded = seed_product_state(client, principal_id=principal_id)
+    task = client.app.state.container.orchestrator.create_human_task(
+        session_id=seeded["session_id"],
+        principal_id=principal_id,
+        task_type="property_alert_review",
+        role_required="operator",
+        brief="Review compact unavailable 360 listing",
+        why_human="A property alert needs review, but no tour source exists yet.",
+        input_json={
+            "title": "Compact 360 unavailable flat",
+            "summary": "Good location, but the source does not expose a tourable floorplan yet.",
+            "counterparty": "Property scout",
+            "property_url": "https://www.immobilienscout24.at/expose/compact-unavailable-360",
+            "personal_fit_assessment": {
+                "fit_score": 72,
+                "recommendation": "view_if_compelling",
+                "match_reasons_json": ["Close to preferred district."],
+                "mismatch_reasons_json": ["No floorplan or 360 source was captured."],
+                "unknowns_json": ["Heating still needs verification."],
+                "blocking_constraints_json": [],
+            },
+            "property_facts_json": {"has_floorplan": False, "has_360": False, "area_label": "72 m2"},
+            "tour_status": "blocked",
+            "blocked_reason": "floorplan_missing",
+        },
+        priority="normal",
+    )
+
+    handoff_page = client.get(f"/app/handoffs/human_task:{task.human_task_id}")
+    assert handoff_page.status_code == 200
+    assert 'class="object-media-grid is-compact"' in handoff_page.text
+    assert "360 unavailable" in handoff_page.text
+    assert "OODA summary" in handoff_page.text
 
 
 def test_signal_ingest_willhaben_property_alert_review_uses_personal_fit_priority(monkeypatch) -> None:
