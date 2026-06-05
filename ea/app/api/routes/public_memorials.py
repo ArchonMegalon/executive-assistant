@@ -1511,9 +1511,11 @@ def _resolve_memorial_chat_model(
 def _resolve_memorial_voice_chat_model(
     payload: dict[str, object],
     private_profile: dict[str, object],
+    question: str = "",
 ) -> str:
     selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
-    for candidate in ("memorial-local-fast", "ea-coder-fast", "deepseek-chat"):
+    preferred = ("ea-coder-fast", "deepseek-chat", "memorial-local-fast") if _is_memorial_live_interaction_question(question) else ("memorial-local-fast", "ea-coder-fast", "deepseek-chat")
+    for candidate in preferred:
         if candidate in models:
             return candidate
     return selected
@@ -1969,6 +1971,8 @@ def _memorial_chat_source_labels(
     private_profile: dict[str, object] | None = None,
     has_imported_mail: bool = False,
 ) -> list[str]:
+    if _is_memorial_live_interaction_question(question):
+        return []
     external_sources = _list_of_dicts(payload.get("external_sources"))
     preferred_audio = [
         _text(source.get("label"))
@@ -1989,7 +1993,7 @@ def _memorial_chat_source_labels(
             labels.append("Memorial-Profil")
             if _list_of_dicts((private_profile or {}).get("family_context_notes")):
                 labels.append("Familienkontext")
-    elif any(token in lowered for token in ("schach", "familie")):
+    elif "familie" in lowered:
         labels.append("Erinnerungskarte: Schach und Familie")
         if _list_of_dicts((private_profile or {}).get("family_context_notes")):
             labels.append("Familienkontext")
@@ -3383,17 +3387,18 @@ def _build_memorial_chat_messages(
         raise HTTPException(status_code=400, detail="question_too_long")
     person_name = _text(payload.get("person_name"), "Manfred")
     relationship = _text(payload.get("relationship"), "")
+    live_interaction = _is_memorial_live_interaction_question(normalized_question)
     has_imported_mail = memorial_has_imported_mail(
         memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
     )
-    facts = _compact_public_facts(payload)
+    facts = [] if live_interaction else _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
     transcript_signal_report = dict(private_profile.get("transcript_signal_report") or {})
     character_notes = [str(item).strip() for item in (payload.get("character_notes") or []) if str(item).strip()]
     conversation_style = dict(payload.get("conversation_style") or {})
     context_bits = [f"Person: {person_name}"]
-    if relationship:
+    if relationship and not live_interaction:
         context_bits.append(f"Beziehung: {relationship}")
     if facts:
         context_bits.append("Quellen aus Archiv: " + " | ".join(facts))
@@ -3419,7 +3424,7 @@ def _build_memorial_chat_messages(
         interpretation = _text(top.get("interpretation"))
         if interpretation:
             transcript_bits.append(interpretation)
-    if transcript_bits:
+    if transcript_bits and not live_interaction:
         context_bits.append("Transkript-Signale (kurz): " + " | ".join(transcript_bits[:3]))
     source_labels = _memorial_chat_source_labels(
         payload,
@@ -3429,7 +3434,7 @@ def _build_memorial_chat_messages(
     )
     if source_labels:
         context_bits.append("Externe Quellen: " + "; ".join(source_labels))
-    if character_notes:
+    if character_notes and not live_interaction:
         context_bits.append("Charakterhinweise: " + " | ".join(character_notes[:6]))
     style_bits: list[str] = []
     for key in ("reasoning_frame", "conflict_style", "social_tone"):
@@ -3439,7 +3444,7 @@ def _build_memorial_chat_messages(
     avoid_items = [str(item).strip() for item in (conversation_style.get("should_avoid") or []) if str(item).strip()]
     if avoid_items:
         style_bits.append("avoid=" + " | ".join(avoid_items[:5]))
-    if style_bits:
+    if style_bits and not live_interaction:
         context_bits.append("Gesprächsstil: " + "; ".join(style_bits))
     memory_lines = _memorial_memory_context_lines(
         slug=slug or _text(payload.get("slug"), ""),
@@ -3453,13 +3458,13 @@ def _build_memorial_chat_messages(
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
     )
     memory_axis_context = _memorial_memory_axis_context(memory_lines)
-    if memory_axis_context["style"]:
+    if memory_axis_context["style"] and not live_interaction:
         context_bits.append("Stilgedaechtnis: " + " | ".join(memory_axis_context["style"][:3]))
-    if memory_axis_context["episodic"]:
+    if memory_axis_context["episodic"] and not live_interaction:
         context_bits.append("Erinnerungsgedaechtnis: " + " | ".join(memory_axis_context["episodic"][:3]))
-    if memory_axis_context["legal"]:
+    if memory_axis_context["legal"] and not live_interaction:
         context_bits.append("Grundsatzgedaechtnis: " + " | ".join(memory_axis_context["legal"][:3]))
-    if memory_axis_context["general"] and not (memory_axis_context["style"] or memory_axis_context["episodic"] or memory_axis_context["legal"]):
+    if (not live_interaction) and memory_axis_context["general"] and not (memory_axis_context["style"] or memory_axis_context["episodic"] or memory_axis_context["legal"]):
         label = "Eigene archivierte Erinnerungen und Mails" if has_imported_mail else "Eigene archivierte Erinnerungen"
         context_bits.append(label + ": " + " | ".join(memory_axis_context["general"][:4]))
     if not has_imported_mail and any(token in normalized_question.lower() for token in ("mail", "email", "e-mail", "schreibstil", "schriftlich")):
@@ -3467,14 +3472,16 @@ def _build_memorial_chat_messages(
             "Wichtiger Provenienzhinweis: Es liegen derzeit keine importierten Originalmails vor. "
             "Aussagen zum Schreibstil duerfen sich nur auf Memorial-Profil, Interviews, oeffentliche Quellen und Familienkontext stuetzen."
         )
-    memory_axis_instruction = _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
+    memory_axis_instruction = "" if live_interaction else _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
     if memory_axis_instruction:
         context_bits.append("Antwortfokus: " + memory_axis_instruction)
-    if _is_memorial_live_interaction_question(normalized_question):
+    if live_interaction:
         context_bits.append(
             "Antwortmodus: gegenwaertige Live-Interaktion. "
-            "Reagiere direkt auf die aktuelle Ansprache oder den aktuellen Spielzug. "
-            "Keine Archivvorlesung, keine Mailzusammenfassung, keine rueckblickende Einleitung."
+            "Reagiere auf die aktuelle Ansprache oder den aktuellen Spielzug statt auf Archivmaterial. "
+            "Wenn der Nutzer ein Spiel oder eine laufende Aktivitaet beginnt, setze genau dort fort. "
+            "Bei Schach: lies den letzten Zug sauber, bewerte die Stellung knapp und antworte mit einem legalen plausiblen Zug in knapper Notation oder mit einer kurzen Rueckfrage, falls der Zug unklar ist. "
+            "Keine Archivvorlesung, keine Familienerinnerung, keine Mailzusammenfassung, keine rueckblickende Einleitung."
         )
     personal_lines = _personal_memory_context_lines(
         slug=slug or _text(payload.get("slug"), ""),
@@ -3563,6 +3570,8 @@ def _memorial_memory_context_lines(
 ) -> list[str]:
     normalized_slug = _text(slug or payload.get("slug"), "")
     if memory_runtime is None or not normalized_slug:
+        return []
+    if _is_memorial_live_interaction_question(question):
         return []
     _ensure_memorial_memory_seeded(
         slug=normalized_slug,
@@ -4123,7 +4132,7 @@ def _build_memorial_conversation_turn_payload(
     transcript_text = _text(transcript_payload.get("transcript_text"))
     if not transcript_text:
         raise HTTPException(status_code=400, detail="speech_transcription_empty")
-    selected_model = _resolve_memorial_voice_chat_model(payload, private_profile)
+    selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
     answer_payload = _memorial_chat_answer(
         payload,
         transcript_text,
@@ -6104,7 +6113,7 @@ def _memorial_html(
             listening: "listening",
             transcribing: "transcribing",
             thinking: "thinking",
-            speaking: "thinking",
+            speaking: "speaking",
           }}[phase] || "working";
           setSpeechStatus(detail || "Realtime aktiv.", mapped, detail || "Live-Session");
           return;
@@ -6120,6 +6129,10 @@ def _memorial_html(
           realtimeTurnData.answer = normalizeTranscriptText(payload.text || "");
           realtimeTurnData.sources = Array.isArray(payload.sources) ? payload.sources : [];
           realtimeTurnData.llm_model = String(payload.llm_model || "");
+          const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
+          if (looksLiveInteractionTurn(transcript)) {{
+            setSpeechStatus("Antwort kommt gleich.", "working", "Direkte Antwort");
+          }}
           return;
         }}
         if (type === "audio_chunk") {{
@@ -6128,7 +6141,9 @@ def _memorial_html(
           realtimeTurnData.audio_chunks.push(String(payload.audio_base64 || ""));
           const part = Math.max(1, Number(payload.part || 1));
           const total = Math.max(part, Number(payload.total_parts || part));
-          setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio " + part + "/" + total + " wird vorbereitet");
+          const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
+          const detail = looksLiveInteractionTurn(transcript) ? ("Direkte Antwort " + part + "/" + total) : ("Antwort " + part + "/" + total);
+          setSpeechStatus("Manfred antwortet ...", "speaking", detail);
           return;
         }}
         if (type === "audio_complete") {{
@@ -6529,6 +6544,14 @@ def _memorial_html(
           lowered.startsWith("ich will ");
         if (!looksDirected) return false;
         return true;
+      }}
+      function looksLiveInteractionTurn(transcript) {{
+        const lowered = normalizeConversationCompareText(transcript || "");
+        if (!lowered) return false;
+        if (/(^| )(schach|zug|rochade|matt|schachmatt)( |$)/.test(lowered)) return true;
+        if (/(^| )(spiele|spielen|spiel|rede|sprich)( |$)/.test(lowered) && /(mit dir|gegen dich|mit mir)/.test(lowered)) return true;
+        if (/\b[a-h][1-8]\b/.test(lowered)) return true;
+        return false;
       }}
       function stopSpeechPlayback() {{
         speakingOverlayPreview = "";
@@ -7879,8 +7902,13 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
-            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": "Manfred formuliert"})
-            selected_model = _resolve_memorial_voice_chat_model(payload, private_profile)
+            phase_detail = "Manfred formuliert"
+            if _is_memorial_live_interaction_question(transcript_text):
+                phase_detail = "Manfred antwortet direkt"
+            elif _is_memorial_ooda_question(transcript_text):
+                phase_detail = "Komplizierte Frage. Manfred ordnet erst die Sache"
+            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail})
+            selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
             answer_payload = await asyncio.to_thread(
                 _memorial_chat_answer,
                 payload,
@@ -7913,7 +7941,10 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
-            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": "Audio wird ausgeliefert"})
+            speaking_detail = "Audio wird ausgeliefert"
+            if _is_memorial_live_interaction_question(transcript_text):
+                speaking_detail = "Manfred antwortet"
+            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail})
             base_config = _load_voice_config(slug)
             merged_config = dict(base_config)
             if current_voice_ab_variant in {"a", "b"}:
