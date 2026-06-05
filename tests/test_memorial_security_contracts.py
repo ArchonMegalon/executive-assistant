@@ -160,6 +160,7 @@ def test_public_voice_ab_payload_hides_raw_voice_ids(
     assert all(set(item.keys()) <= {"id", "label", "description"} for item in body["variants"])
     assert "voice-a-private" not in json.dumps(body)
     assert "voice-b-private" not in json.dumps(body)
+    assert set(body["pool"].keys()) == {"needs_new_clone", "remaining_challenger_count", "current_index", "active", "next_challenger"}
 
 
 def test_public_voice_ab_approval_requires_personal_memory_opt_in(
@@ -263,6 +264,23 @@ def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
     stored_ratings = json.loads((voice_ab_root / "ratings.json").read_text(encoding="utf-8"))
     assert stored_ratings["round"] == 2
     assert stored_ratings["rounds"][0]["winner"] == "a"
+
+
+def test_public_voice_ab_admin_requires_write_access(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-voice-admin")
+    response = client.get(f"/memorials/{slug}/voice-ab-admin")
+
+    assert response.status_code in {403, 503}
 
 
 def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(

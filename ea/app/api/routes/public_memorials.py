@@ -965,6 +965,50 @@ def _save_voice_ab_pool(slug: str, payload: dict[str, object]) -> None:
     _write_json_atomic(path, payload)
 
 
+def _voice_ab_pool_status(slug: str) -> dict[str, object]:
+    pool = _load_voice_ab_pool(slug)
+    config = _load_voice_ab_config(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
+    active_a = next((item for item in variants if _text(item.get("id"), "") == "a"), {})
+    active_b = next((item for item in variants if _text(item.get("id"), "") == "b"), {})
+    active_ids = {
+        _text(active_a.get("tts_plugin_voice_id"), ""),
+        _text(active_b.get("tts_plugin_voice_id"), ""),
+    }
+    challengers = [dict(item) for item in pool.get("challengers", []) if isinstance(item, dict)]
+    remaining = [item for item in challengers if _text(item.get("voice_id"), "") and _text(item.get("voice_id"), "") not in active_ids]
+    current_index = int(pool.get("current_index", 0) or 0)
+    next_challenger = None
+    if remaining:
+        total = len(challengers)
+        for offset in range(total):
+            index = (current_index + offset) % total
+            candidate = challengers[index]
+            candidate_voice_id = _text(candidate.get("voice_id"), "")
+            if candidate_voice_id and candidate_voice_id not in active_ids:
+                next_challenger = {
+                    "label": _text(candidate.get("label"), "Stimme B · challenger"),
+                    "description": _text(candidate.get("description"), ""),
+                }
+                break
+    return {
+        "needs_new_clone": not bool(remaining),
+        "remaining_challenger_count": len(remaining),
+        "current_index": current_index,
+        "active": {
+            "a": {
+                "label": _text(active_a.get("label"), "Stimme A"),
+                "description": _text(active_a.get("description"), ""),
+            },
+            "b": {
+                "label": _text(active_b.get("label"), "Stimme B"),
+                "description": _text(active_b.get("description"), ""),
+            },
+        },
+        "next_challenger": next_challenger,
+    }
+
+
 def _voice_ab_variant_choice(
     *,
     slug: str,
@@ -7389,6 +7433,7 @@ async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
             "totals": ratings.get("effective_totals", ratings.get("totals", {})),
             "raw_totals": ratings.get("totals", {}),
             "round": int(ratings.get("round", 1) or 1),
+            "pool": _voice_ab_pool_status(slug),
         }
     )
 
@@ -7422,7 +7467,29 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
             "totals": ratings.get("effective_totals", ratings.get("totals", {})),
             "raw_totals": ratings.get("totals", {}),
             "round": int(ratings.get("round", 1) or 1),
+            "pool": _voice_ab_pool_status(slug),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
+        }
+    )
+
+
+@router.get("/memorials/{slug}/voice-ab-admin")
+async def public_memorial_voice_ab_admin(slug: str, request: Request) -> JSONResponse:
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    ratings = _load_voice_ab_ratings(slug)
+    pool = _load_voice_ab_pool(slug)
+    return JSONResponse(
+        {
+            "round": int(ratings.get("round", 1) or 1),
+            "totals": ratings.get("effective_totals", ratings.get("totals", {})),
+            "raw_totals": ratings.get("totals", {}),
+            "rounds": ratings.get("rounds", []),
+            "pool": _voice_ab_pool_status(slug),
+            "pool_config": {
+                "current_index": int(pool.get("current_index", 0) or 0),
+                "challenger_count": len([item for item in pool.get("challengers", []) if isinstance(item, dict)]),
+            },
         }
     )
 
