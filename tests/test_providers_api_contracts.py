@@ -7045,6 +7045,57 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert asset.headers["content-type"].startswith("image/jpeg")
 
 
+def test_public_tour_routes_render_pdf_floorplan_scenes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "auction-floorplan-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "floorplan-01.pdf").write_bytes(b"%PDF-1.7 floorplan")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Auction Floorplan Tour",
+                "display_title": "Auction Floorplan Tour",
+                "variant_key": "layout_first",
+                "variant_label": "floorplan",
+                "scene_count": 1,
+                "listing_url": "https://edikte2.justiz.gv.at/example",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "facts": {"area_sqm": 126.5, "address_lines": ["1020 Vienna"], "has_floorplan": True},
+                "brief": {"tour_style": "hosted floorplan review"},
+                "scenes": [
+                    {
+                        "name": "Valuation PDF",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.pdf",
+                        "mime_type": "application/pdf",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour")
+
+    page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
+    assert page.status_code == 200
+    assert f"/tours/files/{slug}/floorplan-01.pdf" in page.text
+    assert 'id="stage-frame"' in page.text
+    assert "thumb-doc" in page.text
+    assert '"mime_type": "application/pdf"' in page.text
+
+    asset = client.get(f"/tours/files/{slug}/floorplan-01.pdf")
+    assert asset.status_code == 200
+    assert asset.headers["content-type"].startswith("application/pdf")
+
+
 def test_public_results_no_longer_shadow_tour_routes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -1486,6 +1486,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                     else str(scene.get("image_url") or "").strip()
                 ),
                 "role": str(scene.get("role") or "photo").strip(),
+                "mime_type": str(scene.get("mime_type") or "").strip(),
                 "source_url": "" if is_pure_360_cube else str(scene.get("source_url") or "").strip(),
                 "cube_faces": {
                     key: f"/tours/files/{slug}/{str(value or '').strip()}"
@@ -2991,13 +2992,20 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         min-height: 420px;
         border: 1px solid rgba(29,28,26,0.15);
       }}
-      .viewer img {{
+      .viewer img,
+      .viewer iframe {{
         width: 100%;
         height: 72vh;
         max-height: 760px;
         min-height: 420px;
-        object-fit: contain;
         display: block;
+        border: 0;
+      }}
+      .viewer img {{
+        object-fit: contain;
+      }}
+      .viewer iframe {{
+        background: #fff;
       }}
       .caption {{
         position: absolute;
@@ -3059,6 +3067,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         height: 104px;
         object-fit: cover;
         display: block;
+      }}
+      .thumb-doc {{
+        min-height: 104px;
+        display: grid;
+        place-items: center;
+        color: var(--ink);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(241,231,214,0.86));
       }}
       .badge {{
         position: absolute;
@@ -3140,6 +3157,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </div>
         <div id="viewer" class="viewer">
           <img id="stage-image" src="{html.escape(scene_data[0]['image_url'])}" alt="{html.escape(scene_data[0]['name'])}">
+          <iframe id="stage-frame" src="" title="{html.escape(scene_data[0]['name'])}" hidden></iframe>
           <div class="caption">
             <small id="stage-role">{html.escape(scene_data[0]['role'])}</small>
             <div id="stage-name">{html.escape(scene_data[0]['name'])}</div>
@@ -3157,6 +3175,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       const scenes = JSON.parse(document.getElementById("scene-data").textContent);
       let activeIndex = 0;
       const stageImage = document.getElementById("stage-image");
+      const stageFrame = document.getElementById("stage-frame");
       const stageName = document.getElementById("stage-name");
       const stageRole = document.getElementById("stage-role");
       const thumbs = document.getElementById("thumbs");
@@ -3175,7 +3194,10 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
           button.className = "thumb" + (index === activeIndex ? " active" : "");
           button.type = "button";
           if (activeRoleFilter !== "all" && scene.role !== activeRoleFilter) button.classList.add("hidden");
-          button.innerHTML = `<span class="badge">${{scene.role}}</span><img src="${{scene.image_url}}" alt="${{scene.name}}">`;
+          const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
+          button.innerHTML = isPdf
+            ? `<span class="badge">${{scene.role}}</span><span class="thumb-doc">PDF</span>`
+            : `<span class="badge">${{scene.role}}</span><img src="${{scene.image_url}}" alt="${{scene.name}}">`;
           button.addEventListener("click", () => setActive(index));
           thumbs.appendChild(button);
         }});
@@ -3183,8 +3205,18 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       function setActive(index) {{
         activeIndex = (index + scenes.length) % scenes.length;
         const scene = scenes[activeIndex];
-        stageImage.src = scene.image_url;
-        stageImage.alt = scene.name;
+        const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
+        if (isPdf) {{
+          stageFrame.src = scene.image_url;
+          stageFrame.title = scene.name;
+          stageFrame.hidden = false;
+          stageImage.hidden = true;
+        }} else {{
+          stageImage.src = scene.image_url;
+          stageImage.alt = scene.name;
+          stageImage.hidden = false;
+          stageFrame.hidden = true;
+        }}
         stageName.textContent = scene.name;
         stageRole.textContent = scene.role;
         renderThumbs();
@@ -3222,7 +3254,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         autoplayButton.textContent = "Stop Autoplay";
         autoplayHandle = setInterval(() => shiftVisible(1), 2600);
       }});
-      renderThumbs();
+      setActive(0);
     </script>
   </body>
 </html>"""

@@ -7442,6 +7442,138 @@ def _download_public_tour_asset(url: str, target: Path) -> None:
     target.write_bytes(data)
 
 
+def _download_public_tour_asset_with_type(url: str, target: Path) -> str:
+    request = urllib.request.Request(str(url), headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT})
+    with urllib.request.urlopen(request, timeout=180) as response:
+        data = response.read()
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    if not data:
+        raise RuntimeError("tour_asset_empty")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return content_type
+
+
+def _hosted_property_tour_asset_suffix(*, url: str, content_type: str) -> str:
+    guessed = mimetypes.guess_extension(str(content_type or "").split(";", 1)[0].strip())
+    if guessed:
+        return guessed
+    suffix = Path(urllib.parse.urlparse(str(url or "")).path).suffix.lower()
+    return suffix or ".bin"
+
+
+def _write_hosted_floorplan_property_tour_bundle(
+    *,
+    principal_id: str,
+    title: str,
+    listing_id: str,
+    property_url: str,
+    variant_key: str,
+    floorplan_urls: list[str] | tuple[str, ...],
+    property_facts_json: dict[str, object],
+    source_host: str,
+    source_ref: str = "",
+    external_id: str = "",
+    recipient_email: str = "",
+) -> dict[str, object]:
+    normalized_urls = [
+        _safe_live_property_tour_url(value)
+        for value in list(floorplan_urls or [])
+        if _safe_live_property_tour_url(value)
+    ]
+    if not normalized_urls:
+        raise RuntimeError("floorplan_assets_missing")
+    base_url = _property_public_tour_base_url()
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    bundle_dir = public_dir / slug
+    staging_dir = public_dir / f".{slug}.tmp-{uuid4().hex}"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    scenes: list[dict[str, object]] = []
+    try:
+        for ordinal, asset_url in enumerate(normalized_urls[:12], start=1):
+            try:
+                suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type="")
+                if suffix.lower() not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+                    suffix = ".pdf"
+                relpath = f"floorplan-{ordinal:02d}{suffix}"
+                content_type = _download_public_tour_asset_with_type(asset_url, staging_dir / relpath)
+                suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
+                if suffix and not relpath.endswith(suffix):
+                    corrected_relpath = f"floorplan-{ordinal:02d}{suffix}"
+                    (staging_dir / relpath).rename(staging_dir / corrected_relpath)
+                    relpath = corrected_relpath
+                scenes.append(
+                    {
+                        "ordinal": ordinal,
+                        "name": f"Floorplan {ordinal}",
+                        "role": "floorplan",
+                        "asset_relpath": relpath,
+                        "source_url": asset_url,
+                        "property_url": property_url,
+                        "mime_type": content_type or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
+                    }
+                )
+            except Exception:
+                continue
+        if not scenes:
+            raise RuntimeError("floorplan_assets_unavailable")
+        facts = dict(property_facts_json or {})
+        existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
+        existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
+        facts.update(
+            {
+                "has_floorplan": True,
+                "floorplan_count": max(int(facts.get("floorplan_count") or 0), len(scenes)),
+                "floorplan_urls_json": normalized_urls,
+                "tour_media_mode": "floorplan_hosted",
+                "address_lines": existing_address_lines or ([source_host] if source_host else []),
+                "teaser_attributes": existing_teasers or ["Hosted floorplan review", f"{len(scenes)} floorplan document(s)"],
+            }
+        )
+        display_title = compact_text(title, fallback="Property Floorplan Tour", limit=180)
+        payload = {
+            "slug": slug,
+            "hosted_url": f"{base_url}/{slug}",
+            "public_url": f"{base_url}/{slug}",
+            "principal_id": str(principal_id or "").strip(),
+            "listing_url": property_url,
+            "property_url": property_url,
+            "source_ref": str(source_ref or "").strip(),
+            "external_id": str(external_id or "").strip(),
+            "recipient_email": str(recipient_email or "").strip().lower(),
+            "title": f"{display_title} - floorplan tour",
+            "display_title": display_title,
+            "tour_title": f"{display_title} - floorplan tour",
+            "tour_id": None,
+            "variant_key": variant_key,
+            "variant_label": "floorplan",
+            "scene_strategy": "floorplan_hosted",
+            "scene_count": len(scenes),
+            "facts": facts,
+            "brief": {
+                "theme_name": "clean_light",
+                "tour_style": "hosted_floorplan_review",
+                "audience": "property_screening",
+                "creative_brief": "Render source floorplan documents directly inside the PropertyQuarry hosted tour page.",
+                "call_to_action": "Review the floorplan.",
+            },
+            "editor_url": "",
+            "crezlo_public_url": "",
+            "scenes": scenes,
+            "generated_at": _now_iso(),
+            "creation_mode": "hosted_floorplan_tour",
+        }
+        if bundle_dir.exists():
+            shutil.rmtree(bundle_dir)
+        staging_dir.rename(bundle_dir)
+        (bundle_dir / "tour.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
+
 def _write_hosted_feelestate_pure_360_property_tour_bundle(
     *,
     principal_id: str,
@@ -14720,6 +14852,66 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "pure_360_assets_unavailable"
+            if source_floorplan_urls and blocked_reason in {
+                "crezlo_property_tour_not_configured",
+                "browseract_connector_unconfigured",
+                "listing_media_missing",
+                "property_tour_execution_failed",
+                "pure_360_assets_unavailable",
+            }:
+                try:
+                    structured_output = _write_hosted_floorplan_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        floorplan_urls=source_floorplan_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "floorplan_hosted",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_floorplan_tour",
+                        "upstream_blocked_reason": blocked_reason,
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="willhaben_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    blocked_reason = "floorplan_assets_unavailable"
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,
@@ -15373,6 +15565,66 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "pure_360_assets_unavailable"
+            if source_floorplan_urls and blocked_reason in {
+                "crezlo_property_tour_not_configured",
+                "browseract_connector_unconfigured",
+                "listing_media_missing",
+                "property_tour_execution_failed",
+                "pure_360_assets_unavailable",
+            }:
+                try:
+                    structured_output = _write_hosted_floorplan_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        floorplan_urls=source_floorplan_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": resolved_binding_id,
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "floorplan_hosted",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_floorplan_tour",
+                        "upstream_blocked_reason": blocked_reason,
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    blocked_reason = "floorplan_assets_unavailable"
             followup = self._open_property_tour_followup(
                 principal_id=principal_id,
                 property_url=normalized_url,

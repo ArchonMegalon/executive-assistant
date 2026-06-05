@@ -5805,6 +5805,75 @@ def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_
     assert created.json()["tour_url"] == "https://myexternalbrain.com/tours/projected-crezlo-apartment"
 
 
+def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "tours"))
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
+    principal_id = "cf-email:tibor.girschele@gmail.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+
+    property_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/alldoc/9832128b166ce886c1258e060031ed92!OpenDocument"
+    floorplan_url = "https://edikte2.justiz.gv.at/edikte/ex/exedi3.nsf/0/example/$file/Gutachten.pdf"
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "title": "BG Leopoldstadt, 082 25 E 89/25g",
+            "summary": "Rotensterngasse 21 | 082 25 E",
+            "listing_id": property_url,
+            "media_urls_json": [],
+            "floorplan_urls_json": [floorplan_url],
+            "property_facts_json": {
+                "area_sqm": 126.59,
+                "has_floorplan": True,
+                "floorplan_count": 1,
+                "floorplan_urls_json": [floorplan_url],
+                "provider_channel": "justiz_edikte_at",
+                "sale_channel": "judicial_auction",
+                "address_lines": ["Rotensterngasse 21", "1020 Vienna"],
+            },
+        },
+    )
+
+    def _fake_download(url: str, target: Path) -> str:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"%PDF-1.7 fake floorplan")
+        return "application/pdf"
+
+    monkeypatch.setattr(product_service, "_download_public_tour_asset_with_type", _fake_download)
+
+    def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
+        assert request.input_json["floorplan_urls_json"] == [floorplan_url]
+        raise RuntimeError("crezlo_api_http_error:500:{\"error\":\"upstream unavailable\"}")
+
+    client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+
+    created = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={
+            "property_url": property_url,
+            "binding_id": "browseract-binding-projected-1",
+            "source_ref": f"property-scout:{property_url}",
+            "auto_deliver": False,
+        },
+    )
+
+    assert created.status_code == 200
+    body = created.json()
+    assert body["status"] == "created"
+    assert body["tour_media_mode"] == "floorplan_hosted"
+    assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
+    slug = body["tour_url"].rstrip("/").split("/")[-1]
+    manifest = json.loads(((tmp_path / "tours" / slug) / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["creation_mode"] == "hosted_floorplan_tour"
+    assert manifest["scenes"][0]["mime_type"] == "application/pdf"
+
+
 def test_property_tour_binding_bootstraps_crezlo_metadata_from_runtime_state(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:tibor.girschele@gmail.com"
     client = build_product_client(principal_id=principal_id)

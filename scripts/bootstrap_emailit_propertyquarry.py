@@ -160,7 +160,7 @@ def main() -> int:
         raise SystemExit("EMAILIT_API_KEY is missing.")
 
     domain = _ensure_domain(api_key=api_key, domain_name=str(args.domain or "").strip())
-    if args.verify and not _dns_ready(domain):
+    if args.verify and (not str(domain.get("verified_at") or "").strip() or not _dns_ready(domain)):
         domain = _verify_domain(api_key=api_key, domain_id=str(domain.get("id") or "").strip())
 
     print(f"domain_id={str(domain.get('id') or '').strip()}")
