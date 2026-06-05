@@ -2,25 +2,25 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 1</div>
-      <h2>Choose the office shape this product will support.</h2>
+      <h2>Choose the property workflow this workspace should support.</h2>
     </div>
-    <p class="step-context">Pick the option that matches the real daily rhythm. The right choice is about how commitments, approvals, and handoffs behave, not what the org chart says.</p>
+    <p class="step-context">Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.</p>
   </div>
 
   <div class="mode-grid">
     <div class="mode-card">
       <strong>Personal</strong>
-      <p class="copy">Best when one person wants a memo, a decision queue, and visible commitments across their own tools.</p>
+      <p class="copy">Best when one person is driving the search and wants one profile, one shortlist, and one feedback loop.</p>
       <button class="btn ghost" type="button" data-set-mode="personal">Use solo workspace</button>
     </div>
     <div class="mode-card">
       <strong>Shared workspace</strong>
-      <p class="copy">Best when a small team shares the same incoming work, the same review queue, or the same commitment list.</p>
+      <p class="copy">Best when a couple, family, or small team needs the same shortlist, shared comments, and coordinated review decisions.</p>
       <button class="btn ghost" type="button" data-set-mode="team">Use shared workspace</button>
     </div>
     <div class="mode-card">
-      <strong>Executive support</strong>
-      <p class="copy">Best when one executive needs heavier review, more context, and more explicit commitment management around stakeholder work.</p>
+      <strong>Concierge search</strong>
+      <p class="copy">Best when the search needs heavier research, more follow-up, and more explicit delivery to clients, family members, or other stakeholders.</p>
       <button class="btn ghost" type="button" data-set-mode="executive_ops">Use executive support</button>
     </div>
   </div>
@@ -30,16 +30,16 @@
     <div class="field-grid two">
       <div>
         <label for="workspace_name">Workspace name</label>
-        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'Executive Workspace' }}" required>
+        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'PropertyQuarry Workspace' }}" required>
       </div>
       <div>
       <label for="workspace_mode">Workspace type</label>
       <select id="workspace_mode" name="workspace_mode">
           <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
           <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
-          <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Executive support</option>
+          <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Concierge search</option>
       </select>
-        <div class="field-help">You can change this later. It helps the product start with the right memo and review posture.</div>
+        <div class="field-help">You can change this later. It helps the product start with the right review depth and collaboration posture.</div>
       </div>
     </div>
     <div class="field-grid two">
@@ -59,22 +59,22 @@
       </div>
       <div>
         <label>Activation path</label>
-        <div class="field-help">Keep the first loop narrow: workspace, Google, first memo, first review. Messaging can wait until value is obvious.</div>
+        <div class="field-help">Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.</div>
       </div>
     </div>
     <input type="hidden" name="selected_channels" value="google">
     <div class="finish-grid">
       <div class="finish-card">
-        <strong>Google is the default first connection</strong>
-        Email, calendar, and people context are enough to prove whether the memo, draft queue, and commitment loop are useful.
+      <strong>Google is optional and narrow</strong>
+        Account creation and a saved property brief are enough to prove whether the product is useful. Broader Google scope is not the default.
       </div>
       <div class="finish-card">
-        <strong>Messaging comes later</strong>
-        Telegram and WhatsApp are post-activation decisions, not required setup before the product has earned trust.
+      <strong>Notifications come later</strong>
+        Email alerts and other delivery lanes are post-activation decisions, not required setup before the product has earned trust.
       </div>
     </div>
     <div class="wizard-actions">
-      <div class="callout">If you are unsure, choose personal, keep Google checked, and move on. The first useful memo matters more than perfect setup.</div>
+      <div class="callout">If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.</div>
       <div class="right">
         <button class="btn primary" type="submit">Save workspace and continue</button>
       </div>

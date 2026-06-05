@@ -421,7 +421,7 @@ def app_channel_digest(
         "console_shell.html",
         **_console_shell_context(
             request=request,
-            page_title=f"Executive Assistant {str(digest.get('headline') or 'Channel digest')}",
+            page_title=f"PropertyQuarry {str(digest.get('headline') or 'Channel digest')}",
             current_nav="today",
             context=context,
             console_title=str(digest.get("headline") or "Channel digest"),
@@ -434,7 +434,7 @@ def app_channel_digest(
                 if part
             ),
             nav_groups=APP_NAV_GROUPS,
-            workspace_label=str(workspace.get("name") or "Executive Workspace"),
+            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
             cards=[
                 {
                     "eyebrow": "Channel digest",

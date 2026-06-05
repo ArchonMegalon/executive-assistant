@@ -354,8 +354,9 @@ def test_propertyquarry_failed_run_stays_on_activity_surface(monkeypatch) -> Non
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     page = client.get("/app/properties", params={"run_id": "run-failed"}, headers=headers)
     assert page.status_code == 200
-    assert 'data-pqx-state="run_terminal"' in page.text
-    assert "Search stopped before results." in page.text
+    assert 'data-pqx-state="empty_results"' in page.text
+    assert "The search did not finish cleanly." in page.text
+    assert "Source scan result" in page.text
     assert "Provider returned 403 while fetching Willhaben." in page.text
     assert "Run activity" in page.text
     assert 'data-workbench-brief-drawer' not in page.text

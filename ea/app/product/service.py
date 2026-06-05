@@ -246,6 +246,7 @@ _PROPERTY_SCOUT_360_HOST_MARKERS = (
     "feelestate.com",
 )
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 6 * 60 * 60
+_PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
@@ -256,6 +257,7 @@ _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
 _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
+_PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "failed", "cancelled", "noop"}
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -346,6 +348,27 @@ def _property_search_run_expired(at_iso: str, *, ttl_seconds: int = _PROPERTY_SE
     if parsed is None:
         return True
     return (datetime.now(timezone.utc) - parsed).total_seconds() > float(ttl_seconds)
+
+
+def _property_search_run_stale_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS") or "").strip()
+    if not raw_value:
+        return _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS
+    return max(60, min(parsed, 24 * 60 * 60))
+
+
+def _property_search_run_is_stale(state: dict[str, object]) -> bool:
+    status = str(state.get("status") or "").strip().lower()
+    if not status or status in _PROPERTY_SEARCH_TERMINAL_STATUSES or status == "initialization_required":
+        return False
+    parsed = _parse_utcish(str(state.get("updated_at") or state.get("created_at") or ""))
+    if parsed is None:
+        return True
+    return (datetime.now(timezone.utc) - parsed).total_seconds() > float(_property_search_run_stale_seconds())
 
 
 def _property_search_run_default_summary(property_preferences: dict[str, object] | None = None) -> dict[str, object]:
@@ -14946,6 +14969,27 @@ class ProductService:
             return None
         if str(state.get("principal_id") or "").strip() != normalized_principal:
             return None
+        if _property_search_run_is_stale(dict(state)):
+            stale_seconds = _property_search_run_stale_seconds()
+            self._record_property_search_run_event(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+                step="run_interrupted",
+                message=(
+                    f"This search stopped updating for more than {int(stale_seconds / 60)} minutes. "
+                    "Start a new search to retry the same brief."
+                ),
+                status="failed",
+                steps_delta=0,
+                summary_updates={
+                    "interrupted": True,
+                    "stale_after_seconds": stale_seconds,
+                    "last_known_status": str(state.get("status") or "").strip().lower(),
+                },
+                force_status="failed",
+            )
+            with _PROPERTY_SEARCH_RUN_LOCK:
+                state = dict(_PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id) or state)
         state = self._maybe_advance_property_search_run_finalization(
             principal_id=normalized_principal,
             run_id=normalized_run_id,
@@ -14995,7 +15039,7 @@ class ProductService:
                     int(stages_total_override),
                 )
             stages_total = max(1, int(state.get("stages_total") or _PROPERTY_SEARCH_RUN_STAGES))
-            if updated_status in {"processed", "completed", "failed", "cancelled", "noop"}:
+            if updated_status in _PROPERTY_SEARCH_TERMINAL_STATUSES:
                 state["steps_completed"] = stages_total
                 state["progress"] = 100
             else:
@@ -15384,17 +15428,44 @@ class ProductService:
                     run_id=run_id,
                     result=refreshed_summary,
                 )
+                self._record_property_search_run_event(
+                    run_id=run_id,
+                    principal_id=principal_id,
+                    step="results_email_sent",
+                    message="The final results email was sent. Refreshing this page will continue to show the completed result desk.",
+                    status="processed",
+                    steps_delta=0,
+                    force_status="processed",
+                )
             except Exception as exc:
+                error_message = compact_text(
+                    str(exc or "property search results email failed"),
+                    fallback="property search results email failed",
+                    limit=280,
+                )
                 self._record_product_event(
                     principal_id=principal_id,
                     event_type="property_search_results_ready_email_failed",
                     payload={
                         "run_id": run_id,
-                        "error": compact_text(str(exc or "property search results email failed"), fallback="property search results email failed", limit=280),
+                        "error": error_message,
                     },
                     source_id=run_id,
                     dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email-failed",
                 )
+                self._record_property_search_run_event(
+                    run_id=run_id,
+                    principal_id=principal_id,
+                    step="results_email_failed",
+                    message=f"The result page is ready, but the final email could not be sent: {error_message}",
+                    status="processed",
+                    steps_delta=0,
+                    force_status="processed",
+                )
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            latest_state = _PROPERTY_SEARCH_RUN_REGISTRY.get(str(run_id or "").strip())
+            if isinstance(latest_state, dict):
+                state = dict(latest_state)
         return state
 
     def _property_search_results_delivery_pending(self, *, result: dict[str, object]) -> bool:
@@ -15447,10 +15518,43 @@ class ProductService:
                 force_status="processed",
             )
             if not self._property_search_results_delivery_pending(result=latest_result):
-                self._notify_property_search_results_ready(
-                    principal_id=principal_id,
+                try:
+                    self._notify_property_search_results_ready(
+                        principal_id=principal_id,
+                        run_id=run_id,
+                        result=latest_result,
+                    )
+                except Exception as exc:
+                    error_message = compact_text(
+                        str(exc or "property search results email failed"),
+                        fallback="property search results email failed",
+                        limit=280,
+                    )
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_search_results_ready_email_failed",
+                        payload={"run_id": run_id, "error": error_message},
+                        source_id=str(run_id or "").strip(),
+                        dedupe_key=f"{principal_id}|{run_id}|property-search-results-ready-email-failed",
+                    )
+                    self._record_property_search_run_event(
+                        run_id=run_id,
+                        principal_id=principal_id,
+                        step="results_email_failed",
+                        message=f"The result page is ready, but the final email could not be sent: {error_message}",
+                        status="processed",
+                        steps_delta=0,
+                        force_status="processed",
+                    )
+                    return
+                self._record_property_search_run_event(
                     run_id=run_id,
-                    result=latest_result,
+                    principal_id=principal_id,
+                    step="results_email_sent",
+                    message="The final results email was sent. Refreshing this page will continue to show the completed result desk.",
+                    status="processed",
+                    steps_delta=0,
+                    force_status="processed",
                 )
                 return
             waiting_recorded = True

@@ -683,6 +683,7 @@ def app_section_payload(
         property_plan_max_match_score = max(1, min(100, int(property_state.get("commercial", {}).get("max_match_score") or 45)))
     except Exception:
         property_plan_max_match_score = 45
+    property_visible_max_match_score = 80
     try:
         property_results_value = int(property_preferences.get("max_results_per_source") or property_plan_max_results)
     except Exception:
@@ -696,6 +697,11 @@ def app_section_payload(
     property_min_match_tooltip = (
         "Minimum personal fit score a listing must beat before it can enter the shortlist. "
         "Raising it usually improves precision, but can make searches much slower and increases backend crawl and scoring load."
+    )
+    property_min_match_upgrade_hint = (
+        f"Current plan cap {property_plan_max_match_score}; Agent unlocks {property_visible_max_match_score}."
+        if property_plan_max_match_score < property_visible_max_match_score
+        else ""
     )
     property_form = {
         "variant": "property_search",
@@ -834,9 +840,12 @@ def app_section_payload(
                 "label": "Match score",
                 "value": str(property_min_match_score_value),
                 "min": "1",
-                "max": str(property_plan_max_match_score),
+                "max": str(property_visible_max_match_score),
+                "selectable_max": str(property_plan_max_match_score),
+                "visual_max": str(property_visible_max_match_score),
                 "range_step": "1",
-                "suffix": "/100",
+                "suffix": f"/{property_visible_max_match_score}",
+                "upgrade_hint": property_min_match_upgrade_hint,
                 "tooltip": property_min_match_tooltip,
                 "step": "providers",
             },

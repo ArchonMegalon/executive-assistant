@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import app.product.service as product_service
 from app.product.service import ProductService
@@ -589,6 +590,36 @@ def test_property_search_run_status_snapshot_finishes_results_email_after_restar
     assert sent
     assert sent[0]["hosted_tour_total"] == 1
     assert status["summary"]["ready_tour_total"] == 1
+
+
+def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -> None:
+    principal_id = "cf-email:stale.run@example.com"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Stale Run Office")
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_STALE_SECONDS", "60")
+
+    container = client.app.state.container
+    service = product_service.build_product_service(container)
+    run_id = "run-stale-1"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "in_progress"
+    state["progress"] = 1
+    state["updated_at"] = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert status["status"] == "failed"
+    assert status["progress"] == 100
+    assert status["summary"]["interrupted"] is True
+    assert any(event["step"] == "run_interrupted" for event in status["events"])
 
 
 def test_property_search_run_status_survives_registry_loss_via_persisted_record(monkeypatch) -> None:

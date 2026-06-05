@@ -415,7 +415,7 @@ async def app_update_morning_memo_settings(
     workspace = dict(status.get("workspace") or {})
     container.onboarding.start_workspace(
         principal_id=context.principal_id,
-        workspace_name=_form_value(body, "workspace_name", str(workspace.get("name") or "Executive Workspace")),
+        workspace_name=_form_value(body, "workspace_name", str(workspace.get("name") or "PropertyQuarry Workspace")),
         workspace_mode=str(workspace.get("mode") or "personal"),
         region=str(workspace.get("region") or ""),
         language=_form_value(body, "language", str(workspace.get("language") or "en") or "en"),

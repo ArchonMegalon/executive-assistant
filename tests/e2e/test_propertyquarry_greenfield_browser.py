@@ -66,8 +66,59 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[d
     )
     assert stored.status_code == 200, stored.text
 
+    run_status_calls: dict[str, int] = {}
+
+    def _fake_empty_run_status(*, run_id: str, principal_id: str, processed: bool) -> dict[str, object]:
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed" if processed else "in_progress",
+            "generated_at": "2026-06-05T07:00:00+00:00",
+            "updated_at": "2026-06-05T07:01:00+00:00" if processed else "2026-06-05T07:00:15+00:00",
+            "progress": 100 if processed else 12,
+            "message": "No strong matches met the selected threshold." if processed else "Scanning cooperative providers.",
+            "summary": {
+                "sources_total": 2,
+                "listing_total": 14 if processed else 3,
+                "filtered_low_fit_total": 14 if processed else 0,
+                "high_fit_total": 0,
+                "high_match_min_score": 80,
+                "tour_created_total": 0,
+                "tour_existing_total": 0,
+                "sources": [
+                    {
+                        "source_label": "Genossenschaften Austria",
+                        "status": "scanned",
+                        "listing_total": 8 if processed else 2,
+                        "high_fit_total": 0,
+                        "filtered_low_fit_total": 8 if processed else 0,
+                    },
+                    {
+                        "source_label": "Justiz Edikte Austria",
+                        "status": "scanned",
+                        "listing_total": 6 if processed else 1,
+                        "high_fit_total": 0,
+                        "filtered_low_fit_total": 6 if processed else 0,
+                    },
+                ],
+            },
+            "events": [
+                {"step": "sources_resolved", "message": "Resolved 2 source(s) for scanning.", "status": "in_progress"},
+                {
+                    "step": "completed" if processed else "provider_scan",
+                    "message": "No strong matches met the selected threshold." if processed else "Scanning cooperative providers.",
+                    "status": "processed" if processed else "in_progress",
+                },
+            ],
+        }
+
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "pq-greenfield-browser"
+        if run_id == "run-active-empty":
+            calls = run_status_calls.get(run_id, 0)
+            run_status_calls[run_id] = calls + 1
+            return _fake_empty_run_status(run_id=run_id, principal_id=principal_id, processed=calls > 0)
         return {
             "run_id": run_id,
             "principal_id": principal_id,
@@ -311,6 +362,49 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
         context.close()
 
 
+def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_desk(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    page.add_init_script(
+        """
+        (() => {
+          try { Object.defineProperty(window, 'isSecureContext', { get: () => true, configurable: true }); } catch (_err) {}
+          window.localStorage.setItem('propertyquarry.browserNotifications.enabled', '1');
+          class FakeNotification {
+            static permission = 'granted';
+            static requestPermission = async () => 'granted';
+            constructor(title, options) {
+              window.localStorage.setItem('pq-test-notification-title', String(title || ''));
+              window.localStorage.setItem('pq-test-notification-body', String((options && options.body) || ''));
+              this.close = () => {};
+            }
+          }
+          try { Object.defineProperty(window, 'Notification', { value: FakeNotification, configurable: true }); }
+          catch (_err) { window.Notification = FakeNotification; }
+        })();
+        """
+    )
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "window.localStorage.getItem('propertyquarry.browserNotifications.run.run-active-empty.processed') === '1'",
+            timeout=7000,
+        )
+        page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
+        assert page.locator("[data-pqx-empty-results]", has_text="No strong matches met this brief").is_visible()
+        assert page.locator("[data-pqx-source-breakdown]", has_text="Genossenschaften Austria").is_visible()
+        assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
+        assert "0 high-fit matches" in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
+        _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
 def test_propertyquarry_shortlist_and_research_surfaces_do_not_bleed_text(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -368,11 +462,17 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
         match_slider = page.locator('input[name="min_match_score"]')
         assert match_slider.is_visible()
-        assert match_slider.get_attribute("max") == "45"
+        assert match_slider.get_attribute("max") == "80"
+        assert match_slider.get_attribute("data-range-selectable-max") == "45"
+        assert match_slider.get_attribute("data-range-visual-max") == "80"
         tooltip = match_slider.get_attribute("title") or ""
         assert "backend" in tooltip.lower()
         assert "slower" in tooltip.lower()
-        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/100"
+        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/80"
+        assert page.locator('[data-current-plan-cap]').filter(has_text="Plan cap 45").count() >= 1
+        match_slider.evaluate("(node) => { node.value = '80'; node.dispatchEvent(new Event('input', { bubbles: true })); }")
+        assert match_slider.input_value() == "45"
+        assert page.locator('[data-range-value-for="min_match_score"]').inner_text().strip() == "45/80"
     finally:
         context.close()
 

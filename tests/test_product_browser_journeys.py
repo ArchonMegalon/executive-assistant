@@ -324,8 +324,12 @@ def test_legacy_console_property_shell_renders_match_threshold_slider() -> None:
     assert 'data-console-form-variant="property_search"' in response.text
     assert 'name="min_match_score"' in response.text
     assert 'type="range"' in response.text
-    assert 'max="45"' in response.text
+    assert 'max="80"' in response.text
+    assert 'data-range-selectable-max="45"' in response.text
+    assert 'data-range-visual-max="80"' in response.text
     assert 'data-range-value-for="min_match_score"' in response.text
+    assert "Plan cap 45" in response.text
+    assert "Agent unlocks 80" in response.text
     assert "Minimum personal fit score" in response.text
     assert "backend crawl and scoring load" in response.text
     assert "min_match_score: integerValue(form, 'min_match_score')" in response.text

@@ -2,60 +2,60 @@
   <div class="panel hero-copy">
     <div>
       <div class="kicker">Get started</div>
-      <h1>Get to the first memo, first draft approval, and first visible commitment quickly.</h1>
-      <p class="lead">Keep the first run personal and narrow. Connect Google, prove one useful loop, and only then add shared review, extra channels, or deeper rules.</p>
+      <h1>Get to the first useful shortlist and first visible fit explanation quickly.</h1>
+      <p class="lead">Keep the first run narrow. Create the account, set the property brief, and only then widen provider coverage, paid research, or shared review.</p>
     </div>
     <div class="summary-strip">
       <div class="summary">
         <div class="label">Step 1</div>
-        <strong>Connect Google</strong>
+        <strong>Create the account</strong>
       </div>
       <div class="summary">
         <div class="label">Step 2</div>
-        <strong>Build the first morning memo</strong>
+        <strong>Run the first property search</strong>
       </div>
       <div class="summary">
         <div class="label">Step 3</div>
-        <strong>Review rules after first value</strong>
+        <strong>Refine the shortlist after first value</strong>
       </div>
     </div>
-    <p class="copy">The first activation goal is a useful memo, a visible queue, and one real commitment. Everything else can wait.</p>
+    <p class="copy">The first activation goal is a useful shortlist, visible fit reasons, and one real feedback loop. Everything else can wait.</p>
   </div>
 
   <aside class="panel onboarding-side">
     <div>
       <div class="kicker">Recommended path</div>
       <h2>Start simple.</h2>
-      <p class="copy">Most workspaces start with Google, one reviewable workflow, and no more channel complexity than they actually need in the first week.</p>
+      <p class="copy">Most workspaces should start with a single property brief, one ranked search run, and no more integration complexity than they actually need on day one.</p>
     </div>
     <div class="callout">
       <strong>Personal workspace first</strong>
-      One person, one memo, one commitment loop.
+      One person, one property brief, one shortlist.
     </div>
     <div class="callout">
       <strong>Add shared review later</strong>
-      Bring in an operator or teammate only after the first memo and queue already feel useful.
+      Bring in an operator or teammate only after the first shortlist and research packet already feel useful.
     </div>
     <div class="callout">
       <strong>Channels come after proof</strong>
-      Keep the first loop inside Gmail and Calendar until the morning memo, queue, and commitments are trustworthy.
+      Keep Google narrow and optional until account return access is enough to keep the product usable.
     </div>
     <div class="callout">
       <strong>What the first useful loop reveals</strong>
       {% if activation_preview.brief %}
-      <div class="copy">Memo: {{ activation_preview.brief|join(' · ') }}</div>
+      <div class="copy">Shortlist: {{ activation_preview.brief|join(' · ') }}</div>
       {% else %}
-      <div class="copy">Memo: connect Google, surface the first three items, and keep the scope narrow.</div>
+      <div class="copy">Shortlist: define one good search posture, rank a first sweep, and keep the scope narrow.</div>
       {% endif %}
       {% if activation_preview.queue %}
-      <div class="copy">Queue: {{ activation_preview.queue|join(' · ') }}</div>
+      <div class="copy">Next: {{ activation_preview.queue|join(' · ') }}</div>
       {% else %}
-      <div class="copy">Queue: get to one approval or decision that feels real.</div>
+      <div class="copy">Next: get to one useful review decision that feels real.</div>
       {% endif %}
       {% if activation_preview.commitments %}
-      <div class="copy">Commitments: {{ activation_preview.commitments|join(' · ') }}</div>
+      <div class="copy">Research: {{ activation_preview.commitments|join(' · ') }}</div>
       {% else %}
-      <div class="copy">Commitments: make one promise visible before widening setup.</div>
+      <div class="copy">Research: make one missing fact visible before widening setup.</div>
       {% endif %}
     </div>
   </aside>

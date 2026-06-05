@@ -6,12 +6,14 @@
 {% set brief = workbench.get('brief') or {} %}
 {% set recent_packets = workbench.get('recent_packets') or [] %}
 {% set run_status = (run.get('status') or 'not_started')|string %}
+{% set run_summary = run.get('summary') or {} %}
+{% set run_sources = run_summary.get('sources') or [] %}
 {% set terminal_states = ['processed', 'completed', 'failed', 'noop', 'cancelled'] %}
 {% set run_active = run.get('run_id') and run_status not in terminal_states %}
 {% set run_terminal_no_results = run.get('run_id') and run_status in terminal_states and not results %}
-{% set run_visible = run_active or run_terminal_no_results %}
+{% set run_visible = run_active %}
 {% set has_results = results|length > 0 %}
-{% set setup_mode = not run_visible and not has_results %}
+{% set setup_mode = not run_visible and not run_terminal_no_results and not has_results %}
 {% set show_form_controls = show_brief_form and setup_mode %}
 <!doctype html>
 <html lang="en">
@@ -33,6 +35,7 @@
       --pq-charcoal: #242321;
       --pq-charcoal-soft: #383633;
       --pq-gold: #bd8b2f;
+      --pq-gold-strong: #825818;
       --pq-green: #276b53;
       --pq-red: #a65347;
       --pq-blue: #315e87;
@@ -394,6 +397,24 @@
       background: transparent;
       border: 0;
     }
+    .pqx-range-scale {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .pqx-range-scale [data-current-plan-cap] {
+      color: var(--pq-gold-strong);
+      font-weight: 760;
+    }
+    .pqx-range-upgrade {
+      color: var(--pq-muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
     .pqx-check-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -447,6 +468,13 @@
       gap: 16px;
       align-items: stretch;
     }
+    .pqx-empty-results {
+      min-height: calc(100vh - 172px);
+      display: grid;
+      grid-template-columns: minmax(340px, 0.8fr) minmax(520px, 1.2fr);
+      gap: 16px;
+      align-items: stretch;
+    }
     .pqx-run-hero {
       display: grid;
       align-content: space-between;
@@ -458,6 +486,30 @@
       box-shadow: var(--pq-shadow);
     }
     .pqx-run-hero h1 { color: #fff9ed; }
+    .pqx-empty-results .pqx-run-hero {
+      background: #fff9ed;
+      color: var(--pq-ink);
+      border: 1px solid var(--pq-line);
+    }
+    .pqx-empty-results .pqx-run-hero h1,
+    .pqx-empty-results .pqx-run-hero .pqx-title h1 {
+      color: var(--pq-ink);
+    }
+    .pqx-empty-results .pqx-run-hero .pqx-title span,
+    .pqx-empty-results .pqx-run-hero .pqx-note,
+    .pqx-empty-results .pqx-run-hero .pqx-small {
+      color: var(--pq-muted);
+    }
+    .pqx-empty-results .pqx-fact {
+      border-color: var(--pq-line);
+      background: var(--pq-panel);
+    }
+    .pqx-empty-results .pqx-fact span {
+      color: var(--pq-muted);
+    }
+    .pqx-empty-results .pqx-fact strong {
+      color: var(--pq-ink);
+    }
     .pqx-progress-ring {
       width: min(260px, 58vw);
       aspect-ratio: 1;
@@ -492,6 +544,45 @@
     .pqx-event-card strong {
       display: block;
       margin-bottom: 3px;
+    }
+    .pqx-source-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .pqx-source-card {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+    }
+    .pqx-source-card strong,
+    .pqx-source-card span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-source-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pqx-source-metrics span {
+      display: grid;
+      gap: 2px;
+      min-height: 58px;
+      padding: 9px;
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.8);
+      color: var(--pq-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .pqx-source-metrics b {
+      color: var(--pq-ink);
+      font-size: 1rem;
+      text-transform: none;
     }
     .pqx-results {
       display: grid;
@@ -715,6 +806,7 @@
       }
       .pqx-setup,
       .pqx-running,
+      .pqx-empty-results,
       .pqx-results {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -777,6 +869,7 @@
       .pqx-workflow,
       .pqx-check-grid,
       .pqx-fact-grid,
+      .pqx-source-grid,
       .pqx-ooda-grid {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -807,7 +900,7 @@
   </style>
 </head>
 <body>
-  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('run_terminal' if run_terminal_no_results else 'setup')) }}">
+  <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
     <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
@@ -838,6 +931,7 @@
         </div>
       </div>
       <div class="pqx-top-actions" data-pq-context-actions>
+        <button class="pqx-button subtle" type="button" data-pqx-browser-alerts hidden>Browser alerts</button>
         {% if has_results and selected.get('tour', {}).get('url') %}
         <a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}" data-pqx-top-tour>Open 360</a>
         {% endif %}
@@ -936,7 +1030,15 @@
                     <span>{{ field.label }}{% if field.tooltip %} <span class="pqx-tooltip" title="{{ field.tooltip }}" aria-label="{{ field.tooltip }}" tabindex="0">?</span>{% endif %}</span>
                     <span class="pqx-range-value" data-range-value-for="{{ field.name }}">{{ field.value or field.min or '1' }}{{ field.suffix or '' }}</span>
                   </span>
-                  <input type="range" name="{{ field.name }}" value="{{ field.value or field.min or '1' }}" {% if field.min %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %} {% if field.range_step %}step="{{ field.range_step }}"{% endif %} {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %} data-range-output="{{ field.name }}" data-range-suffix="{{ field.suffix or '' }}">
+                  <input type="range" name="{{ field.name }}" value="{{ field.value or field.min or '1' }}" {% if field.min %}min="{{ field.min }}"{% endif %} {% if field.max %}max="{{ field.max }}"{% endif %} {% if field.range_step %}step="{{ field.range_step }}"{% endif %} {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %} data-range-output="{{ field.name }}" data-range-suffix="{{ field.suffix or '' }}" data-range-selectable-max="{{ field.selectable_max or field.max or '' }}" data-range-visual-max="{{ field.visual_max or field.max or '' }}">
+                  {% if field.visual_max %}
+                  <span class="pqx-range-scale" aria-label="Selectable up to {{ field.selectable_max or field.max }} of {{ field.visual_max }}">
+                    <span>{{ field.min or '1' }}</span>
+                    <span data-current-plan-cap>Plan cap {{ field.selectable_max or field.max }}</span>
+                    <span>{{ field.visual_max }}</span>
+                  </span>
+                  {% endif %}
+                  {% if field.upgrade_hint %}<span class="pqx-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
                 </label>
                 {% else %}
                 <label>{{ field.label }}
@@ -972,6 +1074,74 @@
           {% else %}
           <div class="pqx-empty">The search brief is not editable while this run is active or completed.</div>
           {% endif %}
+        </section>
+      </section>
+      {% elif run_terminal_no_results %}
+      <section class="pqx-stage pqx-empty-results" data-pqx-empty-results>
+        <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
+          <div class="pqx-title">
+            <span>{% if run_status == 'failed' %}Run stopped{% else %}Run complete{% endif %}</span>
+            <h1>{% if run_status == 'failed' %}The search did not finish cleanly.{% else %}No strong matches met this brief.{% endif %}</h1>
+          </div>
+          <div class="pqx-brief-stack">
+            <div class="pqx-fact-grid">
+              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
+              <div class="pqx-fact"><span>Sources</span><strong>{{ run_summary.get('sources_total') or run_sources|length or 0 }}</strong></div>
+              <div class="pqx-fact"><span>Listings</span><strong>{{ run_summary.get('listing_total') or 0 }}</strong></div>
+              <div class="pqx-fact"><span>Min score</span><strong>{{ run_summary.get('high_match_min_score') or 'n/a' }}</strong></div>
+            </div>
+            <p class="pqx-note">{% if run_status == 'failed' %}The activity log names the blocking step. Retry the same brief once the provider lane is healthy, or start a new search with fewer constraints.{% else %}The crawler scanned the provider lanes and filtered weak matches below the selected score. Lower the threshold, widen the area, or add providers if you want a broader pass.{% endif %}</p>
+            <div class="pqx-actions">
+              <a class="pqx-link-button primary" href="/app/properties">New search</a>
+              <button class="pqx-button subtle" type="button" data-pqx-refresh-status>Refresh delivery</button>
+            </div>
+          </div>
+        </aside>
+        <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property">
+          <div class="pqx-section-head">
+            <div>
+              <h2>Source scan result</h2>
+              <div class="pqx-note" data-pqx-run-summary>{{ run_summary.get('sources_total') or run_sources|length or 0 }} sources · {{ run_summary.get('listing_total') or 0 }} listings · {{ run_summary.get('filtered_low_fit_total') or 0 }} below threshold</div>
+            </div>
+            <span class="pqx-pill{% if run_status == 'failed' %} warn{% else %} good{% endif %}">{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</span>
+          </div>
+          {% if run_sources %}
+          <div class="pqx-source-grid" data-pqx-source-breakdown>
+            {% for source in run_sources %}
+            <article class="pqx-source-card">
+              <strong>{{ source.get('source_label') or source.get('platform') or 'Provider' }}</strong>
+              <span class="pqx-note">{{ source.get('source_status') or source.get('status') or 'Scanned' }}</span>
+              <div class="pqx-source-metrics">
+                <span>Scanned <b>{{ source.get('listing_total') or source.get('scanned_listing_total') or 0 }}</b></span>
+                <span>High fit <b>{{ source.get('high_fit_total') or 0 }}</b></span>
+                <span>Filtered <b>{{ source.get('filtered_low_fit_total') or 0 }}</b></span>
+              </div>
+              {% if source.get('message') or source.get('error') %}
+              <span class="pqx-note">{{ source.get('message') or source.get('error') }}</span>
+              {% endif %}
+            </article>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="pqx-empty">No provider breakdown was recorded for this run.</div>
+          {% endif %}
+          <div class="pqx-section-head">
+            <div>
+              <h2>Run activity</h2>
+              <div class="pqx-note" data-pqx-run-updated>Last update {{ run.get('updated_at') or run.get('generated_at') or 'not available' }}</div>
+            </div>
+          </div>
+          <div class="pqx-event-list" data-pqx-run-events>
+            {% for event in (run.get('events') or [])|reverse %}
+            <div class="pqx-event-card">
+              <strong>{{ (event.get('step') or 'Update')|replace('_', ' ')|title }}</strong>
+              <span class="pqx-note">{{ event.get('message') or 'No detail yet.' }}</span>
+            </div>
+            {% endfor %}
+            {% if not run.get('events') %}
+            <div class="pqx-empty">No run events were recorded.</div>
+            {% endif %}
+          </div>
         </section>
       </section>
       {% elif run_visible %}
@@ -1111,12 +1281,77 @@
     const meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}');
     const candidates = Array.isArray(data.results) ? data.results : [];
     const terminalStates = new Set(['processed', 'failed', 'noop', 'cancelled', 'completed']);
+    const notificationStorageKey = 'propertyquarry.browserNotifications.enabled';
+    const notificationRunPrefix = 'propertyquarry.browserNotifications.run.';
     const escapeHtml = (value) => String(value || '')
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
+
+    const browserNotificationsSupported = () => (
+      'Notification' in window &&
+      (window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    );
+    const browserNotificationButton = root.querySelector('[data-pqx-browser-alerts]');
+    const updateBrowserNotificationButton = () => {
+      if (!browserNotificationButton) return;
+      if (!browserNotificationsSupported()) {
+        browserNotificationButton.hidden = true;
+        return;
+      }
+      browserNotificationButton.hidden = false;
+      const permission = String(window.Notification?.permission || 'default');
+      const enabled = window.localStorage.getItem(notificationStorageKey) === '1' && permission === 'granted';
+      browserNotificationButton.textContent = enabled ? 'Browser alerts on' : (permission === 'denied' ? 'Browser alerts blocked' : 'Enable browser alerts');
+      browserNotificationButton.disabled = permission === 'denied';
+    };
+    const requestBrowserNotifications = async () => {
+      if (!browserNotificationsSupported()) return;
+      let permission = String(window.Notification.permission || 'default');
+      if (permission === 'default') {
+        permission = await window.Notification.requestPermission();
+      }
+      if (permission === 'granted') {
+        window.localStorage.setItem(notificationStorageKey, '1');
+      }
+      updateBrowserNotificationButton();
+    };
+    const notifyRunComplete = (runPayload) => {
+      if (!browserNotificationsSupported()) return;
+      if (window.localStorage.getItem(notificationStorageKey) !== '1') return;
+      if (String(window.Notification.permission || '') !== 'granted') return;
+      const status = String(runPayload?.status || '').trim().toLowerCase();
+      if (!terminalStates.has(status)) return;
+      const runId = String(runPayload?.run_id || '').trim();
+      if (!runId) return;
+      const dedupeKey = `${notificationRunPrefix}${runId}.${status}`;
+      if (window.localStorage.getItem(dedupeKey) === '1') return;
+      window.localStorage.setItem(dedupeKey, '1');
+      const summary = runPayload?.summary || {};
+      const count = Number(summary.high_fit_total || (Array.isArray(data.results) ? data.results.length : 0) || 0);
+      const title = status === 'failed' ? 'PropertyQuarry search stopped' : 'PropertyQuarry results are ready';
+      const body = status === 'failed'
+        ? String(runPayload?.message || 'The search needs attention.')
+        : `${count} high-fit match${count === 1 ? '' : 'es'} ready to review.`;
+      try {
+        const notification = new window.Notification(title, {
+          body,
+          tag: `propertyquarry-run-${runId}`,
+          renotify: false,
+        });
+        notification.onclick = () => {
+          window.focus();
+          window.location.href = `/app/properties?run_id=${encodeURIComponent(runId)}`;
+          notification.close();
+        };
+      } catch (_err) {
+        window.localStorage.removeItem(dedupeKey);
+      }
+    };
+    browserNotificationButton?.addEventListener('click', requestBrowserNotifications);
+    updateBrowserNotificationButton();
 
     const setMode = (mode) => {
       const panel = mode === 'brief' ? 'brief' : (mode === 'property' ? 'property' : 'results');
@@ -1280,7 +1515,9 @@
         const name = String(input.getAttribute('data-range-output') || input.name || '').trim();
         const output = form.querySelector(`[data-range-value-for="${name}"]`);
         const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
+        const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
         const sync = () => {
+          if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
           if (output) output.textContent = `${input.value}${suffix}`;
         };
         input.addEventListener('input', sync);
@@ -1312,42 +1549,51 @@
       const progressLabel = root.querySelector('[data-pw-run-progress-label]');
       const summaryNode = root.querySelector('[data-pqx-run-summary]');
       const eventsNode = root.querySelector('[data-pqx-run-events]');
+      const updatedNode = root.querySelector('[data-pqx-run-updated]');
       if (statusNode) statusNode.textContent = status.replaceAll('_', ' ');
       if (messageNode) messageNode.textContent = String(runPayload.message || 'Queued for execution.');
       if (ring) ring.style.setProperty('--progress', String(terminalStates.has(status) ? progress : Math.min(progress, 95)));
       if (progressLabel) progressLabel.textContent = `${terminalStates.has(status) ? progress : Math.min(progress, 95)}%`;
       if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
       if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
+      if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
+      notifyRunComplete(runPayload);
     };
+    let runPollActive = false;
     const pollRun = async (statusUrl) => {
-      if (!statusUrl) return;
+      if (!statusUrl || runPollActive) return;
+      runPollActive = true;
       let failedPolls = 0;
-      while (true) {
-        let response;
-        let body = {};
-        try {
-          response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
-          body = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
-          failedPolls = 0;
-        } catch (err) {
-          failedPolls += 1;
-          const message = err?.message || 'Could not load property search status.';
-          renderRun({
-            status: 'in_progress',
-            progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
-            message: failedPolls >= 3 ? message : 'Refreshing run status...',
-            events: [{ step: 'status_refresh', message, status: 'retrying' }],
-          });
-          await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));
-          continue;
+      try {
+        while (true) {
+          let response;
+          let body = {};
+          try {
+            response = await fetch(statusUrl, { credentials: 'same-origin', headers: { accept: 'application/json' } });
+            body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(String(body.detail || 'Could not load property search status.'));
+            failedPolls = 0;
+          } catch (err) {
+            failedPolls += 1;
+            const message = err?.message || 'Could not load property search status.';
+            renderRun({
+              status: 'in_progress',
+              progress: Number(root.querySelector('[data-pw-run-progress-label]')?.textContent?.replace('%', '') || 0),
+              message: failedPolls >= 3 ? message : 'Refreshing run status...',
+              events: [{ step: 'status_refresh', message, status: 'retrying' }],
+            });
+            await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));
+            continue;
+          }
+          renderRun(body);
+          if (terminalStates.has(String(body.status || ''))) {
+            window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 1400));
         }
-        renderRun(body);
-        if (terminalStates.has(String(body.status || ''))) {
-          window.location.href = `/app/properties?run_id=${encodeURIComponent(body.run_id || '')}`;
-          return;
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, 1400));
+      } finally {
+        runPollActive = false;
       }
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
@@ -1510,6 +1756,14 @@
         if (statusUrl) pollRun(statusUrl);
       });
     });
+    if (data.run && typeof data.run === 'object') {
+      renderRun(data.run);
+      const status = String(data.run.status || '').trim().toLowerCase();
+      const statusUrl = String(data.run.status_url || '').trim();
+      if (statusUrl && status && !terminalStates.has(status)) {
+        pollRun(statusUrl);
+      }
+    }
   })();
   </script>
 </body>

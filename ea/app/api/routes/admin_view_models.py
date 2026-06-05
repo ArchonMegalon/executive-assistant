@@ -790,7 +790,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 part
                 for part in (
                     str(item.get("role") or "principal").replace("_", " "),
-                    str(item.get("default_target") or "/app/today"),
+                    str(item.get("default_target") or "/app/properties"),
                     f"expires {str(item.get('expires_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "active" else "",
                     f"revoked {str(item.get('revoked_at') or '')[:19] or 'n/a'}" if str(item.get("status") or "").strip() == "revoked" else "",
                 )

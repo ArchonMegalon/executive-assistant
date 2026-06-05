@@ -40,8 +40,8 @@
     width: fit-content;
     padding: 6px 10px;
     border-radius: 999px;
-    background: rgba(138, 164, 255, 0.12);
-    border: 1px solid rgba(138, 164, 255, 0.2);
+    background: rgba(189, 139, 47, 0.12);
+    border: 1px solid rgba(189, 139, 47, 0.2);
     color: var(--text-soft);
     font-size: 12px;
     letter-spacing: 0.04em;
@@ -66,13 +66,13 @@
     display: grid;
     gap: 14px;
     background:
-      radial-gradient(circle at top right, rgba(138, 164, 255, 0.16), transparent 20rem),
+      radial-gradient(circle at top right, rgba(189, 139, 47, 0.16), transparent 20rem),
       rgba(255,255,255,0.03);
   }
   .mockup-card {
     border: 1px solid var(--line);
     border-radius: 14px;
-    background: rgba(11, 14, 19, 0.72);
+    background: rgba(255, 253, 248, 0.82);
     padding: 18px;
     display: grid;
     gap: 10px;
@@ -165,50 +165,50 @@
 
 <section class="landing-grid">
   <section class="hero-panel">
-    <div class="eyebrow">Personal workspace</div>
+    <div class="eyebrow">Property workspace</div>
     <div>
-      <h1>Wake up to a clear morning memo, not a wall of inbox noise.</h1>
-      <p class="lead">Executive Assistant turns your email and calendar into a morning memo, one review queue, visible commitments, and explainable evidence.</p>
+      <h1>Search once. Rank hard. Research the shortlist.</h1>
+      <p class="lead">PropertyQuarry turns fragmented property search into one ranked shortlist, one review surface, visible research, and explainable evidence.</p>
     </div>
     <div class="cta-row">
-      <a class="btn primary" href="/register">Create personal workspace</a>
-      <a class="btn" href="#sample-memo">See sample memo</a>
+      <a class="btn primary" href="/register">Create account</a>
+      <a class="btn" href="#sample-memo">See sample shortlist</a>
     </div>
-    <div class="microcopy">Nothing sends without your review.</div>
+    <div class="microcopy">Review-first property research. Optional Google identity. No hidden workspace drift.</div>
   </section>
 
   <section class="mockup-panel" id="sample-memo">
     <div class="mockup-card">
       <header>
-        <strong>Morning Memo</strong>
+        <strong>Top shortlist</strong>
         <span class="pill good">3 now</span>
       </header>
       <ul>
-        <li>Board packet deadline moved forward by one day.</li>
-        <li>Two investor replies need a decision before noon.</li>
-        <li>Calendar pressure is clustered around one stakeholder meeting.</li>
+        <li>One apartment matches the lift, transit, and balcony requirements.</li>
+        <li>One listing is promising but still weak on building facts.</li>
+        <li>One candidate needs a deeper check on heating and floor plan quality.</li>
       </ul>
     </div>
     <div class="mockup-card">
       <header>
-        <strong>Queue</strong>
+        <strong>Research next</strong>
         <span class="pill warn">5 review</span>
       </header>
       <ul>
-        <li>Approve draft reply for the investor thread.</li>
-        <li>Choose next step for vendor renewal thread.</li>
-        <li>Confirm deadline owner for recruiting loop.</li>
+        <li>Confirm whether the building has a lift.</li>
+        <li>Check pharmacy, supermarket, and transit distances.</li>
+        <li>Inspect whether the floor plan fits the saved profile.</li>
       </ul>
     </div>
     <div class="mockup-card">
       <header>
-        <strong>Commitments</strong>
+        <strong>Learning loop</strong>
         <span class="pill">4 open</span>
       </header>
       <ul>
-        <li>Close the finance handoff after approval.</li>
-        <li>Re-open one commitment drifting past its due date.</li>
-        <li>Keep the next stakeholder reply visible until it lands.</li>
+        <li>Keep dislike reasons attached to rejected listings.</li>
+        <li>Promote repeated hard rules into the saved profile.</li>
+        <li>Carry fit reasons into the next provider sweep.</li>
       </ul>
     </div>
   </section>
@@ -218,9 +218,9 @@
   <div class="section-head">
     <div>
       <div class="section-kicker">Outcome</div>
-      <h2>Start with a clear day.</h2>
+      <h2>Start with a useful shortlist.</h2>
     </div>
-    <p>The first visit shows what moves today, what needs review, and what stays visible until it is closed.</p>
+    <p>The first visit should show what actually fits, what still needs checking, and what should be ignored.</p>
   </div>
   <div class="landing-outcomes">
     {% for feature in feature_cards %}
@@ -236,9 +236,9 @@
   <div class="section-head">
     <div>
       <div class="section-kicker">How it works</div>
-      <h2>Connect Google, get the first morning memo, review one real loop.</h2>
+      <h2>Create the account, set the brief, review one real property loop.</h2>
     </div>
-    <p>Setup stays narrow until you have seen one useful morning memo, one queue, and one visible commitment ledger.</p>
+    <p>Setup stays narrow until you have seen one useful shortlist, one review loop, and one visible research packet.</p>
   </div>
   <div class="landing-steps">
     {% for step in how_steps %}
@@ -257,7 +257,7 @@
       <div class="section-kicker">Trust</div>
       <h2>Make the product feel safe before it feels powerful.</h2>
     </div>
-    <p>You can see what EA reads, what it prepares, and what still waits for approval.</p>
+    <p>You can see what PropertyQuarry infers, what it still needs to verify, and what remains under explicit user control.</p>
   </div>
   <div class="landing-trust">
     {% for card in trust_cards %}

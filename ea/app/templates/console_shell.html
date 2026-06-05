@@ -234,6 +234,24 @@
     background: transparent;
     border: 0;
   }
+  .console-form[data-console-form-variant="property_search"] .console-range-scale {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-range-scale [data-current-plan-cap] {
+    color: #d6a63f;
+    font-weight: 760;
+  }
+  .console-form[data-console-form-variant="property_search"] .console-range-upgrade {
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.35;
+  }
   .property-shortlist-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -349,6 +367,11 @@
     color: var(--text);
     padding: 10px 12px;
     font: inherit;
+  }
+  .console-form select option,
+  .console-form select optgroup {
+    background: #ffffff;
+    color: #0f172a;
   }
   .console-form textarea {
     min-height: 120px;
@@ -978,7 +1001,17 @@
               {% if field.tooltip %}title="{{ field.tooltip }}" aria-label="{{ field.label }}"{% endif %}
               data-range-output="{{ field.name }}"
               data-range-suffix="{{ field.suffix or '' }}"
+              data-range-selectable-max="{{ field.selectable_max or field.max or '' }}"
+              data-range-visual-max="{{ field.visual_max or field.max or '' }}"
             >
+            {% if field.visual_max %}
+            <span class="console-range-scale" aria-label="Selectable up to {{ field.selectable_max or field.max }} of {{ field.visual_max }}">
+              <span>{{ field.min or '1' }}</span>
+              <span data-current-plan-cap>Plan cap {{ field.selectable_max or field.max }}</span>
+              <span>{{ field.visual_max }}</span>
+            </span>
+            {% endif %}
+            {% if field.upgrade_hint %}<span class="console-range-upgrade">{{ field.upgrade_hint }}</span>{% endif %}
             {% elif field.type == 'checkbox' %}
             <input
               type="checkbox"
@@ -1407,7 +1440,9 @@
       const name = String(input.getAttribute('data-range-output') || input.name || '').trim();
       const output = form.querySelector(`[data-range-value-for="${name}"]`);
       const suffix = String(input.getAttribute('data-range-suffix') || '').trim();
+      const selectableMax = Number(input.getAttribute('data-range-selectable-max') || input.max || 0);
       const sync = () => {
+        if (selectableMax > 0 && Number(input.value) > selectableMax) input.value = String(selectableMax);
         if (output) output.textContent = `${input.value}${suffix}`;
       };
       input.addEventListener('input', sync);

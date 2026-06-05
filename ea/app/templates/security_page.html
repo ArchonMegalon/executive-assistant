@@ -51,14 +51,14 @@
 
 <section class="section panel trust-hero">
   <div class="kicker">Security</div>
-  <h1>See what Executive Assistant can do before you let it act.</h1>
-  <p class="lead">Review stays visible, permissions stay explicit, and workspace history stays attached to the office. The goal is dependable work, not hidden automation.</p>
+  <h1>See what PropertyQuarry can do before you let it act.</h1>
+  <p class="lead">Research stays visible, permissions stay explicit, and every recommendation stays attached to the property workspace. The goal is dependable buying research, not hidden automation.</p>
 </section>
 
 <section class="section trust-answer-grid">
   <section class="trust-answer">
-    <strong>Can the assistant send or change things without me?</strong>
-    Drafting and recommendations can be enabled early. Sensitive actions can stay reviewable so the user is still in control.
+    <strong>Can PropertyQuarry send or change things without me?</strong>
+    Research, ranking, and recommendations can be enabled early. Sensitive actions and outbound delivery can stay reviewable so the user remains in control.
   </section>
   <section class="trust-answer">
     <strong>Does it imply broader access than it really has?</strong>
@@ -66,14 +66,14 @@
   </section>
   <section class="trust-answer">
     <strong>Does useful context disappear after each session?</strong>
-    No. The workspace can keep people, commitments, and recurring themes so the assistant improves over time instead of starting from zero every day.
+    No. The workspace can keep preferences, comments, property facts, and recurring fit signals so the search improves over time instead of starting from zero every day.
   </section>
 </section>
 
 <section class="section trust-fact-grid">
   <section class="trust-fact">
     <strong>Reviewable actions</strong>
-    Approvals and draft review help the product stay safe in real executive work.
+    Review gates and explicit follow-up actions keep the product safe in real property research work.
   </section>
   <section class="trust-fact">
     <strong>Explicit channel behavior</strong>
@@ -91,7 +91,7 @@
       <div class="kicker">Trust model</div>
       <h2>What buyers usually want to confirm</h2>
     </div>
-    <p>Most teams want three answers quickly: what EA can see, what it can prepare, and where human review still stays in the loop.</p>
+    <p>Most buyers want three answers quickly: what PropertyQuarry can see, what it can research, and where human review still stays in the loop.</p>
   </div>
   <div class="trust-grid">
     {% for card in trust_cards %}
@@ -128,10 +128,10 @@
         <li>Metadata-only channels: {{ privacy.metadata_only_channels|join(', ') if privacy.metadata_only_channels else 'none' }}</li>
         <li>Drafts allowed: {{ 'true' if privacy.allow_drafts else 'false' }}</li>
         <li>Action suggestions: {{ 'true' if privacy.allow_action_suggestions else 'false' }}</li>
-        <li>Automatic briefs: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
+        <li>Automatic digests: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
         {% if privacy.allow_auto_briefs %}
-        <li>Morning memo schedule: {{ morning_memo.get('cadence', 'daily_morning') }} at {{ morning_memo.get('delivery_time_local', '08:00') }} {{ morning_memo.get('timezone', status.workspace.timezone or 'UTC') }}</li>
-        <li>Morning memo target: {{ morning_memo.get('resolved_recipient_email', 'waiting for recipient') }}</li>
+        <li>Digest cadence: {{ morning_memo.get('cadence', 'daily_morning') }} at {{ morning_memo.get('delivery_time_local', '08:00') }} {{ morning_memo.get('timezone', status.workspace.timezone or 'UTC') }}</li>
+        <li>Digest recipient: {{ morning_memo.get('resolved_recipient_email', 'waiting for recipient') }}</li>
         {% endif %}
       </ul>
     </section>

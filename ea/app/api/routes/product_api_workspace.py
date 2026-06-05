@@ -43,7 +43,7 @@ def update_workspace_morning_memo_settings(
     workspace = dict(status.get("workspace") or {})
     container.onboarding.start_workspace(
         principal_id=context.principal_id,
-        workspace_name=str(body.workspace_name or workspace.get("name") or "Executive Workspace").strip() or "Executive Workspace",
+        workspace_name=str(body.workspace_name or workspace.get("name") or "PropertyQuarry Workspace").strip() or "PropertyQuarry Workspace",
         workspace_mode=str(workspace.get("mode") or "personal"),
         region=str(workspace.get("region") or ""),
         language=str(body.language or workspace.get("language") or "en").strip() or "en",
