@@ -809,6 +809,14 @@ def _scheduler_property_scout_enabled() -> bool:
     return normalized in {"1", "true", "yes", "on", "y"}
 
 
+def _propertyquarry_scheduler_profile() -> str:
+    return str(os.environ.get("PROPERTYQUARRY_SCHEDULER_PROFILE") or "").strip().lower()
+
+
+def _scheduler_property_only_profile_enabled() -> bool:
+    return _propertyquarry_scheduler_profile() in {"property_only", "property-only", "property"}
+
+
 def _scheduler_property_scout_interval_seconds() -> float:
     try:
         return max(300.0, float(os.environ.get("EA_SCHEDULER_PROPERTY_SCOUT_INTERVAL_SECONDS") or 1800.0))
@@ -1376,11 +1384,12 @@ def _run_execution_worker(role: str) -> None:
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
     last_telegram_async_recovery_at = 0.0
+    property_only_scheduler = role == "scheduler" and _scheduler_property_only_profile_enabled()
     log.info("role=%s started worker loop", role)
     while not stop["flag"]:
         if role == "scheduler":
             now = time.time()
-            if now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
+            if not property_only_scheduler and now - last_horizon_scan_at >= _SCHEDULER_SCAN_INTERVAL_SECONDS:
                 observed_at = datetime.now(timezone.utc)
                 try:
                     candidates = container.proactive_horizon.scan(now=observed_at)
@@ -1402,7 +1411,7 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s proactive horizon scan failed", role)
                 last_horizon_scan_at = now
-            if now - last_onemin_refresh_at >= _scheduler_onemin_refresh_interval_seconds():
+            if not property_only_scheduler and now - last_onemin_refresh_at >= _scheduler_onemin_refresh_interval_seconds():
                 try:
                     refresh_summary = _run_scheduler_onemin_billing_refresh(container, log)
                     if bool(refresh_summary.get("ran")) and not bool(refresh_summary.get("throttled")):
@@ -1433,7 +1442,7 @@ def _run_execution_worker(role: str) -> None:
                         )
                 except Exception:
                     log.exception("role=%s scheduler onemin refresh failed", role)
-            if _scheduler_google_signal_sync_enabled() and (
+            if not property_only_scheduler and _scheduler_google_signal_sync_enabled() and (
                 now - last_google_signal_sync_at >= _scheduler_google_signal_sync_interval_seconds()
             ):
                 try:
@@ -1487,7 +1496,7 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler property results finalize failed", role)
                     last_property_results_finalize_at = now
-            if _scheduler_pocket_signal_sync_enabled() and (
+            if not property_only_scheduler and _scheduler_pocket_signal_sync_enabled() and (
                 now - last_pocket_signal_sync_at >= _scheduler_pocket_signal_sync_interval_seconds()
             ):
                 try:
@@ -1504,7 +1513,7 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler pocket signal sync failed", role)
                     last_pocket_signal_sync_at = now
-            if _scheduler_morning_memo_enabled() and (
+            if not property_only_scheduler and _scheduler_morning_memo_enabled() and (
                 now - last_morning_memo_at >= _scheduler_morning_memo_interval_seconds()
             ):
                 try:
@@ -1524,7 +1533,7 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler morning memo delivery failed", role)
                     last_morning_memo_at = now
-            if _scheduler_telegram_async_recovery_enabled() and (
+            if not property_only_scheduler and _scheduler_telegram_async_recovery_enabled() and (
                 now - last_telegram_async_recovery_at >= _scheduler_telegram_async_recovery_interval_seconds()
             ):
                 try:
@@ -1541,6 +1550,11 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler telegram async outbox failed", role)
                     last_telegram_async_recovery_at = now
+            if property_only_scheduler:
+                log.debug("role=%s property-only scheduler idle; sleeping %.1fs", role, idle_backoff_seconds)
+                time.sleep(idle_backoff_seconds)
+                idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
+                continue
         try:
             artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
         except Exception:

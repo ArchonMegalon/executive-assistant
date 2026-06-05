@@ -3,7 +3,6 @@ from __future__ import annotations
 from functools import lru_cache
 import hashlib
 import html
-import hmac
 import json
 import mimetypes
 import os
@@ -26,7 +25,9 @@ from app.services.public_clickrank import clickrank_head_snippet, request_hostna
 router = APIRouter(tags=["public-tours"])
 
 _PUBLIC_TOUR_ACTIONS = frozenset({"request-details", "feedback", "filters"})
-_PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
+_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT: dict[str, tuple[float, int]] = {}
+_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX = 12
 
 
 def _fact_value_is_weak(value: object) -> bool:
@@ -397,122 +398,29 @@ def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
     return False
 
 
-def _public_tour_action_secret() -> str:
-    explicit = (
-        str(os.getenv("EA_PUBLIC_TOUR_ACTION_SECRET") or "").strip()
-        or str(os.getenv("EA_SIGNING_SECRET") or "").strip()
-    )
-    if explicit:
-        return explicit
-    if str(os.getenv("EA_RUNTIME_MODE") or "").strip().lower() == "prod":
-        raise HTTPException(status_code=503, detail="public_tour_action_secret_required")
-    return str(os.getenv("EA_API_TOKEN") or "").strip() or "dev-public-tour-action-secret"
+def _public_tour_feedback_rate_limit_key(*, request: Request, slug: str) -> str:
+    forwarded_for = str(request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+    client_host = forwarded_for or str(getattr(getattr(request, "client", None), "host", "") or "").strip()
+    return f"{slug}:{client_host or 'unknown'}"
 
 
-def _public_tour_action_message(
-    *,
-    slug: str,
-    action: str,
-    payload: dict[str, object],
-    expires_at: int,
-) -> str:
-    property_ref = str(payload.get("property_url") or payload.get("listing_url") or "").strip()
-    source_ref = str(payload.get("source_ref") or payload.get("external_id") or "").strip()
-    principal_id = str(payload.get("principal_id") or "").strip()
-    return "\n".join(
-        (
-            "public-tour-action:v1",
-            str(slug or "").strip(),
-            str(action or "").strip(),
-            principal_id,
-            property_ref,
-            source_ref,
-            str(int(expires_at)),
-        )
-    )
+def _enforce_public_tour_feedback_rate_limit(*, request: Request, slug: str) -> None:
+    now = time.time()
+    key = _public_tour_feedback_rate_limit_key(request=request, slug=slug)
+    window_started, count = _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT.get(key, (now, 0))
+    if now - float(window_started) > _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_WINDOW_SECONDS:
+        _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT[key] = (now, 1)
+        return
+    if int(count) >= _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="public_tour_feedback_rate_limited")
+    _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT[key] = (float(window_started), int(count) + 1)
 
 
-def _public_tour_action_token(
-    *,
-    slug: str,
-    action: str,
-    payload: dict[str, object],
-    expires_at: int | None = None,
-) -> str:
+def _public_tour_authenticated_action_required(action: str) -> HTTPException:
     normalized_action = str(action or "").strip()
     if normalized_action not in _PUBLIC_TOUR_ACTIONS:
-        raise ValueError("unknown public tour action")
-    try:
-        configured_ttl_seconds = int(os.getenv("EA_PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS") or _PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS)
-    except ValueError:
-        configured_ttl_seconds = _PUBLIC_TOUR_ACTION_TOKEN_TTL_SECONDS
-    ttl_seconds = max(60, configured_ttl_seconds)
-    resolved_expires_at = int(expires_at if expires_at is not None else time.time() + ttl_seconds)
-    message = _public_tour_action_message(
-        slug=slug,
-        action=normalized_action,
-        payload=payload,
-        expires_at=resolved_expires_at,
-    )
-    signature = hmac.new(
-        _public_tour_action_secret().encode("utf-8"),
-        message.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    return f"v1.{resolved_expires_at}.{signature}"
-
-
-def _public_tour_action_tokens(*, slug: str, payload: dict[str, object]) -> dict[str, str]:
-    return {
-        "request_details": _public_tour_action_token(slug=slug, action="request-details", payload=payload),
-        "feedback": _public_tour_action_token(slug=slug, action="feedback", payload=payload),
-        "filters": _public_tour_action_token(slug=slug, action="filters", payload=payload),
-    }
-
-
-def _public_tour_action_token_is_valid(
-    *,
-    slug: str,
-    action: str,
-    payload: dict[str, object],
-    token: str,
-) -> bool:
-    normalized_token = str(token or "").strip()
-    if not normalized_token or len(normalized_token) > 256:
-        return False
-    parts = normalized_token.split(".", 2)
-    if len(parts) != 3 or parts[0] != "v1":
-        return False
-    try:
-        expires_at = int(parts[1])
-    except ValueError:
-        return False
-    if expires_at < int(time.time()):
-        return False
-    expected = _public_tour_action_token(
-        slug=slug,
-        action=action,
-        payload=payload,
-        expires_at=expires_at,
-    )
-    return hmac.compare_digest(normalized_token, expected)
-
-
-def _require_public_tour_action_token(
-    *,
-    slug: str,
-    action: str,
-    payload: dict[str, object],
-    body: dict[str, object],
-) -> None:
-    token = str(body.get("action_token") or "").strip() if isinstance(body, dict) else ""
-    if not _public_tour_action_token_is_valid(
-        slug=slug,
-        action=action,
-        payload=payload,
-        token=token,
-    ):
-        raise HTTPException(status_code=403, detail="invalid_public_tour_action_token")
+        normalized_action = "public-tour-action"
+    return HTTPException(status_code=403, detail=f"{normalized_action}_requires_authenticated_workspace")
 
 
 def _feedback_reason_label(reason_key: object) -> str:
@@ -1178,6 +1086,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     if not scenes:
         raise HTTPException(status_code=500, detail="tour_scenes_missing")
     facts, researched_facts = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
+    facts.pop("public_preference_snapshot", None)
     feedback_suggestions = dict(payload.get("_feedback_suggestions") or {}) if isinstance(payload.get("_feedback_suggestions"), dict) else {}
     learning_summary = dict(payload.get("_learning_summary") or {}) if isinstance(payload.get("_learning_summary"), dict) else {}
     filter_context = _filter_panel_context(facts=facts)
@@ -1193,12 +1102,6 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
     hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
-    action_tokens = (
-        _public_tour_action_tokens(slug=slug, payload=payload)
-        if slug and str(payload.get("principal_id") or "").strip()
-        else {}
-    )
-    action_tokens_json = json.dumps(action_tokens, ensure_ascii=False).replace("</", "<\\/")
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
     video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
@@ -1734,20 +1637,19 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         )
         comparison_positive = (personalized_positive or good_fit_reasons or highlight_lines)[:3]
         comparison_conflicts = (personalized_caution or bad_fit_reasons or concern_lines)[:3]
-        comparison_hard = learned_hard_rules[:3]
         comparison_panel = (
             '<section class="panel">'
-            '<div class="eyebrow">Pattern Compare</div>'
-            '<h2>How this compares to your learned pattern</h2>'
+            '<div class="eyebrow">Fit Pattern</div>'
+            '<h2>How this property compares to the current brief</h2>'
             '<div class="summary-grid" style="margin-top:0;">'
-            '<div class="summary-card"><h3>Matches your pattern</h3><ul>'
+            '<div class="summary-card"><h3>Supports the brief</h3><ul>'
             f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No strong positive pattern match is clear yet.</li>"}'
             '</ul></div>'
-            '<div class="summary-card"><h3>Breaks your pattern</h3><ul>'
+            '<div class="summary-card"><h3>Needs caution</h3><ul>'
             f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_conflicts) or "<li>No strong learned conflict is visible yet.</li>"}'
             '</ul></div>'
-            '<div class="summary-card"><h3>Hard-rule pressure</h3><ul>'
-            f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_hard) or "<li>No hard-rule pressure is stored yet.</li>"}'
+            '<div class="summary-card"><h3>Open questions</h3><ul>'
+            f'{"".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines[:3] or ["No critical open question is stored yet."]))}'
             '</ul></div>'
             '</div>'
             '</section>'
@@ -1846,20 +1748,20 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             f'{shortlist_matrix}'
             '</section>'
         )
-        detail_request_button = ""
-        if str(payload.get("principal_id") or "").strip() and str(payload.get("property_url") or listing_url).strip():
-            detail_request_button = (
-                '<div class="request-row">'
-                '<button id="request-details-btn" class="request-btn" type="button">Request deeper research</button>'
-                '<span id="request-details-status" class="request-status"></span>'
-                '</div>'
-            )
+        detail_request_button = (
+            '<div class="request-row">'
+            '<span id="request-details-status" class="request-status">'
+            'Open the authenticated PropertyQuarry review packet to request deeper research.'
+            '</span>'
+            '</div>'
+        )
         active_filter_labels = [str(item or "").strip() for item in list(filter_context.get("active_labels") or []) if str(item or "").strip()]
         hard_filter_button_html = "".join(
             (
                 f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
                 f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
-                f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}">'
+                f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}" '
+                'disabled title="Open the authenticated PropertyQuarry workspace to change profile filters.">'
                 f'{html.escape(str(spec.get("label") or ""))}'
                 '</button>'
             )
@@ -1870,7 +1772,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             (
                 f'<button class="reason-chip filter-chip{" active" if bool(spec.get("active")) else ""}" '
                 f'type="button" data-filter-key="{html.escape(str(spec.get("key") or ""))}" '
-                f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}">'
+                f'data-enabled="{html.escape("false" if bool(spec.get("active")) else "true")}" '
+                'disabled title="Open the authenticated PropertyQuarry workspace to change profile filters.">'
                 f'{html.escape(str(spec.get("label") or ""))}'
                 '</button>'
             )
@@ -1879,32 +1782,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         )
         active_filter_html = "".join(f"<li>{html.escape(label)}</li>" for label in active_filter_labels[:8])
         filters_panel = ""
-        if str(payload.get("principal_id") or "").strip():
-            filters_panel = (
-                '<section id="filters" class="panel">'
-                '<div class="eyebrow">Search Filters</div>'
-                '<h2>Tune what future properties should pass</h2>'
-                '<p class="sub">These are real ranking and suppression rules for future alerts, not just notes on this listing.</p>'
-                '<div class="summary-grid filter-summary-grid" style="margin-top:16px;">'
-                '<div class="summary-card"><h3>Active filters</h3><ul>'
-                f'{active_filter_html or "<li>No explicit property filters are active yet.</li>"}'
-                '</ul></div>'
-                '<div class="summary-card"><h3>Quick toggles</h3>'
-                '<div class="filter-group"><b>Hard blocks and must-haves</b>'
-                f'<div class="reason-chip-row filter-chip-row">{hard_filter_button_html or "<span class=\"subtle\">No hard filters available here.</span>"}</div></div>'
-                '<div class="filter-group"><b>Soft ranking signals</b>'
-                f'<div class="reason-chip-row filter-chip-row">{soft_filter_button_html or "<span class=\"subtle\">No soft filters available here.</span>"}</div></div>'
-                '</div></div>'
-                '<div class="request-row"><span id="filter-status" class="request-status"></span></div>'
-                '</section>'
-            )
         feedback_panel = ""
         if str(payload.get("principal_id") or "").strip():
             feedback_panel = (
                 '<section id="feedback" class="panel">'
                 '<div class="eyebrow">Preference Feedback</div>'
                 '<h2>Teach the system what to rank higher or lower</h2>'
-                '<p class="sub">Give a quick reaction and mark the concrete reasons. Future property scoring and Telegram selection will use this feedback.</p>'
+                '<p class="sub">Give a quick reaction and mark concrete reasons. Public-link feedback is captured as an external signal; sign in to apply it to a ranking profile.</p>'
                 '<div class="feedback-reaction-row">'
                 '<button class="reaction-btn" type="button" data-reaction="like">Like</button>'
                 '<button class="reaction-btn" type="button" data-reaction="maybe">Maybe</button>'
@@ -1927,26 +1811,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 '</div>'
                 '</section>'
             )
-        learned_panel = (
-            '<section class="panel">'
-            '<div class="eyebrow">Learning Loop</div>'
-            '<h2>What the system has learned from you</h2>'
-            '<div class="summary-grid" style="margin-top:0;">'
-            '<div class="summary-card"><h3>Likes</h3><ul>'
-            f'{learned_likes_html or "<li>No strong positive preference learned yet.</li>"}'
-            '</ul></div>'
-            '<div class="summary-card"><h3>Dislikes</h3><ul>'
-            f'{learned_dislikes_html or "<li>No strong aversion learned yet.</li>"}'
-            '</ul></div>'
-            '<div class="summary-card"><h3>Hard rules</h3><ul>'
-            f'{learned_hard_rules_html or "<li>No hard constraint has been locked in yet.</li>"}'
-            '</ul></div>'
-            '</div>'
-            '<div class="feedback-log">'
-            f'{recent_feedback_html or "<p class=\"sub\">No recent structured property feedback has been recorded yet.</p>"}'
-            '</div>'
-            '</section>'
-        )
+        learned_panel = ""
         return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -2497,9 +2362,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </div>
       </div>
     </div>
-    <script id="tour-action-tokens" type="application/json">{action_tokens_json}</script>
     <script>
-      const tourActionTokens = JSON.parse(document.getElementById("tour-action-tokens").textContent || "{{}}");
       const requestButton = document.getElementById("request-details-btn");
       const requestStatus = document.getElementById("request-details-status");
       let selectedReaction = "";
@@ -2546,13 +2409,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                 reaction: selectedReaction,
                 reason_keys: [...selectedReasons],
                 note: feedbackNote ? feedbackNote.value : "",
-                action_token: String(tourActionTokens.feedback || ""),
               }}),
             }});
             const payload = await response.json();
             if (!response.ok) throw new Error((payload.error && payload.error.code) || "feedback_failed");
-            feedbackStatus.textContent = "Saved. Reloading the brief with updated preferences...";
-            window.setTimeout(() => window.location.reload(), 800);
+            feedbackStatus.textContent = payload.status === "captured_external"
+              ? "Feedback captured as an external review signal. Sign in to make it part of your ranking profile."
+              : "Feedback captured.";
           }} catch (error) {{
             feedbackSubmitButton.disabled = false;
             feedbackStatus.textContent = "Could not save feedback right now.";
@@ -2562,43 +2425,13 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
       filterButtons.forEach((button) => {{
         button.addEventListener("click", async () => {{
           const filterKey = String(button.dataset.filterKey || "");
-          const enabled = String(button.dataset.enabled || "true") === "true";
           if (!filterKey || !filterStatus) return;
-          button.disabled = true;
-          filterStatus.textContent = enabled ? "Saving filter..." : "Removing filter...";
-          try {{
-            const response = await fetch(window.location.pathname + "/filters", {{
-              method: "POST",
-              headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{ filter_key: filterKey, enabled, action_token: String(tourActionTokens.filters || "") }}),
-            }});
-            const payload = await response.json();
-            if (!response.ok) throw new Error((payload.error && payload.error.code) || "filter_update_failed");
-            filterStatus.textContent = enabled ? "Filter saved. Reloading..." : "Filter removed. Reloading...";
-            window.setTimeout(() => window.location.reload(), 700);
-          }} catch (error) {{
-            button.disabled = false;
-            filterStatus.textContent = "Could not update the filter right now.";
-          }}
+          filterStatus.textContent = "Open the authenticated PropertyQuarry workspace to change profile filters.";
         }});
       }});
       if (requestButton && requestStatus) {{
         requestButton.addEventListener("click", async () => {{
-          requestButton.disabled = true;
-          requestStatus.textContent = "Requesting deeper research...";
-          try {{
-            const response = await fetch(window.location.pathname + "/request-details", {{
-              method: "POST",
-              headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{ action_token: String(tourActionTokens.request_details || "") }}),
-            }});
-            const payload = await response.json();
-            if (!response.ok) throw new Error((payload.error && payload.error.code) || "request_failed");
-            requestStatus.textContent = "Deeper research requested. A follow-up task has been opened.";
-          }} catch (error) {{
-            requestButton.disabled = false;
-            requestStatus.textContent = "Could not request deeper research right now.";
-          }}
+          requestStatus.textContent = "Open the authenticated PropertyQuarry review packet to request deeper research.";
         }});
       }}
     </script>
@@ -3332,23 +3165,7 @@ async def public_tour_request_details(
         body = {}
     if not isinstance(body, dict):
         body = {}
-    _require_public_tour_action_token(
-        slug=slug,
-        action="request-details",
-        payload=payload,
-        body=body,
-    )
-    result = build_product_service(container).request_property_tour_detail_refresh(
-        principal_id=principal_id,
-        property_url=property_url,
-        title=str(payload.get("display_title") or payload.get("title") or "").strip(),
-        variant_key=str(payload.get("variant_key") or "layout_first").strip() or "layout_first",
-        recipient_email=str(payload.get("recipient_email") or "").strip(),
-        source_ref=str(payload.get("source_ref") or "").strip(),
-        external_id=str(payload.get("external_id") or "").strip(),
-        actor=f"public_tour:{request_hostname(request)}",
-    )
-    return JSONResponse(result)
+    raise _public_tour_authenticated_action_required("request-details")
 
 
 @router.post("/tours/{slug}/feedback", response_class=JSONResponse)
@@ -3369,12 +3186,7 @@ async def public_tour_feedback(
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_payload")
-    _require_public_tour_action_token(
-        slug=slug,
-        action="feedback",
-        payload=payload,
-        body=body,
-    )
+    _enforce_public_tour_feedback_rate_limit(request=request, slug=slug)
     reaction = str(body.get("reaction") or "").strip().lower()
     if reaction not in {"like", "dislike", "maybe", "hide"}:
         raise HTTPException(status_code=422, detail="invalid_tour_feedback_reaction")
@@ -3384,19 +3196,41 @@ async def public_tour_feedback(
         allowed=set(reason_map.keys()),
     )
     note = str(body.get("note") or "").strip()
-    facts = _live_property_feedback_context(container=container, payload=payload, slug=slug).get("facts") or dict(payload.get("facts") or {})
-    result = build_product_service(container).record_property_feedback(
-        principal_id=principal_id,
-        property_slug=slug,
-        property_url=str(payload.get("property_url") or payload.get("listing_url") or "").strip(),
-        property_title=str(payload.get("display_title") or payload.get("title") or "").strip(),
-        property_facts=dict(facts) if isinstance(facts, dict) else {},
-        reaction=reaction,
-        reason_keys=reason_keys,
-        note=note,
-        actor=f"public_tour:{request_hostname(request)}",
+    facts, _ = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
+    facts.pop("public_preference_snapshot", None)
+    observation_payload = {
+        "slug": slug,
+        "property_url": str(payload.get("property_url") or payload.get("listing_url") or "").strip(),
+        "property_title": str(payload.get("display_title") or payload.get("title") or "").strip(),
+        "reaction": reaction,
+        "reason_keys": reason_keys,
+        "reason_labels": [_feedback_reason_label(reason_key) for reason_key in reason_keys],
+        "note": note[:500],
+        "host": request_hostname(request),
+        "source": "public_tour_external_feedback",
+        "trust": "untrusted_external",
+        "facts": dict(facts) if isinstance(facts, dict) else {},
+    }
+    try:
+        container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="propertyquarry",
+            event_type="public_tour_external_feedback",
+            payload=observation_payload,
+            source_id=f"public-tour:{slug}",
+            dedupe_key="",
+        )
+    except Exception:
+        pass
+    return JSONResponse(
+        {
+            "status": "captured_external",
+            "trust": "untrusted_external",
+            "message": "Feedback was captured as an external review signal. Sign in to apply it to a ranking profile.",
+            "reaction": reaction,
+            "reason_keys": reason_keys,
+        }
     )
-    return JSONResponse(result)
 
 
 @router.post("/tours/{slug}/filters", response_class=JSONResponse)
@@ -3413,50 +3247,7 @@ async def public_tour_filter_update(
         raise HTTPException(status_code=409, detail="tour_filter_update_unavailable")
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="invalid_tour_filter_payload")
-    _require_public_tour_action_token(
-        slug=slug,
-        action="filters",
-        payload=payload,
-        body=body,
-    )
-    live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
-    facts = dict(live_context.get("facts") or payload.get("facts") or {})
-    filter_key = str(body.get("filter_key") or "").strip()
-    if not filter_key:
-        raise HTTPException(status_code=422, detail="invalid_tour_filter_key")
-    enabled = _shortlist_as_bool(body.get("enabled"))
-    if enabled is None:
-        raise HTTPException(status_code=422, detail="invalid_tour_filter_enabled")
-    spec = next((row for row in _public_filter_specs(facts=facts) if str(row.get("key") or "").strip() == filter_key), None)
-    if spec is None:
-        raise HTTPException(status_code=422, detail="invalid_tour_filter_key")
-    service = build_product_service(container)
-    service.upsert_preference_profile(
-        principal_id=principal_id,
-        person_id="self",
-        learning_enabled=True,
-    )
-    updated_node = service.upsert_preference_node(
-        principal_id=principal_id,
-        person_id="self",
-        domain=str(spec.get("domain") or "willhaben"),
-        category=str(spec.get("category") or "soft_preference"),
-        key=str(spec.get("node_key") or ""),
-        value_json=spec.get("value_json"),
-        strength=str(spec.get("strength") or "medium"),
-        confidence=float(spec.get("confidence") or 0.8),
-        source_mode="explicit",
-        status="active" if enabled else "inactive",
-        decay_policy="reinforce_only",
-    )
-    return JSONResponse(
-        {
-            "status": "updated",
-            "filter_key": filter_key,
-            "enabled": enabled,
-            "node": updated_node,
-        }
-    )
+    raise _public_tour_authenticated_action_required("filters")
 
 
 @router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
@@ -3470,17 +3261,13 @@ def public_tour_page(
         payload = _load_tour(slug)
         if _tour_payload_is_disabled_fallback(payload):
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-        live_context = _live_property_feedback_context(container=container, payload=payload, slug=slug)
         rendered_payload = dict(payload)
-        rendered_payload["facts"] = dict(live_context.get("facts") or {})
-        rendered_payload["_feedback_suggestions"] = dict(live_context.get("feedback_suggestions") or {})
-        rendered_payload["_learning_summary"] = dict(live_context.get("learning_summary") or {})
-        rendered_payload["_shortlist_compare"] = _public_shortlist_comparison_context(
-            container=container,
-            payload=payload,
-            slug=slug,
-            facts=dict(rendered_payload["facts"] or {}),
-        )
+        rendered_facts, _ = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
+        rendered_facts.pop("public_preference_snapshot", None)
+        rendered_payload["facts"] = dict(rendered_facts)
+        rendered_payload["_feedback_suggestions"] = {}
+        rendered_payload["_learning_summary"] = {}
+        rendered_payload["_shortlist_compare"] = {"current": {}, "items": [], "metric_specs": list(_shortlist_metric_labels())}
         return HTMLResponse(_tour_html(rendered_payload, hostname=hostname))
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()

@@ -39,17 +39,6 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     return client
 
 
-def _public_tour_action_token(slug: str, action: str, *, expires_at: int | None = None) -> str:
-    from app.api.routes import public_tours
-
-    return public_tours._public_tour_action_token(
-        slug=slug,
-        action=action,
-        payload=public_tours._load_tour(slug),
-        expires_at=expires_at,
-    )
-
-
 def _assert_no_product_drift(text: str) -> None:
     lower = text.lower()
     assert "chummer" not in lower
@@ -7405,15 +7394,22 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
     assert "Property Decision Workstation" in page.text
     assert "Decision Summary" in page.text
     assert "Preference-to-Property Matrix" in page.text
-    assert "Tune what future properties should pass" in page.text
-    assert "Hard blocks and must-haves" in page.text
-    assert "Soft ranking signals" in page.text
+    assert "Tune what future properties should pass" not in page.text
+    assert "Hard blocks and must-haves" not in page.text
+    assert "Soft ranking signals" not in page.text
     assert "Research Log" in page.text
-    assert "How this compares to your learned pattern" in page.text
-    assert "The district matches your preferred areas" in page.text
-    assert "Fernwaerme avoids your excluded heating types." in page.text
-    assert "The nearest playground is about 140 m away." in page.text
-    assert "Request deeper research" in page.text
+    assert "How this property compares to the current brief" in page.text
+    assert "The district matches your preferred areas" not in page.text
+    assert "Fernwaerme avoids your excluded heating types." not in page.text
+    assert "Playground" in page.text
+    assert "about 140 m" in page.text
+    assert "Request deeper research" not in page.text
+    assert "Open the authenticated PropertyQuarry review packet to request deeper research." in page.text
+    assert "tour-action-tokens" not in page.text
+    assert '"feedback":' not in page.text
+    assert '"filters":' not in page.text
+    assert "Search Filters" not in page.text
+    assert "What the system has learned from you" not in page.text
     assert 'data-label="Requirement"' in page.text
     assert ".section-nav .ghost" in page.text
     assert "Supermarket" in page.text
@@ -7424,12 +7420,10 @@ def test_public_tour_routes_embed_provider_ui_for_pure_360_when_origin_present(
     assert 'id="prev-link"' not in page.text
 
 
-def test_public_tour_request_details_opens_followup(
+def test_public_tour_request_details_requires_authenticated_workspace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from app.api.routes import public_tours
-
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
     slug = "pioche-lecombe-detail-request"
     bundle_dir = tmp_path / slug
@@ -7462,32 +7456,20 @@ def test_public_tour_request_details_opens_followup(
             captured.update(kwargs)
             return {"status": "requested", "human_task_id": "human_task:123"}
 
-    monkeypatch.setattr(public_tours, "build_product_service", lambda container: _FakeService())
     client = _client(principal_id="exec-public-tour-request-details")
     unsigned = client.post(f"/tours/{slug}/request-details", headers={"host": "myexternalbrain.com"}, json={})
     assert unsigned.status_code == 403
-    assert unsigned.json()["error"]["code"] == "invalid_public_tour_action_token"
+    assert unsigned.json()["error"]["code"] == "request-details_requires_authenticated_workspace"
     assert captured == {}
 
-    expired = client.post(
+    legacy_token_attempt = client.post(
         f"/tours/{slug}/request-details",
         headers={"host": "myexternalbrain.com"},
-        json={"action_token": _public_tour_action_token(slug, "request-details", expires_at=int(time.time()) - 1)},
+        json={"action_token": "v1.9999999999.legacy-browser-token"},
     )
-    assert expired.status_code == 403
-    assert expired.json()["error"]["code"] == "invalid_public_tour_action_token"
+    assert legacy_token_attempt.status_code == 403
+    assert legacy_token_attempt.json()["error"]["code"] == "request-details_requires_authenticated_workspace"
     assert captured == {}
-
-    response = client.post(
-        f"/tours/{slug}/request-details",
-        headers={"host": "myexternalbrain.com"},
-        json={"action_token": _public_tour_action_token(slug, "request-details")},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "requested"
-    assert captured["principal_id"] == "cf-email:tibor.girschele@gmail.com"
-    assert captured["property_url"] == "https://www.kalandra.at/objekt/14997053"
 
 
 def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
@@ -7550,37 +7532,27 @@ def test_public_tour_feedback_updates_learning_loop_and_live_assessment(
     assert first_page.status_code == 200
     assert "Teach the system what to rank higher or lower" in first_page.text
     assert "Save feedback" in first_page.text
-    assert '"feedback":' in first_page.text
-
-    unsigned = client.post(
-        f"/tours/{slug}/feedback",
-        headers={"host": "myexternalbrain.com"},
-        json={"reaction": "dislike", "reason_keys": ["gas_heating", "no_lift"], "note": "This is exactly what I do not want."},
-    )
-    assert unsigned.status_code == 403
-    assert unsigned.json()["error"]["code"] == "invalid_public_tour_action_token"
+    assert "tour-action-tokens" not in first_page.text
+    assert '"feedback":' not in first_page.text
 
     feedback = client.post(
         f"/tours/{slug}/feedback",
         headers={"host": "myexternalbrain.com"},
-        json={
-            "reaction": "dislike",
-            "reason_keys": ["gas_heating", "no_lift"],
-            "note": "This is exactly what I do not want.",
-            "action_token": _public_tour_action_token(slug, "feedback"),
-        },
+        json={"reaction": "dislike", "reason_keys": ["gas_heating", "no_lift"], "note": "This is exactly what I do not want."},
     )
     assert feedback.status_code == 200
     body = feedback.json()
-    assert body["status"] == "recorded"
-    assert any(item["key"] == "avoid_heating_types" for item in body["evidence"]["applied_nodes"])
-    assert any(item["key"] == "prefer_lift" for item in body["evidence"]["applied_nodes"])
+    assert body["status"] == "captured_external"
+    assert body["trust"] == "untrusted_external"
+    assert body["reaction"] == "dislike"
+    assert body["reason_keys"] == ["gas_heating", "no_lift"]
+    assert "evidence" not in body
 
     second_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert second_page.status_code == 200
-    assert "What the system has learned from you" in second_page.text
-    assert "Avoid heating: Gasheizung" in second_page.text
-    assert "Gasheizung conflicts with your heating preferences." in second_page.text
+    assert "What the system has learned from you" not in second_page.text
+    assert "Avoid heating: Gasheizung" not in second_page.text
+    assert "Gasheizung conflicts with your heating preferences." not in second_page.text
 
 
 def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
@@ -7647,7 +7619,6 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
             "reaction": "dislike",
             "reason_keys": "gas_heating",
             "note": "invalid payload",
-            "action_token": _public_tour_action_token(slug, "feedback"),
         },
     )
     assert invalid.status_code == 422
@@ -7660,7 +7631,6 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
             "reaction": "dislike",
             "reason_keys": ["not_a_reason"],
             "note": "unknown reason",
-            "action_token": _public_tour_action_token(slug, "feedback"),
         },
     )
     assert unknown_reason.status_code == 422
@@ -7673,14 +7643,13 @@ def test_public_tour_feedback_rejects_invalid_payload_and_unknown_reasons(
             "reaction": "nah",
             "reason_keys": ["gas_heating"],
             "note": "invalid reaction",
-            "action_token": _public_tour_action_token(slug, "feedback"),
         },
     )
     assert invalid_reaction.status_code == 422
     assert invalid_reaction.json()["error"]["code"] == "invalid_tour_feedback_reaction"
 
 
-def test_public_tour_filter_update_changes_preference_filters(
+def test_public_tour_filter_update_requires_authenticated_workspace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7737,9 +7706,11 @@ def test_public_tour_filter_update_changes_preference_filters(
     client = _client(principal_id="exec-public-tour-filter-update")
     first_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert first_page.status_code == 200
-    assert "Search Filters" in first_page.text
-    assert "Prefer 1190 Wien" in first_page.text
-    assert '"filters":' in first_page.text
+    assert "Search Filters" not in first_page.text
+    assert "Prefer 1190 Wien" not in first_page.text
+    assert "tour-action-tokens" not in first_page.text
+    assert '"filters":' not in first_page.text
+    assert "What the system has learned from you" not in first_page.text
 
     unsigned = client.post(
         f"/tours/{slug}/filters",
@@ -7747,26 +7718,25 @@ def test_public_tour_filter_update_changes_preference_filters(
         json={"filter_key": "avoid_gas_heating", "enabled": True},
     )
     assert unsigned.status_code == 403
-    assert unsigned.json()["error"]["code"] == "invalid_public_tour_action_token"
+    assert unsigned.json()["error"]["code"] == "filters_requires_authenticated_workspace"
 
-    enabled = client.post(
+    legacy_token_attempt = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
         json={
             "filter_key": "avoid_gas_heating",
             "enabled": True,
-            "action_token": _public_tour_action_token(slug, "filters"),
+            "action_token": "v1.9999999999.legacy-browser-token",
         },
     )
-    assert enabled.status_code == 200
-    assert enabled.json()["status"] == "updated"
-    assert enabled.json()["node"]["key"] == "avoid_heating_types"
+    assert legacy_token_attempt.status_code == 403
+    assert legacy_token_attempt.json()["error"]["code"] == "filters_requires_authenticated_workspace"
 
     second_page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert second_page.status_code == 200
-    assert "Avoid gas heating" in second_page.text
-    assert "Active filters" in second_page.text
-    assert "Hard blocks and must-haves" in second_page.text
+    assert "Avoid gas heating" not in second_page.text
+    assert "Active filters" not in second_page.text
+    assert "Hard blocks and must-haves" not in second_page.text
 
 
 def test_public_tour_filter_update_rejects_invalid_payload(
@@ -7828,10 +7798,10 @@ def test_public_tour_filter_update_rejects_invalid_payload(
     missing_filter = client.post(
         f"/tours/{slug}/filters",
         headers={"host": "myexternalbrain.com"},
-        json={"filter_key": "", "enabled": True, "action_token": _public_tour_action_token(slug, "filters")},
+        json={"filter_key": "", "enabled": True},
     )
-    assert missing_filter.status_code == 422
-    assert missing_filter.json()["error"]["code"] == "invalid_tour_filter_key"
+    assert missing_filter.status_code == 403
+    assert missing_filter.json()["error"]["code"] == "filters_requires_authenticated_workspace"
 
     invalid_filter = client.post(
         f"/tours/{slug}/filters",
@@ -7839,11 +7809,11 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         json={
             "filter_key": "does_not_exist",
             "enabled": True,
-            "action_token": _public_tour_action_token(slug, "filters"),
+            "action_token": "v1.9999999999.legacy-browser-token",
         },
     )
-    assert invalid_filter.status_code == 422
-    assert invalid_filter.json()["error"]["code"] == "invalid_tour_filter_key"
+    assert invalid_filter.status_code == 403
+    assert invalid_filter.json()["error"]["code"] == "filters_requires_authenticated_workspace"
 
     invalid_enabled = client.post(
         f"/tours/{slug}/filters",
@@ -7851,11 +7821,11 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         json={
             "filter_key": "prefer_subway_nearby",
             "enabled": "maybe",
-            "action_token": _public_tour_action_token(slug, "filters"),
+            "action_token": "v1.9999999999.legacy-browser-token",
         },
     )
-    assert invalid_enabled.status_code == 422
-    assert invalid_enabled.json()["error"]["code"] == "invalid_tour_filter_enabled"
+    assert invalid_enabled.status_code == 403
+    assert invalid_enabled.json()["error"]["code"] == "filters_requires_authenticated_workspace"
 
     string_false = client.post(
         f"/tours/{slug}/filters",
@@ -7863,11 +7833,11 @@ def test_public_tour_filter_update_rejects_invalid_payload(
         json={
             "filter_key": "prefer_subway_nearby",
             "enabled": "false",
-            "action_token": _public_tour_action_token(slug, "filters"),
+            "action_token": "v1.9999999999.legacy-browser-token",
         },
     )
-    assert string_false.status_code == 200
-    assert string_false.json()["enabled"] is False
+    assert string_false.status_code == 403
+    assert string_false.json()["error"]["code"] == "filters_requires_authenticated_workspace"
 
 
 def test_shortlist_float_parsing_is_locale_aware() -> None:
