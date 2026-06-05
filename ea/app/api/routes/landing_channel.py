@@ -25,12 +25,36 @@ from app.api.routes.landing import (
     _render_secure_link_page,
     _workspace_session_cookie_kwargs,
 )
+from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 from app.api.routes.product_api_contracts import OfficeSignalResultOut, SignalIngestEndpointOut
 from app.api.routes.landing_content import APP_NAV_GROUPS
 from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(tags=["landing"])
+_PUBLIC_CHANNEL_LIMITS = {
+    "action": (20, 60),
+    "delivery": (20, 60),
+    "signal_preview": (20, 60),
+    "signal_ingest": (12, 60),
+}
+
+
+def _enforce_public_channel_rate_limit(*, request: Request, bucket: str, scope_hint: str) -> None:
+    limit, window_seconds = _PUBLIC_CHANNEL_LIMITS[bucket]
+    try:
+        enforce_public_surface_rate_limit(
+            bucket=f"landing-channel:{bucket}",
+            client_key=public_surface_client_key(
+                headers=request.headers,
+                client_host=request.client.host if request.client else "",
+                scope_hint=scope_hint,
+            ),
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail="public_channel_rate_limited") from exc
 
 
 def _channel_action_object_label(kind: str) -> str:
@@ -192,6 +216,7 @@ def app_channel_action(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ):
+    _enforce_public_channel_rate_limit(request=request, bucket="action", scope_hint=token[:24])
     product = build_product_service(container)
     preview = product.preview_channel_action_token(token=token)
     if preview is None:
@@ -291,6 +316,7 @@ def channel_digest_delivery_open(
     request: Request,
     container: AppContainer = Depends(get_container),
 ):
+    _enforce_public_channel_rate_limit(request=request, bucket="delivery", scope_hint=token[:24])
     product = build_product_service(container)
     delivery = product.preview_channel_digest_delivery(token=token, base_url=_public_base_url(request))
     if delivery is None:
@@ -332,6 +358,7 @@ def preview_pocket_signal_upload(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> SignalIngestEndpointOut:
+    _enforce_public_channel_rate_limit(request=request, bucket="signal_preview", scope_hint=token[:24])
     product = build_product_service(container)
     payload = product.preview_signal_ingest_endpoint(token=token, base_url=_public_base_url(request))
     if payload is None or str(payload.get("channel") or "").strip().lower() != "pocket":
@@ -345,6 +372,7 @@ async def ingest_pocket_signal_upload(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> OfficeSignalResultOut:
+    _enforce_public_channel_rate_limit(request=request, bucket="signal_ingest", scope_hint=token[:24])
     product = build_product_service(container)
     preview = product.preview_signal_ingest_endpoint(token=token)
     if preview is None or str(preview.get("channel") or "").strip().lower() != "pocket":
