@@ -343,10 +343,25 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pq-greenfield-shell' in live.text
     assert 'data-pqx-state="running"' in live.text
     assert "Search is running. Inputs are locked." in live.text
+    assert 'class="pqx-run-head"' in live.text
+    assert live.text.index("data-pqx-progress-ring") < live.text.index("Search is running. Inputs are locked.")
     assert "Run activity" in live.text
     assert "Scoring shortlist candidate 2 of 4" in live.text
     assert "Launch search" not in live.text
     assert "Save defaults" not in live.text
+
+
+def test_propertyquarry_running_progress_ring_stays_compact_and_top_aligned() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    run_hero = re.search(r"\.pqx-run-hero \{(?P<body>.*?)\n    \}", template, re.S)
+    assert run_hero is not None
+    assert ".pqx-run-head" in template
+    assert "grid-template-columns: auto minmax(0, 1fr);" in template
+    assert "width: clamp(86px, 10vw, 118px);" in template
+    assert "width: 78px;" in template
+    assert "align-content: space-between;" not in run_hero.group("body")
+    assert "width: min(260px, 58vw);" not in template
 
 
 def test_propertyquarry_workspace_supports_all_of_vienna_toggle() -> None:

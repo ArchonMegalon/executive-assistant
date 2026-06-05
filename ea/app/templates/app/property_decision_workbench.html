@@ -486,14 +486,27 @@
       align-items: stretch;
     }
     .pqx-run-hero {
-      display: grid;
-      align-content: space-between;
-      gap: 24px;
-      padding: clamp(20px, 3vw, 40px);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+      align-self: start;
+      padding: clamp(16px, 2vw, 24px);
       border-radius: 10px;
       background: var(--pq-charcoal);
       color: #fff9ed;
       box-shadow: var(--pq-shadow);
+    }
+    .pqx-run-head {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .pqx-run-head .pqx-title h1 {
+      margin-bottom: 0;
+      font-size: clamp(1.85rem, 3vw, 3.4rem);
+      line-height: 1.02;
     }
     .pqx-run-hero h1 { color: #fff9ed; }
     .pqx-empty-results .pqx-run-hero {
@@ -521,10 +534,12 @@
       color: var(--pq-ink);
     }
     .pqx-progress-ring {
-      width: min(260px, 58vw);
+      width: clamp(86px, 10vw, 118px);
       aspect-ratio: 1;
       display: grid;
       place-items: center;
+      flex: 0 0 auto;
+      align-self: start;
       border-radius: 50%;
       background:
         conic-gradient(var(--pq-gold) calc(var(--progress, 0) * 1%), rgba(255, 249, 237, 0.13) 0),
@@ -541,10 +556,10 @@
     }
     .pqx-progress-ring strong {
       color: #fff9ed;
-      font-size: clamp(2rem, 6vw, 4.2rem);
+      font-size: clamp(1.25rem, 2vw, 1.9rem);
       line-height: 1;
     }
-    .pqx-progress-ring span { color: #d7cdbb; font-size: 12px; }
+    .pqx-progress-ring span { color: #d7cdbb; font-size: 10px; }
     .pqx-event-card {
       padding: 14px;
       border: 1px solid var(--pq-line);
@@ -898,6 +913,20 @@
       .pqx-bottom-nav {
         display: grid;
       }
+      .pqx-run-hero {
+        gap: 14px;
+        padding: 14px;
+      }
+      .pqx-run-head {
+        gap: 10px;
+      }
+      .pqx-progress-ring {
+        width: 78px;
+      }
+      .pqx-run-head .pqx-title h1 {
+        font-size: clamp(1.45rem, 8vw, 2rem);
+        line-height: 1.05;
+      }
       .pqx-workflow,
       .pqx-check-grid,
       .pqx-fact-grid,
@@ -1197,14 +1226,16 @@
       {% elif run_visible %}
       <section class="pqx-stage pqx-running">
         <aside class="pqx-run-hero active" data-pqx-mobile-panel="results">
-          <div class="pqx-title">
-            <span>{% if run_active %}Live run{% elif run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
-            <h1>{% if run_active %}Search is running. Inputs are locked.{% elif run_status == 'failed' %}Search stopped before results.{% else %}Search finished. No ranked matches yet.{% endif %}</h1>
-          </div>
-          <div class="pqx-progress-ring" style="--progress: {{ run.get('progress') or 0 }};" data-pqx-progress-ring>
-            <div>
-              <strong data-pw-run-progress-label>{{ run.get('progress') or 0 }}%</strong>
-              <span>complete</span>
+          <div class="pqx-run-head">
+            <div class="pqx-progress-ring" style="--progress: {{ run.get('progress') or 0 }};" data-pqx-progress-ring>
+              <div>
+                <strong data-pw-run-progress-label>{{ run.get('progress') or 0 }}%</strong>
+                <span>complete</span>
+              </div>
+            </div>
+            <div class="pqx-title">
+              <span>{% if run_active %}Live run{% elif run_status == 'failed' %}Run failed{% else %}Run complete{% endif %}</span>
+              <h1>{% if run_active %}Search is running. Inputs are locked.{% elif run_status == 'failed' %}Search stopped before results.{% else %}Search finished. No ranked matches yet.{% endif %}</h1>
             </div>
           </div>
           <div>
