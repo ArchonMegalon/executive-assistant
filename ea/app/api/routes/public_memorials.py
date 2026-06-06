@@ -6695,7 +6695,7 @@ def _memorial_html(
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Am Handy/Desktop installieren.
-              <button type="button" id="memorial-install-button" hidden>Mit Manfred sprechen</button>
+              <button type="button" id="memorial-install-button" hidden>Am Handy/Desktop installieren</button>
             </p>
           </div>
         </div>
