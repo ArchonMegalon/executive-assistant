@@ -5,7 +5,12 @@ from datetime import datetime
 from typing import Any
 
 from app.domain.models import now_utc_iso
-from app.repositories.property_packet_publications import _event_defaults, _publication_defaults
+from app.repositories.property_packet_publications import (
+    PROPERTY_PACKET_SCHEMA_NAME,
+    PROPERTY_PACKET_SCHEMA_VERSION,
+    _event_defaults,
+    _publication_defaults,
+)
 
 
 def _to_iso(value: Any) -> str:
@@ -112,6 +117,25 @@ class PostgresPropertyPacketPublicationRepository:
                     CREATE INDEX IF NOT EXISTS idx_property_packet_publication_events_principal_type_created
                     ON property_packet_publication_events(principal_id, event_type, created_at DESC)
                     """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS property_packet_schema_versions (
+                        schema_name TEXT PRIMARY KEY,
+                        schema_version INTEGER NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    INSERT INTO property_packet_schema_versions (schema_name, schema_version, updated_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (schema_name) DO UPDATE
+                    SET schema_version = EXCLUDED.schema_version,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    (PROPERTY_PACKET_SCHEMA_NAME, PROPERTY_PACKET_SCHEMA_VERSION, now_utc_iso()),
                 )
 
     def _row(self, row: tuple[Any, ...]) -> dict[str, object]:
@@ -299,6 +323,30 @@ class PostgresPropertyPacketPublicationRepository:
                 )
                 rows = cur.fetchall()
         return [self._row(row) for row in rows]
+
+    def count_publications(
+        self,
+        *,
+        principal_id: str | None = None,
+        statuses: object = None,
+    ) -> int:
+        clauses: list[str] = []
+        params: list[object] = []
+        if principal_id:
+            clauses.append("principal_id = %s")
+            params.append(str(principal_id or "").strip())
+        normalized_statuses = [str(status or "").strip() for status in list(statuses or []) if str(status or "").strip()]
+        if normalized_statuses:
+            clauses.append("status = ANY(%s)")
+            params.append(normalized_statuses)
+        query = "SELECT COUNT(*) FROM property_packet_publications"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                row = cur.fetchone()
+        return int((row or [0])[0] or 0)
 
     def record_event(self, row: dict[str, object]) -> dict[str, object]:
         normalized = _event_defaults(row)

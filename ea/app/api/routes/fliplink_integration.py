@@ -95,12 +95,29 @@ class BrowserActFlipLinkPublishIn(BaseModel):
     password_required: bool = False
 
 
+class FlipLinkAnalyticsSnapshotIn(BaseModel):
+    views: int | None = Field(default=None, ge=0, le=10_000_000)
+    unique_visitors: int | None = Field(default=None, ge=0, le=10_000_000)
+    average_time_seconds: int | None = Field(default=None, ge=0, le=10_000_000)
+    top_pages: list[dict[str, object]] = Field(default_factory=list, max_length=20)
+    referral_sources: list[dict[str, object]] = Field(default_factory=list, max_length=20)
+    device_breakdown: dict[str, int] = Field(default_factory=dict)
+    geography_breakdown: dict[str, int] = Field(default_factory=dict)
+
+
 def _actor(context: RequestContext) -> str:
     return str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
 
 
-def _publication_out(row: dict[str, object]) -> dict[str, object]:
+def _publication_out(row: dict[str, object], *, analytics: dict[str, object] | None = None) -> dict[str, object]:
     summary = dict(row.get("packet_summary_json") or {}) if isinstance(row.get("packet_summary_json"), dict) else {}
+    analytics_out = {
+        "views": None,
+        "unique_visitors": None,
+        "average_time_seconds": None,
+        "captured_at": "",
+        **dict(analytics or {}),
+    }
     return {
         "publication_id": str(row.get("publication_id") or ""),
         "principal_id": str(row.get("principal_id") or ""),
@@ -129,6 +146,8 @@ def _publication_out(row: dict[str, object]) -> dict[str, object]:
         "artifact_download_path": str(row.get("artifact_download_path") or ""),
         "recommended_folder": str(summary.get("recommended_folder") or ""),
         "recommended_custom_domain": str(summary.get("recommended_custom_domain") or ""),
+        "renderer_version": str(summary.get("renderer_version") or ""),
+        "analytics": analytics_out,
     }
 
 
@@ -267,8 +286,17 @@ def property_packets_dashboard(
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
     service = build_fliplink_packet_service(container)
-    rows = [_publication_out(row) for row in service.list_publications(principal_id=context.principal_id, limit=limit)]
+    raw_rows = service.list_publications(principal_id=context.principal_id, limit=limit)
+    analytics = service.analytics_by_publication(
+        principal_id=context.principal_id,
+        publication_ids=[str(row.get("publication_id") or "") for row in raw_rows],
+    )
+    rows = [
+        _publication_out(row, analytics=analytics.get(str(row.get("publication_id") or ""), {}))
+        for row in raw_rows
+    ]
     inbox = service.feedback_inbox(principal_id=context.principal_id, limit=100)
+    capacity = service.capacity_status(principal_id=context.principal_id)
     webhook_url = f"{str(request.base_url).rstrip('/')}/v1/integrations/fliplink/webhook"
     return templates.TemplateResponse(
         request,
@@ -278,6 +306,7 @@ def property_packets_dashboard(
             "workspace_label": "PropertyQuarry Workspace",
             "current_nav": "packets",
             "publications": rows,
+            "fliplink_capacity": capacity,
             "feedback_items": list(inbox.get("items") or []),
             "feedback_total": int(inbox.get("total") or 0),
             "fliplink_webhook_url": webhook_url,
@@ -301,8 +330,16 @@ def list_property_packets(
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     service = build_fliplink_packet_service(container)
-    rows = [_publication_out(row) for row in service.list_publications(principal_id=context.principal_id, limit=limit)]
-    return {"items": rows, "total": len(rows)}
+    raw_rows = service.list_publications(principal_id=context.principal_id, limit=limit)
+    analytics = service.analytics_by_publication(
+        principal_id=context.principal_id,
+        publication_ids=[str(row.get("publication_id") or "") for row in raw_rows],
+    )
+    rows = [
+        _publication_out(row, analytics=analytics.get(str(row.get("publication_id") or ""), {}))
+        for row in raw_rows
+    ]
+    return {"items": rows, "total": len(rows), "capacity": service.capacity_status(principal_id=context.principal_id)}
 
 
 @authenticated_router.get("/app/api/properties/packets/feedback-inbox")
@@ -462,6 +499,33 @@ def request_browseract_fliplink_publication(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/fliplink/analytics-snapshot")
+def record_fliplink_analytics_snapshot(
+    publication_id: str,
+    body: FlipLinkAnalyticsSnapshotIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        return service.record_analytics_snapshot(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            views=body.views,
+            unique_visitors=body.unique_visitors,
+            average_time_seconds=body.average_time_seconds,
+            top_pages=body.top_pages,
+            referral_sources=body.referral_sources,
+            device_breakdown=body.device_breakdown,
+            geography_breakdown=body.geography_breakdown,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @authenticated_router.post("/app/api/properties/{property_ref:path}/packets/render")
 def render_property_packet(
     property_ref: str,
@@ -485,7 +549,7 @@ def render_property_packet(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"publication": _publication_out(row)}
+    return {"publication": _publication_out(row), "capacity": service.capacity_status(principal_id=context.principal_id)}
 
 
 @public_router.post("/webhook")

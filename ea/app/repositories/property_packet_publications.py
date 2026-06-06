@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Protocol
+from typing import Dict, Iterable, List, Protocol
 from uuid import uuid4
 
 from app.domain.models import now_utc_iso
 from app.settings import Settings, ensure_storage_fallback_allowed
+
+
+PROPERTY_PACKET_SCHEMA_NAME = "property_packet_publications"
+PROPERTY_PACKET_SCHEMA_VERSION = 2
 
 
 class PropertyPacketPublicationRepository(Protocol):
@@ -28,6 +32,14 @@ class PropertyPacketPublicationRepository(Protocol):
         ...
 
     def list_publications(self, *, principal_id: str, limit: int = 100) -> list[dict[str, object]]:
+        ...
+
+    def count_publications(
+        self,
+        *,
+        principal_id: str | None = None,
+        statuses: Iterable[str] | None = None,
+    ) -> int:
         ...
 
     def record_event(self, row: dict[str, object]) -> dict[str, object]:
@@ -176,6 +188,23 @@ class InMemoryPropertyPacketPublicationRepository:
             if _text((self._publications.get(key) or {}).get("principal_id")) == normalized_principal
         ]
         return rows[: _limit(limit)]
+
+    def count_publications(
+        self,
+        *,
+        principal_id: str | None = None,
+        statuses: Iterable[str] | None = None,
+    ) -> int:
+        normalized_principal = _text(principal_id)
+        normalized_statuses = {_text(status) for status in list(statuses or []) if _text(status)}
+        total = 0
+        for row in self._publications.values():
+            if normalized_principal and _text(row.get("principal_id")) != normalized_principal:
+                continue
+            if normalized_statuses and _text(row.get("status")) not in normalized_statuses:
+                continue
+            total += 1
+        return total
 
     def record_event(self, row: dict[str, object]) -> dict[str, object]:
         normalized = _event_defaults(row)

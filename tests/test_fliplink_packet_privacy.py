@@ -84,3 +84,4 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert hashlib.sha256(pdf_bytes).hexdigest() == rendered["pdf_sha256"]
     assert rendered["receipt"]["pdf_sha256"] == rendered["pdf_sha256"]
     assert rendered["receipt"]["source_pdf_size_bytes"] == len(pdf_bytes)
+    assert rendered["receipt"]["renderer_version"] == "v2_packet_pdf"

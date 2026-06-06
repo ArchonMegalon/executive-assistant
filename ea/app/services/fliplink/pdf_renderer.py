@@ -10,6 +10,9 @@ from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, Prop
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
 
 
+PDF_RENDERER_VERSION = "v2_packet_pdf"
+
+
 def _safe_token(value: object, fallback: str = "packet") -> str:
     raw = str(value or "").strip().lower()
     token = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
@@ -102,38 +105,78 @@ def _packet_lines(
     recommended_title: str,
 ) -> list[str]:
     facts = dict(payload.get("facts") or {}) if isinstance(payload.get("facts"), dict) else {}
+    cost_facts = [
+        ("Purchase price", facts.get("purchase_price_eur") or facts.get("price_eur") or facts.get("price_display")),
+        ("Monthly rent", facts.get("total_rent_eur") or facts.get("rent_eur") or facts.get("rent_display")),
+        ("Area", facts.get("area_m2") or facts.get("area_sqm") or facts.get("living_area_m2")),
+        ("Rooms", facts.get("rooms") or facts.get("room_count")),
+        ("District", facts.get("district") or facts.get("postal_name") or facts.get("city")),
+    ]
+    evidence_facts = [
+        ("Floorplan", facts.get("has_floorplan")),
+        ("Lift", facts.get("lift") or facts.get("has_lift")),
+        ("Outdoor space", facts.get("balcony") or facts.get("terrace") or facts.get("garden") or facts.get("outdoor_space")),
+        ("Heating", facts.get("heating_type")),
+        ("Availability", facts.get("availability")),
+    ]
+    location_facts = [
+        ("Supermarket", facts.get("nearest_supermarket_m") or facts.get("nearest_supermarket_name")),
+        ("Pharmacy", facts.get("nearest_pharmacy_m") or facts.get("nearest_pharmacy_name")),
+        ("Subway", facts.get("nearest_subway_m") or facts.get("nearest_subway_name")),
+        ("Playground", facts.get("nearest_playground_m") or facts.get("nearest_playground_name")),
+    ]
     lines: list[str] = [
-        "PropertyQuarry Review Packet",
+        "PROPERTYQUARRY REVIEW PACKET",
         recommended_title,
         f"Packet kind: {packet_kind.value.replace('_', ' ')}",
         f"Privacy mode: {privacy_mode.value.replace('_', ' ')}",
         f"FlipLink format: {fliplink_format.value.replace('_', ' ')}",
+        f"Renderer: {PDF_RENDERER_VERSION}",
         "",
-        "Decision summary",
+        "1. Decision Snapshot",
     ]
     for line in _wrap_line(payload.get("fit_summary") or payload.get("recommendation") or "Review this property against the current PropertyQuarry brief."):
         lines.append(line)
-    lines.extend(["", "Top facts"])
-    for key in ("price_display", "purchase_price_eur", "total_rent_eur", "area_m2", "area_sqm", "rooms", "district", "postal_name", "has_floorplan"):
-        if key in facts and str(facts.get(key) or "").strip():
-            lines.append(f"- {key.replace('_', ' ').title()}: {facts.get(key)}")
-    lines.extend(["", "Why it matched"])
+    lines.extend(["", "2. Core Facts"])
+    for label, value in cost_facts:
+        if str(value or "").strip():
+            lines.append(f"- {label}: {value}")
+    lines.extend(["", "3. Evidence Readiness"])
+    for label, value in evidence_facts:
+        if str(value or "").strip():
+            lines.append(f"- {label}: {value}")
+    if any(str(value or "").strip() for _, value in location_facts):
+        lines.extend(["", "4. Daily-Life Radius"])
+        for label, value in location_facts:
+            if str(value or "").strip():
+                lines.append(f"- {label}: {value}")
+    lines.extend(["", "5. Why It Matched"])
     match_reasons = [str(item or "").strip() for item in list(payload.get("match_reasons") or []) if str(item or "").strip()]
     for reason in match_reasons[:8] or ["No explicit match reason was included in the source packet."]:
         lines.extend(_wrap_line(f"- {reason}"))
-    lines.extend(["", "Risks and questions"])
+    lines.extend(["", "6. Risks And Unknowns"])
     mismatch_reasons = [str(item or "").strip() for item in list(payload.get("mismatch_reasons") or []) if str(item or "").strip()]
     unknowns = [str(item or "").strip() for item in list(payload.get("unknowns") or []) if str(item or "").strip()]
     for item in (mismatch_reasons + unknowns)[:10] or ["No explicit risk was included. Ask the agent for source documents and current operating costs."]:
         lines.extend(_wrap_line(f"- {item}"))
-    lines.extend(["", "Viewing checklist"])
+    lines.extend(["", "7. Viewing Checklist"])
     for item in list(payload.get("viewing_questions") or [])[:10] or [
         "Confirm usable floorplan and room dimensions.",
         "Ask for operating cost history and renovation notes.",
         "Check noise, light, storage, and daily route fit.",
     ]:
         lines.extend(_wrap_line(f"- {item}"))
-    lines.extend(["", "Source and provenance", f"Source: {payload.get('property_url') or 'internal PropertyQuarry packet'}"])
+    if packet_kind == PropertyPacketKind.PAID_MARKET_REPORT:
+        lines.extend(
+            [
+                "",
+                "8. Methodology And Freshness",
+                "- This report is generated from redacted PropertyQuarry research and market-level evidence only.",
+                f"- Freshness date: {facts.get('freshness_date') or 'generated packet timestamp'}",
+                f"- Methodology: {facts.get('methodology') or 'provider scan, ranking assessment, and owner-safe redaction'}",
+            ]
+        )
+    lines.extend(["", "Source And Provenance", f"Source: {payload.get('property_url') or 'internal PropertyQuarry packet'}"])
     return lines
 
 
@@ -172,6 +215,7 @@ def render_property_packet_pdf(
     pdf_path.write_bytes(pdf_bytes)
     receipt = {
         **redaction.receipt,
+        "renderer_version": PDF_RENDERER_VERSION,
         "pdf_sha256": pdf_sha256,
         "source_pdf_size_bytes": len(pdf_bytes),
         "source_pdf_artifact_ref": str(pdf_path),

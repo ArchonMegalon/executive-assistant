@@ -80,7 +80,7 @@
     h1 { font-size: clamp(30px, 5vw, 54px); line-height: 1; max-width: 980px; }
     h2 { font-size: clamp(21px, 3vw, 30px); }
     .pq-pack-copy { color: var(--pq-muted); line-height: 1.55; margin: 0; }
-    .pq-pack-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .pq-pack-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .pq-pack-stat { border: 1px solid var(--pq-border); border-radius: 8px; padding: 12px; background: #fffdf8; }
     .pq-pack-stat span { color: var(--pq-muted); font-size: 12px; display: block; }
     .pq-pack-stat strong { font-size: 24px; display: block; margin-top: 5px; }
@@ -177,16 +177,18 @@
 
     <section class="pq-pack-hero">
       <div class="pq-pack-panel">
-        <div class="pq-pack-kicker">FlipLink packet lane</div>
-        <h1>Redacted packets ready for branded FlipLink publishing.</h1>
-        <p class="pq-pack-copy">PropertyQuarry keeps ranking, evidence, privacy, and learning authority. FlipLink gets only the rendered PDF packet and returns leads as untrusted feedback for owner review.</p>
+        <div class="pq-pack-kicker">Sharing cockpit</div>
+        <h1>Review packets ready for branded sharing.</h1>
+        <p class="pq-pack-copy">PropertyQuarry keeps ranking, evidence, privacy, and learning authority. Shared packets contain only the redacted decision material and viewer responses always wait for owner review.</p>
       </div>
       <div class="pq-pack-panel">
         <div class="pq-pack-stat-grid">
           <div class="pq-pack-stat"><span>Packets</span><strong>{{ publications|length }}</strong></div>
           <div class="pq-pack-stat"><span>Leads</span><strong>{{ feedback_total }}</strong></div>
           <div class="pq-pack-stat"><span>Published</span><strong>{{ publications|selectattr("status", "equalto", "published")|list|length }}</strong></div>
+          <div class="pq-pack-stat"><span>Slots</span><strong>{{ fliplink_capacity.active }}/{{ fliplink_capacity.cap }}</strong></div>
         </div>
+        <p class="pq-pack-muted" style="margin:12px 0 0;">Publishing tier {{ fliplink_capacity.account_tier }} · {{ fliplink_capacity.remaining }} slot(s) remaining · {{ fliplink_capacity.state|replace("_", " ") }}</p>
       </div>
     </section>
 
@@ -205,9 +207,15 @@
               <span class="pq-pack-pill">{{ row.fliplink_format|replace("_", " ") }}</span>
             </div>
             <div class="pq-pack-muted">{{ row.property_ref }} · {{ row.recommended_folder }} · {{ row.updated_at[:19] }}</div>
-            <div class="pq-pack-muted">{{ row.source_pdf_size_bytes }} bytes · {{ row.source_pdf_sha256[:12] }} · {{ row.redaction_policy_version }}</div>
+            <div class="pq-pack-muted">{{ row.source_pdf_size_bytes }} bytes · {{ row.source_pdf_sha256[:12] }} · {{ row.redaction_policy_version }} · {{ row.renderer_version or 'renderer unknown' }}</div>
+            <div class="pq-pack-muted" data-analytics-summary>
+              Analytics:
+              {{ row.analytics.views if row.analytics.views is not none else 'n/a' }} views ·
+              {{ row.analytics.unique_visitors if row.analytics.unique_visitors is not none else 'n/a' }} visitors ·
+              {{ row.analytics.average_time_seconds if row.analytics.average_time_seconds is not none else 'n/a' }}s avg
+            </div>
             {% if row.fliplink_url %}
-            <div class="pq-pack-muted"><a href="{{ row.fliplink_url }}" target="_blank" rel="noreferrer">{{ row.recommended_title or 'Open FlipLink packet' }}</a></div>
+            <div class="pq-pack-muted"><a href="{{ row.fliplink_url }}" target="_blank" rel="noreferrer">{{ row.recommended_title or 'Open shared packet' }}</a></div>
             {% endif %}
           </div>
           <div class="pq-pack-toolbox">
@@ -219,14 +227,22 @@
                 <label class="pq-pack-check"><input type="checkbox" name="password_required" {% if row.password_required %}checked{% endif %}> Password</label>
                 <label class="pq-pack-check"><input type="checkbox" name="sale_mode_enabled" {% if row.sale_mode_enabled %}checked{% endif %}> Sale</label>
               </div>
-              <button class="pq-pack-button small" type="submit">Record link</button>
+              <button class="pq-pack-button small" type="submit">Save shared link</button>
+            </form>
+            <form class="pq-pack-form" data-fliplink-analytics-form data-publication-id="{{ row.publication_id }}">
+              <div class="pq-pack-inline">
+                <input class="pq-pack-input" style="min-width:84px;flex:1 1 84px;" type="number" min="0" max="10000000" name="views" placeholder="Views" inputmode="numeric" value="{{ row.analytics.views or '' }}">
+                <input class="pq-pack-input" style="min-width:84px;flex:1 1 84px;" type="number" min="0" max="10000000" name="unique_visitors" placeholder="Visitors" inputmode="numeric" value="{{ row.analytics.unique_visitors or '' }}">
+                <input class="pq-pack-input" style="min-width:84px;flex:1 1 84px;" type="number" min="0" max="10000000" name="average_time_seconds" placeholder="Avg sec" inputmode="numeric" value="{{ row.analytics.average_time_seconds or '' }}">
+              </div>
+              <button class="pq-pack-button small" type="submit">Record analytics</button>
             </form>
             <div class="pq-pack-inline">
               <a class="pq-pack-button small" href="{{ row.artifact_download_path }}">Download PDF</a>
               <button class="pq-pack-button small" type="button" data-copy-kind="title" data-copy-value="{{ row.recommended_title or row.property_ref }}">Copy title</button>
-              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy webhook</button>
-              <button class="pq-pack-button small" type="button" data-copy-lead-schema data-property-ref="{{ row.property_ref }}" data-packet-kind="{{ row.packet_kind }}" data-privacy-mode="{{ row.privacy_mode }}">Copy fields</button>
-              <button class="pq-pack-button small" type="button" data-browseract-publish data-publication-id="{{ row.publication_id }}">BrowserAct</button>
+              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy response URL</button>
+              <button class="pq-pack-button small" type="button" data-copy-lead-schema data-property-ref="{{ row.property_ref }}" data-packet-kind="{{ row.packet_kind }}" data-privacy-mode="{{ row.privacy_mode }}">Copy response fields</button>
+              <button class="pq-pack-button small" type="button" data-browseract-publish data-publication-id="{{ row.publication_id }}">Publish assist</button>
               <button class="pq-pack-button small danger" type="button" data-archive-publication data-publication-id="{{ row.publication_id }}">Archive</button>
             </div>
             <div class="pq-pack-status" data-action-status aria-live="polite"></div>
@@ -240,8 +256,8 @@
     </section>
 
     <section class="pq-pack-panel" style="margin-top:18px;">
-      <div class="pq-pack-kicker">External feedback inbox</div>
-      <h2>FlipLink leads</h2>
+      <div class="pq-pack-kicker">External review inbox</div>
+      <h2>Viewer responses</h2>
       <div class="pq-pack-list">
         {% for item in feedback_items %}
         <article class="pq-pack-feedback">
@@ -253,7 +269,7 @@
           <span class="pq-pack-pill{% if item.status == 'reviewed' %} good{% else %} warn{% endif %}">{{ item.status|replace("_", " ") }}</span>
         </article>
         {% else %}
-        <div class="pq-pack-empty">No FlipLink lead feedback has arrived yet.</div>
+        <div class="pq-pack-empty">No viewer responses have arrived yet.</div>
         {% endfor %}
       </div>
     </section>
@@ -331,6 +347,31 @@
             pill.classList.remove("warn");
           }
           showStatus(form, "Link recorded.", "ok");
+        } catch (error) {
+          showStatus(form, error.message, "error");
+        }
+      });
+
+      root.addEventListener("submit", async (event) => {
+        const form = event.target.closest("[data-fliplink-analytics-form]");
+        if (!form) return;
+        event.preventDefault();
+        const publicationId = form.dataset.publicationId;
+        const toNumber = (value) => value === "" ? null : Number(value);
+        const payload = {
+          views: toNumber(form.elements.views.value),
+          unique_visitors: toNumber(form.elements.unique_visitors.value),
+          average_time_seconds: toNumber(form.elements.average_time_seconds.value),
+        };
+        try {
+          const result = await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/fliplink/analytics-snapshot`, payload);
+          const card = form.closest("[data-publication-id]");
+          const summary = card?.querySelector("[data-analytics-summary]");
+          const snapshot = result.snapshot || {};
+          if (summary) {
+            summary.textContent = `Analytics: ${snapshot.views ?? "n/a"} views · ${snapshot.unique_visitors ?? "n/a"} visitors · ${snapshot.average_time_seconds ?? "n/a"}s avg`;
+          }
+          showStatus(form, "Analytics recorded.", "ok");
         } catch (error) {
           showStatus(form, error.message, "error");
         }

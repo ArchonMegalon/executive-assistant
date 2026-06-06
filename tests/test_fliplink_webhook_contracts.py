@@ -62,9 +62,21 @@ def test_fliplink_manual_packet_lane_and_url_validation(monkeypatch, tmp_path: P
     assert accepted.json()["publication"]["status"] == "published"
     assert accepted.json()["publication"]["lead_capture_enabled"] is True
 
+    analytics = client.post(
+        f"/app/api/properties/packets/{publication_id}/fliplink/analytics-snapshot",
+        json={"views": 14, "unique_visitors": 4, "average_time_seconds": 91},
+    )
+    assert analytics.status_code == 200, analytics.text
+    assert analytics.json()["snapshot"]["views"] == 14
+    assert analytics.json()["snapshot"]["trust"] == "operator_entered_or_imported"
+
     listing = client.get("/app/api/properties/packets")
     assert listing.status_code == 200
     assert listing.json()["total"] >= 1
+    assert listing.json()["capacity"]["cap"] >= 1
+    listed = next(item for item in listing.json()["items"] if item["publication_id"] == publication_id)
+    assert listed["analytics"]["views"] == 14
+    assert listed["renderer_version"] == "v2_packet_pdf"
 
     archived = client.post(
         f"/app/api/properties/packets/{publication_id}/archive",
@@ -99,6 +111,44 @@ def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch,
     events = client.get(f"/app/api/properties/packets/{publication_id}")
     assert events.status_code == 200
     assert any(event["event_type"] == "fliplink_browser_publish_requested" for event in events.json()["events"])
+
+
+def test_fliplink_packet_capacity_blocks_new_renders_until_archive(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    monkeypatch.setenv("FLIPLINK_ACTIVE_PUBLICATION_CAP", "1")
+    client = build_property_client(principal_id="fliplink-capacity-owner")
+    start_workspace(client, mode="personal", workspace_name="FlipLink Capacity Office")
+
+    publication_id = _seed_packet(client)
+    listing = client.get("/app/api/properties/packets")
+    assert listing.status_code == 200
+    assert listing.json()["capacity"]["state"] == "blocked"
+    assert listing.json()["capacity"]["active"] == 1
+
+    blocked = client.post(
+        "/app/api/properties/listing-456/packets/render",
+        json={
+            "packet_kind": "family_review",
+            "privacy_mode": "family_review",
+            "property_payload": {"title": "Second packet"},
+        },
+    )
+    assert blocked.status_code == 422
+    assert blocked.json()["error"]["code"] == "fliplink_active_publication_cap_reached"
+
+    archived = client.post(f"/app/api/properties/packets/{publication_id}/archive", json={})
+    assert archived.status_code == 200
+    second = client.post(
+        "/app/api/properties/listing-456/packets/render",
+        json={
+            "packet_kind": "family_review",
+            "privacy_mode": "family_review",
+            "property_payload": {"title": "Second packet"},
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["capacity"]["active"] == 1
 
 
 def test_fliplink_webhook_requires_secret_and_records_untrusted_feedback(monkeypatch, tmp_path: Path) -> None:
@@ -198,9 +248,12 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     dashboard = client.get("/app/properties/packets", headers={"host": "propertyquarry.com"})
     assert dashboard.status_code == 200, dashboard.text
     assert "data-property-packets-dashboard" in dashboard.text
-    assert "FlipLink packet lane" in dashboard.text
+    assert "Sharing cockpit" in dashboard.text
+    assert "Viewer responses" in dashboard.text
+    assert "FlipLink leads" not in dashboard.text
     assert "Family flat near Augarten" in dashboard.text
     assert "Download PDF" in dashboard.text
+    assert "Record analytics" in dashboard.text
     assert "data-fliplink-manual-form" in dashboard.text
     assert "data-copy-kind=\"webhook\"" in dashboard.text
     assert "data-copy-lead-schema" in dashboard.text

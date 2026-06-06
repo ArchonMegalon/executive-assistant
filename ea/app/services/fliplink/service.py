@@ -26,6 +26,9 @@ from app.services.fliplink.webhooks import FlipLinkLeadWebhook, normalize_lead_w
 from app.services.fliplink.webhooks import safe_custom_fields
 
 
+ACTIVE_PACKET_STATUSES = {"rendered", "published", "publish_requested", "queued_operator_assist"}
+
+
 class FlipLinkPacketService:
     def __init__(
         self,
@@ -35,6 +38,26 @@ class FlipLinkPacketService:
     ) -> None:
         self._repo = repo
         self._artifact_root = artifact_root
+
+    def capacity_status(self, *, principal_id: str) -> dict[str, object]:
+        settings = fliplink_settings_from_env()
+        active = self._repo.count_publications(principal_id=principal_id, statuses=ACTIVE_PACKET_STATUSES)
+        cap = max(1, int(settings.active_publication_cap or 1))
+        warning_at = max(1, int(cap * 0.8))
+        return {
+            "active": active,
+            "cap": cap,
+            "remaining": max(0, cap - active),
+            "warning_at": warning_at,
+            "state": "blocked" if active >= cap else "warn" if active >= warning_at else "ok",
+            "account_tier": int(settings.account_tier or 0),
+            "custom_domain": settings.custom_domain,
+        }
+
+    def _require_capacity(self, *, principal_id: str) -> None:
+        capacity = self.capacity_status(principal_id=principal_id)
+        if str(capacity.get("state") or "") == "blocked":
+            raise ValueError("fliplink_active_publication_cap_reached")
 
     def render_packet(
         self,
@@ -53,6 +76,7 @@ class FlipLinkPacketService:
         kind = normalize_packet_kind(packet_kind)
         mode = normalize_privacy_mode(privacy_mode, packet_kind=kind)
         fmt = normalize_fliplink_format(fliplink_format, packet_kind=kind)
+        self._require_capacity(principal_id=principal_id)
         publication_id = f"pub_{uuid4().hex}"
         source = dict(source_payload or {})
         source.setdefault("property_ref", str(property_ref or "").strip())
@@ -92,6 +116,7 @@ class FlipLinkPacketService:
                 "redaction_receipt_json": dict(rendered["receipt"]),
                 "packet_summary_json": {
                     "title": str(dict(rendered["redacted_payload"]).get("title") or ""),
+                    "renderer_version": str(dict(rendered["receipt"]).get("renderer_version") or ""),
                     "format_is_permanent": True,
                     "manual_publish_required": True,
                     "recommended_folder": _folder_for(kind),
@@ -150,6 +175,8 @@ class FlipLinkPacketService:
         publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
         if publication is None:
             raise KeyError("property_packet_publication_not_found")
+        if str(publication.get("status") or "") == "archived":
+            raise ValueError("fliplink_publication_archived")
         validated_url = validate_manual_fliplink_url(fliplink_url)
         existing_format = normalize_fliplink_format(publication.get("fliplink_format"))
         requested_format = normalize_fliplink_format(fliplink_format or existing_format.value)
@@ -236,6 +263,8 @@ class FlipLinkPacketService:
         publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
         if publication is None:
             raise KeyError("property_packet_publication_not_found")
+        if str(publication.get("status") or "") == "archived":
+            raise ValueError("fliplink_publication_archived")
         summary = dict(publication.get("packet_summary_json") or {})
         result = browseract_fliplink_publish_requested(
             {
@@ -266,11 +295,96 @@ class FlipLinkPacketService:
                 },
             }
         )
+        self._repo.update_publication(
+            publication_id=publication_id,
+            updates={
+                "status": "publish_requested",
+            },
+        )
         return {
             **dict(result),
             "publication_id": publication_id,
             "event_id": str(event.get("event_id") or ""),
         }
+
+    def record_analytics_snapshot(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        views: int | None = None,
+        unique_visitors: int | None = None,
+        average_time_seconds: int | None = None,
+        top_pages: list[dict[str, object]] | None = None,
+        referral_sources: list[dict[str, object]] | None = None,
+        device_breakdown: dict[str, int] | None = None,
+        geography_breakdown: dict[str, int] | None = None,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        payload = {
+            "publication_id": publication_id,
+            "views": _non_negative_int(views),
+            "unique_visitors": _non_negative_int(unique_visitors),
+            "average_time_seconds": _non_negative_int(average_time_seconds),
+            "top_pages": _bounded_metric_rows(top_pages),
+            "referral_sources": _bounded_metric_rows(referral_sources),
+            "device_breakdown": _bounded_int_map(device_breakdown),
+            "geography_breakdown": _bounded_int_map(geography_breakdown),
+            "captured_at": now_utc_iso(),
+            "trust": "operator_entered_or_imported",
+        }
+        event = self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "fliplink_analytics_snapshot_recorded",
+                "actor": actor,
+                "payload_json": payload,
+            }
+        )
+        return {"event": event, "snapshot": payload}
+
+    def latest_analytics_snapshot(self, *, principal_id: str, publication_id: str) -> dict[str, object]:
+        events = self._repo.list_events(
+            publication_id=publication_id,
+            principal_id=principal_id,
+            event_type="fliplink_analytics_snapshot_recorded",
+            limit=1,
+        )
+        if not events:
+            return {}
+        payload = dict(events[0].get("payload_json") or {})
+        payload["event_id"] = str(events[0].get("event_id") or "")
+        payload["created_at"] = str(events[0].get("created_at") or "")
+        return payload
+
+    def analytics_by_publication(
+        self,
+        *,
+        principal_id: str,
+        publication_ids: list[str],
+    ) -> dict[str, dict[str, object]]:
+        wanted = {str(item or "").strip() for item in publication_ids if str(item or "").strip()}
+        if not wanted:
+            return {}
+        events = self._repo.list_events(
+            principal_id=principal_id,
+            event_type="fliplink_analytics_snapshot_recorded",
+            limit=500,
+        )
+        out: dict[str, dict[str, object]] = {}
+        for event in events:
+            publication_id = str(event.get("publication_id") or "")
+            if publication_id not in wanted or publication_id in out:
+                continue
+            payload = dict(event.get("payload_json") or {})
+            payload["event_id"] = str(event.get("event_id") or "")
+            payload["created_at"] = str(event.get("created_at") or "")
+            out[publication_id] = payload
+        return out
 
     def verify_webhook_secret(self, *, provided_header: str = "", provided_query: str = "") -> str:
         settings = fliplink_settings_from_env()
@@ -419,6 +533,46 @@ def _folder_for(packet_kind: PropertyPacketKind) -> str:
         PropertyPacketKind.PAID_MARKET_REPORT: "Paid Market Reports",
         PropertyPacketKind.OPEN_HOUSE_QR: "Family Review Packets",
     }.get(packet_kind, "Owner Review Packets")
+
+
+def _non_negative_int(value: object) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = int(value)
+    except Exception as exc:
+        raise ValueError("fliplink_analytics_metric_invalid") from exc
+    if parsed < 0:
+        raise ValueError("fliplink_analytics_metric_negative")
+    return min(parsed, 10_000_000)
+
+
+def _bounded_metric_rows(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, object]] = []
+    for item in value[:20]:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or item.get("page") or item.get("source") or "").strip()[:160]
+        if not label:
+            continue
+        count = _non_negative_int(item.get("count") or item.get("views") or item.get("seconds"))
+        rows.append({"label": label, "count": count or 0})
+    return rows
+
+
+def _bounded_int_map(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, int] = {}
+    for key, raw in list(value.items())[:30]:
+        label = str(key or "").strip()[:80]
+        if not label:
+            continue
+        parsed = _non_negative_int(raw)
+        out[label] = parsed or 0
+    return out
 
 
 def _review_target_payload(target: dict[str, object]) -> dict[str, object]:
