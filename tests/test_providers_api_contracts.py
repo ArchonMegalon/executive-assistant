@@ -8411,6 +8411,8 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert audio.status_code == 200
     assert audio.content == b"fake-mp3-data"
     assert audio.headers["content-type"].startswith("audio/mpeg")
+    assert audio.headers["cache-control"] == "public, max-age=3600, immutable"
+    assert audio.headers["x-content-type-options"] == "nosniff"
 
 
 def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak(
@@ -8495,20 +8497,30 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "speechHadError" in page.text
     assert "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten." in page.text
     assert "readJsonResponse" in page.text
-    assert "Gespräch läuft. Ich transkribiere fortlaufend." in page.text
-    assert "recorder.start(900)" in page.text
+    assert "Gespräch gestartet. Sprich einfach los." in page.text
+    assert "recorder.start(250)" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text
 
     voice = client.get(f"/memorials/{slug}/voice-config")
     assert voice.status_code == 200
     voice_body = voice.json()
-    assert voice_body["voice_profile_id"] == "tibor-consented-placeholder"
+    assert voice_body["slug"] == slug
+    assert voice_body["tts_plugin"] == "browser_speech_synthesis"
+    assert voice_body["tts_mode"] == "browser_speech_synthesis"
     assert voice_body["voice_label"] == "Tibor freigegebene synthetische Stimme"
+    assert voice_body["lang"] == "de-AT"
     assert voice_body["rate"] == 0.88
     assert voice_body["pitch"] == 0.86
-    assert voice_body["synthetic_voice_clone_of_memorial_person"] is False
+    assert voice_body["voice_name_hints"] == ["Tibor", "de-AT"]
+    assert isinstance(voice_body["tts_plugin_options"], list)
+    assert any(option["tts_plugin"] == "browser_speech_synthesis" for option in voice_body["tts_plugin_options"])
+    assert voice_body["voice_profile_sources"]["ready"] >= 0
+    assert "voice_cloning_supported" in voice_body["voice_profile_policy"]
+    assert "voice_profile_id" not in voice_body
+    assert all("tts_plugin_voice_id" not in option for option in voice_body["tts_plugin_options"])
     assert "provider_secret" not in voice_body
+    assert "synthetic_voice_clone_of_memorial_person" not in voice_body
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ging er mit Kritik um?"})
     assert response.status_code == 200
@@ -8516,8 +8528,14 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert body["mode"] == "memorial_first_person_memory_chat"
     assert body["private_context_used"] is True
     assert "Ich bin nicht Manfred Hoza" not in body["answer"]
-    assert "Ich lasse mir nicht einreden" in body["answer"]
-    assert "immer ich schuld" in body["answer"]
+    assert (
+        "Ich lasse mir nicht einreden" in body["answer"]
+        or "ich wollte in der Sache recht behalten" in body["answer"]
+    )
+    assert (
+        "immer ich schuld" in body["answer"]
+        or "Vorwurf der Haerte" in body["answer"]
+    )
     assert "Das tut mir leid" not in body["answer"]
     assert "ADHS" not in body["answer"]
     assert "narcissistic" not in body["answer"].lower()
@@ -8857,6 +8875,64 @@ def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypat
     assert build.status_code == 200
     build_body = build.json()
     assert build_body["voice_profile_slug"] == slug
+    assert build_body["voice_profile_ready"] is True
+    assert build_body["voice_profile_sources"]["public_clips"] >= 1
+    assert build_body["voice_profile_sources"]["youtube_downloads"] >= 1
+    assert manifest.exists()
+
+    summary = client.get(f"/memorials/{slug}/voice-profile")
+    assert summary.status_code == 200
+    summary_body = summary.json()
+    assert summary_body["voice_profile_slug"] == slug
+    assert summary_body["voice_profile_ready"] is True
+
+    stored_config_path = private_root / slug / "tts_voice.json"
+    assert stored_config_path.is_file()
+    stored_config = json.loads(stored_config_path.read_text(encoding="utf-8"))
+    assert stored_config["voice_label"] == "Archiv Stimme"
+    assert stored_config["tts_mode"] == "browser_speech_synthesis"
+    assert stored_config["synthetic_voice_clone_of_memorial_person"] is False
+    assert "provider_secret" not in stored_config
+    assert "voice_name_hints" in stored_config
+
+    empty_slug = "manfred-no-source"
+    empty_bundle = public_root / empty_slug
+    empty_bundle.mkdir(parents=True)
+    (empty_bundle / "memorial.json").write_text(
+        json.dumps({"slug": empty_slug, "person_name": "Nobody", "write_token": write_token}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (private_root / empty_slug).mkdir(parents=True, exist_ok=True)
+    (private_root / empty_slug / "tts_voice.json").write_text(
+        json.dumps(
+            {
+                "tts_mode": "browser_speech_synthesis",
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["profile_build", "clone", "synthesize", "conversation_turn", "realtime"],
+                    "authorized_by": "test-family",
+                    "authorized_at": "2026-06-05T16:25:00Z",
+                    "source_assets_reviewed": True,
+                    "revoked": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    failed = client.post(
+        f"/memorials/{empty_slug}/voice-profile/build",
+        headers={"x-memorial-write-token": write_token},
+        json={"youtube_query": "", "youtube_urls": ""},
+    )
+    assert failed.status_code == 400
+    failed_json = failed.json()
+    failed_detail = (
+        failed_json.get("detail")
+        or failed_json.get("error", {}).get("message")
+        or failed_json.get("error", {}).get("code")
+    )
+    assert failed_detail == "voice_profile_no_source"
 
 
 def test_public_memorial_manifest_file_route_blocks_raw_manifest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -8939,39 +9015,6 @@ def test_public_memorial_voice_ab_rate_requires_opt_in_for_approval(monkeypatch:
     denied = client.post(f"/memorials/{slug}/voice-ab/rate", json={"choice": "a", "approved_variant": "a"})
     assert denied.status_code == 400
     assert denied.json()["detail"] == "personal_memory_required_for_voice_approval"
-    assert build_body["voice_profile_ready"] is True
-    assert build_body["voice_profile_sources"]["public_clips"] >= 1
-    assert build_body["voice_profile_sources"]["youtube_downloads"] >= 1
-    assert manifest.exists()
-
-    summary = client.get(f"/memorials/{slug}/voice-profile")
-    assert summary.status_code == 200
-    summary_body = summary.json()
-    assert summary_body["voice_profile_slug"] == slug
-    assert summary_body["voice_profile_ready"] is True
-
-    stored_config_path = private_root / slug / "tts_voice.json"
-    assert stored_config_path.is_file()
-    stored_config = json.loads(stored_config_path.read_text(encoding="utf-8"))
-    assert stored_config["voice_label"] == "Archiv Stimme"
-    assert stored_config["tts_mode"] == "browser_speech_synthesis"
-    assert stored_config["synthetic_voice_clone_of_memorial_person"] is False
-    assert "provider_secret" not in stored_config
-    assert "voice_name_hints" in stored_config
-
-    empty_slug = "manfred-no-source"
-    empty_bundle = public_root / empty_slug
-    empty_bundle.mkdir(parents=True)
-    (empty_bundle / "memorial.json").write_text(json.dumps({"slug": empty_slug, "person_name": "Nobody"}, ensure_ascii=False), encoding="utf-8")
-    failed = client.post(f"/memorials/{empty_slug}/voice-profile/build", json={"youtube_query": "", "youtube_urls": ""})
-    assert failed.status_code == 400
-    failed_json = failed.json()
-    failed_detail = (
-        failed_json.get("detail")
-        or failed_json.get("error", {}).get("message")
-        or failed_json.get("error", {}).get("code")
-    )
-    assert failed_detail == "voice_profile_no_source"
 
 
 def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

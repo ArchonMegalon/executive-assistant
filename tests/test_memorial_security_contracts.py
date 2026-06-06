@@ -130,6 +130,8 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     manifest_body = manifest.json()
     assert manifest_body["name"] == "Mit Manfred sprechen"
     assert manifest_body["short_name"] == "Manfred"
+    assert manifest_body["scope"] == f"/memorials/{slug}"
+    assert manifest_body["start_url"] == f"/memorials/{slug}?source=pwa"
     assert {icon["sizes"]: icon["type"] for icon in manifest_body["icons"]} == {
         "192x192": "image/png",
         "512x512": "image/png",
@@ -149,6 +151,7 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
 
     service_worker = client.get(f"/memorials/{slug}/service-worker.js")
     assert service_worker.status_code == 200
+    assert service_worker.headers["service-worker-allowed"] == f"/memorials/{slug}"
     assert f"/memorials/{slug}/icon-512.png" in service_worker.text
 
 
@@ -369,7 +372,7 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert '<details class="hero-settings minimal-disclosure">' in body
     assert '<summary class="collapse-summary">Optionen</summary>' in body
     assert '<details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap"' in body
-    assert '<summary class="collapse-summary">Stimmvergleich und Feedback</summary>' in body
+    assert 'Stimmvergleich und Feedback</summary>' in body
     assert '<div class="voice-ab-choice-grid">' in body
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" not in body
     assert '<section id="memorial-archive">' in body

@@ -228,3 +228,35 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     evidence_block = seen_messages[-1][1]["content"]
     assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
+
+
+def test_memorial_realtime_rejects_audio_bytes_before_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    client = _client(principal_id="exec-memorial-live-realtime-order")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_bytes(b"unexpected-audio")
+        error = websocket.receive_json()
+        assert error == {"type": "error", "message": "audio_start_required"}

@@ -616,18 +616,45 @@ def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
 
 
 def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
+    raw_notes = payload.get("notes")
+    if isinstance(raw_notes, str):
+        notes = [_text(raw_notes, "")]
+    elif isinstance(raw_notes, (list, tuple, set)):
+        notes = [_text(item, "") for item in raw_notes]
+    else:
+        notes = []
+    voice_profile_summary = _public_voice_profile_summary(slug)
+    tts_options = _tts_plugin_options(payload=payload, voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")))
+    safe_options = [
+        {
+            "tts_plugin": _safe_tts_plugin_id(option.get("tts_plugin")),
+            "tts_plugin_label": _text(option.get("tts_plugin_label"), ""),
+            "tts_plugin_description": _text(option.get("tts_plugin_description"), ""),
+            "tts_plugin_enabled": bool(option.get("tts_plugin_enabled")),
+            "tts_plugin_clone_capable": bool(option.get("tts_plugin_clone_capable")),
+            "tts_plugin_needs_clone": bool(option.get("tts_plugin_needs_clone")),
+            "tts_plugin_requires_voice_id": bool(option.get("tts_plugin_requires_voice_id")),
+        }
+        for option in tts_options
+        if _safe_tts_plugin_id(option.get("tts_plugin"))
+    ]
     return {
         "slug": slug,
         "tts_plugin": _safe_tts_plugin_id(payload.get("tts_plugin")),
+        "tts_mode": _safe_tts_plugin_id(payload.get("tts_plugin")),
         "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), "default"),
         "voice_label": _text(payload.get("voice_label"), "Manfreds Stimme"),
-        "voice_profile_ready": bool(payload.get("voice_profile_ready")),
-        "voice_profile_generated_at": _text(payload.get("voice_profile_generated_at"), ""),
+        "voice_profile_ready": bool(voice_profile_summary.get("voice_profile_ready")),
+        "voice_profile_generated_at": _text(voice_profile_summary.get("voice_profile_generated_at"), ""),
+        "voice_profile_policy": dict(voice_profile_summary.get("voice_profile_policy") or {}),
+        "voice_profile_sources": dict(voice_profile_summary.get("voice_profile_sources") or {}),
         "lang": _text(payload.get("lang"), "de-AT"),
         "rate": payload.get("rate"),
         "pitch": payload.get("pitch"),
         "volume": payload.get("volume"),
-        "notes": [str(item).strip() for item in list(payload.get("notes") or [])[:6] if str(item or "").strip()],
+        "voice_name_hints": [str(item).strip() for item in list(payload.get("voice_name_hints") or [])[:8] if str(item or "").strip()],
+        "tts_plugin_options": safe_options,
+        "notes": [item for item in notes[:6] if item],
     }
 
 
@@ -2393,6 +2420,21 @@ def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
     tmp_path.replace(path)
 
 
+def _public_memorial_error_response(status_code: int, detail: str) -> JSONResponse:
+    code = _text(detail, "request_failed") or "request_failed"
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": code,
+            "error": {
+                "code": code,
+                "message": code,
+                "details": code,
+            },
+        },
+    )
+
+
 def _safe_voice_name_hints(value: object) -> list[str]:
     hints: list[str] = []
     for item in (value if isinstance(value, list) else []):
@@ -2523,7 +2565,25 @@ def _compact_public_facts(payload: dict[str, object]) -> list[str]:
 
 
 def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
-    stored = _voice_config_to_public_payload(_normalize_voice_config_payload(payload), slug=slug)
+    existing_config = _load_voice_config(slug)
+    merged_payload = {
+        "tts_plugin": existing_config.get("tts_plugin"),
+        "tts_mode": existing_config.get("tts_mode"),
+        "tts_plugin_voice_id": existing_config.get("tts_plugin_voice_id"),
+        "voice_profile_id": existing_config.get("voice_profile_id"),
+        "voice_label": existing_config.get("voice_label"),
+        "lang": existing_config.get("lang"),
+        "rate": existing_config.get("rate"),
+        "pitch": existing_config.get("pitch"),
+        "volume": existing_config.get("volume"),
+        "voice_name_hints": list(existing_config.get("voice_name_hints") or []),
+        "tts_base_voice_variant": existing_config.get("tts_base_voice_variant"),
+        "consent_basis": existing_config.get("consent_basis"),
+        "notes": existing_config.get("notes"),
+        "voice_consent": dict(existing_config.get("voice_consent") or {}),
+    }
+    merged_payload.update(dict(payload or {}))
+    stored = _voice_config_to_public_payload(_normalize_voice_config_payload(merged_payload), slug=slug)
     tts_options = _tts_plugin_options(payload=stored, voice_profile_ready=bool(_public_voice_profile_summary(slug=slug).get("voice_profile_ready")))
     selected_plugin, selected_option = _resolve_tts_plugin(payload=stored, options=tts_options)
     selected_plugin = selected_plugin or _TTS_PLUGIN_DEFAULT_ID
@@ -2721,7 +2781,6 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         f"Direkter Gespraechszugang zum Memorial von {_text(payload.get('person_name'), 'Manfred')}.",
     )
     base_path = f"/memorials/{slug}"
-    scope_path = f"{base_path}/"
     return {
         "name": name,
         "short_name": short_name,
@@ -2730,7 +2789,7 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         "dir": "ltr",
         "id": base_path,
         "start_url": f"{base_path}?source=pwa",
-        "scope": scope_path,
+        "scope": base_path,
         "display": "standalone",
         "orientation": "portrait",
         "background_color": "#f4ecdf",
@@ -5236,6 +5295,34 @@ def _memorial_html(
     prompts_html = "\n".join(f"<button type=\"button\" data-prompt=\"{html.escape(prompt)}\">{html.escape(prompt)}</button>" for prompt in suggested_prompts)
     if not prompts_html:
         prompts_html = "<button type=\"button\">Was ist wirklich belegt?</button>"
+    memory_html = ""
+    if cards_html:
+        memory_html = f"""
+      <section id="memorial-memories">
+        <div class="section-intro">
+          <p class="section-kicker">Erinnerungen</p>
+          <h2>Belegte Erinnerungen</h2>
+          <p class="lead">{html.escape(intro)}</p>
+        </div>
+        <div class="grid">{cards_html}</div>
+      </section>"""
+    clips_section_html = f"""
+      <section id="memorial-voice-section">
+        <div class="section-intro">
+          <p class="section-kicker">Originalstimme</p>
+          <h2>Seine Stimme hoeren</h2>
+          <p class="lead">{html.escape(disclosure)}</p>
+        </div>
+        <div class="grid">{clips_html}</div>
+      </section>"""
+    prompts_section_html = f"""
+      <section id="memorial-prompts">
+        <div class="section-intro">
+          <p class="section-kicker">Fragen</p>
+          <h2>Was du fragen kannst</h2>
+        </div>
+        <div class="prompt-row">{prompts_html}</div>
+      </section>"""
     archive_html = ""
     if archive_sections and archive_publications:
         section_blocks: list[str] = []
@@ -6529,7 +6616,7 @@ def _memorial_html(
             <h1>{html.escape(person_name)}</h1>
             <p class="lead">{html.escape(subtitle)}</p>
             <div class="hero-actions">
-              <button type="button" class="hero-cta" data-hero-action="conversation" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
+              <button type="button" id="memorial-conversation" class="hero-cta" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
               <details class="hero-settings minimal-disclosure">
                 <summary class="collapse-summary">Optionen</summary>
                 <div class="hero-settings-body">
@@ -6575,7 +6662,7 @@ def _memorial_html(
           </div>
         </div>
         <details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap" style="margin:16px 0 10px;">
-          <summary class="collapse-summary">Stimmvergleich und Feedback</summary>
+          <summary class="collapse-summary" aria-label="Seine Stimme hoeren">Stimmvergleich und Feedback</summary>
           <div id="memorial-voice-ab-panel" style="margin-top:12px;">
             <p class="lead" style="margin-bottom:10px;">A und B anhören. Dann nur festhalten, welche Stimme insgesamt besser passt.</p>
             <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
@@ -6628,6 +6715,12 @@ def _memorial_html(
         <div class="speech-transcript" id="memorial-speech-transcript"></div>
         <audio id="memorial-speech-audio" preload="none"></audio>
       </section>
+{clips_section_html}
+{memory_html}
+{profile_html}
+{sources_html}
+{candidates_html}
+{prompts_section_html}
 {archive_html}
       <div class="speaking-overlay" id="memorial-speaking-overlay" hidden aria-live="polite" aria-hidden="true" role="button" tabindex="0" title="Manfred unterbrechen" aria-label="Manfred spricht gerade. Tippen zum Unterbrechen.">
         <span class="speaking-overlay-dot"></span>
@@ -8602,7 +8695,7 @@ def _memorial_html(
       }}
       if ("serviceWorker" in navigator) {{
         window.addEventListener("load", () => {{
-          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}/" }}).catch(() => null);
+          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
         }});
       }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
@@ -8683,7 +8776,10 @@ def public_memorial_pwa_service_worker(slug: str) -> Response:
     return Response(
         content=_memorial_pwa_service_worker(slug, payload),
         media_type="application/javascript",
-        headers={"Cache-Control": "no-store"},
+        headers={
+            "Cache-Control": "no-store",
+            "Service-Worker-Allowed": f"/memorials/{_safe_slug(slug)}",
+        },
     )
 
 
@@ -8754,7 +8850,7 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
     choice = _text(body.get("choice"), "").lower()
     approved_variant = _text(body.get("approved_variant"), "").lower()
     if approved_variant and not bool(context.get("personal_memory_enabled")):
-        raise HTTPException(status_code=400, detail="personal_memory_required_for_voice_approval")
+        return _public_memorial_error_response(400, "personal_memory_required_for_voice_approval")
     ratings = _record_voice_ab_rating(
         slug=slug,
         context=context,
@@ -8871,7 +8967,15 @@ async def public_memorial_voice_profile_build(slug: str, request: Request) -> JS
 def public_memorial_file(slug: str, asset_path: str) -> FileResponse:
     path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=media_type, filename=path.name)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name,
+        headers={
+            "Cache-Control": "public, max-age=3600, immutable",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/memorials/{slug}/chat")
@@ -9000,7 +9104,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         raise HTTPException(status_code=400, detail="invalid_json")
     unexpected_fields = set(body.keys()) - _PUBLIC_TTS_ALLOWED_BODY_FIELDS
     if unexpected_fields:
-        raise HTTPException(status_code=400, detail="unsupported_public_tts_fields")
+        return _public_memorial_error_response(400, "unsupported_public_tts_fields")
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
     personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
@@ -9093,6 +9197,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     await websocket.accept()
     container = getattr(websocket.app.state, "container", None)
     memory_runtime = getattr(container, "memory_runtime", None)
+    private_profile = _load_private_profile(slug)
     personal_memory_context = _extract_personal_memory_request_context(websocket=websocket)
     current_difficult_memory_mode = _extract_difficult_memory_mode(websocket=websocket)
     try:
@@ -9105,6 +9210,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket)
     current_content_type = "application/octet-stream"
     current_audio = bytearray()
+    current_audio_started = False
     current_turn_id = ""
     turn_tasks: set[asyncio.Task[None]] = set()
     cancelled_turn_ids: set[str] = set()
@@ -9118,8 +9224,6 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
 
     async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
         try:
-            payload = _load_memorial(slug)
-            private_profile = _load_private_profile(slug)
             if not transcript_text:
                 raise HTTPException(status_code=400, detail="speech_transcription_empty")
             if turn_id in cancelled_turn_ids:
@@ -9296,13 +9400,21 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             text_data = message.get("text")
             bytes_data = message.get("bytes")
             if bytes_data is not None:
+                if not current_audio_started:
+                    await websocket.send_json({"type": "error", "message": "audio_start_required"})
+                    continue
                 if len(current_audio) + len(bytes_data) > _MAX_REALTIME_AUDIO_BYTES:
                     current_audio = bytearray()
+                    current_audio_started = False
+                    current_turn_id = ""
                     await websocket.send_json({"type": "error", "message": "audio_too_large"})
                     continue
                 current_audio.extend(bytes_data)
                 continue
             if not text_data:
+                continue
+            if len(text_data) > 32_000:
+                await websocket.send_json({"type": "error", "message": "invalid_realtime_message"})
                 continue
             try:
                 payload = json.loads(text_data)
@@ -9346,6 +9458,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 continue
             if message_type == "user_audio_start":
                 current_audio = bytearray()
+                current_audio_started = True
                 current_turn_id = _text(payload.get("turn_id"))
                 current_content_type = _text(payload.get("content_type"), "application/octet-stream")
                 await websocket.send_json({"type": "phase", "turn_id": current_turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
@@ -9353,17 +9466,26 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if message_type != "user_audio_end":
                 await websocket.send_json({"type": "error", "message": "unsupported_realtime_message"})
                 continue
+            if not current_audio_started:
+                await websocket.send_json({"type": "error", "message": "audio_start_required"})
+                continue
             if not current_audio:
+                current_audio_started = False
+                current_turn_id = ""
                 await websocket.send_json({"type": "error", "message": "audio_missing"})
                 continue
             if len(turn_tasks) >= _MAX_REALTIME_CONCURRENT_TURNS:
                 current_audio = bytearray()
+                current_audio_started = False
+                current_turn_id = ""
                 await websocket.send_json({"type": "error", "message": "too_many_active_turns"})
                 continue
             try:
                 _enforce_public_memorial_rate_limit("realtime_turn", websocket=websocket, context=personal_memory_context)
             except HTTPException:
                 current_audio = bytearray()
+                current_audio_started = False
+                current_turn_id = ""
                 await websocket.send_json({"type": "error", "message": "memorial_rate_limited"})
                 continue
             turn_id = _text(payload.get("turn_id")) or current_turn_id or f"turn_{len(turn_tasks) + 1}"
@@ -9372,6 +9494,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             turn_tasks.add(task)
             task.add_done_callback(turn_tasks.discard)
             current_audio = bytearray()
+            current_audio_started = False
             current_turn_id = ""
     except WebSocketDisconnect:
         for task in list(turn_tasks):
