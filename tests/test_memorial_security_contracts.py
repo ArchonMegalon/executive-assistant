@@ -178,7 +178,16 @@ def test_public_voice_ab_payload_hides_raw_voice_ids(
         "current_round_dimension_average",
         "candidates",
     }
-    assert set(body["pool"].keys()) == {"needs_new_clone", "remaining_challenger_count", "current_index", "active", "next_challenger"}
+    assert set(body["pool"].keys()) == {
+        "needs_new_clone",
+        "remaining_challenger_count",
+        "current_index",
+        "retired_voice_count",
+        "pending_external_delete_count",
+        "last_clone_error",
+        "active",
+        "next_challenger",
+    }
 
 
 def test_public_voice_ab_approval_requires_personal_memory_opt_in(

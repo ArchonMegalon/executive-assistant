@@ -39,9 +39,11 @@ from app.services.memorial_openvoice import (
     piper_fast_synthesize_request,
     openvoice_synthesize_request_with_variant,
     unmixr_clone_request,
+    unmixr_delete_clone_profile_request,
     unmixr_memorial_voice_id,
     unmixr_plugin_option,
     unmixr_synthesize_request,
+    unmixr_voice_profile_id,
 )
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
@@ -1144,6 +1146,15 @@ def _voice_ab_pool_status(slug: str) -> dict[str, object]:
         "needs_new_clone": not bool(remaining),
         "remaining_challenger_count": len(remaining),
         "current_index": current_index,
+        "retired_voice_count": len([item for item in pool.get("retired_voices", []) if isinstance(item, dict)]),
+        "pending_external_delete_count": len(
+            [
+                item
+                for item in pool.get("retired_voices", [])
+                if isinstance(item, dict) and _text(item.get("delete_status"), "") == "pending_manual_delete"
+            ]
+        ),
+        "last_clone_error": _text(pool.get("last_clone_error"), ""),
         "active": {
             "a": {
                 "label": _text(active_a.get("label"), "Stimme A"),
@@ -1156,6 +1167,145 @@ def _voice_ab_pool_status(slug: str) -> dict[str, object]:
         },
         "next_challenger": next_challenger,
     }
+
+
+def _voice_ab_profile_sample_paths(*, slug: str, source_mix: str, max_items: int = 4) -> list[Path]:
+    profile = load_memorial_voice_profile(slug=slug)
+    assets = [dict(item) for item in profile.get("audio_assets", []) if isinstance(item, dict)]
+    profile_root = (_private_profile_dir() / _safe_slug(slug)).resolve()
+    scored: list[tuple[float, Path]] = []
+    for item in assets:
+        if _text(item.get("analysis_status"), "") != "ok":
+            continue
+        relpath = _text(item.get("asset_relpath"), "")
+        if not relpath:
+            continue
+        candidate = (profile_root / relpath).resolve()
+        if not candidate.is_file():
+            continue
+        kind = _text(item.get("kind"), "")
+        label = (_text(item.get("source_label"), "") + " " + _text(item.get("filename"), "")).lower()
+        score = 0.0
+        if kind == "youtube":
+            score += 2.0
+        if "hanusch" in label or "hospital" in label or "spital" in label:
+            score += 2.0
+        if source_mix in {"youtube_only", "youtube_curated"}:
+            score += 4.0 if kind == "youtube" else -3.0
+        elif source_mix == "hospital_hybrid":
+            score += 3.0 if ("hanusch" in label or "hospital" in label or "spital" in label) else 0.0
+            score += 1.0 if kind == "youtube" else 0.0
+        else:
+            score += 1.0 if kind in {"youtube", "public_clip"} else 0.0
+        duration = float(item.get("duration_seconds", 0.0) or 0.0)
+        if duration > 0:
+            score += min(duration, 90.0) / 45.0
+        scored.append((score, candidate))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    selected: list[Path] = []
+    for _, path in scored:
+        if path in selected:
+            continue
+        selected.append(path)
+        if len(selected) >= max(1, int(max_items or 4)):
+            break
+    return selected
+
+
+def _voice_ab_feature_profile_from_hypothesis(*, source_mix: str, weak_dimensions: list[str], sample_count: int) -> dict[str, object]:
+    weak = {str(item or "").strip() for item in weak_dimensions}
+    return _voice_ab_default_feature_profile(
+        source_mix=source_mix,
+        source_count=max(1, int(sample_count or 1)),
+        identity_bias=5 if "identity" in weak else 4,
+        intelligibility_bias=5 if {"intelligibility", "artifact_control"} & weak else 4,
+        naturalness_bias=5 if "naturalness" in weak else 4,
+        warmth_bias=5 if "warmth" in weak else 3,
+        authority_bias=5 if "authority" in weak else 4,
+        metallic_risk=2 if "artifact_control" in weak else 3,
+        hall_risk=2 if "artifact_control" in weak else 3,
+    )
+
+
+def _voice_ab_auto_build_challenger(slug: str, *, excluded_voice_ids: set[str]) -> dict[str, object] | None:
+    pool = _load_voice_ab_pool(slug)
+    analysis = _voice_ab_analysis(slug)
+    weak_dimensions = [str(item).strip() for item in analysis.get("weak_dimensions", []) if str(item).strip()]
+    if "identity" in weak_dimensions:
+        source_mix = "hospital_hybrid"
+    elif {"artifact_control", "intelligibility"} & set(weak_dimensions):
+        source_mix = "youtube_curated"
+    else:
+        source_mix = "hybrid_curated"
+    sample_paths = _voice_ab_profile_sample_paths(slug=slug, source_mix=source_mix, max_items=4)
+    if not sample_paths:
+        pool["last_clone_error"] = "voice_profile_no_samples_for_auto_challenger"
+        _save_voice_ab_pool(slug, pool)
+        return None
+    memorial = _load_memorial(slug)
+    voice_label = f"{_text(memorial.get('person_name'), slug).strip() or slug}-Auto-Challenger-R{int((_load_voice_ab_ratings(slug).get('round', 1) or 1))}"
+    try:
+        voice_id = unmixr_clone_request(slug=slug, voice_label=voice_label[:80], sample_paths=sample_paths)
+    except HTTPException as exc:
+        pool["last_clone_error"] = _text(exc.detail, "unmixr_clone_failed")
+        _save_voice_ab_pool(slug, pool)
+        return None
+    if voice_id in excluded_voice_ids:
+        return None
+    challenger = {
+        "voice_id": voice_id,
+        "label": "Stimme B · neuer Challenger",
+        "description": _text(analysis.get("hypothesis"), "Neuer Challenger aus lernbasiertem Rebuild"),
+        "unmixr_speaking_rate": "low",
+        "unmixr_speaking_pitch": "medium",
+        "unmixr_speaking_volume": "high",
+        "feature_profile": _voice_ab_feature_profile_from_hypothesis(
+            source_mix=source_mix,
+            weak_dimensions=weak_dimensions,
+            sample_count=len(sample_paths),
+        ),
+        "hypothesis": _text(analysis.get("hypothesis"), ""),
+        "generated_at": _utc_now_iso(),
+        "generated_from": source_mix,
+    }
+    challengers = [dict(item) for item in pool.get("challengers", []) if isinstance(item, dict)]
+    challengers.append(challenger)
+    pool["challengers"] = challengers[-12:]
+    pool["last_clone_error"] = ""
+    _save_voice_ab_pool(slug, pool)
+    return challenger
+
+
+def _voice_ab_retire_losing_challenger(slug: str, *, voice_id: str) -> dict[str, object]:
+    pool = _load_voice_ab_pool(slug)
+    normalized_voice_id = _text(voice_id, "")
+    challengers = [dict(item) for item in pool.get("challengers", []) if isinstance(item, dict)]
+    pool["challengers"] = [item for item in challengers if _text(item.get("voice_id"), "") != normalized_voice_id]
+    retired = [dict(item) for item in pool.get("retired_voices", []) if isinstance(item, dict)]
+    record = {
+        "voice_id": normalized_voice_id,
+        "retired_at": _utc_now_iso(),
+        "delete_status": "not_attempted",
+        "profile_id": "",
+        "error": "",
+    }
+    if normalized_voice_id:
+        try:
+            profile_id = unmixr_voice_profile_id(voice_id=normalized_voice_id)
+            record["profile_id"] = profile_id
+            if profile_id:
+                unmixr_delete_clone_profile_request(profile_id=profile_id)
+                record["delete_status"] = "deleted"
+            else:
+                record["delete_status"] = "pending_manual_delete"
+                record["error"] = "unmixr_profile_id_unresolved"
+        except HTTPException as exc:
+            record["delete_status"] = "pending_manual_delete"
+            record["error"] = _text(exc.detail, "unmixr_clone_delete_failed")
+    retired.append(record)
+    pool["retired_voices"] = retired[-20:]
+    _save_voice_ab_pool(slug, pool)
+    return record
 
 
 def _voice_ab_dimension_average(events: list[dict[str, object]]) -> dict[str, float]:
@@ -1485,7 +1635,13 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
         current_a_id = _text(variant_a.get("tts_plugin_voice_id"), "")
     challenger = _voice_ab_next_challenger(slug, excluded_voice_ids={current_a_id, current_b_id})
     if not challenger:
+        challenger = _voice_ab_auto_build_challenger(slug, excluded_voice_ids={current_a_id, current_b_id})
+    if not challenger:
         return ratings
+    retirement: dict[str, object] = {}
+    replaced_voice_id = current_b_id if winner == "a" else current_a_id
+    if replaced_voice_id:
+        retirement = _voice_ab_retire_losing_challenger(slug, voice_id=replaced_voice_id)
     variant_b = {
         "id": "b",
         "label": _text(challenger.get("label"), "Stimme B · challenger"),
@@ -1507,10 +1663,11 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
             "winner": winner,
             "raw_totals": dict(totals),
             "effective_totals": dict(effective),
-            "replaced_voice_id": current_b_id if winner == "a" else current_a_id,
+            "replaced_voice_id": replaced_voice_id,
             "new_b_voice_id": _text(variant_b.get("tts_plugin_voice_id"), ""),
             "events": [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)],
             "analysis": _voice_ab_analysis(slug, ratings),
+            "retirement": retirement,
             "created_at": _utc_now_iso(),
         }
     )
@@ -6127,6 +6284,7 @@ def _memorial_html(
         frozen: false,
         dimension_spec: [],
         analysis: {{}},
+        pool: {{}},
         dimension_values: {{}},
       }};
       function personalMemoryEnabled() {{
@@ -6199,6 +6357,7 @@ def _memorial_html(
       function renderVoiceAbAnalysis() {{
         if (!voiceAbAnalysis) return;
         const analysis = voiceAbState.analysis && typeof voiceAbState.analysis === "object" ? voiceAbState.analysis : {{}};
+        const pool = voiceAbState.pool && typeof voiceAbState.pool === "object" ? voiceAbState.pool : {{}};
         const hypothesis = String(analysis.hypothesis || "").trim();
         const weak = Array.isArray(analysis.weak_dimension_labels)
           ? analysis.weak_dimension_labels
@@ -6221,7 +6380,11 @@ def _memorial_html(
         const sampleText = sampleHistorical > 0
           ? ("Lernbasis: " + sampleEffective + " aktuelle / " + sampleHistorical + " gesamt")
           : "";
-        voiceAbAnalysis.textContent = [hypothesis, weakText, targetText, sampleText].filter(Boolean).join(" · ")
+        const lifecycleBits = [];
+        if (pool && pool.needs_new_clone) lifecycleBits.push("Neuer echter Challenger noetig");
+        if (Number(pool.pending_external_delete_count || 0) > 0) lifecycleBits.push("Unmixr-Loeschungen offen: " + String(pool.pending_external_delete_count || 0));
+        if (String(pool.last_clone_error || "").trim()) lifecycleBits.push("Clone-Blocker: " + String(pool.last_clone_error || "").trim());
+        voiceAbAnalysis.textContent = [hypothesis, weakText, targetText, sampleText].concat(lifecycleBits).filter(Boolean).join(" · ")
           || "Noch zu wenig Daten fuer erkennbare Muster.";
       }}
       function renderVoiceAbOptions() {{
@@ -6255,6 +6418,7 @@ def _memorial_html(
           voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
           voiceAbState.dimension_spec = Array.isArray(payload.dimension_spec) ? payload.dimension_spec : [];
           voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : {{}};
+          voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : {{}};
           if (!voiceAbState.dimension_values || !Object.keys(voiceAbState.dimension_values).length) {{
             voiceAbState.dimension_values = Object.fromEntries(voiceAbState.dimension_spec.map((item) => [String(item.id || ""), 3]));
           }}
@@ -6295,6 +6459,7 @@ def _memorial_html(
           if (payload.personal_memory) personalMemoryStatusPayload = payload.personal_memory;
           voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
           voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : voiceAbState.analysis;
+          voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : voiceAbState.pool;
           if (voiceAbState.frozen && String(payload.personal_memory.approved_voice_choice || "").trim()) {{
             voiceAbState.selected_variant = String(payload.personal_memory.approved_voice_choice || "").trim().toLowerCase();
           }}

@@ -20,6 +20,7 @@ from app.services.fliplink.models import (
     normalize_packet_kind,
     normalize_privacy_mode,
 )
+from app.services.fliplink.browser_adapter import browseract_fliplink_publish_requested
 from app.services.fliplink.pdf_renderer import render_property_packet_pdf
 from app.services.fliplink.webhooks import FlipLinkLeadWebhook, normalize_lead_webhook
 from app.services.fliplink.webhooks import safe_custom_fields
@@ -186,6 +187,90 @@ class FlipLinkPacketService:
             }
         )
         return updated
+
+    def archive_publication(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        actor: str = "browser",
+        note: str = "",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        now = now_utc_iso()
+        updated = self._repo.update_publication(
+            publication_id=publication_id,
+            updates={
+                "status": "archived",
+                "archived_at": now,
+            },
+        )
+        if updated is None:
+            raise KeyError("property_packet_publication_not_found")
+        self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "fliplink_publication_archived",
+                "actor": actor,
+                "payload_json": {
+                    "note": str(note or "").strip()[:1000],
+                    "previous_status": str(publication.get("status") or ""),
+                    "archived_at": now,
+                },
+            }
+        )
+        return updated
+
+    def request_browseract_publish(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        password_required: bool = False,
+        lead_capture_enabled: bool = True,
+        actor: str = "browser",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        summary = dict(publication.get("packet_summary_json") or {})
+        result = browseract_fliplink_publish_requested(
+            {
+                "publication_id": publication_id,
+                "pdf_artifact_ref": str(publication.get("source_pdf_artifact_ref") or ""),
+                "redaction_receipt_present": bool(
+                    publication.get("receipt_artifact_ref") or publication.get("redaction_receipt_json")
+                ),
+                "recommended_title": str(publication.get("recommended_title") or ""),
+                "fliplink_format": str(publication.get("fliplink_format") or ""),
+                "privacy_mode": str(publication.get("privacy_mode") or ""),
+                "recommended_folder": str(summary.get("recommended_folder") or _folder_for(normalize_packet_kind(publication.get("packet_kind")))),
+                "custom_domain": str(summary.get("recommended_custom_domain") or fliplink_settings_from_env().custom_domain),
+                "lead_capture_enabled": bool(lead_capture_enabled),
+                "password_required": bool(password_required),
+            }
+        )
+        event = self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "fliplink_browser_publish_requested",
+                "actor": actor,
+                "payload_json": {
+                    **dict(result),
+                    "lead_capture_enabled": bool(lead_capture_enabled),
+                    "password_required": bool(password_required),
+                },
+            }
+        )
+        return {
+            **dict(result),
+            "publication_id": publication_id,
+            "event_id": str(event.get("event_id") or ""),
+        }
 
     def verify_webhook_secret(self, *, provided_header: str = "", provided_query: str = "") -> str:
         settings = fliplink_settings_from_env()

@@ -84,12 +84,49 @@
     .pq-pack-stat { border: 1px solid var(--pq-border); border-radius: 8px; padding: 12px; background: #fffdf8; }
     .pq-pack-stat span { color: var(--pq-muted); font-size: 12px; display: block; }
     .pq-pack-stat strong { font-size: 24px; display: block; margin-top: 5px; }
-    .pq-pack-table-wrap { overflow-x: auto; border: 1px solid var(--pq-border); border-radius: 8px; background: var(--pq-panel); }
-    table { width: 100%; min-width: 960px; border-collapse: collapse; }
-    th, td { padding: 13px 14px; text-align: left; border-bottom: 1px solid var(--pq-border); vertical-align: top; }
-    th { font-size: 12px; text-transform: uppercase; color: var(--pq-muted); background: #f3ead9; }
-    td strong, td small { display: block; }
-    td small { color: var(--pq-muted); margin-top: 4px; line-height: 1.4; }
+    .pq-pack-card-list { display: grid; gap: 12px; }
+    .pq-pack-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, .45fr);
+      gap: 14px;
+      border: 1px solid var(--pq-border);
+      border-radius: 8px;
+      background: #fffdf8;
+      padding: 14px;
+    }
+    .pq-pack-card h3 { margin: 0; font-size: 18px; line-height: 1.25; }
+    .pq-pack-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+    .pq-pack-muted { color: var(--pq-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+    .pq-pack-toolbox { display: grid; gap: 10px; align-content: start; }
+    .pq-pack-form { display: grid; gap: 8px; }
+    .pq-pack-input {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid var(--pq-border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--pq-ink);
+      padding: 9px 10px;
+      font: inherit;
+    }
+    .pq-pack-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .pq-pack-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--pq-muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .pq-pack-button.small {
+      min-height: 36px;
+      padding: 8px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.pq-pack-button { cursor: pointer; }
+    .pq-pack-button.danger { color: var(--pq-red); border-color: rgba(166, 70, 61, .35); }
+    .pq-pack-status { min-height: 18px; color: var(--pq-muted); font-size: 13px; }
     .pq-pack-pill {
       display: inline-flex;
       border: 1px solid var(--pq-border);
@@ -117,8 +154,9 @@
     .pq-pack-empty { color: var(--pq-muted); padding: 16px; border: 1px dashed var(--pq-border); border-radius: 8px; }
     @media (max-width: 760px) {
       .pq-pack-shell { padding: 14px; }
-      .pq-pack-topbar, .pq-pack-hero, .pq-pack-feedback { grid-template-columns: minmax(0, 1fr); display: grid; }
+      .pq-pack-topbar, .pq-pack-hero, .pq-pack-feedback, .pq-pack-card { grid-template-columns: minmax(0, 1fr); display: grid; }
       .pq-pack-actions, .pq-pack-button { width: 100%; }
+      .pq-pack-inline .pq-pack-button { width: auto; flex: 1 1 142px; }
       .pq-pack-stat-grid { grid-template-columns: minmax(0, 1fr); }
       h1 { font-size: 34px; }
     }
@@ -156,31 +194,45 @@
       <div class="pq-pack-kicker">Publication queue</div>
       <h2>Packets</h2>
       {% if publications %}
-      <div class="pq-pack-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Packet</th>
-              <th>Privacy</th>
-              <th>Format</th>
-              <th>Status</th>
-              <th>FlipLink</th>
-              <th>Operator assets</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in publications %}
-            <tr>
-              <td><strong>{{ row.recommended_title or row.property_ref }}</strong><small>{{ row.property_ref }} · {{ row.recommended_folder }}</small></td>
-              <td><span class="pq-pack-pill">{{ row.privacy_mode|replace("_", " ") }}</span><small>{{ row.redaction_policy_version }}</small></td>
-              <td><span class="pq-pack-pill">{{ row.fliplink_format|replace("_", " ") }}</span><small>Format is fixed once created in FlipLink.</small></td>
-              <td><span class="pq-pack-pill{% if row.status == 'published' %} good{% else %} warn{% endif %}">{{ row.status|replace("_", " ") }}</span><small>{{ row.updated_at[:19] }}</small></td>
-              <td>{% if row.fliplink_url %}<a href="{{ row.fliplink_url }}">{{ row.recommended_title or 'Open FlipLink packet' }}</a>{% else %}<small>Manual URL not recorded yet.</small>{% endif %}</td>
-              <td><a href="{{ row.artifact_download_path }}">Download PDF</a><small>{{ row.source_pdf_size_bytes }} bytes · {{ row.source_pdf_sha256[:12] }}</small></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="pq-pack-card-list">
+        {% for row in publications %}
+        <article class="pq-pack-card" data-publication-id="{{ row.publication_id }}">
+          <div>
+            <h3>{{ row.recommended_title or row.property_ref }}</h3>
+            <div class="pq-pack-meta">
+              <span class="pq-pack-pill{% if row.status == 'published' %} good{% elif row.status == 'archived' %}{% else %} warn{% endif %}" data-publication-status>{{ row.status|replace("_", " ") }}</span>
+              <span class="pq-pack-pill">{{ row.privacy_mode|replace("_", " ") }}</span>
+              <span class="pq-pack-pill">{{ row.fliplink_format|replace("_", " ") }}</span>
+            </div>
+            <div class="pq-pack-muted">{{ row.property_ref }} · {{ row.recommended_folder }} · {{ row.updated_at[:19] }}</div>
+            <div class="pq-pack-muted">{{ row.source_pdf_size_bytes }} bytes · {{ row.source_pdf_sha256[:12] }} · {{ row.redaction_policy_version }}</div>
+            {% if row.fliplink_url %}
+            <div class="pq-pack-muted"><a href="{{ row.fliplink_url }}" target="_blank" rel="noreferrer">{{ row.recommended_title or 'Open FlipLink packet' }}</a></div>
+            {% endif %}
+          </div>
+          <div class="pq-pack-toolbox">
+            <form class="pq-pack-form" data-fliplink-manual-form data-publication-id="{{ row.publication_id }}">
+              <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="https://packets.propertyquarry.com/p/..." value="{{ row.fliplink_url }}" autocomplete="off">
+              <input type="hidden" name="fliplink_format" value="{{ row.fliplink_format }}">
+              <div class="pq-pack-inline">
+                <label class="pq-pack-check"><input type="checkbox" name="lead_capture_enabled" {% if row.lead_capture_enabled %}checked{% endif %}> Leads</label>
+                <label class="pq-pack-check"><input type="checkbox" name="password_required" {% if row.password_required %}checked{% endif %}> Password</label>
+                <label class="pq-pack-check"><input type="checkbox" name="sale_mode_enabled" {% if row.sale_mode_enabled %}checked{% endif %}> Sale</label>
+              </div>
+              <button class="pq-pack-button small" type="submit">Record link</button>
+            </form>
+            <div class="pq-pack-inline">
+              <a class="pq-pack-button small" href="{{ row.artifact_download_path }}">Download PDF</a>
+              <button class="pq-pack-button small" type="button" data-copy-kind="title" data-copy-value="{{ row.recommended_title or row.property_ref }}">Copy title</button>
+              <button class="pq-pack-button small" type="button" data-copy-kind="webhook" data-copy-value="{{ fliplink_webhook_url }}">Copy webhook</button>
+              <button class="pq-pack-button small" type="button" data-copy-lead-schema data-property-ref="{{ row.property_ref }}" data-packet-kind="{{ row.packet_kind }}" data-privacy-mode="{{ row.privacy_mode }}">Copy fields</button>
+              <button class="pq-pack-button small" type="button" data-browseract-publish data-publication-id="{{ row.publication_id }}">BrowserAct</button>
+              <button class="pq-pack-button small danger" type="button" data-archive-publication data-publication-id="{{ row.publication_id }}">Archive</button>
+            </div>
+            <div class="pq-pack-status" data-action-status aria-live="polite"></div>
+          </div>
+        </article>
+        {% endfor %}
       </div>
       {% else %}
       <div class="pq-pack-empty">No packets have been rendered yet. Create one from a property result via the packet API or the result action surface.</div>
@@ -206,5 +258,128 @@
       </div>
     </section>
   </main>
+  <script type="application/json" id="pq-lead-schema">{{ lead_capture_schema|tojson }}</script>
+  <script>
+    (() => {
+      const root = document.querySelector("[data-property-packets-dashboard]");
+      if (!root) return;
+
+      const statusFor = (element) => {
+        const card = element.closest("[data-publication-id]");
+        return card ? card.querySelector("[data-action-status]") : null;
+      };
+      const showStatus = (element, message, tone) => {
+        const status = statusFor(element);
+        if (!status) return;
+        status.textContent = message;
+        status.style.color = tone === "error" ? "var(--pq-red)" : "var(--pq-green)";
+      };
+      const apiError = async (response) => {
+        try {
+          const payload = await response.json();
+          return payload?.error?.message || payload?.error?.code || payload?.detail || "Request failed.";
+        } catch (_) {
+          return "Request failed.";
+        }
+      };
+      const postJson = async (url, payload) => {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {"content-type": "application/json"},
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(await apiError(response));
+        return response.json();
+      };
+      const copyText = async (value) => {
+        const text = String(value || "");
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const field = document.createElement("textarea");
+        field.value = text;
+        field.style.position = "fixed";
+        field.style.left = "-9999px";
+        document.body.appendChild(field);
+        field.focus();
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      };
+
+      root.addEventListener("submit", async (event) => {
+        const form = event.target.closest("[data-fliplink-manual-form]");
+        if (!form) return;
+        event.preventDefault();
+        const publicationId = form.dataset.publicationId;
+        const fields = form.elements;
+        const payload = {
+          fliplink_url: fields.fliplink_url.value,
+          fliplink_format: fields.fliplink_format.value,
+          lead_capture_enabled: fields.lead_capture_enabled.checked,
+          password_required: fields.password_required.checked,
+          sale_mode_enabled: fields.sale_mode_enabled.checked,
+        };
+        try {
+          const result = await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/fliplink/manual-link`, payload);
+          const card = form.closest("[data-publication-id]");
+          const pill = card?.querySelector("[data-publication-status]");
+          if (pill) {
+            pill.textContent = String(result.publication?.status || "published").replaceAll("_", " ");
+            pill.classList.add("good");
+            pill.classList.remove("warn");
+          }
+          showStatus(form, "Link recorded.", "ok");
+        } catch (error) {
+          showStatus(form, error.message, "error");
+        }
+      });
+
+      root.addEventListener("click", async (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        if (button.dataset.copyValue !== undefined) {
+          await copyText(button.dataset.copyValue || "");
+          showStatus(button, "Copied.", "ok");
+          return;
+        }
+        if (button.hasAttribute("data-copy-lead-schema")) {
+          const base = JSON.parse(document.getElementById("pq-lead-schema")?.textContent || "{}");
+          base.property_ref = button.dataset.propertyRef || "";
+          base.packet_kind = button.dataset.packetKind || "";
+          base.privacy_mode = button.dataset.privacyMode || "";
+          await copyText(JSON.stringify(base, null, 2));
+          showStatus(button, "Copied.", "ok");
+          return;
+        }
+        if (button.hasAttribute("data-archive-publication")) {
+          const publicationId = button.dataset.publicationId;
+          try {
+            const result = await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/archive`, {note: "Archived from packet dashboard."});
+            const card = button.closest("[data-publication-id]");
+            const pill = card?.querySelector("[data-publication-status]");
+            if (pill) {
+              pill.textContent = String(result.publication?.status || "archived").replaceAll("_", " ");
+              pill.classList.remove("good", "warn");
+            }
+            showStatus(button, "Archived.", "ok");
+          } catch (error) {
+            showStatus(button, error.message, "error");
+          }
+          return;
+        }
+        if (button.hasAttribute("data-browseract-publish")) {
+          const publicationId = button.dataset.publicationId;
+          try {
+            const result = await postJson(`/app/api/properties/packets/${encodeURIComponent(publicationId)}/fliplink/browseract-publish`, {lead_capture_enabled: true, password_required: false});
+            showStatus(button, result.status || "Queued.", "ok");
+          } catch (error) {
+            showStatus(button, error.message, "error");
+          }
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

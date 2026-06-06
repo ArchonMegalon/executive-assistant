@@ -86,6 +86,15 @@ class FlipLinkFeedbackReviewIn(BaseModel):
     note: str = Field(default="", max_length=1000)
 
 
+class FlipLinkArchivePublicationIn(BaseModel):
+    note: str = Field(default="", max_length=1000)
+
+
+class BrowserActFlipLinkPublishIn(BaseModel):
+    lead_capture_enabled: bool = True
+    password_required: bool = False
+
+
 def _actor(context: RequestContext) -> str:
     return str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
 
@@ -260,6 +269,7 @@ def property_packets_dashboard(
     service = build_fliplink_packet_service(container)
     rows = [_publication_out(row) for row in service.list_publications(principal_id=context.principal_id, limit=limit)]
     inbox = service.feedback_inbox(principal_id=context.principal_id, limit=100)
+    webhook_url = f"{str(request.base_url).rstrip('/')}/v1/integrations/fliplink/webhook"
     return templates.TemplateResponse(
         request,
         "app/property_packets.html",
@@ -270,6 +280,16 @@ def property_packets_dashboard(
             "publications": rows,
             "feedback_items": list(inbox.get("items") or []),
             "feedback_total": int(inbox.get("total") or 0),
+            "fliplink_webhook_url": webhook_url,
+            "lead_capture_schema": {
+                "property_ref": "<property_ref>",
+                "packet_kind": "<packet_kind>",
+                "privacy_mode": "<privacy_mode>",
+                "viewer_role": "family",
+                "reaction": "maybe",
+                "question": "",
+                "intent": "review",
+            },
         },
     )
 
@@ -396,6 +416,50 @@ def record_manual_fliplink_publication(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"publication": _publication_out(row)}
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/archive")
+def archive_property_packet_publication(
+    publication_id: str,
+    body: FlipLinkArchivePublicationIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        row = service.archive_publication(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            note=body.note,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"publication": _publication_out(row)}
+
+
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/fliplink/browseract-publish")
+def request_browseract_fliplink_publication(
+    publication_id: str,
+    body: BrowserActFlipLinkPublishIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        return service.request_browseract_publish(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            lead_capture_enabled=body.lead_capture_enabled,
+            password_required=body.password_required,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @authenticated_router.post("/app/api/properties/{property_ref:path}/packets/render")

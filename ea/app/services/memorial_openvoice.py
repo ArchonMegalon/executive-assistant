@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import math
+import re
 import shutil
 import subprocess
 import tempfile
@@ -427,6 +428,53 @@ def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path
     if not voice_id:
         raise HTTPException(status_code=502, detail="unmixr_clone_invalid_response")
     return voice_id
+
+
+def unmixr_voice_metadata_request(*, voice_id: str) -> dict[str, object]:
+    normalized_voice_id = str(voice_id or "").strip()
+    if not normalized_voice_id:
+        raise HTTPException(status_code=400, detail="unmixr_voice_id_missing")
+    response = _unmixr_request(
+        method="GET",
+        path=f"/voice/{normalized_voice_id}/",
+    )
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    if response.status_code >= 400 or not response.ok:
+        detail = str(payload.get("detail") or payload.get("error") or payload.get("message") or "unmixr_voice_lookup_failed").strip()
+        raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=502, detail="unmixr_voice_lookup_invalid_response")
+    return payload
+
+
+def unmixr_voice_profile_id(*, voice_id: str) -> str:
+    payload = unmixr_voice_metadata_request(voice_id=voice_id)
+    sample_url = str(payload.get("sample_voice_url") or "").strip()
+    if not sample_url:
+        return ""
+    match = re.search(r"/voiceprofile/([0-9a-f-]+)-", sample_url, flags=re.IGNORECASE)
+    return str(match.group(1) if match else "").strip()
+
+
+def unmixr_delete_clone_profile_request(*, profile_id: str) -> dict[str, object]:
+    normalized_profile_id = str(profile_id or "").strip()
+    if not normalized_profile_id:
+        raise HTTPException(status_code=400, detail="unmixr_profile_id_missing")
+    response = _unmixr_request(
+        method="DELETE",
+        path=f"/voice-cloning-profile/{normalized_profile_id}/",
+    )
+    if response.status_code in {200, 202, 204}:
+        return {"status": "deleted", "profile_id": normalized_profile_id}
+    try:
+        payload = response.json()
+    except Exception:
+        payload = {}
+    detail = str(payload.get("detail") or payload.get("error") or payload.get("message") or "unmixr_clone_delete_failed").strip()
+    raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
 
 
 def openvoice_synthesize_request(*, text: str, voice_id: str, lang: str) -> tuple[bytes, str]:

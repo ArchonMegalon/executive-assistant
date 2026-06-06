@@ -66,6 +66,40 @@ def test_fliplink_manual_packet_lane_and_url_validation(monkeypatch, tmp_path: P
     assert listing.status_code == 200
     assert listing.json()["total"] >= 1
 
+    archived = client.post(
+        f"/app/api/properties/packets/{publication_id}/archive",
+        json={"note": "No longer needed."},
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["publication"]["status"] == "archived"
+    events = client.get(f"/app/api/properties/packets/{publication_id}")
+    assert events.status_code == 200
+    assert any(event["event_type"] == "fliplink_publication_archived" for event in events.json()["events"])
+
+
+def test_fliplink_browseract_publish_request_is_guarded_and_audited(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+    monkeypatch.setenv("FLIPLINK_BROWSERACT_ENABLED", "0")
+    client = build_property_client(principal_id="fliplink-browseract-owner")
+    start_workspace(client, mode="personal", workspace_name="FlipLink BrowserAct Office")
+    publication_id = _seed_packet(client)
+
+    disabled = client.post(f"/app/api/properties/packets/{publication_id}/fliplink/browseract-publish", json={})
+    assert disabled.status_code == 409
+
+    monkeypatch.setenv("FLIPLINK_BROWSERACT_ENABLED", "1")
+    queued = client.post(
+        f"/app/api/properties/packets/{publication_id}/fliplink/browseract-publish",
+        json={"lead_capture_enabled": True, "password_required": False},
+    )
+    assert queued.status_code == 200, queued.text
+    assert queued.json()["status"] == "queued_operator_assist"
+    assert queued.json()["task_name"] == "browseract.fliplink_publish_property_packet"
+    events = client.get(f"/app/api/properties/packets/{publication_id}")
+    assert events.status_code == 200
+    assert any(event["event_type"] == "fliplink_browser_publish_requested" for event in events.json()["events"])
+
 
 def test_fliplink_webhook_requires_secret_and_records_untrusted_feedback(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
@@ -167,6 +201,11 @@ def test_fliplink_packet_dashboard_and_property_actions_render(monkeypatch, tmp_
     assert "FlipLink packet lane" in dashboard.text
     assert "Family flat near Augarten" in dashboard.text
     assert "Download PDF" in dashboard.text
+    assert "data-fliplink-manual-form" in dashboard.text
+    assert "data-copy-kind=\"webhook\"" in dashboard.text
+    assert "data-copy-lead-schema" in dashboard.text
+    assert "data-browseract-publish" in dashboard.text
+    assert "data-archive-publication" in dashboard.text
 
     properties = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert properties.status_code == 200
