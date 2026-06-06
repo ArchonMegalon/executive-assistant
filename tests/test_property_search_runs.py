@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 import app.product.service as product_service
 from app.product.service import ProductService
@@ -190,6 +193,92 @@ def test_property_search_run_status_reconstructs_missing_status_url() -> None:
 
     assert status is not None
     assert status["status_url"] == f"/app/api/signals/property/search/run/{run_id}"
+
+
+def test_property_search_run_surfaces_and_updates_missing_fact_research_tasks() -> None:
+    principal_id = "exec-property-search-research-queue"
+    client = build_property_client(principal_id=principal_id)
+    run_id = f"research-{uuid.uuid4().hex}"
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "in_progress",
+            "status_url": "",
+            "selected_platforms": ["justiz_edikte_at"],
+            "progress": 65,
+            "current_step": "source_review_packet",
+            "message": "Preparing review packets.",
+            "stages_total": 8,
+            "steps_completed": 5,
+            "summary": {
+                "sources_total": 1,
+                "sources": [
+                    {
+                        "source_label": "Justiz Edikte Auctions",
+                        "top_candidates": [
+                            {
+                                "source_ref": "property-scout:auction-1",
+                                "property_url": "https://edikte2.justiz.gv.at/example",
+                                "title": "Auction apartment with floorplan",
+                                "fit_score": 72.0,
+                                "review_url": "/app/handoffs/human_task:auction-review",
+                                "property_facts": {
+                                    "has_floorplan": True,
+                                    "missing_fact_research": {
+                                        "status": "queued",
+                                        "updated_at": "2026-06-06T01:00:00+00:00",
+                                        "items": [
+                                            {
+                                                "field": "rooms",
+                                                "label": "Rooms",
+                                                "status": "research_needed",
+                                                "display_value": "Rooms under research",
+                                                "evidence": "Floorplan exists but no structured room count.",
+                                                "ooda": {
+                                                    "observe": "Room count is missing.",
+                                                    "act": "Parse the downloadable floorplan bundle.",
+                                                },
+                                                "next_actions": ["Parse ZIP/PDF bundle.", "Run floorplan OCR."],
+                                            }
+                                        ],
+                                    },
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            "events": [],
+            "property_search_preferences": {},
+        }
+
+    status = client.get(f"/app/api/signals/property/search/run/{run_id}")
+    assert status.status_code == 200, status.text
+    body = status.json()
+    assert body["research_task_total"] == 1
+    assert body["open_research_task_total"] == 1
+    task = body["research_tasks"][0]
+    assert task["field"] == "rooms"
+    assert task["priority"] == "high"
+    assert task["status"] == "queued"
+    assert task["review_url"] == "/app/handoffs/human_task:auction-review"
+
+    filled = client.post(
+        f"/app/api/signals/property/search/run/{run_id}/research-tasks/{task['task_id']}",
+        json={"action": "fill", "value": "4 rooms", "note": "Read from the valuation PDF."},
+    )
+    assert filled.status_code == 200, filled.text
+    updated = filled.json()
+    assert updated["filled_research_task_total"] == 1
+    assert updated["open_research_task_total"] == 0
+    updated_task = updated["research_tasks"][0]
+    assert updated_task["status"] == "filled"
+    assert updated_task["display_value"] == "4 rooms"
+    assert updated_task["owner_note"] == "Read from the valuation PDF."
+    assert any(event["step"] == "research_task_updated" for event in updated["events"])
 
 
 def test_property_alert_personal_fit_snapshot_times_out_fast(monkeypatch) -> None:
@@ -989,3 +1078,31 @@ def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(m
     assert summary["emailed"] >= 1
     assert observed["principal_id"] == "exec-property-search-reconcile"
     assert observed["run_id"] == run_id
+
+
+def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
+    if not db_url:
+        pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    monkeypatch.setattr(product_service, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
+    run_id = f"run-postgres-round-trip-{uuid.uuid4().hex}"
+    state = product_service._new_property_search_run_record(
+        run_id=run_id,
+        principal_id="exec-property-postgres-round-trip",
+        selected_platforms=("willhaben",),
+        property_search_preferences={"country_code": "AT", "location_query": "Vienna"},
+        force_refresh=False,
+    )
+    state["status"] = "processed"
+    state["progress"] = 100
+
+    product_service._store_property_search_run_record(state)
+    loaded = product_service._load_property_search_run_record(run_id=run_id)
+    listed = product_service._list_property_search_run_records(limit=5, statuses=("processed",))
+
+    assert loaded is not None
+    assert loaded["run_id"] == run_id
+    assert loaded["principal_id"] == "exec-property-postgres-round-trip"
+    assert loaded["property_search_preferences"]["country_code"] == "AT"
+    assert any(row.get("run_id") == run_id for row in listed)

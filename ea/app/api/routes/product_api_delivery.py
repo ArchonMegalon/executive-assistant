@@ -46,6 +46,7 @@ from app.api.routes.product_api_contracts import (
     PropertyBillingCheckoutCreateIn,
     PropertyBillingCheckoutOut,
     PropertyScoutSyncOut,
+    PropertySearchResearchTaskUpdateIn,
     PropertySearchRunStartIn,
     PropertySearchRunStartOut,
     PropertySearchRunStatusOut,
@@ -1042,6 +1043,35 @@ def property_search_run_status(
         principal_id=context.principal_id,
         run_id=run_id,
     )
+    if not payload:
+        raise HTTPException(status_code=404, detail="property_search_run_not_found")
+    return PropertySearchRunStatusOut(**payload)
+
+
+@router.post("/signals/property/search/run/{run_id}/research-tasks/{task_id:path}", response_model=PropertySearchRunStatusOut)
+def update_property_search_research_task(
+    run_id: str,
+    task_id: str,
+    body: PropertySearchResearchTaskUpdateIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertySearchRunStatusOut:
+    service = build_product_service(container)
+    actor = str(context.operator_id or context.access_email or context.principal_id or "property_research").strip()
+    try:
+        payload = service.update_property_search_research_task(
+            principal_id=context.principal_id,
+            run_id=run_id,
+            task_id=task_id,
+            action=body.action,
+            value=body.value,
+            note=body.note,
+            actor=actor,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not payload:
         raise HTTPException(status_code=404, detail="property_search_run_not_found")
     return PropertySearchRunStatusOut(**payload)

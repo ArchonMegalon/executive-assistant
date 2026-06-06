@@ -1399,6 +1399,7 @@ def property_workspace_payload(
     run_payload = dict(property_state.get("run") or {})
     run_events = list(run_payload.get("events") or [])
     run_summary = dict(run_payload.get("summary") or {})
+    raw_research_tasks = list(run_payload.get("research_tasks") or run_summary.get("research_tasks") or [])
     selected_locations = _csv_values(property_preferences.get("location_query"))
     selected_keywords = _csv_values(property_preferences.get("keywords"))
     selected_platforms = [str(value).strip() for value in list(property_state.get("selected_platforms") or []) if str(value).strip()]
@@ -1415,6 +1416,56 @@ def property_workspace_payload(
     run_message = str(run_payload.get("message") or "").strip()
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     run_in_progress = bool(run_id and run_status_value and run_status_value not in {"processed", "completed", "failed", "noop", "cancelled", "not started"})
+
+    research_tasks: list[dict[str, object]] = []
+    for task in raw_research_tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("task_id") or "").strip()
+        if not task_id:
+            continue
+        status = str(task.get("status") or "queued").strip().lower().replace("_", " ") or "queued"
+        next_actions = [str(item).strip() for item in list(task.get("next_actions") or []) if str(item).strip()]
+        ooda = dict(task.get("ooda") or {}) if isinstance(task.get("ooda"), dict) else {}
+        detail = (
+            str(task.get("evidence") or "").strip()
+            or str(ooda.get("act") or ooda.get("orient") or "").strip()
+            or (next_actions[0] if next_actions else "")
+            or "PropertyQuarry is trying to complete this fact from the available source material."
+        )
+        research_tasks.append(
+            {
+                "task_id": task_id,
+                "field": str(task.get("field") or "").strip(),
+                "label": str(task.get("label") or task.get("field") or "Missing fact").strip(),
+                "status": status,
+                "status_label": status.title(),
+                "priority": str(task.get("priority") or "normal").strip().lower(),
+                "title": str(task.get("title") or "Property").strip(),
+                "source_label": str(task.get("source_label") or "").strip(),
+                "property_url": str(task.get("property_url") or "").strip(),
+                "review_url": str(task.get("review_url") or "").strip(),
+                "fit_score": task.get("fit_score") or 0,
+                "display_value": str(task.get("display_value") or task.get("owner_value") or "").strip(),
+                "detail": detail,
+                "next_action": next_actions[0] if next_actions else str(ooda.get("act") or "").strip(),
+                "updated_at": str(task.get("updated_at") or "").strip(),
+                "owner_note": str(task.get("owner_note") or "").strip(),
+            }
+        )
+    research_tasks.sort(
+        key=lambda row: (
+            1 if str(row.get("status") or "") == "filled" else 0,
+            1 if str(row.get("status") or "") == "dismissed" else 0,
+            0 if str(row.get("priority") or "") == "high" else 1,
+            -float(row.get("fit_score") or 0),
+            str(row.get("title") or "").lower(),
+        )
+    )
+    open_research_task_total = int(run_payload.get("open_research_task_total") or run_summary.get("open_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") in {"queued", "in progress", "blocked"}))
+    filled_research_task_total = int(run_payload.get("filled_research_task_total") or run_summary.get("filled_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") == "filled"))
+    dismissed_research_task_total = int(run_payload.get("dismissed_research_task_total") or run_summary.get("dismissed_research_task_total") or sum(1 for task in research_tasks if str(task.get("status") or "") == "dismissed"))
+    research_task_total = int(run_payload.get("research_task_total") or run_summary.get("research_task_total") or len(research_tasks))
 
     def _preference_value_label(value: object) -> str:
         if isinstance(value, list):
@@ -2034,12 +2085,12 @@ def property_workspace_payload(
                 {"label": "Run state", "value": run_status_label, "detail": run_message or "The current live run status."},
                 {"label": "Sources", "value": str(int(run_summary.get("sources_total") or 0)), "detail": "Provider lanes in the current sweep."},
                 {"label": "Listings", "value": str(int(run_summary.get("listing_total") or 0)), "detail": "Listings recovered so far."},
-                {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours already available."},
+                {"label": "Research gaps", "value": str(open_research_task_total), "detail": "Missing facts still under review."},
             ] if run_in_progress else (hero_highlights["properties"] if not (run_status_value in {"processed", "completed"} and results_table_rows) else [
                 {"label": "Results", "value": str(len(results_table_rows)), "detail": "Final ranked candidates in this run."},
                 {"label": "Packets", "value": str(packet_ready_total), "detail": "Internal review packets ready now."},
                 {"label": "360 ready", "value": str(tour_ready_total), "detail": "Hosted tours available right now."},
-                {"label": "Run state", "value": run_status_label, "detail": run_message or "Latest run complete."},
+                {"label": "Research gaps", "value": str(open_research_task_total), "detail": "Facts still worth completing."},
             ]),
             "primary_cards": [] if (run_status_value in {"processed", "completed"} and results_table_rows) or run_in_progress else [search_posture_card, market_coverage_card],
             "secondary_cards": [] if run_status_value in {"processed", "completed"} and results_table_rows else ([run_card] if run_in_progress else [run_card, recent_matches_card]),
@@ -2269,6 +2320,10 @@ def property_workspace_payload(
             "status_url": str(run_payload.get("status_url") or "").strip(),
             "summary": run_summary,
             "events": run_events[-8:],
+            "research_task_total": research_task_total,
+            "open_research_task_total": open_research_task_total,
+            "filled_research_task_total": filled_research_task_total,
+            "dismissed_research_task_total": dismissed_research_task_total,
         },
         "brief": {
             "country": str(property_state.get("country_label") or "Austria"),
@@ -2296,6 +2351,13 @@ def property_workspace_payload(
             if isinstance(item, dict)
         ],
         "results": workbench_results,
+        "research_tasks": research_tasks[:50],
+        "research_task_counts": {
+            "total": research_task_total,
+            "open": open_research_task_total,
+            "filled": filled_research_task_total,
+            "dismissed": dismissed_research_task_total,
+        },
         "selected_candidate_ref": workbench_results[0]["candidate_ref"] if workbench_results else "",
         "show_brief_default": not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(workbench_results))),
     }

@@ -1056,7 +1056,7 @@
               {% if candidate.get('packet_url') %}<a class="pq-action primary" href="{{ candidate.get('packet_url') }}">Review packet</a>{% endif %}
               {% if candidate.get('review_url') %}<a class="pq-action" href="{{ candidate.get('review_url') }}">Hosted review</a>{% endif %}
               {% if candidate.get('tour_url') %}<a class="pq-action" href="{{ candidate.get('tour_url') }}">Open 360</a>{% endif %}
-              <button class="pq-action" type="button" data-fliplink-packet>Create FlipLink packet</button>
+              <button class="pq-action" type="button" data-fliplink-packet>Create share packet</button>
               {% if candidate.get('property_url') %}<a class="pq-action" href="{{ candidate.get('property_url') }}">Source</a>{% endif %}
             </div>
             <div class="pq-feedback-row">
@@ -1312,10 +1312,10 @@
   const createFlipLinkPacketFromCard = async (card, button) => {
     let candidate = {};
     try { candidate = JSON.parse(card?.getAttribute('data-property-payload') || '{}'); } catch (_error) { candidate = {}; }
-    const original = button?.textContent || 'Create FlipLink packet';
+    const original = button?.textContent || 'Create share packet';
     if (button) {
       button.disabled = true;
-      button.textContent = 'Rendering packet...';
+      button.textContent = 'Rendering share packet...';
     }
     try {
       const response = await fetch(`/app/api/properties/${encodeURIComponent(propertyRefForPacket(candidate))}/packets/render`, {
@@ -1330,7 +1330,7 @@
         }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(String(body.detail || 'Could not render FlipLink packet.'));
+      if (!response.ok) throw new Error(String(body.detail || 'Could not render share packet.'));
       window.location.href = '/app/properties/packets';
     } catch (error) {
       if (button) {

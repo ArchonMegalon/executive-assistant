@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 from pathlib import Path
 from uuid import uuid4
@@ -10,7 +11,7 @@ from app.repositories.property_packet_publications import (
     PropertyPacketPublicationRepository,
     build_property_packet_publication_repository,
 )
-from app.services.fliplink.adapter import validate_manual_fliplink_url
+from app.services.fliplink.adapter import is_custom_fliplink_domain, validate_manual_fliplink_url
 from app.services.fliplink.models import (
     FlipLinkFormat,
     PacketPrivacyMode,
@@ -41,15 +42,24 @@ class FlipLinkPacketService:
 
     def capacity_status(self, *, principal_id: str) -> dict[str, object]:
         settings = fliplink_settings_from_env()
-        active = self._repo.count_publications(principal_id=principal_id, statuses=ACTIVE_PACKET_STATUSES)
+        principal_active = self._repo.count_publications(principal_id=principal_id, statuses=ACTIVE_PACKET_STATUSES)
+        global_active = self._repo.count_publications(statuses=ACTIVE_PACKET_STATUSES)
         cap = max(1, int(settings.active_publication_cap or 1))
         warning_at = max(1, int(cap * 0.8))
+        global_state = "blocked" if global_active >= cap else "warn" if global_active >= warning_at else "ok"
+        principal_state = "blocked" if principal_active >= cap else "warn" if principal_active >= warning_at else "ok"
         return {
-            "active": active,
+            "active": global_active,
+            "principal_active": principal_active,
+            "global_active": global_active,
             "cap": cap,
-            "remaining": max(0, cap - active),
+            "remaining": max(0, cap - global_active),
+            "principal_remaining": max(0, cap - principal_active),
+            "global_remaining": max(0, cap - global_active),
             "warning_at": warning_at,
-            "state": "blocked" if active >= cap else "warn" if active >= warning_at else "ok",
+            "state": global_state,
+            "principal_state": principal_state,
+            "global_state": global_state,
             "account_tier": int(settings.account_tier or 0),
             "custom_domain": settings.custom_domain,
         }
@@ -70,6 +80,8 @@ class FlipLinkPacketService:
         fliplink_format: object = "",
         search_run_id: str = "",
         include_exact_address: bool = False,
+        include_floorplan: bool = True,
+        include_photos: bool = True,
         source_payload: dict[str, object] | None = None,
         actor: str = "browser",
     ) -> dict[str, object]:
@@ -91,6 +103,8 @@ class FlipLinkPacketService:
             privacy_mode=mode,
             fliplink_format=fmt,
             include_exact_address=bool(include_exact_address),
+            include_floorplan=bool(include_floorplan),
+            include_photos=bool(include_photos),
         )
         settings = fliplink_settings_from_env()
         row = self._repo.create_publication(
@@ -137,10 +151,30 @@ class FlipLinkPacketService:
                     "fliplink_format": fmt.value,
                     "source_pdf_sha256": str(rendered["pdf_sha256"]),
                     "removed_fields": list(dict(rendered["receipt"]).get("removed_fields") or []),
+                    "include_floorplan": bool(include_floorplan),
+                    "include_photos": bool(include_photos),
                 },
             }
         )
         return row
+
+    def _validate_publish_policy(
+        self,
+        *,
+        publication: dict[str, object],
+        validated_url: str,
+        password_required: bool,
+        sale_mode_enabled: bool,
+    ) -> None:
+        privacy_mode = str(publication.get("privacy_mode") or "").strip().lower()
+        packet_kind = str(publication.get("packet_kind") or "").strip().lower()
+        if privacy_mode == PacketPrivacyMode.OWNER_PRIVATE.value and not bool(password_required):
+            raise ValueError("owner_private_requires_password")
+        if sale_mode_enabled:
+            if packet_kind != PropertyPacketKind.PAID_MARKET_REPORT.value or privacy_mode != PacketPrivacyMode.PAID_CUSTOMER.value:
+                raise ValueError("sale_mode_requires_paid_market_report")
+            if not is_custom_fliplink_domain(validated_url):
+                raise ValueError("sale_mode_requires_custom_domain")
 
     def get_publication(self, *, publication_id: str, principal_id: str | None = None) -> dict[str, object] | None:
         return self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
@@ -182,6 +216,12 @@ class FlipLinkPacketService:
         requested_format = normalize_fliplink_format(fliplink_format or existing_format.value)
         if requested_format != existing_format:
             raise ValueError("fliplink_format_is_permanent")
+        self._validate_publish_policy(
+            publication=publication,
+            validated_url=validated_url,
+            password_required=bool(password_required),
+            sale_mode_enabled=bool(sale_mode_enabled),
+        )
         now = now_utc_iso()
         updated = self._repo.update_publication(
             publication_id=publication_id,
@@ -210,6 +250,69 @@ class FlipLinkPacketService:
                     "lead_capture_enabled": bool(lead_capture_enabled),
                     "password_required": bool(password_required),
                     "sale_mode_enabled": bool(sale_mode_enabled),
+                },
+            }
+        )
+        return updated
+
+    def complete_browseract_publish(
+        self,
+        *,
+        principal_id: str,
+        publication_id: str,
+        fliplink_url: str,
+        embed_code: str = "",
+        qr_url: str = "",
+        screenshot_proof_ref: str = "",
+        lead_capture_enabled: bool = True,
+        password_required: bool = False,
+        sale_mode_enabled: bool = False,
+        actor: str = "browseract",
+    ) -> dict[str, object]:
+        publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
+        if publication is None:
+            raise KeyError("property_packet_publication_not_found")
+        if str(publication.get("status") or "") == "archived":
+            raise ValueError("fliplink_publication_archived")
+        validated_url = validate_manual_fliplink_url(fliplink_url)
+        self._validate_publish_policy(
+            publication=publication,
+            validated_url=validated_url,
+            password_required=bool(password_required),
+            sale_mode_enabled=bool(sale_mode_enabled),
+        )
+        now = now_utc_iso()
+        updated = self._repo.update_publication(
+            publication_id=publication_id,
+            updates={
+                "fliplink_url": validated_url,
+                "fliplink_custom_domain_url": validated_url if is_custom_fliplink_domain(validated_url) else "",
+                "fliplink_embed_code": str(embed_code or "").strip()[:4000],
+                "fliplink_qr_url": str(qr_url or "").strip()[:500],
+                "lead_capture_enabled": bool(lead_capture_enabled),
+                "password_required": bool(password_required),
+                "sale_mode_enabled": bool(sale_mode_enabled),
+                "status": "published",
+                "published_at": now,
+            },
+        )
+        if updated is None:
+            raise KeyError("property_packet_publication_not_found")
+        self._repo.record_event(
+            {
+                "publication_id": publication_id,
+                "principal_id": principal_id,
+                "event_type": "fliplink_browser_publish_completed",
+                "actor": actor,
+                "payload_json": {
+                    "fliplink_url": validated_url,
+                    "embed_code_present": bool(str(embed_code or "").strip()),
+                    "qr_url": str(qr_url or "").strip()[:500],
+                    "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+                    "lead_capture_enabled": bool(lead_capture_enabled),
+                    "password_required": bool(password_required),
+                    "sale_mode_enabled": bool(sale_mode_enabled),
+                    "published_at": now,
                 },
             }
         )
@@ -319,6 +422,9 @@ class FlipLinkPacketService:
         referral_sources: list[dict[str, object]] | None = None,
         device_breakdown: dict[str, int] | None = None,
         geography_breakdown: dict[str, int] | None = None,
+        source: str = "manual",
+        screenshot_proof_ref: str = "",
+        captured_from_url: str = "",
         actor: str = "browser",
     ) -> dict[str, object]:
         publication = self._repo.get_publication(publication_id=publication_id, principal_id=principal_id)
@@ -334,7 +440,10 @@ class FlipLinkPacketService:
             "device_breakdown": _bounded_int_map(device_breakdown),
             "geography_breakdown": _bounded_int_map(geography_breakdown),
             "captured_at": now_utc_iso(),
-            "trust": "operator_entered_or_imported",
+            "source": str(source or "manual").strip().lower()[:40] or "manual",
+            "screenshot_proof_ref": str(screenshot_proof_ref or "").strip()[:500],
+            "captured_from_url": str(captured_from_url or "").strip()[:500],
+            "trust": "source_attested" if str(source or "").strip().lower() in {"browseract", "api"} else "operator_entered_or_imported",
         }
         event = self._repo.record_event(
             {
@@ -416,6 +525,24 @@ class FlipLinkPacketService:
         lead = normalize_lead_webhook(payload)
         publication = self._repo.find_publication(publication_id=lead.publication_id, fliplink_url=lead.fliplink_url)
         if publication is None:
+            lead_url_hash = hashlib.sha256(str(lead.fliplink_url or "").strip().encode("utf-8")).hexdigest() if str(lead.fliplink_url or "").strip() else ""
+            custom_fields = safe_custom_fields(payload.get("custom_fields") or {})
+            self._repo.record_event(
+                {
+                    "publication_id": "",
+                    "principal_id": "",
+                    "event_type": "fliplink_webhook_unmatched",
+                    "actor": actor,
+                    "payload_json": {
+                        "publication_id_present": bool(str(lead.publication_id or "").strip()),
+                        "fliplink_url_hash": lead_url_hash,
+                        "secret_mode": str(secret_mode or ""),
+                        "custom_field_keys": sorted(str(key) for key in custom_fields.keys()),
+                        "received_at": now_utc_iso(),
+                        "trust": "untrusted_external",
+                    },
+                }
+            )
             return {
                 "status": "accepted_unmatched",
                 "trust": "untrusted_external",
@@ -521,6 +648,48 @@ class FlipLinkPacketService:
                 },
             }
         )
+        if normalized_action == "accept_as_viewing_question":
+            target_payload = _review_target_payload(target)
+            question = str(
+                dict(target_payload.get("custom_fields") or {}).get("question")
+                or note
+                or "Ask the agent to clarify this point during the viewing."
+            ).strip()[:1000]
+            viewing_event = self._repo.record_event(
+                {
+                    "publication_id": str(target.get("publication_id") or ""),
+                    "principal_id": principal_id,
+                    "event_type": "fliplink_viewing_question_accepted",
+                    "actor": actor,
+                    "payload_json": {
+                        "target_event_id": str(event_id or "").strip(),
+                        "property_ref": str(target_payload.get("property_ref") or ""),
+                        "question": question,
+                        "trust": "owner_reviewed",
+                    },
+                }
+            )
+            event["viewing_question_event"] = viewing_event
+        if normalized_action == "block_reviewer":
+            target_payload = _review_target_payload(target)
+            reviewer = dict(target_payload.get("reviewer") or {})
+            blocked_event = self._repo.record_event(
+                {
+                    "publication_id": str(target.get("publication_id") or ""),
+                    "principal_id": principal_id,
+                    "event_type": "fliplink_reviewer_blocked",
+                    "actor": actor,
+                    "payload_json": {
+                        "target_event_id": str(event_id or "").strip(),
+                        "email_hash": str(reviewer.get("email_hash") or ""),
+                        "email_masked": str(reviewer.get("email_masked") or ""),
+                        "property_ref": str(target_payload.get("property_ref") or ""),
+                        "note": str(note or "").strip()[:1000],
+                        "trust": "owner_reviewed",
+                    },
+                }
+            )
+            event["block_event"] = blocked_event
         return event
 
 

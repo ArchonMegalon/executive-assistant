@@ -137,11 +137,34 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "status": "processed",
             "progress": 100,
             "message": "Property scouting run completed.",
+            "research_task_total": 1,
+            "open_research_task_total": 1,
+            "filled_research_task_total": 0,
+            "dismissed_research_task_total": 0,
+            "research_tasks": [
+                {
+                    "task_id": "mf_rooms_run_42",
+                    "field": "rooms",
+                    "label": "Rooms",
+                    "status": "queued",
+                    "priority": "high",
+                    "title": "Family flat near Tiergarten",
+                    "source_label": "ImmoScout24 Germany",
+                    "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-2",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "fit_score": 87,
+                    "display_value": "Rooms under review",
+                    "evidence": "Floorplan exists, but no structured room count was extracted yet.",
+                    "next_actions": ["Parse the floorplan and source PDF bundle."],
+                }
+            ],
             "summary": {
                 "sources_total": 2,
                 "listing_total": 7,
                 "tour_created_total": 1,
                 "tour_existing_total": 1,
+                "research_task_total": 1,
+                "open_research_task_total": 1,
                 "sources": [
                         {
                             "source_label": "ImmoScout24 Germany",
@@ -245,6 +268,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Underground" in search.text
     assert "Decision reasons" in search.text
     assert "Risk and investment" in search.text
+    assert "Missing facts" in search.text
+    assert "Facts still being completed from floorplans" in search.text
+    assert "Rooms under review" in search.text
+    assert 'data-research-task-id="mf_rooms_run_42"' in search.text
+    assert 'data-research-task-action="fill"' in search.text
+    assert 'data-research-task-action="dismiss"' in search.text
     assert "EUR 5,385/m2" in search.text
     assert "Open 360" in search.text
     assert "Review packet" in search.text

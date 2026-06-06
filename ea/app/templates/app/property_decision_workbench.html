@@ -15,6 +15,68 @@
 {% set has_results = results|length > 0 %}
 {% set setup_mode = not run_visible and not run_terminal_no_results and not has_results %}
 {% set show_form_controls = show_brief_form and setup_mode %}
+{% set research_tasks = workbench.get('research_tasks') or [] %}
+{% set research_task_counts = workbench.get('research_task_counts') or {} %}
+{% macro research_queue_panel(tasks, run_id, counts) -%}
+{% if tasks %}
+<section class="pqx-research-queue" data-pqx-research-queue data-run-id="{{ run_id }}">
+  <div class="pqx-section-head">
+    <div>
+      <h2>Missing facts</h2>
+      <div class="pqx-note">Facts still being completed from floorplans, source bundles, and review packets.</div>
+    </div>
+    <span class="pqx-pill warn" data-research-task-count>{{ counts.get('open') or 0 }} open</span>
+  </div>
+  <div class="pqx-research-task-list">
+    {% for task in tasks[:6] %}
+    <article
+      class="pqx-research-task"
+      data-research-task
+      data-research-task-id="{{ task.get('task_id') }}"
+      data-research-task-status="{{ task.get('status') or 'queued' }}"
+    >
+      <div class="pqx-research-task-head">
+        <div>
+          <strong>{{ task.get('label') or 'Missing fact' }}</strong>
+          <span>{{ task.get('title') or 'Property' }}{% if task.get('source_label') %} · {{ task.get('source_label') }}{% endif %}</span>
+        </div>
+        <span class="pqx-pill{% if task.get('status') == 'filled' %} good{% elif task.get('status') == 'dismissed' %}{% else %} warn{% endif %}" data-research-task-status-label>{{ task.get('status_label') or 'Queued' }}</span>
+      </div>
+      <p class="pqx-note" data-research-task-detail>{{ task.get('detail') or 'PropertyQuarry is trying to complete this fact.' }}</p>
+      {% if task.get('display_value') %}
+      <div class="pqx-research-value"><span>Current value</span><strong data-research-task-value>{{ task.get('display_value') }}</strong></div>
+      {% else %}
+      <div class="pqx-research-value"><span>Current value</span><strong data-research-task-value>Under review</strong></div>
+      {% endif %}
+      <form class="pqx-research-task-form" data-research-task-form>
+        <label>
+          Value
+          <input name="value" value="{{ task.get('display_value') or '' }}" maxlength="240" placeholder="e.g. 4 rooms">
+        </label>
+        <label>
+          Note
+          <input name="note" value="{{ task.get('owner_note') or '' }}" maxlength="500" placeholder="Where this came from">
+        </label>
+        <div class="pqx-research-task-actions">
+          <button class="pqx-button primary" type="submit" data-research-task-action="fill">Save fact</button>
+          {% if task.get('status') == 'dismissed' %}
+          <button class="pqx-button subtle" type="button" data-research-task-action="reopen">Reopen</button>
+          {% else %}
+          <button class="pqx-button subtle" type="button" data-research-task-action="dismiss">Dismiss</button>
+          {% endif %}
+        </div>
+      </form>
+      <div class="pqx-research-task-foot">
+        {% if task.get('review_url') %}<a href="{{ task.get('review_url') }}">Open review</a>{% endif %}
+        {% if task.get('property_url') %}<a href="{{ task.get('property_url') }}">Source</a>{% endif %}
+        <span data-research-task-message></span>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{%- endmacro %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -661,6 +723,110 @@
       display: block;
       margin-bottom: 3px;
     }
+    .pqx-research-queue {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--pq-line);
+      border-radius: 10px;
+      background: var(--pq-paper);
+      box-shadow: var(--pq-shadow);
+    }
+    .pqx-research-task-list {
+      display: grid;
+      gap: 10px;
+      max-height: 460px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .pqx-research-task {
+      display: grid;
+      gap: 9px;
+      padding: 12px;
+      border: 1px solid var(--pq-line);
+      border-radius: 8px;
+      background: var(--pq-panel);
+    }
+    .pqx-research-task.is-saving {
+      opacity: 0.72;
+    }
+    .pqx-research-task-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+    .pqx-research-task-head strong,
+    .pqx-research-task-head span,
+    .pqx-research-task .pqx-note {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-research-task-head > div > span {
+      display: block;
+      color: var(--pq-muted);
+      font-size: 12px;
+    }
+    .pqx-research-value {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: baseline;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.82);
+    }
+    .pqx-research-value span {
+      color: var(--pq-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .pqx-research-value strong {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pqx-research-task-form {
+      display: grid;
+      grid-template-columns: minmax(140px, 0.85fr) minmax(160px, 1fr) auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .pqx-research-task-form label {
+      display: grid;
+      gap: 5px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+    .pqx-research-task-form input {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 8px;
+      background: #fffefa;
+      color: var(--pq-ink);
+      padding: 0 10px;
+    }
+    .pqx-research-task-actions {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .pqx-research-task-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+      color: var(--pq-muted);
+      font-size: 12px;
+    }
+    .pqx-research-task-foot a {
+      color: var(--pq-gold-strong);
+      font-weight: 760;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
     .pqx-source-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1048,8 +1214,15 @@
       .pqx-source-grid,
       .pqx-ooda-grid,
       .pqx-pref-form-grid,
+      .pqx-research-task-form,
+      .pqx-research-task-head,
       .pqx-pref-row {
         grid-template-columns: minmax(0, 1fr);
+      }
+      .pqx-research-task-actions,
+      .pqx-research-task-foot {
+        align-items: stretch;
+        flex-direction: column;
       }
       .pqx-result {
         grid-template-columns: 42px minmax(0, 1fr);
@@ -1440,6 +1613,7 @@
           {% else %}
           <div class="pqx-empty">No provider breakdown was recorded for this run.</div>
           {% endif %}
+          {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-section-head">
             <div>
               <h2>Run activity</h2>
@@ -1487,6 +1661,7 @@
             </div>
             {% if run_active %}<button class="pqx-button" type="button" data-pqx-refresh-status>Refresh</button>{% else %}<a class="pqx-link-button" href="/app/properties">New search</a>{% endif %}
           </div>
+          {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-event-list" data-pqx-run-events>
             {% for event in (run.get('events') or [])|reverse %}
             <div class="pqx-event-card">
@@ -1522,7 +1697,7 @@
               <div class="pqx-context-actions" data-pw-actions>
                 {% if selected.get('tour', {}).get('url') %}<a class="pqx-link-button primary" href="{{ selected.get('tour', {}).get('url') }}">Open 360</a>{% endif %}
                 {% if selected.get('packet_url') %}<a class="pqx-link-button" href="{{ selected.get('packet_url') }}">Review packet</a>{% endif %}
-                <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create FlipLink packet</button>
+                <button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="{{ selected.get('candidate_ref') }}">Create share packet</button>
                 {% if selected.get('source_url') %}<a class="pqx-link-button" href="{{ selected.get('source_url') }}">Source</a>{% endif %}
               </div>
             </div>
@@ -1568,6 +1743,7 @@
             </div>
             <span class="pqx-pill good">{{ run.get('status_label') or 'Completed' }}</span>
           </div>
+          {{ research_queue_panel(research_tasks, run.get('run_id') or '', research_task_counts) }}
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
             {% if candidate.get('packet_url') %}
@@ -1705,7 +1881,7 @@
       return [
         tour.url ? `<a class="pqx-link-button primary" href="${escapeHtml(tour.url)}">Open 360</a>` : '',
         candidate.packet_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.packet_url)}">Review packet</a>` : '',
-        `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Create FlipLink packet</button>`,
+        `<button class="pqx-button" type="button" data-fliplink-packet data-candidate-ref="${escapeHtml(candidate.candidate_ref || '')}">Create share packet</button>`,
         candidate.source_url ? `<a class="pqx-link-button" href="${escapeHtml(candidate.source_url)}">Source</a>` : '',
       ].filter(Boolean).join('');
     };
@@ -1718,10 +1894,10 @@
     ).trim() || 'property';
     const createFlipLinkPacket = async (candidate, button) => {
       if (!candidate) return;
-      const original = button?.textContent || 'Create FlipLink packet';
+      const original = button?.textContent || 'Create share packet';
       if (button) {
         button.disabled = true;
-        button.textContent = 'Rendering packet...';
+        button.textContent = 'Rendering share packet...';
       }
       try {
         const response = await fetch(`/app/api/properties/${encodeURIComponent(candidatePropertyRef(candidate))}/packets/render`, {
@@ -1736,7 +1912,7 @@
           }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not render FlipLink packet.'));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error, 'Could not render share packet.'));
         window.location.href = '/app/properties/packets';
       } catch (error) {
         if (button) {
@@ -1746,6 +1922,78 @@
         }
       }
     };
+    const updateResearchTaskCounts = (runPayload) => {
+      const counts = runPayload?.research_task_counts || {
+        open: runPayload?.open_research_task_total,
+        filled: runPayload?.filled_research_task_total,
+        dismissed: runPayload?.dismissed_research_task_total,
+      };
+      const open = Number(counts?.open || 0);
+      root.querySelectorAll('[data-research-task-count]').forEach((node) => {
+        node.textContent = `${open} open`;
+      });
+    };
+    const applyResearchTaskSnapshot = (runPayload) => {
+      const tasks = Array.isArray(runPayload?.research_tasks) ? runPayload.research_tasks : [];
+      updateResearchTaskCounts(runPayload);
+      tasks.forEach((task) => {
+        const taskId = String(task?.task_id || '').trim();
+        if (!taskId || !window.CSS?.escape) return;
+        root.querySelectorAll(`[data-research-task-id="${CSS.escape(taskId)}"]`).forEach((row) => {
+          const status = String(task.status || 'queued').replaceAll('_', ' ').trim() || 'queued';
+          row.setAttribute('data-research-task-status', status);
+          row.querySelector('[data-research-task-status-label]').textContent = status.replace(/\b\w/g, (match) => match.toUpperCase());
+          row.querySelector('[data-research-task-value]').textContent = String(task.display_value || task.owner_value || 'Under review');
+          if (task.evidence) row.querySelector('[data-research-task-detail]').textContent = String(task.evidence);
+        });
+      });
+    };
+    const submitResearchTaskAction = async (row, action, form) => {
+      const runId = String(row?.closest('[data-pqx-research-queue]')?.getAttribute('data-run-id') || data.run?.run_id || '').trim();
+      const taskId = String(row?.getAttribute('data-research-task-id') || '').trim();
+      if (!runId || !taskId) return;
+      const message = row.querySelector('[data-research-task-message]');
+      const value = String(form?.querySelector('[name="value"]')?.value || '').trim();
+      const note = String(form?.querySelector('[name="note"]')?.value || '').trim();
+      if (action === 'fill' && !value) {
+        if (message) message.textContent = 'Add the fact value first.';
+        return;
+      }
+      row.classList.add('is-saving');
+      row.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
+      if (message) message.textContent = 'Saving...';
+      try {
+        const response = await fetch(`/app/api/signals/property/search/run/${encodeURIComponent(runId)}/research-tasks/${encodeURIComponent(taskId)}`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ action, value, note }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not update the research task.'));
+        applyResearchTaskSnapshot(payload);
+        if (message) message.textContent = action === 'fill' ? 'Fact saved.' : (action === 'dismiss' ? 'Fact dismissed.' : 'Task reopened.');
+      } catch (error) {
+        if (message) message.textContent = error instanceof Error ? error.message : 'Could not update the research task.';
+      } finally {
+        row.classList.remove('is-saving');
+        row.querySelectorAll('button, input').forEach((node) => { node.disabled = false; });
+      }
+    };
+    root.querySelectorAll('[data-research-task-form]').forEach((formNode) => {
+      const row = formNode.closest('[data-research-task]');
+      formNode.addEventListener('submit', (event) => {
+        event.preventDefault();
+        submitResearchTaskAction(row, 'fill', formNode);
+      });
+      formNode.querySelectorAll('[data-research-task-action]').forEach((button) => {
+        if (button.getAttribute('type') === 'submit') return;
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          submitResearchTaskAction(row, String(button.getAttribute('data-research-task-action') || 'dismiss'), formNode);
+        });
+      });
+    });
     const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
       const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
       if (!candidate) return;
@@ -2181,6 +2429,7 @@
       if (summaryNode && runPayload.summary) summaryNode.textContent = runSummaryText(runPayload);
       if (eventsNode) eventsNode.innerHTML = renderRunEvents(runPayload.events);
       if (updatedNode) updatedNode.textContent = `Last update ${runPayload.updated_at || runPayload.generated_at || new Date().toLocaleTimeString()}`;
+      applyResearchTaskSnapshot(runPayload);
       notifyRunComplete(runPayload);
     };
     let runPollActive = false;

@@ -29,6 +29,7 @@ def _include_public_routes(
     landing_objects_router: APIRouter,
     landing_workspace_router: APIRouter,
     landing_router: APIRouter,
+    landing_archive_router: APIRouter,
     fliplink_public_router: APIRouter,
     health_router: APIRouter,
     register_router: APIRouter,
@@ -55,6 +56,7 @@ def _include_public_routes(
         app.include_router(public_memorials_router)
     app.include_router(health_router)
     app.include_router(register_router)
+    app.include_router(landing_archive_router)
 
 
 def _include_authenticated_routes(
@@ -137,6 +139,7 @@ def create_app() -> FastAPI:
     from app.api.routes.landing_channel import router as landing_channel_router
     from app.api.routes.public_documents import router as public_documents_router
     from app.api.routes.human import router as human_router
+    from app.api.routes.landing import archive_router as landing_archive_router
     from app.api.routes.landing import router as landing_router
     from app.api.routes.landing_objects import router as landing_objects_router
     from app.api.routes.landing_setup import router as landing_setup_router
@@ -172,6 +175,7 @@ def create_app() -> FastAPI:
         landing_objects_router=landing_objects_router,
         landing_workspace_router=landing_workspace_router,
         landing_router=landing_router,
+        landing_archive_router=landing_archive_router,
         fliplink_public_router=fliplink_public_router,
         health_router=health_router,
         register_router=register_router,

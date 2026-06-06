@@ -41,6 +41,9 @@ EXACT_ADDRESS_KEYS = {
     "lng",
 }
 
+FLOORPLAN_REF_KEYS = {"floorplan_refs", "floorplans", "floorplan_urls", "floorplan_url", "floorplan_pdf_url"}
+PHOTO_REF_KEYS = {"photo_refs", "photos", "image_urls", "images", "photo_urls", "primary_image_url"}
+
 BASE_PUBLIC_FACT_KEYS = {
     "rooms",
     "room_count",
@@ -191,11 +194,32 @@ def _list_text(value: object, limit: int = 12) -> list[str]:
     return [str(item or "").strip() for item in value[:limit] if str(item or "").strip()]
 
 
+def _public_media_refs(source: dict[str, object], keys: set[str], *, limit: int = 16) -> list[str]:
+    refs: list[str] = []
+    for key in keys:
+        raw = source.get(key)
+        values = raw if isinstance(raw, list) else ([raw] if raw else [])
+        for value in values:
+            if isinstance(value, dict):
+                value = value.get("url") or value.get("href") or value.get("src")
+            text = str(value or "").strip()
+            if not text or not text.lower().startswith("https://"):
+                continue
+            if any(marker in text.lower() for marker in ("token=", "secret=", "session=", "cookie=")):
+                continue
+            refs.append(text[:1000])
+            if len(refs) >= limit:
+                return refs
+    return refs
+
+
 def redact_property_packet(
     *,
     source: dict[str, object],
     privacy_mode: PacketPrivacyMode,
     include_exact_address: bool = False,
+    include_floorplan: bool = True,
+    include_photos: bool = True,
 ) -> RedactionResult:
     removed: list[str] = []
     for key in source:
@@ -221,6 +245,18 @@ def redact_property_packet(
         "viewing_questions": _list_text(source.get("viewing_questions") or source.get("questions")),
         "facts": redacted_facts,
     }
+    if include_floorplan:
+        floorplans = _public_media_refs(source, FLOORPLAN_REF_KEYS, limit=8)
+        if floorplans:
+            payload["floorplan_refs"] = floorplans
+    else:
+        removed.extend(sorted(key for key in FLOORPLAN_REF_KEYS if key in source))
+    if include_photos:
+        photos = _public_media_refs(source, PHOTO_REF_KEYS, limit=20)
+        if photos:
+            payload["photo_refs"] = photos
+    else:
+        removed.extend(sorted(key for key in PHOTO_REF_KEYS if key in source))
     if privacy_mode == PacketPrivacyMode.ANONYMOUS_PUBLIC:
         payload.pop("fit_summary", None)
         payload["recommendation"] = "public_summary"
@@ -236,6 +272,8 @@ def redact_property_packet(
         ],
         "removed_fields": sorted(set(item for item in removed if item)),
         "allowed_fact_keys": sorted(_fact_allowlist_for(privacy_mode, include_exact_address=include_exact_address)),
+        "include_floorplan": bool(include_floorplan),
+        "include_photos": bool(include_photos),
         "generated_at": now_utc_iso(),
     }
     assert_redacted_packet_safe(payload=payload, privacy_mode=privacy_mode, include_exact_address=include_exact_address)

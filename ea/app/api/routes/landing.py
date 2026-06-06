@@ -83,6 +83,7 @@ from app.services.registration_email import email_delivery_enabled
 from app.services.memorial_archive_registry import load_json as _load_archive_json, public_registry_path as _public_registry_path, public_registry_payload as _public_registry_payload
 
 router = APIRouter(tags=["landing"])
+archive_router = APIRouter(tags=["landing_archive"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
@@ -702,7 +703,7 @@ def landing(
     )
 
 
-@router.get("/{archive_slug}", response_class=HTMLResponse, include_in_schema=False)
+@archive_router.get("/{archive_slug}", response_class=HTMLResponse, include_in_schema=False)
 def archive_publication_page(archive_slug: str, request: Request) -> HTMLResponse:
     if not _is_archive_host(request):
         raise HTTPException(status_code=404, detail="not_found")

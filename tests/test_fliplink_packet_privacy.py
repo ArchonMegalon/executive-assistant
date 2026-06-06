@@ -17,6 +17,8 @@ def _source_payload() -> dict[str, object]:
         "property_url": "https://www.willhaben.at/iad/immobilien/d/demo",
         "fit_summary": "Strong family fit near daily-life infrastructure.",
         "match_reasons": ["Floorplan, lift, and usable outdoor space."],
+        "floorplan_refs": ["https://packets.propertyquarry.com/assets/floorplan.pdf"],
+        "photo_refs": ["https://packets.propertyquarry.com/assets/photo.jpg"],
         "public_preference_snapshot": {"prefer_balcony": True},
         "property_facts": {
             "rooms": 3,
@@ -67,6 +69,22 @@ def test_fliplink_owner_private_can_keep_exact_address_but_not_secrets() -> None
     assert "public_preference_snapshot" not in redacted.payload
 
 
+def test_fliplink_packet_media_flags_remove_floorplans_and_photos() -> None:
+    redacted = redact_property_packet(
+        source=_source_payload(),
+        privacy_mode=PacketPrivacyMode.FAMILY_REVIEW,
+        include_floorplan=False,
+        include_photos=False,
+    )
+
+    assert "floorplan_refs" not in redacted.payload
+    assert "photo_refs" not in redacted.payload
+    assert "floorplan_refs" in redacted.receipt["removed_fields"]
+    assert "photo_refs" in redacted.receipt["removed_fields"]
+    assert redacted.receipt["include_floorplan"] is False
+    assert redacted.receipt["include_photos"] is False
+
+
 def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     rendered = render_property_packet_pdf(
         artifact_root=tmp_path,
@@ -84,4 +102,4 @@ def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
     assert hashlib.sha256(pdf_bytes).hexdigest() == rendered["pdf_sha256"]
     assert rendered["receipt"]["pdf_sha256"] == rendered["pdf_sha256"]
     assert rendered["receipt"]["source_pdf_size_bytes"] == len(pdf_bytes)
-    assert rendered["receipt"]["renderer_version"] == "v2_packet_pdf"
+    assert rendered["receipt"]["renderer_version"] == "v3_visual_packet_pdf"

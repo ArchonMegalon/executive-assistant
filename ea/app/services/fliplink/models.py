@@ -79,6 +79,7 @@ class FlipLinkSettings:
     webhook_allowed: bool = True
     webhook_allow_query_secret: bool = False
     browseract_enabled: bool = False
+    allow_raw_fliplink_domain: bool = False
 
 
 def _to_int(raw: object, default: int) -> int:
@@ -108,4 +109,6 @@ def fliplink_settings_from_env() -> FlipLinkSettings:
         webhook_allow_query_secret=str(os.getenv("FLIPLINK_WEBHOOK_ALLOW_QUERY_SECRET") or "0").strip().lower()
         in {"1", "true", "yes", "on"},
         browseract_enabled=str(os.getenv("FLIPLINK_BROWSERACT_ENABLED") or "0").strip().lower() in {"1", "true", "yes", "on"},
+        allow_raw_fliplink_domain=str(os.getenv("FLIPLINK_ALLOW_RAW_FLIPLINK_DOMAIN") or "0").strip().lower()
+        in {"1", "true", "yes", "on"},
     )

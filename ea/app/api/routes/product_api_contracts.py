@@ -1640,6 +1640,12 @@ class PropertySearchRunStartIn(BaseModel):
     max_results_per_source: int | None = None
 
 
+class PropertySearchResearchTaskUpdateIn(BaseModel):
+    action: str = Field(pattern="^(dismiss|fill|block|reopen)$")
+    value: str = Field(default="", max_length=240)
+    note: str = Field(default="", max_length=500)
+
+
 class PropertySearchRunStatusOut(BaseModel):
     generated_at: str
     run_id: str = ""
@@ -1654,6 +1660,11 @@ class PropertySearchRunStatusOut(BaseModel):
     steps_completed: int = 0
     summary: dict[str, object] = Field(default_factory=dict)
     events: list[dict[str, object]] = Field(default_factory=list)
+    research_tasks: list[dict[str, object]] = Field(default_factory=list)
+    research_task_total: int = 0
+    open_research_task_total: int = 0
+    filled_research_task_total: int = 0
+    dismissed_research_task_total: int = 0
     bootstrap_required: bool = False
     bootstrap_country_code: str = ""
     bootstrap_country_label: str = ""

@@ -46,10 +46,22 @@ def _allowed_custom_domains() -> set[str]:
     return {item.strip().lower().rstrip(".") for item in raw.split(",") if item.strip()}
 
 
+def _allow_raw_fliplink_domain() -> bool:
+    return str(os.getenv("FLIPLINK_ALLOW_RAW_FLIPLINK_DOMAIN") or "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_custom_fliplink_domain(value: str) -> bool:
+    parsed = urllib.parse.urlparse(str(value or "").strip())
+    normalized = str(parsed.hostname or "").strip().lower().rstrip(".")
+    return bool(normalized and normalized in _allowed_custom_domains())
+
+
 def _valid_fliplink_host(host: str) -> bool:
     normalized = str(host or "").strip().lower().rstrip(".")
     if normalized in _allowed_custom_domains():
         return True
+    if not _allow_raw_fliplink_domain():
+        return False
     return normalized == "fliplink.me" or normalized.endswith(".fliplink.me")
 
 

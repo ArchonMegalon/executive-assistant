@@ -10,7 +10,8 @@ from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, Prop
 from app.services.fliplink.privacy import REDACTION_POLICY_VERSION, redact_property_packet
 
 
-PDF_RENDERER_VERSION = "v2_packet_pdf"
+PDF_RENDERER_VERSION = "v3_visual_packet_pdf"
+PDF_RENDERER_FALLBACK_VERSION = "v2_packet_pdf"
 
 
 def _safe_token(value: object, fallback: str = "packet") -> str:
@@ -127,10 +128,12 @@ def _packet_lines(
     ]
     lines: list[str] = [
         "PROPERTYQUARRY REVIEW PACKET",
+        "Decision artifact for branded sharing",
+        "============================================================",
         recommended_title,
         f"Packet kind: {packet_kind.value.replace('_', ' ')}",
         f"Privacy mode: {privacy_mode.value.replace('_', ' ')}",
-        f"FlipLink format: {fliplink_format.value.replace('_', ' ')}",
+        f"Share format: {fliplink_format.value.replace('_', ' ')}",
         f"Renderer: {PDF_RENDERER_VERSION}",
         "",
         "1. Decision Snapshot",
@@ -177,6 +180,15 @@ def _packet_lines(
             ]
         )
     lines.extend(["", "Source And Provenance", f"Source: {payload.get('property_url') or 'internal PropertyQuarry packet'}"])
+    lines.extend(
+        [
+            "",
+            "Privacy Footer",
+            "- This packet was redacted before publication.",
+            "- PropertyQuarry remains the source of truth for ranking, preference learning, and audit state.",
+            f"- Renderer fallback available: {PDF_RENDERER_FALLBACK_VERSION}",
+        ]
+    )
     return lines
 
 
@@ -190,11 +202,15 @@ def render_property_packet_pdf(
     privacy_mode: PacketPrivacyMode,
     fliplink_format: FlipLinkFormat,
     include_exact_address: bool = False,
+    include_floorplan: bool = True,
+    include_photos: bool = True,
 ) -> dict[str, object]:
     redaction = redact_property_packet(
         source=source,
         privacy_mode=privacy_mode,
         include_exact_address=include_exact_address,
+        include_floorplan=include_floorplan,
+        include_photos=include_photos,
     )
     title = str(redaction.payload.get("title") or source.get("title") or "PropertyQuarry packet").strip() or "PropertyQuarry packet"
     recommended_title = f"{title} - {packet_kind.value.replace('_', ' ').title()}"

@@ -95,6 +95,16 @@ class BrowserActFlipLinkPublishIn(BaseModel):
     password_required: bool = False
 
 
+class BrowserActFlipLinkPublishCompleteIn(BaseModel):
+    fliplink_url: str = Field(min_length=8, max_length=500)
+    embed_code: str = Field(default="", max_length=4000)
+    qr_url: str = Field(default="", max_length=500)
+    screenshot_proof_ref: str = Field(default="", max_length=500)
+    lead_capture_enabled: bool = True
+    password_required: bool = False
+    sale_mode_enabled: bool = False
+
+
 class FlipLinkAnalyticsSnapshotIn(BaseModel):
     views: int | None = Field(default=None, ge=0, le=10_000_000)
     unique_visitors: int | None = Field(default=None, ge=0, le=10_000_000)
@@ -103,6 +113,9 @@ class FlipLinkAnalyticsSnapshotIn(BaseModel):
     referral_sources: list[dict[str, object]] = Field(default_factory=list, max_length=20)
     device_breakdown: dict[str, int] = Field(default_factory=dict)
     geography_breakdown: dict[str, int] = Field(default_factory=dict)
+    source: Literal["manual", "browseract", "api"] = "manual"
+    screenshot_proof_ref: str = Field(default="", max_length=500)
+    captured_from_url: str = Field(default="", max_length=500)
 
 
 def _actor(context: RequestContext) -> str:
@@ -385,7 +398,13 @@ def review_property_packet_feedback(
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"status": "reviewed", "event": dict(event), "preference_application": preference_application}
+    return {
+        "status": "reviewed",
+        "event": dict(event),
+        "preference_application": preference_application,
+        "viewing_question_event": dict(event.get("viewing_question_event") or {}),
+        "block_event": dict(event.get("block_event") or {}),
+    }
 
 
 @authenticated_router.get("/app/api/properties/packets/{publication_id}/pdf")
@@ -499,6 +518,34 @@ def request_browseract_fliplink_publication(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@authenticated_router.post("/app/api/properties/packets/{publication_id}/fliplink/browseract-complete")
+def complete_browseract_fliplink_publication(
+    publication_id: str,
+    body: BrowserActFlipLinkPublishCompleteIn,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> dict[str, object]:
+    service = build_fliplink_packet_service(container)
+    try:
+        row = service.complete_browseract_publish(
+            principal_id=context.principal_id,
+            publication_id=publication_id,
+            fliplink_url=body.fliplink_url,
+            embed_code=body.embed_code,
+            qr_url=body.qr_url,
+            screenshot_proof_ref=body.screenshot_proof_ref,
+            lead_capture_enabled=body.lead_capture_enabled,
+            password_required=body.password_required,
+            sale_mode_enabled=body.sale_mode_enabled,
+            actor=_actor(context),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"publication": _publication_out(row)}
+
+
 @authenticated_router.post("/app/api/properties/packets/{publication_id}/fliplink/analytics-snapshot")
 def record_fliplink_analytics_snapshot(
     publication_id: str,
@@ -518,6 +565,9 @@ def record_fliplink_analytics_snapshot(
             referral_sources=body.referral_sources,
             device_breakdown=body.device_breakdown,
             geography_breakdown=body.geography_breakdown,
+            source=body.source,
+            screenshot_proof_ref=body.screenshot_proof_ref,
+            captured_from_url=body.captured_from_url,
             actor=_actor(context),
         )
     except KeyError as exc:
@@ -544,6 +594,8 @@ def render_property_packet(
             fliplink_format=FlipLinkFormat(body.fliplink_format) if body.fliplink_format else "",
             search_run_id=body.search_run_id,
             include_exact_address=body.include_exact_address,
+            include_floorplan=body.include_floorplan,
+            include_photos=body.include_photos,
             source_payload=body.property_payload,
             actor=_actor(context),
         )

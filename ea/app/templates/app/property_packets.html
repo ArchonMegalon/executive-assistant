@@ -143,13 +143,35 @@
     .pq-pack-list { display: grid; gap: 10px; }
     .pq-pack-feedback {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, .45fr);
       gap: 12px;
       align-items: start;
       border: 1px solid var(--pq-border);
       border-radius: 8px;
       padding: 13px;
       background: #fffdf8;
+    }
+    .pq-pack-feedback strong,
+    .pq-pack-feedback small,
+    .pq-pack-feedback span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .pq-pack-feedback small { display: block; color: var(--pq-muted); margin-top: 3px; }
+    .pq-pack-review-actions {
+      display: grid;
+      gap: 8px;
+    }
+    .pq-pack-review-actions textarea {
+      width: 100%;
+      min-height: 74px;
+      border: 1px solid var(--pq-border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--pq-ink);
+      padding: 9px 10px;
+      font: inherit;
+      resize: vertical;
     }
     .pq-pack-empty { color: var(--pq-muted); padding: 16px; border: 1px dashed var(--pq-border); border-radius: 8px; }
     @media (max-width: 760px) {
@@ -184,7 +206,7 @@
       <div class="pq-pack-panel">
         <div class="pq-pack-stat-grid">
           <div class="pq-pack-stat"><span>Packets</span><strong>{{ publications|length }}</strong></div>
-          <div class="pq-pack-stat"><span>Leads</span><strong>{{ feedback_total }}</strong></div>
+          <div class="pq-pack-stat"><span>Responses</span><strong>{{ feedback_total }}</strong></div>
           <div class="pq-pack-stat"><span>Published</span><strong>{{ publications|selectattr("status", "equalto", "published")|list|length }}</strong></div>
           <div class="pq-pack-stat"><span>Slots</span><strong>{{ fliplink_capacity.active }}/{{ fliplink_capacity.cap }}</strong></div>
         </div>
@@ -223,7 +245,7 @@
               <input class="pq-pack-input" type="url" name="fliplink_url" placeholder="https://packets.propertyquarry.com/p/..." value="{{ row.fliplink_url }}" autocomplete="off">
               <input type="hidden" name="fliplink_format" value="{{ row.fliplink_format }}">
               <div class="pq-pack-inline">
-                <label class="pq-pack-check"><input type="checkbox" name="lead_capture_enabled" {% if row.lead_capture_enabled %}checked{% endif %}> Leads</label>
+                <label class="pq-pack-check"><input type="checkbox" name="lead_capture_enabled" {% if row.lead_capture_enabled %}checked{% endif %}> Responses</label>
                 <label class="pq-pack-check"><input type="checkbox" name="password_required" {% if row.password_required %}checked{% endif %}> Password</label>
                 <label class="pq-pack-check"><input type="checkbox" name="sale_mode_enabled" {% if row.sale_mode_enabled %}checked{% endif %}> Sale</label>
               </div>
@@ -264,9 +286,25 @@
           <div>
             <strong>{{ item.reviewer.name or item.reviewer.email_masked or 'External reviewer' }}</strong>
             <small>{{ item.property_ref }} · {{ item.packet_kind|replace("_", " ") }} · {{ item.created_at[:19] }}</small>
-            <small>{{ item.custom_fields }}</small>
+            <small>
+              {% if item.custom_fields.reaction %}Reaction: {{ item.custom_fields.reaction }} · {% endif %}
+              {% if item.custom_fields.intent %}Intent: {{ item.custom_fields.intent }} · {% endif %}
+              {% if item.custom_fields.viewer_role %}Role: {{ item.custom_fields.viewer_role }}{% endif %}
+            </small>
+            {% if item.custom_fields.question %}<small>Question: {{ item.custom_fields.question }}</small>{% endif %}
           </div>
-          <span class="pq-pack-pill{% if item.status == 'reviewed' %} good{% else %} warn{% endif %}">{{ item.status|replace("_", " ") }}</span>
+          <div class="pq-pack-review-actions" data-feedback-review data-event-id="{{ item.event_id }}">
+            <span class="pq-pack-pill{% if item.status == 'reviewed' %} good{% else %} warn{% endif %}" data-feedback-status>{{ item.status|replace("_", " ") }}</span>
+            <textarea name="note" placeholder="Owner review note">{{ item.custom_fields.question or '' }}</textarea>
+            <div class="pq-pack-inline">
+              <button class="pq-pack-button small" type="button" data-feedback-action="accept_as_preference_signal">Accept preference</button>
+              <button class="pq-pack-button small" type="button" data-feedback-action="convert_to_hard_rule">Make rule</button>
+              <button class="pq-pack-button small" type="button" data-feedback-action="accept_as_viewing_question">Viewing question</button>
+              <button class="pq-pack-button small" type="button" data-feedback-action="dismiss">Dismiss</button>
+              <button class="pq-pack-button small danger" type="button" data-feedback-action="block_reviewer">Block</button>
+            </div>
+            <div class="pq-pack-status" data-feedback-message aria-live="polite"></div>
+          </div>
         </article>
         {% else %}
         <div class="pq-pack-empty">No viewer responses have arrived yet.</div>
@@ -286,6 +324,13 @@
       };
       const showStatus = (element, message, tone) => {
         const status = statusFor(element);
+        if (!status) return;
+        status.textContent = message;
+        status.style.color = tone === "error" ? "var(--pq-red)" : "var(--pq-green)";
+      };
+      const showFeedbackStatus = (element, message, tone) => {
+        const row = element.closest("[data-feedback-review]");
+        const status = row ? row.querySelector("[data-feedback-message]") : null;
         if (!status) return;
         status.textContent = message;
         status.style.color = tone === "error" ? "var(--pq-red)" : "var(--pq-green)";
@@ -407,6 +452,27 @@
             showStatus(button, "Archived.", "ok");
           } catch (error) {
             showStatus(button, error.message, "error");
+          }
+          return;
+        }
+        if (button.hasAttribute("data-feedback-action")) {
+          const row = button.closest("[data-feedback-review]");
+          const eventId = row?.dataset.eventId || "";
+          const action = button.dataset.feedbackAction || "";
+          const note = row?.querySelector("textarea[name='note']")?.value || "";
+          try {
+            const result = await postJson(`/app/api/properties/packets/feedback/${encodeURIComponent(eventId)}/review`, {action, note});
+            const pill = row?.querySelector("[data-feedback-status]");
+            if (pill) {
+              pill.textContent = "reviewed";
+              pill.classList.add("good");
+              pill.classList.remove("warn");
+            }
+            const appliedNode = result.preference_application?.hard_rule_node?.key || "";
+            const viewingQuestion = result.viewing_question_event?.event_id ? "Viewing question saved." : "";
+            showFeedbackStatus(button, appliedNode ? `Rule saved: ${appliedNode}` : (viewingQuestion || "Response reviewed."), "ok");
+          } catch (error) {
+            showFeedbackStatus(button, error.message, "error");
           }
           return;
         }

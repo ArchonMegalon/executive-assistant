@@ -666,6 +666,143 @@ def _property_enrich_missing_fact_research(
     return enriched
 
 
+def _property_missing_fact_task_id(*, run_id: str, property_url: str, field: str) -> str:
+    raw = "|".join(
+        (
+            str(run_id or "").strip(),
+            urllib.parse.urldefrag(str(property_url or "").strip())[0],
+            str(field or "").strip().lower(),
+        )
+    )
+    return "mf_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:18]
+
+
+def _property_missing_fact_task_status(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"filled", "completed", "resolved"}:
+        return "filled"
+    if normalized in {"dismissed", "ignored"}:
+        return "dismissed"
+    if normalized in {"blocked", "failed"}:
+        return "blocked"
+    if normalized in {"in_progress", "running", "processing"}:
+        return "in_progress"
+    return "queued"
+
+
+def _property_research_tasks_from_result(
+    result: dict[str, object] | None,
+    *,
+    run_id: str = "",
+) -> list[dict[str, object]]:
+    payload = dict(result or {})
+    tasks: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for source in list(payload.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = compact_text(str(source.get("source_label") or "").strip(), fallback="", limit=120)
+        for candidate in list(source.get("top_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
+            property_ref = str(candidate.get("source_ref") or candidate.get("listing_id") or property_url).strip()
+            facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+            research = dict(facts.get("missing_fact_research") or {}) if isinstance(facts.get("missing_fact_research"), dict) else {}
+            for item in list(research.get("items") or []):
+                if not isinstance(item, dict):
+                    continue
+                field = str(item.get("field") or "").strip().lower()
+                if not field:
+                    continue
+                task_id = _property_missing_fact_task_id(run_id=run_id, property_url=property_url or property_ref, field=field)
+                if task_id in seen:
+                    continue
+                seen.add(task_id)
+                status = _property_missing_fact_task_status(item.get("status"))
+                try:
+                    fit_score = float(candidate.get("fit_score") or 0.0)
+                except Exception:
+                    fit_score = 0.0
+                tasks.append(
+                    {
+                        "task_id": task_id,
+                        "kind": "missing_fact",
+                        "field": field,
+                        "label": compact_text(str(item.get("label") or field.replace("_", " ").title()), fallback=field, limit=80),
+                        "status": status,
+                        "priority": "high" if fit_score >= 65.0 else "normal",
+                        "property_ref": property_ref[:500],
+                        "property_url": property_url[:800],
+                        "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                        "source_label": source_label,
+                        "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                        "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                        "display_value": compact_text(str(item.get("display_value") or item.get("value") or ""), fallback="", limit=120),
+                        "evidence": compact_text(str(item.get("evidence") or ""), fallback="", limit=280),
+                        "ooda": dict(item.get("ooda") or {}) if isinstance(item.get("ooda"), dict) else {},
+                        "next_actions": [
+                            compact_text(str(action or ""), fallback="", limit=180)
+                            for action in list(item.get("next_actions") or [])[:8]
+                            if str(action or "").strip()
+                        ],
+                        "created_at": str(research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                        "updated_at": str(research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                    }
+                )
+    tasks.sort(key=lambda row: (0 if str(row.get("status")) != "filled" else 1, 0 if row.get("priority") == "high" else 1, -float(row.get("fit_score") or 0.0), str(row.get("title") or "")))
+    return tasks[:200]
+
+
+def _property_apply_research_task_overrides(
+    tasks: list[dict[str, object]],
+    overrides: dict[str, object] | None,
+) -> list[dict[str, object]]:
+    normalized_overrides = {
+        str(key or "").strip(): dict(value)
+        for key, value in dict(overrides or {}).items()
+        if str(key or "").strip() and isinstance(value, dict)
+    }
+    if not normalized_overrides:
+        return [dict(task) for task in tasks]
+    out: list[dict[str, object]] = []
+    for task in tasks:
+        row = dict(task)
+        override = normalized_overrides.get(str(row.get("task_id") or ""))
+        if override:
+            row.update(
+                {
+                    "status": _property_missing_fact_task_status(override.get("status") or row.get("status")),
+                    "owner_note": compact_text(str(override.get("note") or ""), fallback="", limit=500),
+                    "owner_value": compact_text(str(override.get("value") or ""), fallback="", limit=240),
+                    "updated_at": str(override.get("updated_at") or row.get("updated_at") or _now_iso()),
+                    "updated_by": compact_text(str(override.get("actor") or ""), fallback="", limit=120),
+                }
+            )
+            if row["status"] == "filled" and row.get("owner_value"):
+                row["display_value"] = row["owner_value"]
+                row["evidence"] = compact_text(
+                    " ".join(part for part in ("Owner supplied value.", str(row.get("owner_note") or "")) if part),
+                    fallback="Owner supplied value.",
+                    limit=280,
+                )
+        out.append(row)
+    return out
+
+
+def _property_research_task_counts(tasks: list[dict[str, object]]) -> dict[str, int]:
+    total = len(tasks)
+    open_total = sum(1 for task in tasks if str(task.get("status") or "") in {"queued", "in_progress", "blocked"})
+    filled_total = sum(1 for task in tasks if str(task.get("status") or "") == "filled")
+    dismissed_total = sum(1 for task in tasks if str(task.get("status") or "") == "dismissed")
+    return {
+        "research_task_total": total,
+        "open_research_task_total": open_total,
+        "filled_research_task_total": filled_total,
+        "dismissed_research_task_total": dismissed_total,
+    }
+
+
 def _property_search_scan_cap_per_source() -> int:
     raw_value = str(os.getenv("EA_PROPERTY_SEARCH_SCAN_CAP_PER_SOURCE") or "").strip()
     if not raw_value:
@@ -16205,8 +16342,25 @@ class ProductService:
             "events": [dict(item) for item in list(state.get("events") or [])],
             "selected_platforms": list(state.get("selected_platforms") or ()),
         }
+        research_tasks = _property_apply_research_task_overrides(
+            _property_research_tasks_from_result(
+                dict(snapshot.get("summary") or {}),
+                run_id=normalized_run_id,
+            ),
+            dict(snapshot.get("research_task_overrides") or {}),
+        )
+        counts = _property_research_task_counts(research_tasks)
+        snapshot["research_tasks"] = research_tasks
+        snapshot.update(counts)
+        snapshot["summary"] = {
+            **dict(snapshot.get("summary") or {}),
+            "research_tasks": research_tasks[:50],
+            **counts,
+        }
         if not str(snapshot.get("status_url") or "").strip():
             snapshot["status_url"] = f"/app/api/signals/property/search/run/{normalized_run_id}"
+        if not str(snapshot.get("generated_at") or "").strip():
+            snapshot["generated_at"] = str(snapshot.get("updated_at") or snapshot.get("created_at") or _now_iso())
         return snapshot
 
 
@@ -17155,6 +17309,75 @@ class ProductService:
     ) -> dict[str, object] | None:
         return self._snapshot_property_search_run(run_id=run_id, principal_id=principal_id)
 
+    def update_property_search_research_task(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        task_id: str,
+        action: str,
+        value: str = "",
+        note: str = "",
+        actor: str = "browser",
+    ) -> dict[str, object] | None:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        normalized_task_id = str(task_id or "").strip()
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in {"dismiss", "fill", "block", "reopen"}:
+            raise ValueError("invalid_property_research_task_action")
+        snapshot = self._snapshot_property_search_run(run_id=normalized_run_id, principal_id=normalized_principal)
+        if not isinstance(snapshot, dict):
+            return None
+        tasks = [dict(task) for task in list(snapshot.get("research_tasks") or []) if isinstance(task, dict)]
+        if not any(str(task.get("task_id") or "") == normalized_task_id for task in tasks):
+            raise KeyError("property_research_task_not_found")
+        if normalized_action == "fill" and not str(value or "").strip():
+            raise ValueError("property_research_task_value_required")
+        status = {
+            "dismiss": "dismissed",
+            "fill": "filled",
+            "block": "blocked",
+            "reopen": "queued",
+        }[normalized_action]
+        override = {
+            "status": status,
+            "value": compact_text(str(value or ""), fallback="", limit=240),
+            "note": compact_text(str(note or ""), fallback="", limit=500),
+            "actor": compact_text(str(actor or "browser"), fallback="browser", limit=120),
+            "updated_at": _now_iso(),
+            "action": normalized_action,
+        }
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
+            if not isinstance(state, dict):
+                persisted = _load_property_search_run_record(run_id=normalized_run_id)
+                state = dict(persisted or {}) if isinstance(persisted, dict) else {}
+                if state:
+                    _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = state
+            if not isinstance(state, dict) or str(state.get("principal_id") or "").strip() != normalized_principal:
+                return None
+            overrides = dict(state.get("research_task_overrides") or {})
+            overrides[normalized_task_id] = override
+            state["research_task_overrides"] = overrides
+            state["updated_at"] = _now_iso()
+            persisted_state = dict(state)
+        try:
+            _store_property_search_run_record(persisted_state)
+        except Exception:
+            pass
+        self._record_property_search_run_event(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+            step="research_task_updated",
+            message=f"Research task {normalized_action.replace('_', ' ')} recorded.",
+            status=str(snapshot.get("status") or "processed").strip().lower() or "processed",
+            steps_delta=0,
+            summary_updates=None,
+            force_status=str(snapshot.get("status") or "processed").strip().lower() or "processed",
+        )
+        return self._snapshot_property_search_run(run_id=normalized_run_id, principal_id=normalized_principal)
+
     def reconcile_property_search_results_delivery(
         self,
         *,
@@ -18060,6 +18283,9 @@ class ProductService:
             "failed_total": failed_total,
             "sources": source_summaries,
         }
+        research_tasks = _property_research_tasks_from_result(payload)
+        payload.update(_property_research_task_counts(research_tasks))
+        payload["research_tasks"] = research_tasks[:50]
         self._record_product_event(
             principal_id=principal_id,
             event_type="property_scout_sync_completed",
