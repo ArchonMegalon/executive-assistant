@@ -2797,11 +2797,31 @@ def _is_memorial_live_interaction_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
         return False
+    if any(
+        token in lowered
+        for token in (
+            "wie klingt deine stimme",
+            "wie klingt deine voice",
+            "wie klingst du",
+            "wie redest du",
+            "wie sprichst du",
+            "wie hoerst du dich an",
+            "wie hörst du dich an",
+            "so klingst du",
+            "so klingst du also",
+        )
+    ) and any(token in lowered for token in ("jetzt", "gerade", "im moment", "nun", "heute", "da")):
+        return True
     if any(token in lowered for token in ("stimme", "klang", "klingst du", "klingt deine stimme", "so klingst du")) and any(
         token in lowered for token in ("jetzt", "gerade", "im moment", "nun", "heute", "da")
     ):
         return True
     if any(token in lowered for token in ("schach", "zug", "rochade", "schachmatt", "matt")):
+        return True
+    if (
+        any(token in lowered for token in ("antwort", "reagier", "reagiere", "sag was", "sag etwas"))
+        or (lowered.startswith("sag ") and any(token in lowered for token in ("zu mir", "mit mir")))
+    ) and any(token in lowered for token in ("jetzt", "gleich", "direkt", "mit mir", "zu mir")):
         return True
     if any(token in lowered for token in ("spielen", "spiel", "rede", "sprich")) and any(token in lowered for token in ("mit dir", "gegen dich", "mit mir")):
         return True
@@ -4420,7 +4440,7 @@ def _memorial_chat_answer(
         fallback["llm_request_model"] = requested_model
         fallback["llm_fallback_used"] = True
         return fallback
-    if requested_model == "memorial-local-fast":
+    if requested_model == "memorial-local-fast" and not _is_memorial_live_interaction_question(normalized_question):
         fallback_reason = "local_memorial_fast_path"
         if _is_memorial_ooda_question(normalized_question):
             fallback_reason = "memorial_ooda_local_fast_path"
