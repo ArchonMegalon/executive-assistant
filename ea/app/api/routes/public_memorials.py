@@ -5783,6 +5783,13 @@ def _memorial_html(
         background: rgba(255,252,247,.35);
         border-color: rgba(83,104,91,.16);
       }}
+      #memorial-voice-ab-wrap,
+      #memorial-archive .archive-disclosure {{
+        max-width: 640px;
+      }}
+      #memorial-archive {{
+        margin-top: 18px;
+      }}
       .archive-disclosure {{
         max-width: 720px;
         margin: 0 auto;
@@ -6306,6 +6313,8 @@ def _memorial_html(
         border-top: 1px solid var(--line);
         padding: 30px 0;
         color: var(--muted);
+        font-size: .94rem;
+        line-height: 1.5;
         background: linear-gradient(180deg, rgba(247,243,234,0), rgba(237,228,212,.56));
       }}
       @media (max-width: 760px) {{
@@ -6356,6 +6365,25 @@ def _memorial_html(
         .speech-status-bar {{ text-align: left; }}
         .speech-status-meta {{ gap: 6px; }}
         .voice-tools {{ margin-top: 16px; }}
+        #memorial-voice-ab-wrap {{
+          margin: 10px auto 6px !important;
+        }}
+        #memorial-archive {{
+          margin-top: 12px;
+        }}
+        #memorial-voice-ab-wrap,
+        #memorial-archive .archive-disclosure {{
+          border-radius: 10px;
+          background: transparent;
+          border-color: rgba(65,53,43,.12);
+          padding: 0 10px;
+        }}
+        #memorial-voice-ab-wrap > .collapse-summary,
+        #memorial-archive .archive-disclosure > .collapse-summary {{
+          min-height: 44px;
+          font-size: .76rem;
+          font-weight: 650;
+        }}
         .voice-ab-choice-grid {{ grid-template-columns: 1fr; }}
         .archive-subsection .grid {{ gap: 12px; }}
         .memory {{
@@ -6367,6 +6395,11 @@ def _memorial_html(
           display: none;
         }}
         .minimal-disclosure {{ padding: 8px 10px; }}
+        footer {{
+          padding: 22px 0;
+          font-size: .82rem;
+          line-height: 1.45;
+        }}
         .speaking-overlay {{
           left: 12px;
           right: 12px;
