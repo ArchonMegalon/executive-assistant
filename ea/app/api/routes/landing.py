@@ -80,11 +80,59 @@ from app.services.property_market_catalog import (
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
 from app.services.registration_email import email_delivery_enabled
+from app.services.memorial_archive_registry import load_json as _load_archive_json, public_registry_path as _public_registry_path, public_registry_payload as _public_registry_payload
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
+
+_ARCHIVE_HOSTNAME = "archive.myexternalbrain.com"
+_ARCHIVE_MEMORIAL_SLUG = "manfred"
+
+
+def _is_archive_host(request: Request) -> bool:
+    return _request_hostname(request) == _ARCHIVE_HOSTNAME
+
+
+def _archive_public_registry() -> dict[str, object]:
+    path = _public_registry_path(_ARCHIVE_MEMORIAL_SLUG, generated=False)
+    if not path.is_file():
+        return {"slug": _ARCHIVE_MEMORIAL_SLUG, "archive_sections": [], "fliplink_publications": []}
+    payload = _load_archive_json(path)
+    if not isinstance(payload, dict):
+        return {"slug": _ARCHIVE_MEMORIAL_SLUG, "archive_sections": [], "fliplink_publications": []}
+    return _public_registry_payload(payload)
+
+
+def _archive_publication_html_path(publication_slug: str) -> Path:
+    base = Path("/docker/EA/memorial_archive") / _ARCHIVE_MEMORIAL_SLUG / "public" / publication_slug / "build" / "index.html"
+    return base.resolve()
+
+
+def _archive_home_html() -> str:
+    registry = _archive_public_registry()
+    items = list(registry.get("fliplink_publications") or [])
+    cards: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        slug = html.escape(str(item.get("slug") or item.get("id") or "").strip())
+        title = html.escape(str(item.get("title") or slug).strip())
+        desc = html.escape(str(item.get("description") or "").strip())
+        cards.append(
+            "<article style='border:1px solid rgba(43,39,35,.14);background:rgba(255,255,255,.52);padding:18px 20px;border-radius:18px;'>"
+            f"<h2 style='margin:0 0 8px;font-size:1.35rem;'><a href='/{slug}' style='color:#2B2723;text-decoration:none;'>{title}</a></h2>"
+            f"<p style='margin:0;color:#665E55;'>{desc}</p>"
+            "</article>"
+        )
+    return (
+        "<!doctype html><html lang='de'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Manfred Memorial Archive</title>"
+        "<style>:root{--paper:#F7EFE0;--ink:#2B2723;--muted:#665E55;--line:rgba(43,39,35,.14);}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 Georgia,\"Libre Baskerville\",serif;}main{max-width:920px;margin:0 auto;padding:48px 28px 72px;}header{margin-bottom:28px;padding-bottom:18px;border-bottom:1px solid var(--line);}h1{margin:0 0 10px;font-size:2.6rem;line-height:1.05}.kicker{color:#7D4851;font:700 12px/1.2 \"Trebuchet MS\",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.grid{display:grid;gap:18px}.lead{color:var(--muted)}</style>"
+        "</head><body><main><header><div class='kicker'>Manfred Memorial Archive</div><h1>Archiv</h1><p class='lead'>Geprüfte Dokumente, Erinnerungen und Quellen als lesbare Archivseiten.</p></header>"
+        f"<section class='grid'>{''.join(cards)}</section></main></body></html>"
+    )
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
@@ -629,6 +677,8 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
+    if _is_archive_host(request):
+        return HTMLResponse(_archive_home_html(), headers={"Cache-Control": "no-store"})
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     brand = request_brand(request)
     return _render_public_template(
@@ -650,6 +700,18 @@ def landing(
             },
         ),
     )
+
+
+@router.get("/{archive_slug}", response_class=HTMLResponse, include_in_schema=False)
+def archive_publication_page(archive_slug: str, request: Request) -> HTMLResponse:
+    if not _is_archive_host(request):
+        raise HTTPException(status_code=404, detail="not_found")
+    if archive_slug in {"robots.txt", "favicon.ico"}:
+        raise HTTPException(status_code=404, detail="not_found")
+    path = _archive_publication_html_path(archive_slug)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="archive_publication_not_found")
+    return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/product", response_class=HTMLResponse)
