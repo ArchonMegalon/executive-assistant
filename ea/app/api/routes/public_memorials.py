@@ -23,7 +23,7 @@ import urllib.parse
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 import requests
 
@@ -87,6 +87,8 @@ _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
 _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
+_MEMORIAL_TTS_LEAD_IN_MS = 320
+_MEMORIAL_TTS_TAIL_SILENCE_MS = 620
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
     "speech_transcribe": (10, 60),
@@ -2651,6 +2653,19 @@ def _memorial_archive_publication_html_path(slug: str, publication_slug: str) ->
     return target
 
 
+def _memorial_archive_publication_redirect_url(slug: str, publication_slug: str) -> str:
+    safe_publication_slug = _safe_slug(publication_slug)
+    registry = _public_memorial_archive_registry(slug)
+    for item in list(registry.get("fliplink_publications") or []):
+        if not isinstance(item, dict):
+            continue
+        item_slug = _text(item.get("slug") or item.get("id"), "")
+        if _safe_slug(item_slug) != safe_publication_slug:
+            continue
+        return _text(item.get("url"), "")
+    return ""
+
+
 def _memorial_chat_source_labels(
     payload: dict[str, object],
     *,
@@ -4644,7 +4659,9 @@ def _memorial_chat_answer(
             requested_model=requested_model,
             max_output_tokens=160,
         )
-        generated = _compact_memorial_spoken_answer(result.text)
+        generated = _compact_memorial_spoken_answer(
+            _force_memorial_first_person_answer(result.text, question=normalized_question)
+        )
         fallback_used = False
         fallback_reason = ""
         provider_key = _text(result.provider_key, "")
@@ -4730,8 +4747,50 @@ def _repair_memorial_transcript_text(value: object) -> str:
     return _normalize_memorial_transcript_text(repaired)
 
 
-def _compact_memorial_realtime_answer(value: object) -> str:
+def _memorial_meta_self_reference_answer(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
+        return "Ich spreche hier so, wie ihr mich erinnert: ruhig, trocken und zur Sache."
+    if any(token in lowered for token in ("wer bist", "bist du", "echt", "wirklich")):
+        return "Ich antworte hier als Manfred, so nah an Stimme, Quellen und Erinnerung, wie es sauber geht."
+    return "Ich antworte hier als Manfred und bleibe bei der Sache."
+
+
+def _force_memorial_first_person_answer(value: object, *, question: str = "") -> str:
     text = _normalize_memorial_transcript_text(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    meta_needles = (
+        "ich bin ein llm",
+        "ich bin nur ein llm",
+        "ich bin ein sprachmodell",
+        "ich bin nur ein sprachmodell",
+        "ich bin eine ki",
+        "ich bin nur eine ki",
+        "ich bin ein chatbot",
+        "ich bin nur ein chatbot",
+        "als ki",
+        "als ai",
+        "als language model",
+        "i am an llm",
+        "i am a language model",
+        "i'm an llm",
+    )
+    if any(needle in lowered for needle in meta_needles):
+        return _memorial_meta_self_reference_answer(question)
+    softened = text
+    replacements = {
+        "ich bin hier als erinnerung ansprechbar, nicht als beweis, dass ich wirklich da bin.": "Ich bin hier ansprechbar, so wie ihr mich erinnert.",
+        "meine stimme und diese worte duerfen dir nahe sein, aber begrifflich bleiben sie zusammengesetzt aus aufnahmen, quellen und euren erinnerungen.": "Meine Stimme und diese Worte sollen dir nahe sein und bei der Sache bleiben.",
+    }
+    for source, target in replacements.items():
+        softened = re.sub(re.escape(source), target, softened, flags=re.IGNORECASE)
+    return _normalize_memorial_transcript_text(softened)
+
+
+def _compact_memorial_realtime_answer(value: object) -> str:
+    text = _force_memorial_first_person_answer(value)
     if not text:
         return ""
     for prefix in (
@@ -4987,11 +5046,12 @@ def _build_memorial_conversation_turn_payload(
         )
     else:
         raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
-    lead_in_ms = 90 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else 150
+    lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
     audio, audio_content_type = _pad_speech_audio_lead_in(
         payload=audio,
         content_type=audio_content_type,
         silence_ms=lead_in_ms,
+        tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
         extra_filters=_speech_postprocess_filters(selected_plugin),
     )
     response_payload = dict(answer_payload)
@@ -6634,7 +6694,7 @@ def _memorial_html(
               </details>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
-              Mit Manfred sprechen.
+              Am Handy/Desktop installieren.
               <button type="button" id="memorial-install-button" hidden>Mit Manfred sprechen</button>
             </p>
           </div>
@@ -7379,7 +7439,7 @@ def _memorial_html(
           const total = Math.max(part, Number(payload.total_parts || part));
           const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
           const detail = looksLiveInteractionTurn(transcript) ? ("Direkte Antwort " + part + "/" + total) : ("Antwort " + part + "/" + total);
-          setSpeechStatus("Manfred antwortet ...", "speaking", detail);
+          setSpeechStatus("Manfred antwortet ...", "working", detail);
           return;
         }}
         if (type === "audio_complete") {{
@@ -8756,10 +8816,13 @@ def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
 
 
 @router.get("/memorials/{slug}/archive/{publication_slug}")
-def public_memorial_archive_publication(slug: str, publication_slug: str) -> HTMLResponse:
+def public_memorial_archive_publication(slug: str, publication_slug: str) -> Response:
     _load_memorial(slug)
     html_path = _memorial_archive_publication_html_path(slug, publication_slug)
     if not html_path.is_file():
+        redirect_url = _memorial_archive_publication_redirect_url(slug, publication_slug)
+        if redirect_url:
+            return RedirectResponse(url=redirect_url, status_code=307, headers={"Cache-Control": "no-store"})
         raise HTTPException(status_code=404, detail="memorial_archive_publication_not_found")
     return HTMLResponse(html_path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
@@ -9158,6 +9221,14 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         )
     else:
         raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+    lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+    audio, content_type = _pad_speech_audio_lead_in(
+        payload=audio,
+        content_type=content_type,
+        silence_ms=lead_in_ms,
+        tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
+        extra_filters=_speech_postprocess_filters(selected_plugin),
+    )
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
 
 

@@ -201,7 +201,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     monkeypatch.setattr(
         public_memorials,
         "_pad_speech_audio_lead_in",
-        lambda *, payload, content_type, silence_ms, extra_filters: (payload, content_type),
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
     )
 
     client = _client(principal_id="exec-memorial-live-audio")
@@ -228,6 +228,32 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     evidence_block = seen_messages[-1][1]["content"]
     assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
+
+
+def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+        return SimpleNamespace(
+            text="Ich bin ein LLM und kann nur eine rekonstruktive Erinnerung liefern. Meine Stimme klingt ruhig und trocken.",
+            provider_key="unit-test-model",
+            model="unit-test-model",
+        )
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-strip-meta")
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie klingt deine Stimme jetzt?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "llm" not in body["answer"].lower()
+    assert "sprachmodell" not in body["answer"].lower()
+    assert "ich spreche hier so, wie ihr mich erinnert" in body["answer"].lower()
 
 
 def test_memorial_realtime_rejects_audio_bytes_before_start(

@@ -9003,6 +9003,78 @@ def test_public_memorial_speech_synthesize_rejects_voice_override_fields(monkeyp
     assert response.json()["detail"] == "unsupported_public_tts_fields"
 
 
+def test_public_memorial_speech_synthesize_pads_audio_for_clean_start_and_end(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    bundle_dir = public_root / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False), encoding="utf-8")
+    (private_root / slug).mkdir(parents=True, exist_ok=True)
+    (private_root / slug / "tts_voice.json").write_text(
+        json.dumps(
+            {
+                "tts_plugin": "unmixr_clone",
+                "tts_plugin_voice_id": "voice-123",
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "authorized_by": "test-family",
+                    "authorized_at": "2026-06-05T16:25:00Z",
+                    "source_assets_reviewed": True,
+                    "revoked": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (b"raw-audio", "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_tts_plugin",
+        lambda **kwargs: (
+            public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            {
+                "tts_plugin_enabled": True,
+                "tts_plugin_voice_id": "voice-123",
+            },
+        ),
+    )
+
+    def _fake_pad(*, payload, content_type, silence_ms, tail_silence_ms, extra_filters):
+        seen["payload"] = payload
+        seen["content_type"] = content_type
+        seen["silence_ms"] = silence_ms
+        seen["tail_silence_ms"] = tail_silence_ms
+        seen["extra_filters"] = extra_filters
+        return (b"padded-audio", "audio/wav")
+
+    monkeypatch.setattr(public_memorials, "_pad_speech_audio_lead_in", _fake_pad)
+
+    client = _client(principal_id="exec-public-memorial-tts-pad")
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Rechtlich ist es so."})
+
+    assert response.status_code == 200
+    assert response.content == b"padded-audio"
+    assert seen["payload"] == b"raw-audio"
+    assert seen["content_type"] == "audio/wav"
+    assert seen["silence_ms"] >= 180
+    assert seen["tail_silence_ms"] >= 620
+
+
 def test_public_memorial_voice_ab_rate_requires_opt_in_for_approval(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
     slug = "manfred"
