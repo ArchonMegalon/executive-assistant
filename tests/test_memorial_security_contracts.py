@@ -93,6 +93,65 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
     assert raw_manifest.status_code == 404
 
 
+def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    bundle_dir = _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "pwa_app_name": "Mit Manfred sprechen",
+            "pwa_short_name": "Manfred",
+            "pwa_icon": {
+                "src_180": "icons/manfred-180.png",
+                "src_192": "icons/manfred-192.png",
+                "src_512": "icons/manfred-512.png",
+            },
+            "audio_clips": [],
+        },
+    )
+    icon_dir = bundle_dir / "icons"
+    icon_dir.mkdir()
+    for size in (180, 192, 512):
+        (icon_dir / f"manfred-{size}.png").write_bytes(b"\x89PNG\r\n\x1a\nicon")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-pwa-icons")
+
+    manifest = client.get(f"/memorials/{slug}/app.webmanifest")
+    assert manifest.status_code == 200
+    manifest_body = manifest.json()
+    assert manifest_body["name"] == "Mit Manfred sprechen"
+    assert manifest_body["short_name"] == "Manfred"
+    assert {icon["sizes"]: icon["type"] for icon in manifest_body["icons"]} == {
+        "192x192": "image/png",
+        "512x512": "image/png",
+    }
+    assert all("icon.svg" not in icon["src"] for icon in manifest_body["icons"])
+
+    page = client.get(f"/memorials/{slug}")
+    assert page.status_code == 200
+    assert "Mit Manfred sprechen" in page.text
+    assert "App installieren" not in page.text
+    assert f"/memorials/{slug}/icon-180.png" in page.text
+
+    icon_response = client.get(f"/memorials/{slug}/icon-512.png")
+    assert icon_response.status_code == 200
+    assert icon_response.headers["content-type"].startswith("image/png")
+    assert icon_response.content.startswith(b"\x89PNG")
+
+    service_worker = client.get(f"/memorials/{slug}/service-worker.js")
+    assert service_worker.status_code == 200
+    assert f"/memorials/{slug}/icon-512.png" in service_worker.text
+
+
 def test_public_memorial_json_includes_public_archive_registry_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
