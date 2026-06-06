@@ -82,7 +82,7 @@ _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
-_MEMORIAL_PWA_VERSION = "20260605d"
+_MEMORIAL_PWA_VERSION = "20260606a"
 _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
 _MAX_REALTIME_TEXT_CHARS = 600
@@ -2571,13 +2571,15 @@ def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
 
 def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
     registry = public_registry_payload(_load_memorial_archive_registry(slug))
+    if not _text(registry.get("slug"), ""):
+        registry["slug"] = _safe_slug(slug)
     publications: list[dict[str, object]] = []
     for item in list(registry.get("fliplink_publications") or []):
         if not isinstance(item, dict):
             continue
         normalized = dict(item)
         publication_slug = _text(normalized.get("slug") or normalized.get("id"), "")
-        if publication_slug:
+        if publication_slug and _memorial_archive_publication_html_path(slug, publication_slug).is_file():
             normalized["url"] = f"/memorials/{_safe_slug(slug)}/archive/{publication_slug}"
         publications.append(normalized)
     registry["fliplink_publications"] = publications
@@ -4713,6 +4715,7 @@ def _pad_speech_audio_lead_in(
     payload: bytes,
     content_type: str,
     silence_ms: int = 180,
+    tail_silence_ms: int = 360,
     extra_filters: str = "",
 ) -> tuple[bytes, str]:
     if not payload:
@@ -4729,6 +4732,9 @@ def _pad_speech_audio_lead_in(
         normalized_extra_filters = str(extra_filters or "").strip()
         if normalized_extra_filters:
             filter_chain.append(normalized_extra_filters)
+        tail_seconds = max(0.0, float(max(0, tail_silence_ms)) / 1000.0)
+        if tail_seconds > 0:
+            filter_chain.append(f"apad=pad_dur={tail_seconds:.3f}")
         proc = subprocess.run(
             [
                 "ffmpeg",
@@ -5194,18 +5200,21 @@ def _memorial_html(
             if cards:
                 section_blocks.append(
                     f"""
-      <section>
-        <h2>{html.escape(_text(section.get("title"), "Archiv"))}</h2>
+          <section class="archive-subsection">
+        <h3>{html.escape(_text(section.get("title"), "Archiv"))}</h3>
         <div class="grid">{''.join(cards)}</div>
       </section>"""
                 )
         if section_blocks:
             archive_html = """
       <section id="memorial-archive">
-        <h2>Archiv lesen</h2>
-        <p class="lead">Geprüfte Dokumente, Erinnerungen und Quellen als digitale Bücher.</p>
+        <details class="minimal-disclosure archive-disclosure">
+          <summary class="collapse-summary">Archiv lesen</summary>
+          <p class="lead">Geprüfte Dokumente, Erinnerungen und Quellen als digitale Bücher.</p>
+""" + "\n".join(section_blocks) + """
+        </details>
       </section>
-""" + "\n".join(section_blocks)
+"""
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -5230,6 +5239,7 @@ def _memorial_html(
         --panel: rgba(252, 247, 239, 0.88);
         --panel-strong: rgba(255, 250, 242, 0.97);
         --ink: #2b211c;
+        --ink-soft: #4d4138;
         --muted: #6f6255;
         --line: rgba(65, 53, 43, 0.14);
         --line-strong: rgba(65, 53, 43, 0.24);
@@ -5242,10 +5252,7 @@ def _memorial_html(
       * {{ box-sizing: border-box; }}
       body {{
         margin: 0;
-        background:
-          radial-gradient(circle at 22% 14%, rgba(255,255,255,.86) 0, rgba(255,255,255,0) 16%),
-          radial-gradient(circle at 78% 10%, rgba(255,250,244,.82) 0, rgba(255,250,244,0) 15%),
-          linear-gradient(180deg, #9bb0c2 0%, #c6d2da 12%, #e9e1d5 32%, var(--paper) 100%);
+        background: linear-gradient(180deg, #f8f4ec 0%, var(--paper) 100%);
         color: var(--ink);
         font: 16px/1.7 Georgia, "Times New Roman", serif;
         position: relative;
@@ -5255,22 +5262,19 @@ def _memorial_html(
         position: fixed;
         inset: 0;
         pointer-events: none;
-        opacity: .24;
+        display: none;
+        opacity: 0;
         background:
           url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='900' viewBox='0 0 1600 900'%3E%3Cg fill='none'%3E%3Cpath d='M128 188c26-46 95-58 139-20 31-21 79-19 110 10 36-11 80 6 95 37 49-8 84 29 77 74H30c-8-48 24-85 74-87 4-6 10-11 24-14Z' fill='%23fffaf4' fill-opacity='.62'/%3E%3Cpath d='M1058 122c20-35 74-45 112-16 24-16 62-14 86 8 31-10 65 4 78 31 41-7 71 24 66 62H986c-5-41 21-72 60-74 3-4 7-8 12-11Z' fill='%23fff8ee' fill-opacity='.56'/%3E%3Cpath d='M1180 294c18-30 64-38 98-14 23-14 53-11 72 8 28-8 56 4 67 27 35-5 62 19 57 52h-382c-4-33 18-58 51-60 4-6 9-10 17-13Z' fill='%23fff6ea' fill-opacity='.42'/%3E%3C/g%3E%3C/svg%3E") center top / 100% auto no-repeat;
       }}
       a {{ color: inherit; }}
       .wrap {{ width: min(1120px, calc(100vw - 36px)); margin: 0 auto; }}
       header {{
-        min-height: 86vh;
+        min-height: 56vh;
         display: grid;
-        align-items: end;
-        border-bottom: 1px solid rgba(64,98,123,.16);
-        background:
-          linear-gradient(180deg, rgba(128,153,172,0.18), rgba(244,236,223,0.44) 55%, rgba(244,236,223,0.98)),
-          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1400' height='820' viewBox='0 0 1400 820'%3E%3Cdefs%3E%3ClinearGradient id='sky' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0%25' stop-color='%2394aabd'/%3E%3Cstop offset='38%25' stop-color='%23c5d0d7'/%3E%3Cstop offset='72%25' stop-color='%23e6ddd0'/%3E%3Cstop offset='100%25' stop-color='%23f1e7d8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='1400' height='820' fill='url(%23sky)'/%3E%3Cg fill='%23fff9f0' fill-opacity='.62'%3E%3Cpath d='M164 168c28-52 109-67 157-23 37-25 86-21 118 12 39-14 86 6 103 42 55-8 96 33 88 84H58c-7-53 26-95 82-98 5-7 12-13 24-17Z'/%3E%3Cpath d='M890 118c21-39 84-50 123-18 26-18 68-15 94 9 33-12 70 4 84 34 43-6 74 25 68 66H810c-5-44 22-77 68-79 4-5 8-9 12-12Z'/%3E%3C/g%3E%3Cpath d='M0 548c158-40 259-10 382-44 112-31 200-96 334-108 151-14 232 45 372 27 125-16 211-58 312-92V820H0Z' fill='%23ccb08a' fill-opacity='.34'/%3E%3Cpath d='M0 614c138-53 262-16 412-57 150-41 223-140 415-145 149-4 245 78 388 73 71-2 124-20 185-44V820H0Z' fill='%2365745f' fill-opacity='.20'/%3E%3Cpath d='M0 688c183-43 309-5 465-44 169-42 255-114 445-97 166 14 256 80 490 48V820H0Z' fill='%2348677e' fill-opacity='.19'/%3E%3Cg stroke='%236b5a4c' stroke-opacity='.20' fill='none'%3E%3Cpath d='M944 520c36-34 77-48 113-45 34 2 62 20 90 44 18 16 48 23 80 20'/%3E%3Cpath d='M986 570c44-31 95-37 134-20 31 13 56 38 84 59 16 12 35 18 56 18'/%3E%3C/g%3E%3Cg fill='%237d4851' fill-opacity='.44' font-family='Georgia' font-size='18'%3E%3Ctext x='962' y='504'%3ED%C3%B6bling%3C/text%3E%3Ctext x='1016' y='560'%3EGrinzing%3C/text%3E%3Ctext x='1098' y='620'%3EHeiligenstadt%3C/text%3E%3C/g%3E%3Ccircle cx='1152' cy='150' r='58' fill='%23f9e6b8' fill-opacity='.60'/%3E%3C/svg%3E");
-        background-size: cover;
-        background-position: center;
+        align-items: center;
+        border-bottom: 1px solid rgba(65,53,43,.10);
+        background: linear-gradient(180deg, rgba(255,252,247,.72), rgba(244,236,223,.44));
         position: relative;
         overflow: hidden;
       }}
@@ -5280,27 +5284,28 @@ def _memorial_html(
         inset: auto 0 0 0;
         height: 180px;
         background: linear-gradient(180deg, rgba(247,243,234,0), rgba(247,243,234,0.88) 45%, var(--paper) 100%);
+        display: none;
         pointer-events: none;
       }}
       .hero {{
-        padding: 64px 0 54px;
+        padding: 54px 0 46px;
         position: relative;
         z-index: 1;
       }}
       .hero-stage {{
         display: grid;
-        grid-template-columns: minmax(0, 1.45fr) minmax(280px, .8fr);
-        gap: 22px;
-        align-items: end;
+        grid-template-columns: 1fr;
+        gap: 0;
+        align-items: center;
       }}
       .hero-copy {{
-        max-width: 56rem;
-        padding: 22px 24px 26px;
-        border: 1px solid rgba(255,250,242,.42);
-        border-radius: 24px;
-        background: linear-gradient(180deg, rgba(255,250,242,.50), rgba(255,250,242,.22));
-        backdrop-filter: blur(10px);
-        box-shadow: var(--shadow);
+        max-width: 680px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        backdrop-filter: none;
+        box-shadow: none;
       }}
       .hero-memorial {{
         min-height: 420px;
@@ -5382,15 +5387,41 @@ def _memorial_html(
         color: rgba(248,241,230,.84);
       }}
       .hero-actions {{
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        margin-top: 22px;
+      }}
+      .hero-settings {{
+        width: min(360px, 100%);
+        margin: 0 auto;
+        text-align: left;
+      }}
+      .hero-settings-body {{
+        display: grid;
+        gap: 9px;
+        margin-top: 12px;
+        color: var(--muted);
+        font: 600 .88rem/1.35 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .hero-settings-body label {{
         display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-top: 24px;
+        align-items: center;
+        gap: 8px;
+      }}
+      .hero-settings-body input {{
+        margin: 0;
+      }}
+      .hero-settings-body button {{
+        justify-self: start;
+        padding: 8px 11px;
+        font-size: .82rem;
       }}
       .hero-meta {{
         margin-top: 18px;
         color: var(--muted);
         font-size: .96rem;
+        display: none;
       }}
       .install-hint {{
         margin: 16px auto 0;
@@ -5488,8 +5519,8 @@ def _memorial_html(
         color: var(--blue);
       }}
       .hero-cta {{
-        background: linear-gradient(180deg, rgba(72,103,126,.96), rgba(57,84,102,.98));
-        border-color: rgba(72,103,126,.65);
+        background: #48677e;
+        border-color: #48677e;
         color: #fffaf2;
       }}
       .eyebrow {{
@@ -5498,25 +5529,26 @@ def _memorial_html(
         font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
         letter-spacing: .14em;
         text-transform: uppercase;
+        display: none;
       }}
       h1 {{
         margin: 0;
-        font-size: clamp(2.6rem, 7vw, 5.9rem);
-        line-height: .94;
+        font-size: 4.2rem;
+        line-height: 1;
         font-weight: 560;
-        letter-spacing: -.03em;
+        letter-spacing: 0;
         text-wrap: balance;
       }}
       h2 {{
         margin: 0 0 12px;
-        font-size: clamp(1.7rem, 3vw, 2.5rem);
+        font-size: 2rem;
         line-height: 1.06;
         font-weight: 560;
-        letter-spacing: -.02em;
+        letter-spacing: 0;
       }}
       h3 {{ margin: 0 0 6px; font-size: 1.06rem; line-height: 1.25; }}
       p {{ margin: 0; }}
-      .lead {{ margin-top: 20px; max-width: 64ch; color: var(--muted); font-size: 1.12rem; text-wrap: pretty; }}
+      .lead {{ margin-top: 14px; max-width: 64ch; color: var(--muted); font-size: 1.05rem; text-wrap: pretty; }}
       .chat-model-row {{
         display: grid;
         gap: 6px;
@@ -5561,9 +5593,10 @@ def _memorial_html(
         width: 84px;
         height: 1px;
         background: linear-gradient(90deg, rgba(180,141,81,.72), rgba(180,141,81,0));
+        display: none;
       }}
-      main {{ padding: 54px 0 88px; position: relative; z-index: 1; }}
-      section {{ margin-top: 52px; }}
+      main {{ padding: 28px 0 70px; position: relative; z-index: 1; }}
+      section {{ margin-top: 32px; }}
       [hidden] {{ display: none !important; }}
       .minimal-hidden,
       .admin-shell,
@@ -5689,6 +5722,10 @@ def _memorial_html(
         max-width: 720px;
         margin: 0 auto;
         text-align: center;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
       }}
       .speech-status-bar,
       .speech-transcript,
@@ -5720,6 +5757,47 @@ def _memorial_html(
           linear-gradient(180deg, rgba(180,141,81,.08), rgba(255,255,255,0)),
           rgba(246,249,247,.9);
         border-color: rgba(83,104,91,.24);
+      }}
+      .minimal-disclosure {{
+        padding: 9px 12px;
+        border: 1px solid rgba(83,104,91,.18);
+        border-radius: 12px;
+        background: rgba(255,252,247,.42);
+        box-shadow: none;
+      }}
+      .voice-tools.minimal-disclosure {{
+        background: rgba(255,252,247,.35);
+        border-color: rgba(83,104,91,.16);
+      }}
+      .archive-disclosure {{
+        max-width: 720px;
+        margin: 0 auto;
+      }}
+      .collapse-summary {{
+        cursor: pointer;
+        list-style: none;
+        color: var(--ink-soft);
+        font: 700 .82rem/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: 0;
+      }}
+      .collapse-summary::-webkit-details-marker {{ display: none; }}
+      .collapse-summary::after {{
+        content: "+";
+        float: right;
+        color: var(--muted);
+        font-weight: 700;
+      }}
+      details[open] > .collapse-summary::after {{ content: "-"; }}
+      .archive-disclosure .lead {{
+        margin-top: 10px;
+        font-size: .95rem;
+      }}
+      .archive-subsection {{
+        margin-top: 18px;
+      }}
+      .archive-subsection h3 {{
+        font-size: .98rem;
+        font-weight: 650;
       }}
       .voice-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
       .voice-field {{ display: grid; gap: 6px; }}
@@ -6150,20 +6228,21 @@ def _memorial_html(
         background: linear-gradient(180deg, rgba(247,243,234,0), rgba(237,228,212,.56));
       }}
       @media (max-width: 760px) {{
-        header {{ min-height: 100svh; align-items: end; }}
+        header {{ min-height: auto; align-items: center; }}
         .grid, .clip, .voice-grid {{ grid-template-columns: 1fr; }}
         .wrap {{ width: min(100vw - 28px, 1120px); }}
-        .hero {{ padding: 28px 0 22px; min-height: calc(100svh - 28px); display: flex; align-items: end; }}
-        .hero-stage {{ grid-template-columns: 1fr; gap: 14px; }}
-        .hero-copy {{ padding: 20px 18px 22px; border-radius: 22px; }}
+        .hero {{ padding: 40px 0 26px; min-height: auto; display: block; }}
+        .hero-stage {{ grid-template-columns: 1fr; gap: 0; }}
+        .hero-copy {{ padding: 0; border-radius: 0; }}
         .hero-memorial {{ min-height: 240px; padding: 16px; border-radius: 22px; order: -1; }}
         .hero-memorial-card {{ max-width: 100%; }}
         .hero-audio-note {{ width: 100%; }}
-        h1 {{ font-size: clamp(2.4rem, 12vw, 4.2rem); }}
-        h2 {{ font-size: clamp(1.45rem, 7vw, 2rem); }}
+        h1 {{ font-size: 2.7rem; }}
+        h2 {{ font-size: 1.55rem; }}
         .lead {{ font-size: 1rem; }}
         .notice {{ margin-top: 20px; }}
-        .hero-actions {{ margin-top: 20px; }}
+        .hero-actions {{ margin-top: 18px; flex-direction: column; align-items: center; }}
+        .hero-settings {{ width: 100%; max-width: 360px; }}
         .speech-row, .voice-actions, .prompt-row, .chat-actions {{ align-items: stretch; }}
         .hero-actions button,
         .speech-row button,
@@ -6181,7 +6260,9 @@ def _memorial_html(
         .voice-variant-toggle {{ border-radius: 18px; }}
         .voice-variant-chip {{ width: 100%; justify-content: center; }}
         .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{ border-radius: 18px; padding: 18px; }}
-        .voice-tools {{ margin-top: 34px; }}
+        .chat.quiet-shell {{ padding: 0; border: 0; background: transparent; box-shadow: none; }}
+        .voice-tools {{ margin-top: 16px; }}
+        .minimal-disclosure {{ padding: 8px 10px; }}
         .speaking-overlay {{
           left: 12px;
           right: 12px;
@@ -6205,30 +6286,31 @@ def _memorial_html(
             <p class="lead">{html.escape(subtitle)}</p>
             <div class="hero-actions">
               <button type="button" class="hero-cta" data-hero-action="conversation" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
-              <label class="autostart-toggle" style="display:block;margin-top:10px;color:var(--muted);font-size:.92rem;">
-                <input type="checkbox" id="memorial-autostart-optin" style="margin-right:8px;" />
-                Gespräch automatisch beginnen
-              </label>
-              <label class="autostart-toggle" style="display:block;margin-top:8px;color:var(--muted);font-size:.92rem;">
-                <input type="checkbox" id="memorial-personal-memory-optin" style="margin-right:8px;" />
-                Frühere Gespräche
-              </label>
-              <div id="memorial-personal-memory-status" style="margin-top:8px;color:var(--muted);font-size:.88rem;">Gastmodus · Gedächtnis aus.</div>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
-                <button type="button" id="memorial-personal-memory-forget">Vergessen</button>
-              </div>
+              <details class="hero-settings minimal-disclosure">
+                <summary class="collapse-summary">Optionen</summary>
+                <div class="hero-settings-body">
+                  <label class="autostart-toggle">
+                    <input type="checkbox" id="memorial-autostart-optin" />
+                    Gespräch automatisch beginnen
+                  </label>
+                  <label class="autostart-toggle">
+                    <input type="checkbox" id="memorial-personal-memory-optin" />
+                    Frühere Gespräche
+                  </label>
+                  <div id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</div>
+                  <button type="button" id="memorial-personal-memory-forget">Vergessen</button>
+                </div>
+              </details>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Als App installieren.
               <button type="button" id="memorial-install-button" hidden>App installieren</button>
             </p>
-            <p class="hero-meta">Jurist, Querulant, Prinzipienmensch.</p>
           </div>
         </div>
       </div>
     </header>
     <main class="wrap">
-{archive_html}
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note" id="memorial-speech-note">
           <strong>Gespräch beginnen</strong>.
@@ -6248,30 +6330,33 @@ def _memorial_html(
             <span id="memorial-speech-detail">Bereit.</span>
           </div>
         </div>
-        <div class="voice-tools" id="memorial-voice-ab-panel" style="margin:16px 0 10px;">
-          <h2 style="margin-top:0;">Stimmvergleich</h2>
-          <p class="lead" style="margin-bottom:10px;">A und B anhören, dann wählen.</p>
-          <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
-          <div id="memorial-voice-ab-analysis" class="status-note" style="margin-bottom:10px;">Muster werden geladen.</div>
-          <div class="voice-actions" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
-            <div style="display:flex;flex-direction:column;gap:8px;">
-              <strong>Stimme A</strong>
-              <button type="button" id="memorial-voice-ab-preview-a">A hören</button>
-              <button type="button" data-voice-rating="a">A besser</button>
+        <details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap" style="margin:16px 0 10px;">
+          <summary class="collapse-summary">Stimmvergleich und Feedback</summary>
+          <div id="memorial-voice-ab-panel" style="margin-top:12px;">
+            <p class="lead" style="margin-bottom:10px;">A und B anhören. Dann nur festhalten, welche Stimme insgesamt besser passt.</p>
+            <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
+            <div id="memorial-voice-ab-analysis" class="status-note" style="margin-bottom:10px;">Muster werden geladen.</div>
+            <div class="voice-actions" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <strong>Stimme A</strong>
+                <button type="button" id="memorial-voice-ab-preview-a">A hören</button>
+                <button type="button" data-voice-rating="a">A passt besser</button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <strong>Stimme B</strong>
+                <button type="button" id="memorial-voice-ab-preview-b">B hören</button>
+                <button type="button" data-voice-rating="b">B passt besser</button>
+              </div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:8px;">
-              <strong>Stimme B</strong>
-              <button type="button" id="memorial-voice-ab-preview-b">B hören</button>
-              <button type="button" data-voice-rating="b">B besser</button>
+            <div class="status-note" style="margin-bottom:8px;">Die Regler unten beschreiben den Gesamteindruck der bevorzugten Stimme, nicht A oder B einzeln.</div>
+            <div id="memorial-voice-ab-dimensions" class="voice-grid" style="margin-bottom:10px;"></div>
+            <div class="voice-actions">
+              <button type="button" data-voice-rating="equal">Beide ok</button>
+              <button type="button" id="memorial-voice-ab-approve">Passt</button>
+              <span class="voice-status" id="memorial-voice-ab-status">Bereit.</span>
             </div>
           </div>
-          <div id="memorial-voice-ab-dimensions" class="voice-grid" style="margin-bottom:10px;"></div>
-          <div class="voice-actions">
-            <button type="button" data-voice-rating="equal">Beide ok</button>
-            <button type="button" id="memorial-voice-ab-approve">Passt</button>
-            <span class="voice-status" id="memorial-voice-ab-status">Bereit.</span>
-          </div>
-        </div>
+        </details>
         <div class="minimal-hidden" hidden aria-hidden="true">
           <div class="chat-model-row">
             <label for="memorial-chat-model">Sprachmodell</label>
@@ -6299,6 +6384,7 @@ def _memorial_html(
         <div class="speech-transcript" id="memorial-speech-transcript"></div>
         <audio id="memorial-speech-audio" preload="none"></audio>
       </section>
+{archive_html}
       <div class="speaking-overlay" id="memorial-speaking-overlay" hidden aria-live="polite" aria-hidden="true" role="button" tabindex="0" title="Manfred unterbrechen" aria-label="Manfred spricht gerade. Tippen zum Unterbrechen.">
         <span class="speaking-overlay-dot"></span>
         <span class="speaking-overlay-copy">
@@ -6419,6 +6505,7 @@ def _memorial_html(
       let deferredInstallPrompt = null;
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
+      const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
       const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
@@ -6548,7 +6635,7 @@ def _memorial_html(
           const label = String(item.label || key);
           const description = String(item.description || "");
           const value = Number((voiceAbState.dimension_values && voiceAbState.dimension_values[key]) || 3);
-          return '<label class="voice-field" style="display:flex;flex-direction:column;gap:6px;"><span><strong>' + label + '</strong></span><input type="range" min="1" max="5" step="1" value="' + value + '" data-voice-dimension=\"' + key + '\"' + (voiceAbState.frozen ? ' disabled' : '') + '><span class=\"status-note\">' + description + ' · ' + value + '/5</span></label>';
+          return '<label class="voice-field" style="display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid rgba(0,0,0,.08);border-radius:12px;background:rgba(255,255,255,.55);"><span><strong>' + label + '</strong></span><span class=\"status-note\">Gesamteindruck der besseren Stimme</span><input type="range" min="1" max="5" step="1" value="' + value + '" data-voice-dimension=\"' + key + '\"' + (voiceAbState.frozen ? ' disabled' : '') + '><span class=\"status-note\">' + description + ' · ' + value + '/5</span></label>';
         }}).join("");
         Array.from(voiceAbDimensions.querySelectorAll("[data-voice-dimension]")).forEach((input) => {{
           input.addEventListener("input", () => {{
@@ -6624,6 +6711,7 @@ def _memorial_html(
           voiceAbState.variants = Array.isArray(payload.variants) ? payload.variants : [];
           voiceAbState.sample_text = String(payload.sample_text || voiceAbState.sample_text || "");
           voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
+          voiceAbState.round = Math.max(1, Number(payload.round || 1) || 1);
           voiceAbState.dimension_spec = Array.isArray(payload.dimension_spec) ? payload.dimension_spec : [];
           voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : {{}};
           voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : {{}};
@@ -6635,9 +6723,14 @@ def _memorial_html(
           if (approved) {{
             voiceAbState.selected_variant = approved;
           }} else {{
+            const savedRound = Math.max(0, Number(window.localStorage.getItem(memorialVoiceAbRoundStorageKey) || 0) || 0);
             const saved = String(window.localStorage.getItem("memorial_voice_ab_selected_v1") || "").trim().toLowerCase();
-            voiceAbState.selected_variant = saved || "a";
+            voiceAbState.selected_variant = savedRound === voiceAbState.round ? (saved || "a") : "a";
           }}
+          try {{
+            window.localStorage.setItem(memorialVoiceAbRoundStorageKey, String(voiceAbState.round || 1));
+            window.localStorage.setItem("memorial_voice_ab_selected_v1", voiceAbState.selected_variant);
+          }} catch (error) {{}}
           renderVoiceAbOptions();
           updatePersonalMemoryStatusUi();
           if (voiceAbStatus) {{
@@ -6666,12 +6759,14 @@ def _memorial_html(
           const payload = await response.json();
           if (payload.personal_memory) personalMemoryStatusPayload = payload.personal_memory;
           voiceAbState.frozen = Boolean(payload.personal_memory && payload.personal_memory.frozen);
+          voiceAbState.round = Math.max(1, Number(payload.round || voiceAbState.round || 1) || 1);
           voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : voiceAbState.analysis;
           voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : voiceAbState.pool;
           if (voiceAbState.frozen && String(payload.personal_memory.approved_voice_choice || "").trim()) {{
             voiceAbState.selected_variant = String(payload.personal_memory.approved_voice_choice || "").trim().toLowerCase();
           }}
           try {{
+            window.localStorage.setItem(memorialVoiceAbRoundStorageKey, String(voiceAbState.round || 1));
             window.localStorage.setItem("memorial_voice_ab_selected_v1", voiceAbState.selected_variant);
           }} catch (error) {{}}
           renderVoiceAbOptions();

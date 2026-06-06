@@ -573,6 +573,60 @@ class FlipLinkPacketService:
             "secret_mode": str(secret_mode or ""),
         }
 
+    def stage_memorial_contribution_candidate(
+        self,
+        *,
+        slug: str,
+        payload: dict[str, object],
+        actor: str = "memorial_fliplink_webhook",
+        secret_mode: str = "header",
+    ) -> dict[str, object]:
+        safe_slug = "".join(
+            ch if ch.isalnum() or ch in {"-", "_"} else "-"
+            for ch in str(slug or "").strip().lower()
+        ).strip("-_")
+        if not safe_slug:
+            raise ValueError("memorial_slug_required")
+        publication_slug = str(payload.get("publication_slug") or payload.get("publicationSlug") or "").strip()[:160]
+        lead = normalize_lead_webhook(payload)
+        message = (
+            " ".join(str(payload.get("message") or payload.get("memory") or payload.get("comment") or "").split())
+            .strip()[:4000]
+        )
+        relationship = " ".join(str(payload.get("relationship") or "").split()).strip()[:160]
+        audience = " ".join(str(payload.get("audience") or "public").split()).strip().lower()[:80] or "public"
+        if audience not in {"public", "family", "private"}:
+            audience = "public"
+        event = self._repo.record_event(
+            {
+                "publication_id": publication_slug,
+                "principal_id": f"memorial:{safe_slug}",
+                "event_type": "memorial_contribution_candidate",
+                "actor": actor,
+                "payload_json": {
+                    "kind": "memorial_contribution_candidate",
+                    "slug": safe_slug,
+                    "publication_slug": publication_slug,
+                    "name": lead.name,
+                    "email_hash": lead.email_hash,
+                    "email_masked": lead.email_masked,
+                    "relationship": relationship,
+                    "message": message,
+                    "audience": audience,
+                    "status": "pending_owner_review",
+                    "trust": "untrusted_external",
+                    "secret_mode": str(secret_mode or ""),
+                    "received_at": now_utc_iso(),
+                },
+            }
+        )
+        return {
+            "status": "staged",
+            "kind": "memorial_contribution_candidate",
+            "principal_id": f"memorial:{safe_slug}",
+            "event_id": str(event.get("event_id") or ""),
+        }
+
     def feedback_inbox(self, *, principal_id: str, limit: int = 100) -> dict[str, object]:
         lead_events = self._repo.list_events(principal_id=principal_id, event_type="fliplink_lead_captured", limit=limit)
         review_events = self._repo.list_events(principal_id=principal_id, event_type="fliplink_feedback_reviewed", limit=limit)

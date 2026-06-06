@@ -198,6 +198,70 @@ def test_public_memorial_page_does_not_emit_dead_client_identity_fields(
     assert "memorial_guest_visitor_id_v1" not in response.text
 
 
+def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "subtitle": "Eine ruhige Seite.",
+            "audio_clips": [],
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    registry_root = tmp_path / "public_registry" / slug
+    registry_root.mkdir(parents=True, exist_ok=True)
+    (registry_root / "archive_registry.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "archive_sections": [
+                    {"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]},
+                ],
+                "fliplink_publications": [
+                    {
+                        "id": "doc-public",
+                        "title": "Public Doc",
+                        "audience": "public",
+                        "viewer_type": "smart_document",
+                        "url": "https://archive.example/public",
+                        "description": "Visible",
+                        "sensitivity": "PUBLIC",
+                        "review_status": "approved",
+                        "version": "2026-06-06",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-memorial-minimal-html")
+    response = client.get(f"/memorials/{slug}", headers={"host": "myexternalbrain.com"})
+
+    assert response.status_code == 200
+    body = response.text
+    assert '<details class="hero-settings minimal-disclosure">' in body
+    assert '<summary class="collapse-summary">Optionen</summary>' in body
+    assert '<details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap"' in body
+    assert '<summary class="collapse-summary">Stimmvergleich und Feedback</summary>' in body
+    assert '<section id="memorial-archive">' in body
+    assert '<details class="minimal-disclosure archive-disclosure">' in body
+    assert '<summary class="collapse-summary">Archiv lesen</summary>' in body
+    assert "<h2>Archiv lesen</h2>" not in body
+    assert "<h2>Stimmvergleich</h2>" not in body
+    assert body.index('<section class="chat quiet-shell">') < body.index('<section id="memorial-archive">')
+
+
 def test_public_speech_synthesize_rejects_client_voice_overrides(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

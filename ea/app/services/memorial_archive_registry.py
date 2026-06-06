@@ -8,8 +8,26 @@ from pathlib import Path
 from typing import Any
 
 
-ARCHIVE_ROOT = Path(os.getenv("EA_MEMORIAL_ARCHIVE_ROOT", "/docker/EA/memorial_archive"))
-PUBLIC_MEMORIAL_ROOT = Path(os.getenv("EA_PUBLIC_MEMORIAL_ROOT", "/docker/EA/memorial_data/public_memorials"))
+def _configured_or_existing_path(env_names: tuple[str, ...], candidates: tuple[str, ...]) -> Path:
+    for env_name in env_names:
+        value = str(os.getenv(env_name) or "").strip()
+        if value:
+            return Path(value)
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists():
+            return path
+    return Path(candidates[0])
+
+
+ARCHIVE_ROOT = _configured_or_existing_path(
+    ("EA_MEMORIAL_ARCHIVE_ROOT", "EA_MEMORIAL_ARCHIVE_DIR"),
+    ("/docker/EA/memorial_archive", "/data/memorial_archive"),
+)
+PUBLIC_MEMORIAL_ROOT = _configured_or_existing_path(
+    ("EA_PUBLIC_MEMORIAL_ROOT", "EA_PUBLIC_MEMORIAL_DIR"),
+    ("/docker/EA/memorial_data/public_memorials", "/data/memorial_data/public_memorials"),
+)
 DEFAULT_CORRECTION_CONTACT = str(os.getenv("EA_MEMORIAL_ARCHIVE_CORRECTION_CONTACT") or "memorial@myexternalbrain.com").strip()
 DEFAULT_PUBLIC_REGISTRY_FILENAME = "archive_registry.json"
 DEFAULT_GENERATED_REGISTRY_FILENAME = "archive_registry.generated.json"
