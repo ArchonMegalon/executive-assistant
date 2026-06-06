@@ -6025,6 +6025,9 @@ def _memorial_html(
         border: 0;
         background: transparent;
       }}
+      .chat.quiet-shell .speech-status-meta {{
+        justify-content: center;
+      }}
       .speech-live-monitor {{
         display: grid;
         gap: 10px;
