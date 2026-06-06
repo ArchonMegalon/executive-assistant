@@ -529,6 +529,53 @@ def test_public_voice_ab_payload_hides_raw_voice_ids(
     }
 
 
+def test_public_voice_ab_falls_back_to_private_profile_root_when_artifact_root_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    profile_dir = private_root / slug
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "voice_ab.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "variants": [
+                    {"id": "a", "label": "A", "tts_plugin": "unmixr_clone", "tts_plugin_voice_id": "private-a"},
+                    {"id": "b", "label": "B", "tts_plugin": "unmixr_clone", "tts_plugin_voice_id": "private-b"},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (profile_dir / "voice_ab_challengers.json").write_text(
+        json.dumps(
+                {
+                    "slug": slug,
+                    "champion_voice_id": "private-a",
+                    "challengers": [{"voice_id": "private-c", "label": "C"}],
+                },
+                ensure_ascii=False,
+            ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-memorial-private-voice-ab")
+    response = client.get(f"/memorials/{slug}/voice-ab")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["pool"]["remaining_challenger_count"] == 1
+
+
 def test_public_voice_ab_approval_requires_personal_memory_opt_in(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

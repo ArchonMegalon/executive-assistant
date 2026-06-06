@@ -1,0 +1,56 @@
+{
+  "slug": "manfred",
+  "champion_voice_id": "26858715-06e2-4bd3-a100-e0c1c1676466",
+  "current_index": 0,
+  "challengers": [
+    {
+      "voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+      "label": "Stimme B · neuer Challenger",
+      "description": "Frueherer Champion als direkter Gegenvergleich zur neuen Hauptstimme.",
+      "unmixr_speaking_rate": "low",
+      "unmixr_speaking_pitch": "medium",
+      "unmixr_speaking_volume": "high",
+      "feature_profile": {
+        "source_mix": "unknown",
+        "source_count": 1,
+        "identity_bias": 3,
+        "intelligibility_bias": 3,
+        "naturalness_bias": 3,
+        "warmth_bias": 3,
+        "authority_bias": 3,
+        "metallic_risk": 3,
+        "hall_risk": 3
+      },
+      "hypothesis": ""
+    },
+    {
+      "voice_id": "c381af52-a4de-4b0e-a974-99ebc1cfd0b3",
+      "label": "Stimme B · naeher an ihm",
+      "description": "Bisher bester identitaetsnaher Challenger",
+      "unmixr_speaking_rate": "low",
+      "unmixr_speaking_pitch": "medium",
+      "unmixr_speaking_volume": "high",
+      "feature_profile": {
+        "source_mix": "unknown",
+        "source_count": 1,
+        "identity_bias": 3,
+        "intelligibility_bias": 3,
+        "naturalness_bias": 3,
+        "warmth_bias": 3,
+        "authority_bias": 3,
+        "metallic_risk": 3,
+        "hall_risk": 3
+      },
+      "hypothesis": ""
+    }
+  ],
+  "retired_voices": [
+    {
+      "voice_id": "e8eced7f-35fa-4036-af46-ba2b748afd70",
+      "retired_at": "2026-06-06T20:16:19Z",
+      "delete_status": "pending_manual_delete",
+      "profile_id": "",
+      "error": "unmixr_api_key_missing"
+    }
+  ]
+}

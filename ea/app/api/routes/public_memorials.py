@@ -868,11 +868,27 @@ def _personal_memory_context_lines(*, slug: str, context: dict[str, object], que
 
 
 def _voice_ab_config_path(slug: str) -> Path:
-    return (_VOICE_AB_ROOT / _safe_slug(slug) / "voice_ab.json").resolve()
+    return _voice_ab_path(slug, "voice_ab.json")
 
 
 def _voice_ab_private_pool_path(slug: str) -> Path:
-    return (_VOICE_AB_ROOT / _safe_slug(slug) / "voice_ab_challengers.json").resolve()
+    return _voice_ab_path(slug, "voice_ab_challengers.json")
+
+
+def _voice_ab_path(slug: str, filename: str) -> Path:
+    safe = _safe_slug(slug)
+    normalized_filename = str(filename or "").strip()
+    primary = (_VOICE_AB_ROOT / safe / normalized_filename).resolve()
+    if primary.exists():
+        return primary
+    configured_private_root = str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "").strip()
+    if configured_private_root:
+        fallback = (Path(configured_private_root).expanduser() / safe / normalized_filename).resolve()
+    else:
+        fallback = (_private_profile_dir() / safe / normalized_filename).resolve()
+    if configured_private_root and fallback.exists():
+        return fallback
+    return primary
 
 
 def _voice_ab_dimension_spec() -> list[dict[str, str]]:
@@ -1587,7 +1603,7 @@ def _voice_ab_variant_choice(
 
 
 def _voice_ab_rating_path(slug: str) -> Path:
-    return (_VOICE_AB_ROOT / _safe_slug(slug) / "ratings.json").resolve()
+    return _voice_ab_path(slug, "ratings.json")
 
 
 def _load_voice_ab_ratings(slug: str) -> dict[str, object]:

@@ -1,0 +1,81 @@
+{
+  "slug": "manfred",
+  "variants": [
+    {
+      "id": "a",
+      "label": "Stimme A · aktueller Champion",
+      "tts_plugin": "unmixr_clone",
+      "tts_plugin_voice_id": "26858715-06e2-4bd3-a100-e0c1c1676466",
+      "unmixr_speaking_rate": "low",
+      "unmixr_speaking_pitch": "medium",
+      "unmixr_speaking_volume": "high",
+      "description": "Aktuell bevorzugte identitaetsnahe Manfred-Stimme.",
+      "feature_profile": {
+        "source_mix": "youtube_curated",
+        "source_count": 4,
+        "identity_bias": 5,
+        "intelligibility_bias": 4,
+        "naturalness_bias": 4,
+        "warmth_bias": 4,
+        "authority_bias": 4,
+        "metallic_risk": 2,
+        "hall_risk": 2
+      }
+    },
+    {
+      "id": "b",
+      "label": "Stimme B · neuer Challenger",
+      "tts_plugin": "unmixr_clone",
+      "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+      "unmixr_speaking_rate": "low",
+      "unmixr_speaking_pitch": "medium",
+      "unmixr_speaking_volume": "high",
+      "description": "Frueherer Champion als direkter Gegenvergleich zur neuen Hauptstimme.",
+      "feature_profile": {
+        "source_mix": "hybrid_curated",
+        "source_count": 4,
+        "identity_bias": 4,
+        "intelligibility_bias": 5,
+        "naturalness_bias": 4,
+        "warmth_bias": 3,
+        "authority_bias": 4,
+        "metallic_risk": 2,
+        "hall_risk": 2
+      }
+    }
+  ],
+  "sample_text": "Rechtlich ist es so, dass man die Dinge sauber auseinanderhalten muss.",
+  "updated_at": "2026-06-06T12:00:00Z",
+  "dimension_spec": [
+    {
+      "id": "identity",
+      "label": "Identitaet",
+      "description": "Wie nah klingt die Stimme wirklich nach Manfred."
+    },
+    {
+      "id": "intelligibility",
+      "label": "Verstaendlichkeit",
+      "description": "Wie gut versteht man jedes Wort."
+    },
+    {
+      "id": "naturalness",
+      "label": "Natuerlichkeit",
+      "description": "Wie wenig synthetisch oder steif klingt es."
+    },
+    {
+      "id": "warmth",
+      "label": "Waerme",
+      "description": "Wie warm statt kalt oder drahtig klingt es."
+    },
+    {
+      "id": "authority",
+      "label": "Autoritaet",
+      "description": "Wie glaubhaft wirkt die Stimme als bestimmter, eloquenter Sprecher."
+    },
+    {
+      "id": "artifact_control",
+      "label": "Blech/Hall",
+      "description": "Wie gut Blech, Hall und stoerende Artefakte kontrolliert sind."
+    }
+  ]
+}
