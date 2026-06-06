@@ -6010,12 +6010,40 @@ def _memorial_html(
         background: rgba(252,241,243,.94);
         color: var(--wine);
       }}
+      .chat.quiet-shell .speech-status-bar {{
+        margin-top: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        text-align: center;
+      }}
+      .chat.quiet-shell .speech-status-bar.is-listening,
+      .chat.quiet-shell .speech-status-bar.is-working,
+      .chat.quiet-shell .speech-status-bar.is-error {{
+        border: 0;
+        background: transparent;
+      }}
       .speech-live-monitor {{
         display: grid;
         gap: 10px;
         margin-top: 12px;
         padding-top: 10px;
         border-top: 1px solid rgba(132,104,74,.12);
+      }}
+      .chat.quiet-shell .speech-live-monitor {{
+        width: min(360px, 100%);
+        margin: 10px auto 0;
+        padding-top: 0;
+        border-top: 0;
+      }}
+      .chat.quiet-shell .speech-meter {{
+        height: 6px;
+      }}
+      .chat.quiet-shell .speech-wave {{
+        height: 18px;
+        justify-content: center;
       }}
       .speech-meter {{
         position: relative;
@@ -8369,6 +8397,7 @@ def _memorial_html(
           try {{ await deferredInstallPrompt.userChoice; }} catch (error) {{}}
           deferredInstallPrompt = null;
           installButton.hidden = true;
+          if (installHint) installHint.hidden = true;
         }});
       }}
       if (autostartOptin) {{
@@ -8448,7 +8477,6 @@ def _memorial_html(
         void loadVoiceAbConfig();
         const isStandalone = window.matchMedia("(display-mode: standalone)").matches || Boolean(window.navigator.standalone);
         if (isStandalone) document.body.classList.add("pwa-standalone");
-        else if (installHint) installHint.hidden = false;
         const isPwaLaunch = isStandalone || new URLSearchParams(window.location.search).get("source") === "pwa";
         if (!isPwaLaunch) return;
         if (!memorialAutostartEnabled()) return;
