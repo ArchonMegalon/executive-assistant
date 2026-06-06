@@ -2797,6 +2797,10 @@ def _is_memorial_live_interaction_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
         return False
+    if any(token in lowered for token in ("stimme", "klang", "klingst du", "klingt deine stimme", "so klingst du")) and any(
+        token in lowered for token in ("jetzt", "gerade", "im moment", "nun", "heute", "da")
+    ):
+        return True
     if any(token in lowered for token in ("schach", "zug", "rochade", "schachmatt", "matt")):
         return True
     if any(token in lowered for token in ("spielen", "spiel", "rede", "sprich")) and any(token in lowered for token in ("mit dir", "gegen dich", "mit mir")):
