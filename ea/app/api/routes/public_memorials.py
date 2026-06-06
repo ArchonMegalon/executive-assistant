@@ -7347,7 +7347,7 @@ def _memorial_html(
           liveVoiceChip.textContent = "Live-Stimme: Schnelle Gesprächsstimme";
           liveVoiceChip.style.opacity = "1";
         }}
-        if (speechNote) {{
+        if (speechNote && (conversationActive || speechState !== "idle")) {{
           setSpeechStatus(
             (optionEnabled ? "Vorlesen aus " : "Plugin aktivieren: ") + optionLabel + (voiceReady ? "" : " (Voice-ID fehlt)"),
             optionEnabled ? "idle" : "error",
