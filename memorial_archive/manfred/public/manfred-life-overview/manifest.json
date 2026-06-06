@@ -18,6 +18,15 @@
     "html_path": "/docker/EA/memorial_archive/manfred/public/manfred-life-overview/build/index.html",
     "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-life-overview/build/output.pdf"
   },
-  "sha256": "8ac303b1b05edcf6f36768d9976af0412c3731f9959ee6790a5783134ab40a5d",
-  "description": "Ein gepruefter Ueberblick ueber Leben, Quellen und zentrale Erinnerungsmuster."
+  "sha256": "3d07ce3ccda21b93f7ba27ff2741e344f3edf03a9bf1c3ef62a6aff0d510df27",
+  "description": "Ein gepruefter Ueberblick ueber Leben, Quellen und zentrale Erinnerungsmuster.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "noindex": false,
+  "share_with_memorial_app": true,
+  "public": true,
+  "published_date": "2026-06-05",
+  "source_sha256": "3d08a52ae88ffe3d17b2eb01c524055f19be02593a6de25b05fd1425cbb10eaf",
+  "built_at": "2026-06-06T03:36:37Z"
 }

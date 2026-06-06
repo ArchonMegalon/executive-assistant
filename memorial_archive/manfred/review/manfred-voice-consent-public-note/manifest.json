@@ -18,6 +18,15 @@
     "html_path": "/docker/EA/memorial_archive/manfred/review/manfred-voice-consent-public-note/build/index.html",
     "pdf_path": "/docker/EA/memorial_archive/manfred/review/manfred-voice-consent-public-note/build/output.pdf"
   },
-  "sha256": "6d9c471466cbacef8682ee433515254118b8a870e1458eb62ff4d640a26ebe0d",
-  "description": "Kurze Governance-Notiz fuer Review und spaetere Nachvollziehbarkeit."
+  "sha256": "1910847f61e8c09036e22d11f6b05df45df4db926cdd57687c4a4bd7023cb379",
+  "description": "Kurze Governance-Notiz fuer Review und spaetere Nachvollziehbarkeit.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "noindex": true,
+  "share_with_memorial_app": false,
+  "public": false,
+  "published_date": "2026-06-05",
+  "source_sha256": "3fd9c1e09aa229d84997fa0548752feae6d199654d7b1404e57c7f69141e0bec",
+  "built_at": "2026-06-06T03:36:37Z"
 }

@@ -55,6 +55,8 @@ from app.services.memorial_memory import (
     retrieve_memorial_memory_items,
     seed_memorial_source_memories,
 )
+from app.services.memorial_archive_registry import load_json as load_archive_json
+from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
 
@@ -583,6 +585,11 @@ def _public_list(items: object, *, allowed_keys: set[str]) -> list[dict[str, obj
 
 def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
     public_payload = {key: value for key, value in payload.items() if key in _PUBLIC_MEMORIAL_SAFE_JSON_KEYS}
+    slug = _text(payload.get("slug"), "")
+    if slug:
+        archive_registry = _public_memorial_archive_registry(slug)
+        public_payload["archive_sections"] = list(archive_registry.get("archive_sections") or [])
+        public_payload["fliplink_publications"] = list(archive_registry.get("fliplink_publications") or [])
     public_payload["source_grounded_profile"] = _public_list(
         payload.get("source_grounded_profile"),
         allowed_keys={"trait", "confidence", "evidence"},
@@ -1306,6 +1313,52 @@ def _voice_ab_retire_losing_challenger(slug: str, *, voice_id: str) -> dict[str,
     pool["retired_voices"] = retired[-20:]
     _save_voice_ab_pool(slug, pool)
     return record
+
+
+def _voice_ab_retry_pending_deletes(slug: str) -> list[dict[str, object]]:
+    pool = _load_voice_ab_pool(slug)
+    retired = [dict(item) for item in pool.get("retired_voices", []) if isinstance(item, dict)]
+    updated: list[dict[str, object]] = []
+    for item in retired:
+        if _text(item.get("delete_status"), "") != "pending_manual_delete":
+            updated.append(item)
+            continue
+        profile_id = _text(item.get("profile_id"), "")
+        voice_id = _text(item.get("voice_id"), "")
+        retry = dict(item)
+        try:
+            if not profile_id and voice_id:
+                profile_id = unmixr_voice_profile_id(voice_id=voice_id)
+                retry["profile_id"] = profile_id
+            if profile_id:
+                unmixr_delete_clone_profile_request(profile_id=profile_id)
+                retry["delete_status"] = "deleted"
+                retry["error"] = ""
+            else:
+                retry["error"] = "unmixr_profile_id_unresolved"
+        except HTTPException as exc:
+            retry["delete_status"] = "pending_manual_delete"
+            retry["error"] = _text(exc.detail, "unmixr_clone_delete_failed")
+        updated.append(retry)
+    pool["retired_voices"] = updated
+    _save_voice_ab_pool(slug, pool)
+    return updated
+
+
+def _voice_ab_maintain_pool(slug: str) -> dict[str, object]:
+    config = _load_voice_ab_config(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
+    excluded_voice_ids = {_text(item.get("tts_plugin_voice_id"), "") for item in variants if _text(item.get("tts_plugin_voice_id"), "")}
+    retired = _voice_ab_retry_pending_deletes(slug)
+    status_before = _voice_ab_pool_status(slug)
+    built = None
+    if bool(status_before.get("needs_new_clone")):
+        built = _voice_ab_auto_build_challenger(slug, excluded_voice_ids=excluded_voice_ids)
+    return {
+        "pool": _voice_ab_pool_status(slug),
+        "retired_voices": retired,
+        "built_challenger": built or {},
+    }
 
 
 def _voice_ab_dimension_average(events: list[dict[str, object]]) -> dict[str, float]:
@@ -2462,6 +2515,23 @@ def _collect_memorial_public_audio_paths(payload: dict[str, object], slug: str) 
         seen.add(normalized)
         paths.append(path)
     return paths
+
+
+def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
+    path = public_registry_path(slug, generated=False)
+    if not path.is_file():
+        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+    try:
+        payload = load_archive_json(path)
+    except Exception:
+        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+    if not isinstance(payload, dict):
+        return {"slug": _safe_slug(slug), "generated_at": "", "archive_sections": [], "fliplink_publications": []}
+    return payload
+
+
+def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
+    return public_registry_payload(_load_memorial_archive_registry(slug))
 
 
 def _memorial_chat_source_labels(
@@ -4868,6 +4938,13 @@ def _memorial_html(
     profile_notes = _list_of_dicts(payload.get("source_grounded_profile"))
     external_sources = _list_of_dicts(payload.get("external_sources"))
     suggested_prompts = [str(item).strip() for item in (payload.get("suggested_prompts") or []) if str(item).strip()]
+    archive_registry = _public_memorial_archive_registry(slug)
+    archive_sections = [dict(item) for item in archive_registry.get("archive_sections", []) if isinstance(item, dict)]
+    archive_publications = {
+        _text(item.get("id"), ""): dict(item)
+        for item in archive_registry.get("fliplink_publications", [])
+        if isinstance(item, dict) and _text(item.get("id"), "")
+    }
     resolved_private_profile = private_profile or _load_private_profile(slug)
     chat_models = _collect_memorial_chat_models(payload, resolved_private_profile)
     chat_model_default = _resolve_memorial_chat_default_model(payload, resolved_private_profile, chat_models)
@@ -4999,6 +5076,44 @@ def _memorial_html(
     prompts_html = "\n".join(f"<button type=\"button\" data-prompt=\"{html.escape(prompt)}\">{html.escape(prompt)}</button>" for prompt in suggested_prompts)
     if not prompts_html:
         prompts_html = "<button type=\"button\">Was ist wirklich belegt?</button>"
+    archive_html = ""
+    if archive_sections and archive_publications:
+        section_blocks: list[str] = []
+        for section in archive_sections:
+            section_items = [str(item).strip() for item in list(section.get("items") or []) if str(item).strip()]
+            cards: list[str] = []
+            for item_id in section_items:
+                publication = archive_publications.get(item_id)
+                if not publication:
+                    continue
+                url = _text(publication.get("url"), "")
+                if not url:
+                    continue
+                cards.append(
+                    f"""
+        <article class="memory">
+          <p class="eyebrow">Archiv · {html.escape(_text(publication.get("viewer_type"), "document"))}</p>
+          <h3>{html.escape(_text(publication.get("title"), item_id))}</h3>
+          <p>{html.escape(_text(publication.get("description"), "Gepruefte Publikation aus dem Memorial-Archiv."))}</p>
+          <p class="speech-note">Version {html.escape(_text(publication.get("version"), "unversioned"))}</p>
+          <p><a href="{html.escape(url)}" target="_blank" rel="noopener noreferrer">Dokument öffnen</a></p>
+        </article>"""
+                )
+            if cards:
+                section_blocks.append(
+                    f"""
+      <section>
+        <h2>{html.escape(_text(section.get("title"), "Archiv"))}</h2>
+        <div class="grid">{''.join(cards)}</div>
+      </section>"""
+                )
+        if section_blocks:
+            archive_html = """
+      <section id="memorial-archive">
+        <h2>Archiv lesen</h2>
+        <p class="lead">Geprüfte Dokumente, Erinnerungen und Quellen als digitale Bücher.</p>
+      </section>
+""" + "\n".join(section_blocks)
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -6021,6 +6136,7 @@ def _memorial_html(
       </div>
     </header>
     <main class="wrap">
+{archive_html}
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note" id="memorial-speech-note">
           <strong>Gespräch beginnen</strong>.
@@ -8072,6 +8188,12 @@ def public_memorial_manifest(slug: str) -> JSONResponse:
     return JSONResponse(_public_memorial_payload(_load_memorial(slug)))
 
 
+@router.get("/memorials/{slug}/archive.json")
+def public_memorial_archive_manifest(slug: str) -> JSONResponse:
+    _load_memorial(slug)
+    return JSONResponse(_public_memorial_archive_registry(slug))
+
+
 @router.get("/memorials/{slug}/app.webmanifest")
 def public_memorial_pwa_manifest(slug: str) -> JSONResponse:
     payload = _load_memorial(slug)
@@ -8182,6 +8304,24 @@ async def public_memorial_voice_ab_admin(slug: str, request: Request) -> JSONRes
                 "current_index": int(pool.get("current_index", 0) or 0),
                 "challenger_count": len([item for item in pool.get("challengers", []) if isinstance(item, dict)]),
             },
+        }
+    )
+
+
+@router.post("/memorials/{slug}/voice-ab-admin/maintain")
+async def public_memorial_voice_ab_admin_maintain(slug: str, request: Request) -> JSONResponse:
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    maintenance = _voice_ab_maintain_pool(slug)
+    ratings = _load_voice_ab_ratings(slug)
+    return JSONResponse(
+        {
+            "status": "ok",
+            "round": int(ratings.get("round", 1) or 1),
+            "pool": maintenance.get("pool", {}),
+            "retired_voices": maintenance.get("retired_voices", []),
+            "built_challenger": maintenance.get("built_challenger", {}),
+            "analysis": _voice_ab_analysis(slug, ratings),
         }
     )
 

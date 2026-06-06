@@ -18,6 +18,15 @@
     "html_path": "/docker/EA/memorial_archive/manfred/public/manfred-how-this-memorial-works/build/index.html",
     "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-how-this-memorial-works/build/output.pdf"
   },
-  "sha256": "320ed4f977ca2ff9430a9164c08685beee163aae056bb035f9966f92dc10276c",
-  "description": "Erklaert Quellen, Grenzen, AI-Nutzung und den Unterschied zwischen Archiv und Gespraech."
+  "sha256": "d749e8c9a29f9745f0b2ce3198b5668f45d19730b97fd1eb3ea18dbb85e5366f",
+  "description": "Erklaert Quellen, Grenzen, AI-Nutzung und den Unterschied zwischen Archiv und Gespraech.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "noindex": false,
+  "share_with_memorial_app": true,
+  "public": true,
+  "published_date": "2026-06-05",
+  "source_sha256": "1aca176b275ed8315cc2ac3b688116aaeb63c3cfbf15d82d3be5b3f498573a62",
+  "built_at": "2026-06-06T03:36:37Z"
 }

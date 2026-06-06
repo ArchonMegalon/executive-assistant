@@ -18,6 +18,15 @@
     "html_path": "/docker/EA/memorial_archive/manfred/public/manfred-public-memory-cards-v01/build/index.html",
     "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-public-memory-cards-v01/build/output.pdf"
   },
-  "sha256": "460defa5f84c74b8868bbbbd6c710d0e53fd638577c90f6e5fac0dabf50f35a5",
-  "description": "Kleine kuratierte Erinnerungs- und Quellenkarten fuer den oeffentlichen Einstieg."
+  "sha256": "3c6035e115bbeb4607d67aaf302c8244b3a2d60b1cd3bfdc0293db60ee844d49",
+  "description": "Kleine kuratierte Erinnerungs- und Quellenkarten fuer den oeffentlichen Einstieg.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "noindex": false,
+  "share_with_memorial_app": true,
+  "public": true,
+  "published_date": "2026-06-05",
+  "source_sha256": "cbe284ff259dd41f0dc878d0dfd5f235832c35de235f6450f890f6085597dd28",
+  "built_at": "2026-06-06T03:36:37Z"
 }

@@ -18,6 +18,15 @@
     "html_path": "/docker/EA/memorial_archive/manfred/public/manfred-source-disclosure/build/index.html",
     "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-source-disclosure/build/output.pdf"
   },
-  "sha256": "e1e06d8ef7b646f3209c1c4e782f8b74e28d9ddaca0c2cf76124ead9cc04302c",
-  "description": "Offenlegung zu Quellenlagen, Unsicherheiten, Ueberarbeitung und AI-Assistenz."
+  "sha256": "da6de1fb0782e07dca454091bda2380cff6679377315a80867a6270a46758491",
+  "description": "Offenlegung zu Quellenlagen, Unsicherheiten, Ueberarbeitung und AI-Assistenz.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "noindex": false,
+  "share_with_memorial_app": true,
+  "public": true,
+  "published_date": "2026-06-05",
+  "source_sha256": "cc95e469902571b06fd21f45ff853ceb3978df51ea258d5c1cd28034a0ab68e2",
+  "built_at": "2026-06-06T03:36:37Z"
 }

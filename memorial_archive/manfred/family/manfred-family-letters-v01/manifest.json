@@ -18,6 +18,15 @@
     "html_path": "/docker/EA/memorial_archive/manfred/family/manfred-family-letters-v01/build/index.html",
     "pdf_path": "/docker/EA/memorial_archive/manfred/family/manfred-family-letters-v01/build/output.pdf"
   },
-  "sha256": "2e5e43ff51a2dcff37857292073f5e88cb1f6bf228494bc6c174608ac777ac95",
-  "description": "Kuratiertes familiennahes Material in geschuetzter Form, nicht als Rohquelle."
+  "sha256": "05e66b17864604e1d2204d7fff72bcfe9151ecd5246631e66a3e05d6283af6d5",
+  "description": "Kuratiertes familiennahes Material in geschuetzter Form, nicht als Rohquelle.",
+  "correction_contact": "memorial@myexternalbrain.com",
+  "ai_disclosure": "AI-assisted formatting, no direct speech claim unless explicitly marked as verbatim source.",
+  "contact_or_correction_path": "memorial@myexternalbrain.com",
+  "noindex": true,
+  "share_with_memorial_app": false,
+  "public": false,
+  "published_date": "2026-06-05",
+  "source_sha256": "747c84af5a8631f71a24df7f69889fa8ed407e3e60080d6456d9112a80d4d5e9",
+  "built_at": "2026-06-06T03:36:37Z"
 }

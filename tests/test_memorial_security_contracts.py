@@ -39,11 +39,14 @@ def _write_private_voice(root: Path, slug: str, payload: dict[str, object]) -> N
 
 def _patch_memorial_runtime_roots(tmp_path: Path) -> None:
     from app.api.routes import public_memorials
+    from app.services import memorial_archive_registry
 
     artifacts_root = tmp_path / "artifacts"
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
+    memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = tmp_path / "public_registry"
+    memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
 
 
 def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
@@ -79,6 +82,100 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
 
     raw_manifest = client.get(f"/memorials/files/{slug}/memorial.json")
     assert raw_manifest.status_code == 404
+
+
+def test_public_memorial_json_includes_public_archive_registry_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    registry_root = tmp_path / "public_registry" / slug
+    registry_root.mkdir(parents=True, exist_ok=True)
+    (registry_root / "archive_registry.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_at": "2026-06-06T03:36:37Z",
+                "archive_sections": [
+                    {"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]},
+                    {"title": "Familienarchiv", "audience": "family", "items": ["doc-family"]},
+                ],
+                "fliplink_publications": [
+                    {
+                        "id": "doc-public",
+                        "title": "Public Doc",
+                        "audience": "public",
+                        "viewer_type": "smart_document",
+                        "url": "https://archive.example/public",
+                        "description": "Visible",
+                        "sensitivity": "PUBLIC",
+                        "review_status": "approved",
+                        "version": "2026-06-06",
+                    },
+                    {
+                        "id": "doc-family",
+                        "title": "Family Doc",
+                        "audience": "family",
+                        "viewer_type": "smart_document",
+                        "url": "https://archive.example/family",
+                        "description": "Hidden",
+                        "sensitivity": "FAMILY",
+                        "review_status": "approved",
+                        "version": "2026-06-06",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-memorial-archive-json")
+    response = client.get(f"/memorials/{slug}.json")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["archive_sections"] == [{"title": "Oeffentliches Archiv", "audience": "public", "items": ["doc-public"]}]
+    assert len(body["fliplink_publications"]) == 1
+    assert body["fliplink_publications"][0]["id"] == "doc-public"
+
+
+def test_memorial_fliplink_webhook_stages_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_MEMORIAL_FLIPLINK_WEBHOOK_SECRET", "secret-123")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-fliplink-webhook")
+    response = client.post(
+        f"/v1/integrations/fliplink/memorials/{slug}/webhook",
+        headers={"x-memorial-fliplink-secret": "secret-123"},
+        json={
+            "publication_slug": "share-a-memory",
+            "name": "Test User",
+            "email": "test@example.com",
+            "relationship": "friend",
+            "message": "Ich erinnere mich daran, wie trocken er formuliert hat.",
+            "audience": "public",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "staged"
+    assert body["kind"] == "memorial_contribution_candidate"
+    assert body["principal_id"] == "memorial:manfred"
 
 
 def test_public_memorial_page_does_not_emit_dead_client_identity_fields(
