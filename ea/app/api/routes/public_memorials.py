@@ -5413,10 +5413,16 @@ def _memorial_html(
         display: flex;
         align-items: center;
         gap: 8px;
+        min-height: 44px;
       }}
       .hero-settings-body input {{
         margin: 0;
         flex: 0 0 auto;
+        accent-color: var(--blue);
+      }}
+      .hero-settings-body input[type="checkbox"] {{
+        width: 18px;
+        height: 18px;
       }}
       .hero-settings-body button {{
         justify-self: start;
@@ -5430,16 +5436,16 @@ def _memorial_html(
         display: none;
       }}
       .install-hint {{
-        margin: 16px auto 0;
+        margin: 10px auto 0;
         max-width: 42rem;
-        padding: 10px 14px;
-        border: 1px solid rgba(72,103,126,.18);
-        border-radius: 999px;
-        background: rgba(255,250,242,.74);
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
         color: var(--muted);
-        font: 600 .92rem/1.4 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        font: 600 .82rem/1.4 ui-sans-serif, system-ui, sans-serif;
         text-align: center;
-        box-shadow: 0 8px 20px rgba(56,45,36,.08);
+        box-shadow: none;
       }}
       .install-hint button {{
         appearance: none;
@@ -5450,7 +5456,8 @@ def _memorial_html(
         font-weight: 700;
         cursor: pointer;
         text-decoration: underline;
-        padding: 0;
+        padding: 0 0 0 4px;
+        min-height: 0;
       }}
       .hero-portrait-line {{
         margin-top: 18px;
@@ -5804,6 +5811,12 @@ def _memorial_html(
         margin-top: 10px;
         font-size: .95rem;
       }}
+      .archive-disclosure .memory a {{
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 6px 0;
+      }}
       .archive-subsection {{
         margin-top: 18px;
       }}
@@ -5870,7 +5883,12 @@ def _memorial_html(
         color: var(--ink);
         font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
       }}
-      .voice-input[type="range"] {{ max-width: 100%; }}
+      .voice-input[type="range"],
+      .voice-field input[type="range"] {{
+        max-width: 100%;
+        min-height: 44px;
+        accent-color: var(--blue);
+      }}
       .voice-status {{ color: var(--muted); font-size: .93rem; min-height: 1.4em; }}
       .status-note {{ margin-top: 12px; color: var(--muted); }}
       label {{ font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.01em; }}
