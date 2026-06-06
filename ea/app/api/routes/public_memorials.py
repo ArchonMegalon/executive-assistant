@@ -6373,10 +6373,14 @@ def _memorial_html(
         }}
         #memorial-voice-ab-wrap,
         #memorial-archive .archive-disclosure {{
-          border-radius: 10px;
+          border: 0;
+          border-top: 1px solid rgba(65,53,43,.12);
+          border-radius: 0;
           background: transparent;
-          border-color: rgba(65,53,43,.12);
-          padding: 0 10px;
+          padding: 0 2px;
+        }}
+        #memorial-archive .archive-disclosure {{
+          border-bottom: 1px solid rgba(65,53,43,.12);
         }}
         #memorial-voice-ab-wrap > .collapse-summary,
         #memorial-archive .archive-disclosure > .collapse-summary {{
