@@ -55,7 +55,7 @@ from app.services.memorial_memory import (
     retrieve_memorial_memory_items,
     seed_memorial_source_memories,
 )
-from app.services.memorial_archive_registry import load_json as load_archive_json
+from app.services.memorial_archive_registry import archive_slug_root, load_json as load_archive_json
 from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
@@ -2570,7 +2570,23 @@ def _load_memorial_archive_registry(slug: str) -> dict[str, object]:
 
 
 def _public_memorial_archive_registry(slug: str) -> dict[str, object]:
-    return public_registry_payload(_load_memorial_archive_registry(slug))
+    registry = public_registry_payload(_load_memorial_archive_registry(slug))
+    publications: list[dict[str, object]] = []
+    for item in list(registry.get("fliplink_publications") or []):
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        publication_slug = _text(normalized.get("slug") or normalized.get("id"), "")
+        if publication_slug:
+            normalized["url"] = f"/memorials/{_safe_slug(slug)}/archive/{publication_slug}"
+        publications.append(normalized)
+    registry["fliplink_publications"] = publications
+    return registry
+
+
+def _memorial_archive_publication_html_path(slug: str, publication_slug: str) -> Path:
+    target = (archive_slug_root(slug) / "public" / _safe_slug(publication_slug) / "build" / "index.html").resolve()
+    return target
 
 
 def _memorial_chat_source_labels(
@@ -8255,6 +8271,31 @@ def public_memorial_manifest(slug: str) -> JSONResponse:
 def public_memorial_archive_manifest(slug: str) -> JSONResponse:
     _load_memorial(slug)
     return JSONResponse(_public_memorial_archive_registry(slug))
+
+
+@router.get("/memorials/{slug}/archive")
+def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
+    payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
+    response = HTMLResponse(
+        _memorial_html(
+            payload,
+            private_profile=private_profile,
+            hostname=request_hostname(request),
+        ),
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+    _ensure_memorial_guest_cookie(response, request, slug=slug)
+    return response
+
+
+@router.get("/memorials/{slug}/archive/{publication_slug}")
+def public_memorial_archive_publication(slug: str, publication_slug: str) -> HTMLResponse:
+    _load_memorial(slug)
+    html_path = _memorial_archive_publication_html_path(slug, publication_slug)
+    if not html_path.is_file():
+        raise HTTPException(status_code=404, detail="memorial_archive_publication_not_found")
+    return HTMLResponse(html_path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/memorials/{slug}/app.webmanifest")
