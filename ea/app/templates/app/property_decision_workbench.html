@@ -1747,9 +1747,9 @@
           <div class="pqx-results-list" data-workbench-results-table>
             {% for candidate in results %}
             {% if candidate.get('packet_url') %}
-            <a class="pqx-result" href="{{ candidate.get('packet_url') }}" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') }}" data-workbench-row>
+            <a class="pqx-result" href="{{ candidate.get('packet_url') }}" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
             {% else %}
-            <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-workbench-row>
+            <button class="pqx-result" type="button" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
             {% endif %}
               <span class="pqx-rank">{{ candidate.get('rank') }}</span>
               <span>

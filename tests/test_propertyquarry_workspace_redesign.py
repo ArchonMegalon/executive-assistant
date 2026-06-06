@@ -127,6 +127,27 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
             "floorplan_count": 0,
         },
     }
+    queued_candidate = {
+        "title": "Courtyard loft with pending tour",
+        "property_url": "https://www.immobilienscout24.de/expose/courtyard-loft",
+        "fit_summary": "Personal fit 83/100 · shortlist · Quiet courtyard and strong transit.",
+        "recommendation": "shortlist",
+        "review_url": "https://myexternalbrain.com/app/handoffs/human_task:review-3",
+        "tour_url": "",
+        "tour_status": "queued",
+        "tour_eta_minutes": 12,
+        "match_reasons": ["Quiet courtyard and strong transit."],
+        "mismatch_reasons": ["Hosted 360 is not ready yet."],
+        "property_facts": {
+            "price_display": "EUR 438,000",
+            "price_eur": 438000.0,
+            "rooms": 3,
+            "area_m2": 81,
+            "postal_name": "Berlin Moabit",
+            "has_floorplan": True,
+            "has_360": True,
+        },
+    }
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "pq-redesign-browser"
         assert run_id == "run-42"
@@ -172,7 +193,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
                             "high_fit_total": 2,
                             "tour_created_total": 1,
                             "notified_total": 1,
-                            "top_candidates": [top_candidate, second_candidate],
+                            "top_candidates": [top_candidate, second_candidate, queued_candidate],
                         }
                     ],
                 },
@@ -255,6 +276,10 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "Family flat near Tiergarten" in search.text
     assert "360 ready" in search.text
     assert "360 unavailable" in search.text
+    assert "360 queued" in search.text
+    assert "about 12 min" in search.text
+    assert 'data-tour-status="queued"' in search.text
+    assert 'data-tour-eta="about 12 min"' in search.text
     assert "Floorplan missing" in search.text
     assert "not scheduled yet" not in search.text
     assert "360 not ready" not in search.text
