@@ -6032,6 +6032,9 @@ def _memorial_html(
         padding-top: 10px;
         border-top: 1px solid rgba(132,104,74,.12);
       }}
+      .speech-live-monitor.is-idle {{
+        display: none;
+      }}
       .chat.quiet-shell .speech-live-monitor {{
         width: min(360px, 100%);
         margin: 10px auto 0;
@@ -6431,7 +6434,7 @@ def _memorial_html(
           </div>
           <div class="speech-status-meta">
             <span id="memorial-speech-phase">Bereit</span>
-            <span id="memorial-speech-detail">Bereit.</span>
+            <span id="memorial-speech-detail"></span>
           </div>
         </div>
         <details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap" style="margin:16px 0 10px;">
