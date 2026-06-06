@@ -6019,6 +6019,9 @@ def _memorial_html(
         box-shadow: none;
         text-align: center;
       }}
+      .chat.quiet-shell .speech-status-bar.is-pristine {{
+        display: none;
+      }}
       .chat.quiet-shell .speech-status-bar.is-listening,
       .chat.quiet-shell .speech-status-bar.is-working,
       .chat.quiet-shell .speech-status-bar.is-error {{
@@ -6422,7 +6425,7 @@ def _memorial_html(
     </header>
     <main class="wrap">
       <section class="chat quiet-shell">
-        <div class="speech-status-bar speech-note" id="memorial-speech-note">
+        <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
           <strong>Gespräch beginnen</strong>.
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
@@ -6981,6 +6984,7 @@ def _memorial_html(
       function setSpeechStatus(message, state = "idle", detail = "") {{
         speechState = state;
         if (speechNote) {{
+          speechNote.classList.remove("is-pristine");
           speechNote.classList.remove("is-listening", "is-working", "is-error");
           if (state === "listening") speechNote.classList.add("is-listening");
           if (state === "working" || state === "thinking" || state === "speaking" || state === "transcribing") speechNote.classList.add("is-working");
