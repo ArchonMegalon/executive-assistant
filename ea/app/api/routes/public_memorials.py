@@ -5402,10 +5402,29 @@ def _memorial_html(
         margin: 0 auto;
         text-align: left;
       }}
+      .hero-settings.minimal-disclosure {{
+        width: min(280px, 100%);
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }}
+      .hero-settings > .collapse-summary {{
+        min-height: 44px;
+        justify-content: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: .76rem;
+        font-weight: 650;
+      }}
+      .hero-settings[open] {{
+        width: min(360px, 100%);
+      }}
       .hero-settings-body {{
         display: grid;
         gap: 9px;
         margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(65,53,43,.12);
         color: var(--muted);
         font: 600 .88rem/1.35 ui-sans-serif, system-ui, sans-serif;
       }}
@@ -6335,6 +6354,19 @@ def _memorial_html(
         section {{ margin-top: 24px; }}
         .hero-actions {{ margin-top: 18px; align-items: center; }}
         .hero-settings {{ width: 100%; max-width: 360px; }}
+        .hero-settings.minimal-disclosure {{
+          width: min(280px, 100%);
+          padding: 0;
+          border: 0;
+          background: transparent;
+        }}
+        .hero-settings[open] {{
+          width: 100%;
+        }}
+        .hero-settings > .collapse-summary {{
+          font-size: .76rem;
+          justify-content: center;
+        }}
         .hero-settings-body {{ font-size: .86rem; }}
         .collapse-summary {{
           min-height: 44px;
