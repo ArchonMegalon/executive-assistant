@@ -246,6 +246,8 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0" in deploy
     assert 'EA_RUN_RUNTIME_HARD_EXIT_GATES:-1' in deploy
     assert 'scripts/runtime_hard_exit_gates.sh' in deploy
+    assert 'PYTHON_BIN="${PYTHON_BIN:-}"' in deploy
+    assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_weekly_product_pulse.py"' in deploy
 
     assert "make runtime-hard-exit-gates" in readme
     assert "make hard-exit-gates" in readme

@@ -15,6 +15,14 @@ enable_fastestvpn="${PROPERTYQUARRY_ENABLE_FASTESTVPN:-${EA_ENABLE_FASTESTVPN:-0
 enable_cloudflared="${PROPERTYQUARRY_ENABLE_CLOUDFLARED:-${EA_ENABLE_CLOUDFLARED:-auto}}"
 run_runtime_hard_exit_gates="${PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES:-${EA_RUN_RUNTIME_HARD_EXIT_GATES:-1}}"
 cf_tunnel_token_name="${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-}"
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "${PYTHON_BIN}" ]]; then
+  if [[ -x "${APP_ROOT}/.venv/bin/python" ]]; then
+    PYTHON_BIN="${APP_ROOT}/.venv/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +45,7 @@ Environment:
 Backward-compatible aliases:
   EA_MEMORY_ONLY, EA_BOOTSTRAP_DB, EA_ENABLE_FASTESTVPN, EA_ENABLE_CLOUDFLARED,
   EA_CF_TUNNEL_TOKEN, EA_RUN_RUNTIME_HARD_EXIT_GATES
+  EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0     Alias for PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES.
 EOF
       exit 0
       ;;
@@ -229,9 +238,9 @@ for _ in $(seq 1 60); do
     if [[ "${stable_checks}" != "1" ]]; then
       continue
     fi
-    python3 "${APP_ROOT}/scripts/materialize_ea_browser_workflow_proof.py" >/dev/null
-    python3 "${APP_ROOT}/scripts/materialize_ea_flagship_release_gate.py" >/dev/null
-    python3 "${APP_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null
+    "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_ea_browser_workflow_proof.py" >/dev/null
+    "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_ea_flagship_release_gate.py" >/dev/null
+    "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null
     if [[ "${run_runtime_hard_exit_gates}" != "0" ]]; then
       bash "${APP_ROOT}/scripts/runtime_hard_exit_gates.sh"
     fi
