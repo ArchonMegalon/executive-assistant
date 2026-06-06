@@ -2654,6 +2654,7 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         f"Direkter Gespraechszugang zum Memorial von {_text(payload.get('person_name'), 'Manfred')}.",
     )
     base_path = f"/memorials/{slug}"
+    scope_path = f"{base_path}/"
     icon_path = f"{base_path}/icon.svg"
     return {
         "name": name,
@@ -2663,7 +2664,7 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         "dir": "ltr",
         "id": base_path,
         "start_url": f"{base_path}?source=pwa",
-        "scope": base_path,
+        "scope": scope_path,
         "display": "standalone",
         "orientation": "portrait",
         "background_color": "#f4ecdf",
@@ -8540,7 +8541,7 @@ def _memorial_html(
       }}
       if ("serviceWorker" in navigator) {{
         window.addEventListener("load", () => {{
-          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
+          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}/" }}).catch(() => null);
         }});
       }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
