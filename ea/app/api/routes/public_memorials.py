@@ -1177,6 +1177,10 @@ def _voice_ab_pool_status(slug: str) -> dict[str, object]:
 
 
 def _voice_ab_profile_sample_paths(*, slug: str, source_mix: str, max_items: int = 4) -> list[Path]:
+    if source_mix in {"youtube_only", "youtube_curated"}:
+        curated_assets = _preferred_curated_youtube_interview_assets(slug=slug)
+        if curated_assets:
+            return curated_assets[: max(1, int(max_items or 4))]
     profile = load_memorial_voice_profile(slug=slug)
     assets = [dict(item) for item in profile.get("audio_assets", []) if isinstance(item, dict)]
     profile_root = (_private_profile_dir() / _safe_slug(slug)).resolve()
@@ -2231,6 +2235,9 @@ def _effective_tts_base_voice_variant(payload: dict[str, object]) -> str:
 
 
 def _profile_clip_assets_for_memorial(*, slug: str) -> list[Path]:
+    curated_assets = _preferred_curated_youtube_interview_assets(slug=slug)
+    if curated_assets:
+        return curated_assets
     summary = load_memorial_voice_profile(slug=slug)
     profile_root = (_private_profile_dir() / _safe_slug(slug)).resolve()
     youtube_assets: list[Path] = []
@@ -2259,6 +2266,27 @@ def _profile_clip_assets_for_memorial(*, slug: str) -> list[Path]:
             continue
         fallback_assets.append(candidate)
     return youtube_assets or fallback_assets
+
+
+def _preferred_curated_youtube_interview_assets(*, slug: str) -> list[Path]:
+    voice_profile_dir = (_private_profile_dir() / _safe_slug(slug) / "voice_profile").resolve()
+    runtime_override_dir = (Path("/app/runtime_memorial_voice") / _safe_slug(slug)).resolve()
+    search_dirs = [
+        (voice_profile_dir / "curated").resolve(),
+        voice_profile_dir,
+        runtime_override_dir,
+    ]
+    preferred_names = [
+        "unmixr-challenger-youtube-v5.wav",
+    ]
+    selected: list[Path] = []
+    for name in preferred_names:
+        for base_dir in search_dirs:
+            candidate = (base_dir / name).resolve()
+            if candidate.is_file() and (base_dir in candidate.parents or candidate == base_dir):
+                selected.append(candidate)
+                break
+    return selected
 
 
 def _openvoice_clone_from_memorial(*, slug: str, voice_label: str) -> str:

@@ -421,9 +421,11 @@ def unmixr_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path
         payload = response.json()
     except Exception:
         payload = {}
-    if response.status_code >= 400 or not response.ok:
+    status_text = str(payload.get("status") or "").strip().upper() if isinstance(payload, dict) else ""
+    if response.status_code >= 400 or not response.ok or status_text == "FAILED":
         detail = str(payload.get("detail") or payload.get("error") or payload.get("message") or "unmixr_clone_failed").strip()
-        raise HTTPException(status_code=502, detail=f"{detail}:{response.status_code}")
+        status_code = int(payload.get("code") or response.status_code or 502) if isinstance(payload, dict) else int(response.status_code or 502)
+        raise HTTPException(status_code=502, detail=f"{detail}:{status_code}")
     voice_id = str(payload.get("voice_id") or payload.get("uuid") or "").strip()
     if not voice_id:
         raise HTTPException(status_code=502, detail="unmixr_clone_invalid_response")

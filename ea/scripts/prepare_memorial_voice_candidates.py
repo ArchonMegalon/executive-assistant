@@ -6,15 +6,23 @@ from pathlib import Path
 
 
 PROFILE_ROOT = Path("/docker/EA/memorial_data/private_memorial_profiles/manfred/voice_profile")
-SOURCE_FILES = [
-    PROFILE_ROOT / "m6QosScYyP8.mp3",
-    PROFILE_ROOT / "xlrEDbQDTFA.mp3",
+SOURCE_CONFIGS = [
+    {
+        "path": PROFILE_ROOT / "m6QosScYyP8.mp3",
+        "start_offset_seconds": 195,
+        "end_guard_seconds": 25,
+        "label": "youtube_interview_mobbing_expert_clean_start",
+    },
+    {
+        "path": PROFILE_ROOT / "xlrEDbQDTFA.mp3",
+        "start_offset_seconds": 90,
+        "end_guard_seconds": 25,
+        "label": "youtube_interview_civic_policy_clean_start",
+    },
 ]
 OUTPUT_DIR = PROFILE_ROOT / "generated_candidates"
 SEGMENT_SECONDS = 26
 STEP_SECONDS = 35
-START_OFFSET_SECONDS = 20
-END_GUARD_SECONDS = 25
 
 
 def _duration_seconds(path: Path) -> float:
@@ -61,13 +69,15 @@ def _cut_segment(source: Path, start_seconds: int, out_path: Path) -> None:
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     manifest: list[dict[str, object]] = []
-    for source in SOURCE_FILES:
+    for source_config in SOURCE_CONFIGS:
+        source = Path(source_config["path"])
         if not source.is_file():
             continue
         duration = _duration_seconds(source)
-        start = START_OFFSET_SECONDS
+        start = int(source_config.get("start_offset_seconds", 20))
+        end_guard_seconds = int(source_config.get("end_guard_seconds", 25))
         clip_index = 1
-        while start + SEGMENT_SECONDS <= max(0, int(duration) - END_GUARD_SECONDS):
+        while start + SEGMENT_SECONDS <= max(0, int(duration) - end_guard_seconds):
             out_name = f"{source.stem}-cand-{clip_index:02d}-{start:04d}s.wav"
             out_path = OUTPUT_DIR / out_name
             _cut_segment(source, start, out_path)
@@ -77,6 +87,7 @@ def main() -> None:
                     "candidate_file": out_name,
                     "start_seconds": start,
                     "duration_seconds": SEGMENT_SECONDS,
+                    "source_label": str(source_config.get("label", "")),
                 }
             )
             clip_index += 1
