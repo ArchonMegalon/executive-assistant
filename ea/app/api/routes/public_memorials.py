@@ -1255,16 +1255,27 @@ def _voice_ab_auto_build_challenger(slug: str, *, excluded_voice_ids: set[str]) 
         return None
     memorial = _load_memorial(slug)
     voice_label = f"{_text(memorial.get('person_name'), slug).strip() or slug}-Auto-Challenger-R{int((_load_voice_ab_ratings(slug).get('round', 1) or 1))}"
+    plugin_id = UNMIXR_TTS_PLUGIN_ID
     try:
         voice_id = unmixr_clone_request(slug=slug, voice_label=voice_label[:80], sample_paths=sample_paths)
     except HTTPException as exc:
-        pool["last_clone_error"] = _text(exc.detail, "unmixr_clone_failed")
-        _save_voice_ab_pool(slug, pool)
-        return None
+        detail = _text(exc.detail, "unmixr_clone_failed")
+        if "reached the limit" not in detail.lower():
+            pool["last_clone_error"] = detail
+            _save_voice_ab_pool(slug, pool)
+            return None
+        try:
+            voice_id = openvoice_clone_request(slug=slug, voice_label=voice_label[:80], sample_paths=sample_paths)
+            plugin_id = OPENVOICE_TTS_PLUGIN_ID
+        except HTTPException as openvoice_exc:
+            pool["last_clone_error"] = f"{detail} | fallback_openvoice={_text(openvoice_exc.detail, 'openvoice_clone_failed')}"
+            _save_voice_ab_pool(slug, pool)
+            return None
     if voice_id in excluded_voice_ids:
         return None
     challenger = {
         "voice_id": voice_id,
+        "tts_plugin": plugin_id,
         "label": "Stimme B · neuer Challenger",
         "description": _text(analysis.get("hypothesis"), "Neuer Challenger aus lernbasiertem Rebuild"),
         "unmixr_speaking_rate": "low",
@@ -1702,7 +1713,7 @@ def _maybe_rotate_voice_ab_challenger(slug: str, ratings: dict[str, object]) -> 
     variant_b = {
         "id": "b",
         "label": _text(challenger.get("label"), "Stimme B · challenger"),
-        "tts_plugin": UNMIXR_TTS_PLUGIN_ID,
+        "tts_plugin": _safe_tts_plugin_id(challenger.get("tts_plugin")) or UNMIXR_TTS_PLUGIN_ID,
         "tts_plugin_voice_id": _text(challenger.get("voice_id"), ""),
         "unmixr_speaking_rate": _text(challenger.get("unmixr_speaking_rate"), "low"),
         "unmixr_speaking_pitch": _text(challenger.get("unmixr_speaking_pitch"), "medium"),
