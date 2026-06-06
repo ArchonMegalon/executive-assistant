@@ -2832,6 +2832,19 @@ def _is_memorial_live_interaction_question(question: str) -> bool:
         token in lowered for token in ("jetzt", "gerade", "im moment", "nun", "heute", "da")
     ):
         return True
+    if any(
+        token in lowered
+        for token in (
+            "deine stimme hören",
+            "deine stimme hoeren",
+            "deine stimme hören will",
+            "deine stimme hoeren will",
+            "einfach nur deine stimme",
+            "nur deine stimme",
+            "wie klingt deine stimme",
+        )
+    ):
+        return True
     if any(token in lowered for token in ("schach", "zug", "rochade", "schachmatt", "matt")):
         return True
     if (
@@ -7314,6 +7327,7 @@ def _memorial_html(
         const normalized = normalizeTranscriptText(transcript || "");
         if (!normalized) return false;
         const words = normalized.split(/\\s+/).filter(Boolean);
+        if (looksImmediateLivePrompt(normalized)) return true;
         if (normalized.length < 12 || words.length < 3) return false;
         if (lastAnswerText && conversationEchoScore(normalized, lastAnswerText) >= 0.72) return false;
         const lowered = normalizeConversationCompareText(normalized);
@@ -7335,11 +7349,23 @@ def _memorial_html(
         if (!looksDirected) return false;
         return true;
       }}
+      function looksImmediateLivePrompt(transcript) {{
+        const lowered = normalizeConversationCompareText(transcript || "");
+        if (!lowered) return false;
+        if (looksLiveInteractionTurn(lowered)) return true;
+        if (/(^| )(hallo|hi|servus|gruess gott|gruesz gott|grüß gott)( |$)/.test(lowered) && lowered.includes("manfred")) return true;
+        if (/(^| )(kann ich jetzt mit dir reden|rede ich mit dir|bist du da|hoerst du mich|hörst du mich)( |$)?/.test(lowered)) return true;
+        if (/(^| )(ich moechte|ich möchte|ich will)( |$)/.test(lowered) && /(deine stimme|dich hoeren|dich hören|mit dir reden|mit dir sprechen)/.test(lowered)) return true;
+        if (/(^| )(wie klingt deine stimme|wie klingst du|wie sprichst du|wie klingst du jetzt)( |$)?/.test(lowered)) return true;
+        return false;
+      }}
       function looksLiveInteractionTurn(transcript) {{
         const lowered = normalizeConversationCompareText(transcript || "");
         if (!lowered) return false;
         if (/(^| )(schach|zug|rochade|matt|schachmatt)( |$)/.test(lowered)) return true;
         if (/(^| )(spiele|spielen|spiel|rede|sprich)( |$)/.test(lowered) && /(mit dir|gegen dich|mit mir)/.test(lowered)) return true;
+        if (/(deine stimme|wie klingt deine stimme|wie klingst du|wie sprichst du|deine stimme hoeren|deine stimme hören)/.test(lowered)) return true;
+        if (/(kann ich jetzt mit dir reden|rede ich mit dir|bist du da|hoerst du mich|hörst du mich)/.test(lowered)) return true;
         if (/\b[a-h][1-8]\b/.test(lowered)) return true;
         return false;
       }}
@@ -7699,7 +7725,7 @@ def _memorial_html(
       }}
       async function captureServerTranscript(options = {{}}) {{
         const autoStopMs = Math.max(0, Number(options.autoStopMs || 0));
-        const listeningText = String(options.listeningText || (autoStopMs ? "Sprich jetzt. Ich höre zu..." : "Server-STT hoert zu. Zum Senden erneut klicken oder Stopp."));
+        const listeningText = String(options.listeningText || (autoStopMs ? "Sprich einfach los." : "Server-STT hört zu."));
         const transcribingText = String(options.transcribingText || "Transkribiere Audio...");
         const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 6500) : 9000;
         const silenceMs = Math.max(650, Number(options.silenceMs || 850));
@@ -7727,7 +7753,7 @@ def _memorial_html(
           recorder.onstart = async () => {{
             if (serverSttButton) serverSttButton.textContent = "Spricht...";
             if (listenButton) listenButton.disabled = true;
-            setSpeechStatus(listeningText, "listening", "Ich warte auf das Satzende");
+            setSpeechStatus(listeningText, "listening", "Deine Frage geht direkt rüber");
             try {{
               const AudioCtx = window.AudioContext || window.webkitAudioContext;
               if (AudioCtx) {{
@@ -7905,7 +7931,7 @@ def _memorial_html(
           recognition.maxAlternatives = 1;
           recognition.onstart = () => {{
             if (pushToTalkButton) pushToTalkButton.textContent = "Ich höre...";
-            setSpeechStatus(String(options.listeningText || "Sprich jetzt. Ich höre zu..."), "listening", "Live-Transcript aktiv");
+            setSpeechStatus(String(options.listeningText || "Sprich einfach los."), "listening", "Deine Frage geht direkt rüber");
           }};
           recognition.onresult = (event) => {{
             let nextFinal = "";
@@ -7918,8 +7944,15 @@ def _memorial_html(
             }}
             if (nextFinal) finalText = normalizeTranscriptText((finalText ? finalText + " " : "") + nextFinal);
             interimText = normalizeTranscriptText(nextInterim);
-            question.value = normalizeTranscriptText(finalText || interimText || "");
-            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich jetzt. Ich höre zu..."), "listening", interimText ? "Ich schreibe live mit" : "Live-Transcript aktiv");
+            const combined = normalizeTranscriptText(finalText || interimText || "");
+            question.value = combined;
+            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich einfach los."), "listening", interimText ? "Direkt erkannt" : "Deine Frage geht direkt rüber");
+            if (!settled && combined && looksImmediateLivePrompt(combined)) {{
+              settled = true;
+              activeRecognition = null;
+              resolve({{ transcript: combined, blob: null }});
+              try {{ recognition.stop(); }} catch (error) {{}}
+            }}
           }};
           recognition.onerror = (event) => {{
             speechHadError = true;
@@ -7963,8 +7996,8 @@ def _memorial_html(
         if (!conversationActive || !normalized || conversationTurnInFlight) return;
         if (!shouldSendConversationTranscript(normalized)) {{
           conversationIdleMisses += 1;
-          const waitMs = conversationIdleMisses >= 2 ? 1800 : 900;
-          setSpeechStatus("Ich höre weiter zu ...", "listening", "Bitte eine direkte Frage");
+          const waitMs = conversationIdleMisses >= 2 ? 900 : 450;
+          setSpeechStatus("Noch kein klarer Turn.", "listening", "Sprich direkt weiter");
           setTimeout(recordConversationTurn, waitMs);
           return;
         }}
@@ -7991,21 +8024,21 @@ def _memorial_html(
               stopSpeechPlayback();
               disarmConversationBargeIn();
               if (!conversationActive) return;
-              setSpeechStatus("Ich höre wieder zu ...", "listening", "Gespräch läuft weiter");
-              setTimeout(recordConversationTurn, 900);
+              setSpeechStatus("Weiter.", "listening", "Nächste Frage");
+              setTimeout(recordConversationTurn, 450);
             }};
             speechAudio.onerror = () => {{
               disarmConversationBargeIn();
               setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
               stopSpeechPlayback();
-              if (conversationActive) setTimeout(recordConversationTurn, 1200);
+              if (conversationActive) setTimeout(recordConversationTurn, 600);
             }};
             setSpeakingOverlayPreview(assistantText);
-            setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
+            setSpeechStatus("Antwort kommt.", "thinking", "Audio wird vorbereitet");
             await speechAudio.play();
           }} else if (conversationActive) {{
-            setSpeechStatus("Ich höre wieder zu ...", "listening", "Gespräch läuft weiter");
-            setTimeout(recordConversationTurn, 900);
+            setSpeechStatus("Weiter.", "listening", "Nächste Frage");
+            setTimeout(recordConversationTurn, 450);
           }}
         }} catch (error) {{
           conversationActive = false;
@@ -8020,18 +8053,18 @@ def _memorial_html(
         if (!conversationActive || conversationTurnInFlight) return;
         try {{
           const result = await captureRealtimeTranscript({{
-            autoStopMs: 4800,
-            silenceMs: 760,
+            autoStopMs: 2600,
+            silenceMs: 420,
             silenceThreshold: 0.015,
-            listeningText: "Ich höre zu ...",
-            transcribingText: "Ich sende deine Frage live an Manfred ..."
+            listeningText: "Sprich einfach los.",
+            transcribingText: "Ich gebe es direkt an Manfred weiter ..."
           }});
           const transcript = normalizeTranscriptText(result && result.transcript || "");
           if (!conversationActive) return;
           if (!transcript) {{
             conversationIdleMisses += 1;
-            const waitMs = conversationIdleMisses >= 2 ? 2200 : 1200;
-            setSpeechStatus("Ich höre weiter zu ...", "listening", "Bitte eine direkte Frage");
+            const waitMs = conversationIdleMisses >= 2 ? 900 : 450;
+            setSpeechStatus("Noch nichts Brauchbares erkannt.", "listening", "Sprich direkt weiter");
             setTimeout(recordConversationTurn, waitMs);
             return;
           }}
@@ -8049,7 +8082,7 @@ def _memorial_html(
         setConversationUi(conversationActive);
         if (conversationActive) {{
           conversationIdleMisses = 0;
-          setSpeechStatus("Gespräch gestartet. Ich höre auf deine Fragen.", "listening", "Gespräch aktiv");
+          setSpeechStatus("Gespräch gestartet. Sprich einfach los.", "listening", "Direktmodus aktiv");
           recordConversationTurn();
         }} else {{
         conversationIdleMisses = 0;

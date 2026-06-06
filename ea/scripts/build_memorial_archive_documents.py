@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import textwrap
 from html import escape
 from pathlib import Path
@@ -92,8 +93,30 @@ def load_css(slug_root: Path) -> str:
     return css_path.read_text(encoding="utf-8") if css_path.is_file() else ""
 
 
+def wrap_h2_sections(body_html: str) -> str:
+    text = str(body_html or "").strip()
+    if not text:
+        return ""
+    parts = re.split(r"(<h2>.*?</h2>)", text, flags=re.DOTALL)
+    if len(parts) == 1:
+        return text
+    rendered: list[str] = []
+    if parts[0].strip():
+        rendered.append(parts[0].strip())
+    index = 1
+    while index < len(parts):
+        heading = parts[index].strip()
+        content = parts[index + 1].strip() if index + 1 < len(parts) else ""
+        if heading:
+            rendered.append(f'<section class="doc-section">{heading}\n{content}</section>'.strip())
+        elif content:
+            rendered.append(content)
+        index += 2
+    return "\n".join(item for item in rendered if item)
+
+
 def render_html(*, manifest: dict[str, Any], markdown: str, css: str) -> str:
-    body_html = simple_markdown_to_html(markdown)
+    body_html = wrap_h2_sections(simple_markdown_to_html(markdown))
     return f"""<!doctype html>
 <html lang="de">
   <head>
