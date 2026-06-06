@@ -12,5 +12,9 @@ ea/third_party/**
 .venv/**
 .pytest_cache/
 .smoke_tmp/
+.codex-design/
+.codex-studio/
+_completion/
+feedback/
 artifacts/
 logs/
