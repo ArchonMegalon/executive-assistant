@@ -25,13 +25,17 @@ Ergebnis:
 Dry run:
 ```bash
 cd /docker/EA/ea
-python3 scripts/publish_memorial_fliplink_publications.py manfred --dry-run
+python3 scripts/publish_memorial_fliplink_publications.py manfred --dry-run --public-only
 ```
+
+Der Publisher liest PDFs zuerst aus `build_artifacts.pdf_path` und ueberspringt bereits verlinkte
+Dokumente standardmaessig. Fuer bewusstes Neuveroeffentlichen `--replace` setzen.
 
 Echter Publish braucht mindestens:
 - `FLIPLINK_API_BASE_URL`
 - `FLIPLINK_API_KEY`
 - optional `FLIPLINK_CREATE_PATH`
+- optional `FLIPLINK_UPDATE_PATH_TEMPLATE`
 - optional `FLIPLINK_CUSTOM_DOMAIN`
 - optional `FLIPLINK_BRANDING_PROFILE`
 
