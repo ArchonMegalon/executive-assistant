@@ -16,5 +16,7 @@ ea/third_party/**
 .codex-studio/
 _completion/
 feedback/
+skills/
+scripts/bootstrap_chummer6_guide_skill.py
 artifacts/
 logs/

@@ -16,6 +16,15 @@ QUARANTINED_ARTIFACTS = (
     "scripts/bootstrap_chummer6_guide_skill.py",
 )
 
+DOCKER_CONTEXT_EXCLUSIONS = (
+    ".codex-design/",
+    ".codex-studio/",
+    "_completion/",
+    "feedback/",
+    "skills/",
+    "scripts/bootstrap_chummer6_guide_skill.py",
+)
+
 RUNTIME_RELEASE_FILES = (
     "docker-compose.property.yml",
     "ea/Dockerfile.property",
@@ -61,6 +70,19 @@ def main() -> int:
         for artifact in QUARANTINED_ARTIFACTS:
             if artifact not in doc_text:
                 failures.append(f"docs/REPO_ISOLATION.md must list quarantined artifact {artifact}")
+
+    dockerignore_path = ROOT / ".dockerignore"
+    if not dockerignore_path.exists():
+        failures.append(".dockerignore must exist to keep inherited/generated artifacts out of Docker builds")
+    else:
+        ignored = {
+            line.strip()
+            for line in dockerignore_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        }
+        for artifact in DOCKER_CONTEXT_EXCLUSIONS:
+            if artifact not in ignored:
+                failures.append(f".dockerignore must exclude quarantined/generated Docker context artifact {artifact}")
 
     for path in RUNTIME_RELEASE_FILES:
         text = _read(path)
