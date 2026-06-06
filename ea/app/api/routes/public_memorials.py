@@ -5250,12 +5250,17 @@ def _memorial_html(
         --shadow: 0 20px 48px rgba(56, 45, 36, 0.11);
       }}
       * {{ box-sizing: border-box; }}
+      html {{
+        overflow-x: hidden;
+        -webkit-text-size-adjust: 100%;
+      }}
       body {{
         margin: 0;
         background: linear-gradient(180deg, #f8f4ec 0%, var(--paper) 100%);
         color: var(--ink);
         font: 16px/1.7 Georgia, "Times New Roman", serif;
         position: relative;
+        overflow-x: hidden;
       }}
       body::before {{
         content: "";
@@ -5411,6 +5416,7 @@ def _memorial_html(
       }}
       .hero-settings-body input {{
         margin: 0;
+        flex: 0 0 auto;
       }}
       .hero-settings-body button {{
         justify-self: start;
@@ -5538,6 +5544,7 @@ def _memorial_html(
         font-weight: 560;
         letter-spacing: 0;
         text-wrap: balance;
+        overflow-wrap: anywhere;
       }}
       h2 {{
         margin: 0 0 12px;
@@ -5546,8 +5553,8 @@ def _memorial_html(
         font-weight: 560;
         letter-spacing: 0;
       }}
-      h3 {{ margin: 0 0 6px; font-size: 1.06rem; line-height: 1.25; }}
-      p {{ margin: 0; }}
+      h3 {{ margin: 0 0 6px; font-size: 1.06rem; line-height: 1.25; overflow-wrap: anywhere; }}
+      p {{ margin: 0; overflow-wrap: anywhere; }}
       .lead {{ margin-top: 14px; max-width: 64ch; color: var(--muted); font-size: 1.05rem; text-wrap: pretty; }}
       .chat-model-row {{
         display: grid;
@@ -5779,8 +5786,13 @@ def _memorial_html(
         color: var(--ink-soft);
         font: 700 .82rem/1.2 ui-sans-serif, system-ui, sans-serif;
         letter-spacing: 0;
+        border-radius: 8px;
       }}
       .collapse-summary::-webkit-details-marker {{ display: none; }}
+      .collapse-summary:focus-visible {{
+        outline: 2px solid rgba(72,103,126,.76);
+        outline-offset: 3px;
+      }}
       .collapse-summary::after {{
         content: "+";
         float: right;
@@ -5802,6 +5814,18 @@ def _memorial_html(
       .voice-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
       .voice-field {{ display: grid; gap: 6px; }}
       .voice-actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }}
+      .voice-ab-choice-grid {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 10px;
+      }}
+      .voice-ab-choice-column {{
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+      }}
       .voice-variant-group {{ display: grid; gap: 8px; }}
       .voice-variant-toggle {{
         display: inline-flex;
@@ -6209,9 +6233,11 @@ def _memorial_html(
         color: var(--blue);
         border-radius: 999px;
         padding: 10px 14px;
+        min-height: 44px;
         font: 650 14px/1 ui-sans-serif, system-ui, sans-serif;
         box-shadow: 0 8px 16px rgba(64,98,123,.08);
         transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+        touch-action: manipulation;
       }}
       button:hover {{
         transform: translateY(-1px);
@@ -6230,19 +6256,30 @@ def _memorial_html(
       @media (max-width: 760px) {{
         header {{ min-height: auto; align-items: center; }}
         .grid, .clip, .voice-grid {{ grid-template-columns: 1fr; }}
-        .wrap {{ width: min(100vw - 28px, 1120px); }}
-        .hero {{ padding: 40px 0 26px; min-height: auto; display: block; }}
+        .wrap {{ width: min(100vw - 24px, 1120px); }}
+        .hero {{ padding: 34px 0 22px; min-height: auto; display: block; }}
         .hero-stage {{ grid-template-columns: 1fr; gap: 0; }}
         .hero-copy {{ padding: 0; border-radius: 0; }}
         .hero-memorial {{ min-height: 240px; padding: 16px; border-radius: 22px; order: -1; }}
         .hero-memorial-card {{ max-width: 100%; }}
         .hero-audio-note {{ width: 100%; }}
-        h1 {{ font-size: 2.7rem; }}
+        h1 {{ font-size: 2.45rem; line-height: 1.04; }}
         h2 {{ font-size: 1.55rem; }}
-        .lead {{ font-size: 1rem; }}
+        .lead {{ font-size: .98rem; line-height: 1.55; max-width: 34rem; margin-left: auto; margin-right: auto; }}
         .notice {{ margin-top: 20px; }}
-        .hero-actions {{ margin-top: 18px; flex-direction: column; align-items: center; }}
+        main {{ padding-top: 20px; padding-bottom: 56px; }}
+        section {{ margin-top: 24px; }}
+        .hero-actions {{ margin-top: 18px; align-items: center; }}
         .hero-settings {{ width: 100%; max-width: 360px; }}
+        .hero-settings-body {{ font-size: .86rem; }}
+        .collapse-summary {{
+          min-height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }}
+        .collapse-summary::after {{ float: none; }}
         .speech-row, .voice-actions, .prompt-row, .chat-actions {{ align-items: stretch; }}
         .hero-actions button,
         .speech-row button,
@@ -6261,7 +6298,19 @@ def _memorial_html(
         .voice-variant-chip {{ width: 100%; justify-content: center; }}
         .clip, .memory, .chat, .candidate, .profile-note, .voice-tools {{ border-radius: 18px; padding: 18px; }}
         .chat.quiet-shell {{ padding: 0; border: 0; background: transparent; box-shadow: none; }}
+        .speech-status-bar {{ text-align: left; }}
+        .speech-status-meta {{ gap: 6px; }}
         .voice-tools {{ margin-top: 16px; }}
+        .voice-ab-choice-grid {{ grid-template-columns: 1fr; }}
+        .archive-subsection .grid {{ gap: 12px; }}
+        .memory {{
+          padding: 16px;
+          background-image: none !important;
+        }}
+        .memory::before,
+        .memory::after {{
+          display: none;
+        }}
         .minimal-disclosure {{ padding: 8px 10px; }}
         .speaking-overlay {{
           left: 12px;
@@ -6273,6 +6322,15 @@ def _memorial_html(
         }}
         .speaking-overlay-title {{ font-size: 14px; }}
         .speaking-overlay-detail {{ font-size: 12px; }}
+      }}
+      @media (max-width: 380px) {{
+        .wrap {{ width: min(100vw - 20px, 1120px); }}
+        .hero {{ padding-top: 28px; }}
+        h1 {{ font-size: 2.15rem; }}
+        .hero-cta {{ width: 100%; }}
+        .hero-settings {{ max-width: none; }}
+        .speech-wave {{ gap: 4px; }}
+        .speech-wave-bar {{ width: 7px; }}
       }}
     </style>
   </head>
@@ -6336,13 +6394,13 @@ def _memorial_html(
             <p class="lead" style="margin-bottom:10px;">A und B anhören. Dann nur festhalten, welche Stimme insgesamt besser passt.</p>
             <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
             <div id="memorial-voice-ab-analysis" class="status-note" style="margin-bottom:10px;">Muster werden geladen.</div>
-            <div class="voice-actions" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:10px;">
-              <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="voice-ab-choice-grid">
+              <div class="voice-ab-choice-column">
                 <strong>Stimme A</strong>
                 <button type="button" id="memorial-voice-ab-preview-a">A hören</button>
                 <button type="button" data-voice-rating="a">A passt besser</button>
               </div>
-              <div style="display:flex;flex-direction:column;gap:8px;">
+              <div class="voice-ab-choice-column">
                 <strong>Stimme B</strong>
                 <button type="button" id="memorial-voice-ab-preview-b">B hören</button>
                 <button type="button" data-voice-rating="b">B passt besser</button>

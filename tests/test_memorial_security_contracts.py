@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("fastapi")
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -47,6 +49,13 @@ def _patch_memorial_runtime_roots(tmp_path: Path) -> None:
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = tmp_path / "public_registry"
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
+
+
+def _error_code(response) -> str:
+    body = response.json()
+    if isinstance(body.get("error"), dict):
+        return str(body["error"].get("code") or "")
+    return str(body.get("detail") or "")
 
 
 def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
@@ -176,6 +185,54 @@ def test_memorial_fliplink_webhook_stages_candidate(
     assert body["status"] == "staged"
     assert body["kind"] == "memorial_contribution_candidate"
     assert body["principal_id"] == "memorial:manfred"
+    assert body["slug"] == "manfred"
+    assert body["publication_slug"] == "share-a-memory"
+    assert body["review_status"] == "pending_owner_review"
+
+
+def test_memorial_fliplink_webhook_rejects_bad_secret_and_empty_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_MEMORIAL_FLIPLINK_WEBHOOK_SECRET", "secret-123")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-fliplink-webhook-reject")
+    unauthorized = client.post(
+        f"/v1/integrations/fliplink/memorials/{slug}/webhook",
+        headers={"x-memorial-fliplink-secret": "wrong"},
+        json={"message": "Should not be accepted."},
+    )
+    assert unauthorized.status_code == 401
+    assert _error_code(unauthorized) == "memorial_fliplink_webhook_secret_invalid"
+
+    empty = client.post(
+        f"/v1/integrations/fliplink/memorials/{slug}/webhook",
+        headers={"x-memorial-fliplink-secret": "secret-123"},
+        json={"publication_slug": "share-a-memory"},
+    )
+    assert empty.status_code == 422
+    assert _error_code(empty) == "memorial_contribution_signal_required"
+
+
+def test_memorial_fliplink_webhook_content_length_guard_is_controlled() -> None:
+    from app.api.routes.fliplink_integration import _content_length
+
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"content-length", b"not-a-number")],
+        }
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        _content_length(request, invalid_detail="invalid_memorial_fliplink_webhook_content_length")
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "invalid_memorial_fliplink_webhook_content_length"
 
 
 def test_public_memorial_page_does_not_emit_dead_client_identity_fields(
@@ -254,9 +311,13 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert '<summary class="collapse-summary">Optionen</summary>' in body
     assert '<details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap"' in body
     assert '<summary class="collapse-summary">Stimmvergleich und Feedback</summary>' in body
+    assert '<div class="voice-ab-choice-grid">' in body
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" not in body
     assert '<section id="memorial-archive">' in body
     assert '<details class="minimal-disclosure archive-disclosure">' in body
     assert '<summary class="collapse-summary">Archiv lesen</summary>' in body
+    assert "overflow-wrap: anywhere;" in body
+    assert ".collapse-summary:focus-visible" in body
     assert "<h2>Archiv lesen</h2>" not in body
     assert "<h2>Stimmvergleich</h2>" not in body
     assert body.index('<section class="chat quiet-shell">') < body.index('<section id="memorial-archive">')

@@ -597,6 +597,8 @@ class FlipLinkPacketService:
         audience = " ".join(str(payload.get("audience") or "public").split()).strip().lower()[:80] or "public"
         if audience not in {"public", "family", "private"}:
             audience = "public"
+        if not any((message, relationship, lead.name, lead.email_hash, lead.phone)):
+            raise ValueError("memorial_contribution_signal_required")
         event = self._repo.record_event(
             {
                 "publication_id": publication_slug,
@@ -624,6 +626,9 @@ class FlipLinkPacketService:
             "status": "staged",
             "kind": "memorial_contribution_candidate",
             "principal_id": f"memorial:{safe_slug}",
+            "slug": safe_slug,
+            "publication_slug": publication_slug,
+            "review_status": "pending_owner_review",
             "event_id": str(event.get("event_id") or ""),
         }
 

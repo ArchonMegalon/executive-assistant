@@ -124,6 +124,19 @@ def _actor(context: RequestContext) -> str:
     return str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
 
 
+def _content_length(request: Request, *, invalid_detail: str) -> int:
+    raw = str(request.headers.get("content-length") or "").strip()
+    if not raw:
+        return 0
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=invalid_detail) from exc
+    if value < 0:
+        raise HTTPException(status_code=400, detail=invalid_detail)
+    return value
+
+
 def _publication_out(row: dict[str, object], *, analytics: dict[str, object] | None = None) -> dict[str, object]:
     summary = dict(row.get("packet_summary_json") or {}) if isinstance(row.get("packet_summary_json"), dict) else {}
     analytics_out = {
@@ -612,7 +625,7 @@ async def fliplink_webhook(
     secret: str = Query(default=""),
     container: AppContainer = Depends(get_container),
 ) -> dict[str, object]:
-    content_length = int(request.headers.get("content-length") or 0)
+    content_length = _content_length(request, invalid_detail="invalid_fliplink_webhook_content_length")
     if content_length > 64_000:
         raise HTTPException(status_code=413, detail="fliplink_webhook_payload_too_large")
     service = build_fliplink_packet_service(container)
@@ -649,7 +662,7 @@ async def memorial_fliplink_webhook(
     provided_secret = str(request.headers.get("x-memorial-fliplink-secret") or "").strip()
     if not provided_secret or not hmac.compare_digest(provided_secret, expected_secret):
         raise HTTPException(status_code=401, detail="memorial_fliplink_webhook_secret_invalid")
-    content_length = int(request.headers.get("content-length") or 0)
+    content_length = _content_length(request, invalid_detail="invalid_memorial_fliplink_webhook_content_length")
     if content_length > 64_000:
         raise HTTPException(status_code=413, detail="memorial_fliplink_webhook_payload_too_large")
     try:
