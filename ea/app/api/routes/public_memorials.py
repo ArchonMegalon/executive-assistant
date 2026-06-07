@@ -98,6 +98,7 @@ _MEMORIAL_TTS_TAIL_SILENCE_MS = 620
 _MEMORIAL_FAST_TTS_LEAD_IN_MS = 90
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 220
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
+_MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
     "speech_transcribe": (10, 60),
@@ -10340,17 +10341,38 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail})
             selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
             llm_started = time.perf_counter()
-            answer_payload = await asyncio.to_thread(
-                _memorial_chat_answer,
-                payload,
-                transcript_text,
-                private_profile,
-                selected_model,
-                slug=slug,
-                memory_runtime=memory_runtime,
-                personal_memory_context=personal_memory_context,
-                difficult_memory_mode=current_difficult_memory_mode,
-            )
+            try:
+                answer_payload = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _memorial_chat_answer,
+                        payload,
+                        transcript_text,
+                        private_profile,
+                        selected_model,
+                        slug=slug,
+                        memory_runtime=memory_runtime,
+                        personal_memory_context=personal_memory_context,
+                        difficult_memory_mode=current_difficult_memory_mode,
+                    ),
+                    timeout=_MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                answer_payload = await asyncio.to_thread(
+                    _memorial_chat_fallback_answer,
+                    payload,
+                    transcript_text,
+                    private_profile,
+                    slug=slug,
+                    memory_runtime=memory_runtime,
+                    personal_memory_context=personal_memory_context,
+                    llm_model=selected_model,
+                    fallback_reason="realtime_llm_timeout",
+                    difficult_memory_mode=current_difficult_memory_mode,
+                )
+                answer_payload["llm_model"] = selected_model
+                answer_payload["llm_provider"] = "memorial_guardrail"
+                answer_payload["llm_request_model"] = selected_model
+                answer_payload["llm_fallback_used"] = True
             llm_ms = (time.perf_counter() - llm_started) * 1000.0
             await asyncio.to_thread(
                 _remember_personal_conversation_turn,

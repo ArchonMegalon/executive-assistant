@@ -467,6 +467,99 @@ def test_memorial_realtime_rejects_audio_bytes_before_start(
         assert error == {"type": "error", "message": "audio_start_required"}
 
 
+def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    output_audio = _generated_wav_bytes(textish_seed="Fallback Antwort von Manfred.")
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    def _slow_chat_answer(*args, **kwargs):
+        time.sleep(0.05)
+        return {
+            "answer": "Diese Antwort sollte wegen Timeout nie rausgehen.",
+            "sources": [],
+            "llm_model": "slow-model",
+            "llm_provider": "slow-provider",
+            "llm_request_model": "slow-model",
+            "llm_fallback_used": False,
+        }
+
+    def _fallback_answer(*args, **kwargs):
+        return {
+            "answer": "Ich bin weiter da und antworte jetzt aus dem gesicherten Erinnerungsmodus.",
+            "sources": ["Archiv"],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": kwargs.get("llm_model") or "ea-gemini-flash",
+            "llm_fallback_used": True,
+        }
+
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _slow_chat_answer)
+    monkeypatch.setattr(public_memorials, "_memorial_chat_fallback_answer", _fallback_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-realtime-timeout-fallback")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_timeout_1",
+                "text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+                "personal_memory_enabled": False,
+            }
+        )
+        messages = []
+        for _ in range(8):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    message_types = [message.get("type") for message in messages]
+    assert message_types[:3] == ["transcript", "phase", "answer"]
+    answer_message = next(message for message in messages if message.get("type") == "answer")
+    expected_model = public_memorials._resolve_memorial_voice_chat_model(
+        public_memorials._load_memorial(slug),
+        public_memorials._load_private_profile(slug),
+        "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+    )
+    assert "gesicherten Erinnerungsmodus" in answer_message["text"]
+    assert answer_message["llm_model"] == expected_model
+    assert "audio_complete" in message_types
+    assert "turn_complete" in message_types
+
+
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 

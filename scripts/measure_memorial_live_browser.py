@@ -4,12 +4,14 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import os
+import io
+import math
 import shutil
+import struct
 import subprocess
-import sys
 import tempfile
 import time
+import wave
 from pathlib import Path
 
 
@@ -33,16 +35,43 @@ def _require_binary(name: str) -> str:
     return resolved
 
 
+def _pure_python_prompt_wav_bytes(text: str) -> bytes:
+    sample_rate = 16000
+    amplitude = 14000
+    segments = max(4, min(18, len(str(text or "").split()) * 2))
+    segment_frames = int(sample_rate * 0.16)
+    silence_frames = int(sample_rate * 0.035)
+    frames = bytearray()
+    for index in range(segments):
+        frequency = 280.0 + float((index % 5) * 62)
+        for frame_index in range(segment_frames):
+            envelope = min(1.0, frame_index / max(1, int(sample_rate * 0.02)))
+            tail = min(1.0, (segment_frames - frame_index) / max(1, int(sample_rate * 0.03)))
+            gain = min(envelope, tail)
+            sample = int(amplitude * gain * math.sin((2.0 * math.pi * frequency * frame_index) / sample_rate))
+            frames.extend(struct.pack("<h", sample))
+        frames.extend(b"\x00\x00" * silence_frames)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
 def _synthesized_prompt_wav_bytes(text: str) -> bytes:
-    _require_binary("espeak-ng")
-    _require_binary("ffmpeg")
+    espeak_bin = shutil.which("espeak-ng")
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not espeak_bin or not ffmpeg_bin:
+        return _pure_python_prompt_wav_bytes(text)
     with tempfile.TemporaryDirectory(prefix="memorial-live-browser-") as tmpdir:
         tmp_path = Path(tmpdir)
         raw_wav = tmp_path / "speech.raw.wav"
         normalized_wav = tmp_path / "speech.16k.wav"
         subprocess.run(
             [
-                "espeak-ng",
+                espeak_bin,
                 "-v",
                 "de",
                 "-s",
@@ -58,7 +87,7 @@ def _synthesized_prompt_wav_bytes(text: str) -> bytes:
         )
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_bin,
                 "-hide_banner",
                 "-loglevel",
                 "error",
@@ -136,7 +165,15 @@ def _fake_media_init_script(audio_base64: str) -> str:
 """
 
 
-def _measure(base_url: str, slug: str, prompt_text: str) -> dict[str, object]:
+def _transcribe_stub_payload(prompt_text: str) -> dict[str, object]:
+    return {
+        "transcription_status": "transcribed",
+        "transcript_text": str(prompt_text or "").strip(),
+        "transcriber": "playwright_stub",
+    }
+
+
+def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: bool = True) -> dict[str, object]:
     sync_playwright = _require_playwright()
     audio_bytes = _synthesized_prompt_wav_bytes(prompt_text)
     audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
@@ -157,11 +194,21 @@ def _measure(base_url: str, slug: str, prompt_text: str) -> dict[str, object]:
         )
         context = browser.new_context(viewport={"width": 1440, "height": 1100})
         context.add_init_script(_fake_media_init_script(audio_base64))
+        if stub_transcribe:
+            stub_body = json.dumps(_transcribe_stub_payload(prompt_text), ensure_ascii=False)
+            context.route(
+                f"**/memorials/{slug}/speech-transcribe",
+                lambda route: route.fulfill(status=200, content_type="application/json", body=stub_body),
+            )
         page = context.new_page()
         try:
-            response = page.goto(page_url, wait_until="networkidle")
+            response = page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
             if response is None or not response.ok:
                 raise SystemExit("page_load_failed")
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
             load_ms = (time.perf_counter() - started) * 1000.0
             warmup_before = page.evaluate(
                 """async (url) => {
@@ -181,21 +228,59 @@ def _measure(base_url: str, slug: str, prompt_text: str) -> dict[str, object]:
                 timeout=10000,
             )
             cta_ready_ms = (time.perf_counter() - ready_started) * 1000.0
-            page.click("#memorial-conversation")
             answer_started = time.perf_counter()
-            page.wait_for_function(
-                """
-                () => {
-                  const answer = document.getElementById("memorial-chat-answer");
-                  return Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
-                }
-                """,
-                timeout=30000,
-            )
+            turn_error = ""
+            answer_text = ""
+            phase_text = ""
+            detail_text = ""
+            try:
+                if stub_transcribe:
+                    turn_result = page.evaluate(
+                        """async (promptText) => {
+                          const payload = await window.sendRealtimeTurn({ text: String(promptText || "") });
+                          const answer = String(payload && payload.answer ? payload.answer : "");
+                          const answerNode = document.getElementById("memorial-chat-answer");
+                          if (answerNode) answerNode.textContent = answer;
+                          return {
+                            answer,
+                            phase: (document.getElementById("memorial-speech-phase") || {}).textContent || "",
+                            detail: (document.getElementById("memorial-speech-detail") || {}).textContent || ""
+                          };
+                        }""",
+                        prompt_text,
+                    )
+                    answer_text = str(turn_result.get("answer") or "")
+                    phase_text = str(turn_result.get("phase") or "")
+                    detail_text = str(turn_result.get("detail") or "")
+                else:
+                    page.click("#memorial-conversation")
+                    page.wait_for_function(
+                        """
+                        () => {
+                          const answer = document.getElementById("memorial-chat-answer");
+                          return Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
+                        }
+                        """,
+                        timeout=30000,
+                    )
+                    answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
+                    phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
+                    detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
+            except Exception as exc:
+                turn_error = str(exc)
+                try:
+                    answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
+                except Exception:
+                    answer_text = ""
+                try:
+                    phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
+                except Exception:
+                    phase_text = ""
+                try:
+                    detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
+                except Exception:
+                    detail_text = ""
             first_answer_ms = (time.perf_counter() - answer_started) * 1000.0
-            answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
-            phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
-            detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
             warmup_after = page.evaluate(
                 """async (url) => {
                   const response = await fetch(url);
@@ -210,11 +295,13 @@ def _measure(base_url: str, slug: str, prompt_text: str) -> dict[str, object]:
                 "page_load_ms": round(load_ms, 1),
                 "cta_ready_ms": round(cta_ready_ms, 1),
                 "first_answer_ms": round(first_answer_ms, 1),
+                "speech_transcribe_mode": "transcript_injected" if stub_transcribe else "live",
                 "warmup_status_before": warmup_before,
                 "warmup_status_after": warmup_after,
                 "answer_preview": str(answer_text).strip()[:240],
                 "phase_text": str(phase_text).strip(),
                 "detail_text": str(detail_text).strip(),
+                "turn_error": turn_error[:240],
             }
         finally:
             context.close()
@@ -228,9 +315,10 @@ def main() -> int:
     parser.add_argument("--slug", default="manfred")
     parser.add_argument("--prompt-text", default=LIVE_PROMPT_TEXT)
     parser.add_argument("--output", default="")
+    parser.add_argument("--real-stt", action="store_true", help="Use the live STT endpoint instead of a deterministic browser stub.")
     args = parser.parse_args()
 
-    result = _measure(args.base_url, args.slug, args.prompt_text)
+    result = _measure(args.base_url, args.slug, args.prompt_text, stub_transcribe=not args.real_stt)
     rendered = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(rendered + "\n", encoding="utf-8")
