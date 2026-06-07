@@ -255,7 +255,17 @@ def check_filesystem(slug: str, report: Report, *, require_clone_consent: bool =
 
 
 def http_request(url: str, *, method: str = "GET", body: bytes | None = None, headers: dict[str, str] | None = None) -> tuple[int, str]:
-    request = urllib.request.Request(url, method=method, data=body, headers=headers or {})
+    merged_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/136.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/html, */*",
+    }
+    if headers:
+        merged_headers.update(headers)
+    request = urllib.request.Request(url, method=method, data=body, headers=merged_headers)
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
             return int(response.status), response.read().decode("utf-8", errors="replace")
