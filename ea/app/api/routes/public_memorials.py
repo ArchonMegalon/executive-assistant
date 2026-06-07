@@ -6620,6 +6620,49 @@ def _memorial_html(
         padding-top: 0;
         border-top: 0;
       }}
+      .hero-actions {{
+        position: relative;
+        display: flex;
+        justify-content: center;
+      }}
+      .hero-actions.is-readying::before {{
+        content: "";
+        position: absolute;
+        inset: -16px;
+        border-radius: 999px;
+        background:
+          radial-gradient(circle, rgba(201,153,90,.18), rgba(201,153,90,0) 62%);
+        opacity: .88;
+        animation: memorial-landing-breathe 1.4s ease-in-out infinite;
+        pointer-events: none;
+      }}
+      .hero-cta[disabled] {{
+        cursor: wait;
+        opacity: .78;
+        border-color: rgba(72,103,126,.16);
+        box-shadow: 0 10px 24px rgba(64,98,123,.08);
+        transform: none;
+      }}
+      .hero-cta.is-readying {{
+        position: relative;
+        overflow: hidden;
+      }}
+      .hero-cta.is-readying::after {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(110deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.34) 50%, rgba(255,255,255,0) 100%);
+        transform: translateX(-120%);
+        animation: memorial-landing-sheen 1.2s ease-in-out infinite;
+      }}
+      @keyframes memorial-landing-breathe {{
+        0%, 100% {{ transform: scale(.985); opacity: .62; }}
+        50% {{ transform: scale(1.02); opacity: 1; }}
+      }}
+      @keyframes memorial-landing-sheen {{
+        0% {{ transform: translateX(-120%); }}
+        100% {{ transform: translateX(120%); }}
+      }}
       .chat.quiet-shell .speech-meter {{
         height: 6px;
       }}
@@ -6981,8 +7024,8 @@ def _memorial_html(
       <div class="wrap hero">
         <div class="hero-stage">
           <div class="hero-copy">
-            <div class="hero-actions">
-              <button type="button" id="memorial-conversation" class="hero-cta" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich oeffne das Mikrofon ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Einen Moment'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte erlaube kurz das Mikrofon, falls dein Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich oeffne das Mikrofon ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Einen Moment'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte erlaube kurz das Mikrofon, falls dein Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
+            <div class="hero-actions is-readying" id="memorial-hero-actions">
+              <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;">Gleich bereit …</button>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Am Handy/Desktop installieren.
@@ -7063,6 +7106,7 @@ def _memorial_html(
       const ttsBaseVoiceButtons = Array.from(document.querySelectorAll("[data-variant]"));
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
+      const heroActions = document.getElementById("memorial-hero-actions");
       const retryButton = document.getElementById("memorial-retry-button");
       const autostartOptin = document.getElementById("memorial-autostart-optin");
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
@@ -7140,6 +7184,7 @@ def _memorial_html(
       let activeRealtimeTurnId = "";
       let realtimeTurnFallbackTimer = null;
       let memorialWarmupPromise = null;
+      let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
       let memorialVoiceConfig = {{
         tts_plugin: "browser_speech_synthesis",
@@ -7476,13 +7521,28 @@ def _memorial_html(
         speakingOverlayPreview = shortened || normalized.slice(0, 96).trim();
       }}
       function syncConversationButtons() {{
-        const label = conversationActive ? "Gespräch stoppen" : "Gespräch beginnen";
+        const label = conversationActive ? "Gespräch stoppen" : (memorialLandingReady ? "Gespräch beginnen" : "Gleich bereit …");
         for (const button of conversationButtons) {{
           if (!button) continue;
           button.textContent = label;
           button.setAttribute("aria-pressed", conversationActive ? "true" : "false");
+          button.disabled = !conversationActive && !memorialLandingReady;
+          button.setAttribute("aria-disabled", (!conversationActive && !memorialLandingReady) ? "true" : "false");
+          button.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
         }}
+        if (heroActions) heroActions.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
         if (pushToTalkButton) pushToTalkButton.textContent = label;
+      }}
+      function setMemorialLandingReady(ready, detail = "") {{
+        memorialLandingReady = Boolean(ready);
+        syncConversationButtons();
+        if (!conversationActive) {{
+          if (memorialLandingReady) {{
+            setSpeechStatus("Ich bin da.", "idle", detail || "Sprich mit mir");
+          }} else {{
+            setSpeechStatus("Ich richte mich kurz ein.", "working", detail || "Einen kleinen Moment");
+          }}
+        }}
       }}
       function updateBaseVoiceVariantUi() {{
         const selected = currentBaseVoiceVariant();
@@ -7693,6 +7753,19 @@ def _memorial_html(
           keepalive: true,
         }}).catch(() => null);
         return memorialWarmupPromise;
+      }}
+      async function primeMemorialLanding() {{
+        setMemorialLandingReady(false, "Ich werde gerade bereit");
+        try {{
+          await Promise.race([
+            Promise.all([
+              requestMemorialWarmup("page_load"),
+              new Promise((resolve) => window.setTimeout(resolve, 950)),
+            ]),
+            new Promise((resolve) => window.setTimeout(resolve, 1800)),
+          ]);
+        }} catch (error) {{}}
+        setMemorialLandingReady(true, "Sprich mit mir");
       }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -8939,7 +9012,14 @@ def _memorial_html(
       }}
       }}
       window.__memorialToggleConversation = () => toggleConversation();
-      window.__memorialStartConversation = () => {{
+      window.__memorialStartConversation = async () => {{
+        if (!memorialLandingReady && !conversationActive) {{
+          setSpeechStatus("Ich richte mich noch ein.", "working", "Gleich kannst du lossprechen");
+          try {{
+            await primeMemorialLanding();
+          }} catch (error) {{}}
+          if (!memorialLandingReady) return;
+        }}
         setSpeechStatus("Ich oeffne das Mikrofon ...", "working", "Bitte erlaube kurz das Mikrofon, falls dein Browser fragt");
         if (!conversationActive) toggleConversation();
       }};
@@ -9152,9 +9232,10 @@ def _memorial_html(
       }});
       loadVoiceConfig();
       syncConversationButtons();
+      setMemorialLandingReady(false, "Ich werde gerade bereit");
       void refreshVoiceProfileSummary();
       window.setTimeout(() => {{
-        void requestMemorialWarmup("page_load");
+        void primeMemorialLanding();
       }}, 120);
     </script>
   </body>
