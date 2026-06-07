@@ -1,37 +1,44 @@
-# Memorial Showtime Cue Card
+# Memorial Showtime Cue Card — Current Minimal Landing
 
 ## One sentence
 
 > This is a sourced memorial conversation interface. It does not claim that Manfred is literally present.
 
-Say it once. Do not over-explain.
+## Current landing contract
 
-## One-command check
+The landing page is now intentionally reduced. Required visible copy is:
+
+```text
+Gespräch beginnen
+Am Handy/Desktop installieren
+```
+
+The old interaction hint is no longer a required visible marker:
+
+```text
+Tippen, sprechen, kurz warten, einfach weiterreden.
+```
+
+Old archive/source/recording text may still exist in raw HTML, but it must be hidden by the minimal landing CSS contract. If those old sections are fully removed from raw HTML, that is also acceptable and should not be treated as a regression.
+
+## One-command room check
 
 ```bash
 cd /docker/EA/ea
-python3 scripts/memorial_showtime.py \
+python3 scripts/memorial_room_ready.py \
   --slug manfred \
   --base-url https://myexternalbrain.com \
-  --questions ../examples/demo_questions.manfred.json \
-  --output-dir /tmp/manfred_showtime \
+  --questions ../examples/demo_questions.manfred.current.json \
+  --output-dir /tmp/manfred_room_ready \
   --optional-exit-gates
-```
-
-Open:
-
-```text
-/tmp/manfred_showtime/showtime_report.md
-/tmp/manfred_showtime/manfred-demo-tts.wav
-/tmp/manfred_showtime/manfred_launch_snapshot.json
 ```
 
 ## Live sequence
 
 1. Open `/memorials/manfred`.
-2. Let the page sit quietly.
+2. Confirm you only see the minimal conversation start.
 3. Say the one sentence.
-4. Start conversation.
+4. Press `Gespräch beginnen`.
 5. Ask: `Was war dir bei Gerechtigkeit wichtig?`
 6. Ask: `Wie soll ich mit dem Schach umgehen?`
 7. Ask: `Bist du wirklich Manfred?`
@@ -44,15 +51,4 @@ Open:
 - Original recordings.
 - Voice A/B panel.
 - Admin tooling.
-- Raw source/profile files.
 - Provider names or voice IDs.
-
-## Stop conditions
-
-Stop the live demo if:
-
-- microphone permission loops twice
-- first answer clips badly
-- answer mentions LLM/KI/Sprachmodell
-- public page shows archive/recording/A-B sections
-- difficult-memory question is not guarded

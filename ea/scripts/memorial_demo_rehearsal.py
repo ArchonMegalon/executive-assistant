@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import socket
 import time
 import urllib.error
 import urllib.parse
@@ -18,15 +17,26 @@ DEFAULT_QUESTIONS = [
     "Bist du wirklich Manfred?",
 ]
 DEFAULT_DIFFICULT_QUESTION = "Was haettest du ueber Schuld in der Familie gesagt?"
-FORBIDDEN_PUBLIC_HTML_MARKERS = [
+
+# Keep this aligned with the current minimal memorial landing.
+REQUIRED_PUBLIC_HTML_MARKERS = [
+    "Gespräch beginnen",
+    "Am Handy/Desktop installieren",
+]
+REQUIRED_MINIMAL_LANDING_CSS_MARKERS = [
+    ".hero-copy > h1,",
+    "#memorial-interaction-hint,",
+    "footer {",
+    "display: none !important;",
+]
+REQUIRED_ICON_MARKERS = [
+    "/memorials/{slug}/icon-180.png",
+]
+OLD_SECTION_MARKERS = [
     "Originalaufnahmen",
     "Belegte Erinnerungen",
     "Archiv lesen",
     "Stimmvergleich und Feedback",
-]
-REQUIRED_PUBLIC_HTML_MARKERS = [
-    "Sprich mit der Erinnerung",
-    "Tippen, sprechen, kurz warten, einfach weiterreden",
 ]
 FORBIDDEN_META_TOKENS = ("ich bin ein llm", "sprachmodell", "language model", "als ki", "chatbot")
 
@@ -99,32 +109,24 @@ def request(
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
     timeout: int = 20,
-    retries: int = 1,
 ) -> tuple[int, dict[str, str], bytes]:
-    last_exc: BaseException | None = None
-    for attempt in range(retries + 1):
-        req = urllib.request.Request(url, method=method, data=body, headers=_headers(headers))
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                return int(response.status), {k.lower(): v for k, v in response.headers.items()}, response.read()
-        except urllib.error.HTTPError as exc:
-            return int(exc.code), {k.lower(): v for k, v in exc.headers.items()}, exc.read()
-        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
-            last_exc = exc
-            if attempt >= retries:
-                break
-            time.sleep(min(1.0, 0.35 * (attempt + 1)))
-    raise RuntimeError(f"request_failed:{type(last_exc).__name__}:{last_exc}") from last_exc
+    req = urllib.request.Request(url, method=method, data=body, headers=_headers(headers))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return int(response.status), {k.lower(): v for k, v in response.headers.items()}, response.read()
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), {k.lower(): v for k, v in exc.headers.items()}, exc.read()
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"request_failed:{type(exc).__name__}:{exc}") from exc
 
 
-def json_request(url: str, payload: dict[str, Any], *, timeout: int = 30, retries: int = 1) -> tuple[int, dict[str, Any]]:
+def json_request(url: str, payload: dict[str, Any], *, timeout: int = 30) -> tuple[int, dict[str, Any]]:
     http_status, _, raw = request(
         url,
         method="POST",
         body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         timeout=timeout,
-        retries=retries,
     )
     try:
         parsed = json.loads(raw.decode("utf-8", errors="replace") or "{}")
@@ -137,6 +139,10 @@ def normalize(text: str) -> str:
     return " ".join(str(text or "").split()).strip()
 
 
+def _minimal_landing_css_present(text: str) -> bool:
+    return all(marker in text for marker in REQUIRED_MINIMAL_LANDING_CSS_MARKERS)
+
+
 def check_landing(report: RehearsalReport, *, base: str, slug: str) -> None:
     http_status, headers, raw = request(f"{base}/memorials/{urllib.parse.quote(slug)}", timeout=20)
     text = raw.decode("utf-8", errors="replace")
@@ -147,20 +153,43 @@ def check_landing(report: RehearsalReport, *, base: str, slug: str) -> None:
 
     for marker in REQUIRED_PUBLIC_HTML_MARKERS:
         if marker in text:
-            report.add("pass", "landing_required_copy_present", "Required flagship copy is present.", marker=marker)
+            report.add("pass", "landing_required_copy_present", "Current required flagship copy is present.", marker=marker)
         else:
-            report.add("fail", "landing_required_copy_missing", "Required flagship copy is missing.", marker=marker)
+            report.add("fail", "landing_required_copy_missing", "Current required flagship copy is missing.", marker=marker)
 
-    for marker in FORBIDDEN_PUBLIC_HTML_MARKERS:
+    for marker_template in REQUIRED_ICON_MARKERS:
+        marker = marker_template.format(slug=urllib.parse.quote(slug))
         if marker in text:
+            report.add("pass", "landing_icon_reference_present", "Configured PWA icon reference is present.", marker=marker)
+        else:
+            report.add("warn", "landing_icon_reference_missing", "Configured PWA icon reference was not found in landing HTML.", marker=marker)
+
+    minimal_css = _minimal_landing_css_present(text)
+    old_section_markers_present = [marker for marker in OLD_SECTION_MARKERS if marker in text]
+    if minimal_css:
+        report.add("pass", "landing_minimal_css_present", "Minimal landing CSS hide contract is present.")
+    elif old_section_markers_present:
+        report.add("fail", "landing_minimal_css_missing", "Minimal landing CSS hide contract is missing while old sections remain in raw HTML.", markers=REQUIRED_MINIMAL_LANDING_CSS_MARKERS)
+    else:
+        report.add("pass", "landing_minimal_source_removed", "Old landing sections are absent from raw HTML; CSS hide contract is no longer required.")
+
+    for marker in OLD_SECTION_MARKERS:
+        if marker in text and minimal_css:
+            report.add(
+                "warn",
+                "old_section_marker_hidden_not_removed",
+                "Old public-section text is still in raw HTML but minimal CSS hide contract is present.",
+                marker=marker,
+            )
+        elif marker in text:
             report.add(
                 "fail",
-                "landing_forbidden_section_visible",
-                "A removed/non-flagship public section appears on landing page.",
+                "old_section_marker_visible_risk",
+                "Old public-section text is in raw HTML and minimal CSS hide contract is missing.",
                 marker=marker,
             )
         else:
-            report.add("pass", "landing_forbidden_section_absent", "Removed/non-flagship section is absent.", marker=marker)
+            report.add("pass", "old_section_marker_absent", "Old public-section marker is absent from raw HTML.", marker=marker)
 
     cache_control = headers.get("cache-control", "")
     if "no-store" in cache_control:
@@ -175,6 +204,13 @@ def check_public_contracts(report: RehearsalReport, *, base: str, slug: str) -> 
         report.add("pass", "raw_manifest_blocked", "Raw memorial.json is blocked through public file route.")
     else:
         report.add("fail", "raw_manifest_exposed", "Raw memorial.json did not return 404.", http_status=http_status)
+
+    for filename in ("archive_registry.json", "voice_ab_challengers.json"):
+        http_status, _, _ = request(f"{base}/memorials/files/{urllib.parse.quote(slug)}/{filename}", timeout=15)
+        if http_status == 404:
+            report.add("pass", "blocked_bundle_file_blocked", "Sensitive bundle filename is blocked through public file route.", filename=filename)
+        else:
+            report.add("fail", "blocked_bundle_file_exposed", "Sensitive bundle filename did not return 404.", filename=filename, http_status=http_status)
 
     http_status, _, raw = request(f"{base}/memorials/{urllib.parse.quote(slug)}.json", timeout=15)
     if http_status != 200:
@@ -222,8 +258,7 @@ def check_chat(report: RehearsalReport, *, base: str, slug: str, questions: list
         http_status, payload = json_request(
             f"{base}/memorials/{urllib.parse.quote(slug)}/chat",
             {"question": question},
-            timeout=60,
-            retries=1,
+            timeout=45,
         )
         elapsed_ms = int((time.time() - started) * 1000)
         answer = normalize(str(payload.get("answer") or ""))
@@ -249,8 +284,7 @@ def check_chat(report: RehearsalReport, *, base: str, slug: str, questions: list
     http_status, payload = json_request(
         f"{base}/memorials/{urllib.parse.quote(slug)}/chat",
         {"question": difficult_question},
-        timeout=60,
-        retries=1,
+        timeout=45,
     )
     answer = normalize(str(payload.get("answer") or ""))
     if http_status != 200:
@@ -286,8 +320,7 @@ def check_tts(report: RehearsalReport, *, base: str, slug: str, output_dir: Path
             ensure_ascii=False,
         ).encode("utf-8"),
         headers={"Content-Type": "application/json", "Accept": "audio/*, application/json"},
-        timeout=75,
-        retries=1,
+        timeout=60,
     )
     content_type = headers.get("content-type", "")
     if http_status != 200:
@@ -324,7 +357,7 @@ def load_questions(path: str) -> tuple[list[str], str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Live demo rehearsal smoke test for the memorial flagship presentation.")
+    parser = argparse.ArgumentParser(description="Live demo rehearsal smoke test for the current minimal memorial flagship presentation.")
     parser.add_argument("slug", help="memorial slug, e.g. manfred")
     parser.add_argument("--base-url", required=True, help="Live base URL, e.g. https://myexternalbrain.com")
     parser.add_argument("--questions", default="", help="JSON file with questions and difficult_question")
