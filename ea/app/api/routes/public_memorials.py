@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import hmac
+import logging
 import math
 import mimetypes
 import os
@@ -62,6 +63,7 @@ from app.services.memorial_voice_profile import build_memorial_voice_profile, lo
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
 
 router = APIRouter(tags=["public-memorials"])
+logger = logging.getLogger(__name__)
 
 _MAX_SPEECH_UPLOAD_BYTES = 12 * 1024 * 1024
 _ONEMIN_SPEECH_AUDIO_TYPES = {
@@ -5166,9 +5168,24 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
     }
 
 
+def _log_memorial_timing(event: str, *, slug: str, **fields: object) -> None:
+    parts = [f"event={event}", f"slug={_safe_slug(slug)}"]
+    for key, value in fields.items():
+        if isinstance(value, float):
+            rendered = f"{value:.1f}"
+        else:
+            rendered = str(value)
+        parts.append(f"{key}={rendered}")
+    logger.info("memorial_timing %s", " ".join(parts))
+
+
 def _run_memorial_live_warmup(slug: str) -> None:
     errors: list[str] = []
     started_at = time.time()
+    started_clock = time.perf_counter()
+    stt_ms = 0.0
+    llm_ms = 0.0
+    tts_ms = 0.0
     with _MEMORIAL_LIVE_WARMUP_LOCK:
         current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
         current["inflight"] = True
@@ -5180,14 +5197,17 @@ def _run_memorial_live_warmup(slug: str) -> None:
         private_profile = _load_private_profile(slug)
         live_prompt = "Hallo Manfred, kann ich jetzt mit dir reden?"
         try:
+            phase_started = time.perf_counter()
             _memorial_transcribe_audio_blob(
                 payload=_memorial_warmup_probe_wav_bytes(),
                 content_type="audio/wav",
             )
+            stt_ms = (time.perf_counter() - phase_started) * 1000.0
         except Exception as exc:
             errors.append(f"speech:{str(exc)[:120]}")
         selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, live_prompt)
         try:
+            phase_started = time.perf_counter()
             _memorial_chat_answer(
                 payload,
                 live_prompt,
@@ -5198,6 +5218,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
                 personal_memory_context={"enabled": False, "available": False, "guest_mode": True},
                 difficult_memory_mode=False,
             )
+            llm_ms = (time.perf_counter() - phase_started) * 1000.0
         except Exception as exc:
             errors.append(f"chat:{str(exc)[:120]}")
         try:
@@ -5208,6 +5229,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
             )
             selected_plugin, selected_option = _resolve_server_tts_plugin(payload=base_config, options=tts_options)
             if bool(selected_option.get("tts_plugin_enabled")):
+                phase_started = time.perf_counter()
                 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
                     piper_fast_synthesize_request(
                         text="Ich bin da.",
@@ -5240,9 +5262,22 @@ def _run_memorial_live_warmup(slug: str) -> None:
                             lang=_text(base_config.get("lang"), "de-AT"),
                             base_voice_variant=_effective_tts_base_voice_variant(base_config),
                         )
+                tts_ms = (time.perf_counter() - phase_started) * 1000.0
         except Exception as exc:
             errors.append(f"tts:{str(exc)[:120]}")
     finally:
+        total_ms = (time.perf_counter() - started_clock) * 1000.0
+        _log_memorial_timing(
+            "warmup",
+            slug=slug,
+            stt_ms=stt_ms,
+            llm_ms=llm_ms,
+            tts_ms=tts_ms,
+            total_ms=total_ms,
+            selected_model=locals().get("selected_model", ""),
+            tts_plugin=locals().get("selected_plugin", ""),
+            errors="|".join(errors[:6]) if errors else "-",
+        )
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
             current["inflight"] = False
@@ -5274,13 +5309,17 @@ def _build_memorial_conversation_turn_payload(
     voice_ab_variant: str = "",
     difficult_memory_mode: bool = False,
 ) -> dict[str, object]:
+    total_started = time.perf_counter()
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
+    stt_started = time.perf_counter()
     transcript_payload = _memorial_transcribe_audio_blob(payload=audio_payload, content_type=content_type)
+    stt_ms = (time.perf_counter() - stt_started) * 1000.0
     transcript_text = _text(transcript_payload.get("transcript_text"))
     if not transcript_text:
         raise HTTPException(status_code=400, detail="speech_transcription_empty")
     selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
+    llm_started = time.perf_counter()
     answer_payload = _memorial_chat_answer(
         payload,
         transcript_text,
@@ -5291,6 +5330,7 @@ def _build_memorial_conversation_turn_payload(
         personal_memory_context=personal_memory_context,
         difficult_memory_mode=difficult_memory_mode,
     )
+    llm_ms = (time.perf_counter() - llm_started) * 1000.0
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
     if voice_ab_variant in {"a", "b"}:
@@ -5311,6 +5351,7 @@ def _build_memorial_conversation_turn_payload(
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+        tts_started = time.perf_counter()
         audio, audio_content_type = piper_fast_synthesize_request(
             text=answer_text,
             lang=_text(merged_config.get("lang"), "de-AT"),
@@ -5323,6 +5364,7 @@ def _build_memorial_conversation_turn_payload(
         )
         if not voice_id:
             raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        tts_started = time.perf_counter()
         audio, audio_content_type = unmixr_synthesize_request(
             text=answer_text,
             voice_id=voice_id,
@@ -5338,6 +5380,7 @@ def _build_memorial_conversation_turn_payload(
         )
         if not voice_id:
             raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        tts_started = time.perf_counter()
         audio, audio_content_type = openvoice_synthesize_request_with_variant(
             text=answer_text,
             voice_id=voice_id,
@@ -5346,7 +5389,9 @@ def _build_memorial_conversation_turn_payload(
         )
     else:
         raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+    tts_ms = (time.perf_counter() - tts_started) * 1000.0
     lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+    pad_started = time.perf_counter()
     audio, audio_content_type = _pad_speech_audio_lead_in(
         payload=audio,
         content_type=audio_content_type,
@@ -5354,6 +5399,7 @@ def _build_memorial_conversation_turn_payload(
         tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
         extra_filters=_speech_postprocess_filters(selected_plugin),
     )
+    pad_ms = (time.perf_counter() - pad_started) * 1000.0
     response_payload = dict(answer_payload)
     response_payload["transcript_text"] = transcript_text
     response_payload["audio_content_type"] = audio_content_type
@@ -5363,6 +5409,22 @@ def _build_memorial_conversation_turn_payload(
         context=personal_memory_context or {},
         question=transcript_text,
         answer=_text(answer_payload.get("answer"), ""),
+    )
+    _log_memorial_timing(
+        "conversation_turn",
+        slug=slug,
+        content_type=content_type,
+        transcript_chars=len(transcript_text),
+        answer_chars=len(answer_text),
+        requested_model=selected_model,
+        effective_model=_text(answer_payload.get("llm_model")),
+        fallback_used=bool(answer_payload.get("llm_fallback_used")),
+        tts_plugin=selected_plugin,
+        stt_ms=stt_ms,
+        llm_ms=llm_ms,
+        tts_ms=tts_ms,
+        pad_ms=pad_ms,
+        total_ms=(time.perf_counter() - total_started) * 1000.0,
     )
     return response_payload
 
@@ -9618,6 +9680,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
 
 @router.post("/memorials/{slug}/conversation-turn")
 async def public_memorial_conversation_turn(slug: str, request: Request) -> JSONResponse:
+    total_started = time.perf_counter()
     memorial = _load_memorial(slug)
     _require_voice_consent(_payload_with_slug(slug, memorial), "conversation_turn")
     content_length = int(str(request.headers.get("content-length") or "0") or "0")
@@ -9629,20 +9692,31 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
     memory_runtime = getattr(container, "memory_runtime", None)
     personal_memory_context = _extract_personal_memory_request_context(request=request)
     difficult_memory_mode = _extract_difficult_memory_mode(request=request)
-    _enforce_public_memorial_rate_limit("conversation_turn", request=request, context=personal_memory_context)
-    voice_ab_variant = _voice_ab_variant_from_request(request=request)
-    response_payload = _build_memorial_conversation_turn_payload(
-        slug=slug,
-        audio_payload=audio_payload,
-        content_type=content_type,
-        prefer_fast_tts=False,
-        memory_runtime=memory_runtime,
-        personal_memory_context=personal_memory_context,
-        voice_ab_variant=voice_ab_variant,
-        difficult_memory_mode=difficult_memory_mode,
-    )
-    response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
-    return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
+    try:
+        _enforce_public_memorial_rate_limit("conversation_turn", request=request, context=personal_memory_context)
+        voice_ab_variant = _voice_ab_variant_from_request(request=request)
+        response_payload = _build_memorial_conversation_turn_payload(
+            slug=slug,
+            audio_payload=audio_payload,
+            content_type=content_type,
+            prefer_fast_tts=False,
+            memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
+            voice_ab_variant=voice_ab_variant,
+            difficult_memory_mode=difficult_memory_mode,
+        )
+        response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
+        return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
+    except HTTPException as exc:
+        _log_memorial_timing(
+            "conversation_turn_error",
+            slug=slug,
+            content_type=content_type,
+            audio_bytes=len(audio_payload),
+            detail=_text(exc.detail, "conversation_turn_failed"),
+            total_ms=(time.perf_counter() - total_started) * 1000.0,
+        )
+        raise
 
 
 @router.websocket("/memorials/{slug}/realtime")
@@ -9678,6 +9752,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         await websocket.send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
 
     async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
+        total_started = time.perf_counter()
         try:
             if not transcript_text:
                 raise HTTPException(status_code=400, detail="speech_transcription_empty")
@@ -9701,6 +9776,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 phase_detail = "Komplizierte Frage. Ich ordne erst die Sache"
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail})
             selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
+            llm_started = time.perf_counter()
             answer_payload = await asyncio.to_thread(
                 _memorial_chat_answer,
                 payload,
@@ -9712,6 +9788,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 personal_memory_context=personal_memory_context,
                 difficult_memory_mode=current_difficult_memory_mode,
             )
+            llm_ms = (time.perf_counter() - llm_started) * 1000.0
             await asyncio.to_thread(
                 _remember_personal_conversation_turn,
                 slug=slug,
@@ -9755,6 +9832,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await _send_cancelled(turn_id)
                 return
             if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+                tts_started = time.perf_counter()
                 audio, audio_content_type = await asyncio.to_thread(
                     piper_fast_synthesize_request,
                     text=answer_text,
@@ -9768,6 +9846,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 )
                 if not voice_id:
                     raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                tts_started = time.perf_counter()
                 audio, audio_content_type = await asyncio.to_thread(
                     unmixr_synthesize_request,
                     text=answer_text,
@@ -9781,6 +9860,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 )
                 if not voice_id:
                     raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                tts_started = time.perf_counter()
                 audio, audio_content_type = await asyncio.to_thread(
                     openvoice_synthesize_request_with_variant,
                     text=answer_text,
@@ -9790,7 +9870,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 )
             else:
                 raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+            tts_ms = (time.perf_counter() - tts_started) * 1000.0
             lead_in_ms = 90 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else 150
+            pad_started = time.perf_counter()
             audio, audio_content_type = await asyncio.to_thread(
                 _pad_speech_audio_lead_in,
                 payload=audio,
@@ -9798,6 +9880,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 silence_ms=lead_in_ms,
                 extra_filters=_speech_postprocess_filters(selected_plugin),
             )
+            pad_ms = (time.perf_counter() - pad_started) * 1000.0
             audio_base64 = base64.b64encode(audio).decode("ascii")
             if audio_base64:
                 chunk_size = 96_000
@@ -9828,23 +9911,79 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     }
                 )
             await websocket.send_json({"type": "turn_complete", "turn_id": turn_id})
+            _log_memorial_timing(
+                "realtime_transcript_turn",
+                slug=slug,
+                turn_id=turn_id,
+                transcript_chars=len(transcript_text),
+                answer_chars=len(answer_text),
+                requested_model=selected_model,
+                effective_model=_text(answer_payload.get("llm_model")),
+                fallback_used=bool(answer_payload.get("llm_fallback_used")),
+                tts_plugin=selected_plugin,
+                llm_ms=llm_ms,
+                tts_ms=tts_ms,
+                pad_ms=pad_ms,
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+            )
         except HTTPException as exc:
+            _log_memorial_timing(
+                "realtime_transcript_turn_error",
+                slug=slug,
+                turn_id=turn_id,
+                detail=_text(exc.detail, "realtime_failed"),
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+            )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
         except Exception:
+            _log_memorial_timing(
+                "realtime_transcript_turn_error",
+                slug=slug,
+                turn_id=turn_id,
+                detail="realtime_failed",
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+            )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "realtime_failed"})
 
     async def _process_turn(turn_id: str, audio_payload: bytes, content_type: str) -> None:
+        total_started = time.perf_counter()
         try:
+            stt_started = time.perf_counter()
             transcript_payload = await asyncio.to_thread(
                 _memorial_transcribe_audio_blob,
                 payload=audio_payload,
                 content_type=content_type,
             )
+            stt_ms = (time.perf_counter() - stt_started) * 1000.0
             transcript_text = _text(transcript_payload.get("transcript_text"))
             await _process_transcript_turn(turn_id, transcript_text)
+            _log_memorial_timing(
+                "realtime_audio_turn",
+                slug=slug,
+                turn_id=turn_id,
+                content_type=content_type,
+                audio_bytes=len(audio_payload),
+                transcript_chars=len(transcript_text),
+                stt_ms=stt_ms,
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+            )
         except HTTPException as exc:
+            _log_memorial_timing(
+                "realtime_audio_turn_error",
+                slug=slug,
+                turn_id=turn_id,
+                detail=_text(exc.detail, "realtime_failed"),
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+            )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
         except Exception:
+            _log_memorial_timing(
+                "realtime_audio_turn_error",
+                slug=slug,
+                turn_id=turn_id,
+                detail="realtime_failed",
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+            )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "realtime_failed"})
 
     try:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import math
 import os
 import struct
@@ -155,6 +156,7 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     slug = _setup_memorial(monkeypatch, tmp_path)
     from app.api.routes import public_memorials
@@ -204,6 +206,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
         "_pad_speech_audio_lead_in",
         lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
     )
+    caplog.set_level(logging.INFO, logger=public_memorials.logger.name)
 
     client = _client(principal_id="exec-memorial-live-audio")
 
@@ -226,6 +229,12 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert decoded_audio.startswith(b"RIFF")
     assert body["audio_content_type"] == "audio/wav"
     assert seen_messages
+    assert any(
+        "memorial_timing event=conversation_turn" in record.getMessage()
+        and "requested_model=ea-gemini-flash" in record.getMessage()
+        and f"tts_plugin={public_memorials.PIPER_FAST_TTS_PLUGIN_ID}" in record.getMessage()
+        for record in caplog.records
+    )
     evidence_block = seen_messages[-1][1]["content"]
     assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
