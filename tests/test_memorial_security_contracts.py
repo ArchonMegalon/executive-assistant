@@ -140,10 +140,14 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
 
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
+    assert "Gespräch beginnen" in page.text
     assert "Am Handy/Desktop installieren" in page.text
-    assert "Tippen, sprechen, kurz warten, einfach weiterreden." in page.text
     assert "App installieren" not in page.text
     assert f"/memorials/{slug}/icon-180.png" in page.text
+    assert ".hero-copy > h1," in page.text
+    assert "#memorial-interaction-hint," in page.text
+    assert "footer {" in page.text
+    assert "display: none !important;" in page.text
 
     icon_response = client.get(f"/memorials/{slug}/icon-512.png")
     assert icon_response.status_code == 200
