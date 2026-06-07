@@ -10550,15 +10550,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
-        except Exception:
+        except Exception as exc:
+            detail = str(exc)[:180] or "realtime_failed"
             _log_memorial_timing(
                 "realtime_transcript_turn_error",
                 slug=slug,
                 turn_id=turn_id,
-                detail="realtime_failed",
+                detail=detail,
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
-            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "realtime_failed"})
+            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": detail})
 
     async def _process_turn(turn_id: str, audio_payload: bytes, content_type: str) -> None:
         total_started = time.perf_counter()
@@ -10591,15 +10592,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
-        except Exception:
+        except Exception as exc:
+            detail = str(exc)[:180] or "realtime_failed"
             _log_memorial_timing(
                 "realtime_audio_turn_error",
                 slug=slug,
                 turn_id=turn_id,
-                detail="realtime_failed",
+                detail=detail,
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
-            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "realtime_failed"})
+            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": detail})
 
     try:
         while True:
