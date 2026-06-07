@@ -2266,6 +2266,25 @@ def _resolve_memorial_voice_chat_model(
     return selected
 
 
+def _resolve_memorial_realtime_chat_model(
+    payload: dict[str, object],
+    private_profile: dict[str, object],
+) -> str:
+    models = _collect_memorial_chat_models(payload, private_profile)
+    preferred = (
+        GEMINI_VORTEX_PUBLIC_MODEL,
+        "ea-coder-fast",
+        "deepseek-chat",
+        "memorial-local-fast",
+    )
+    for candidate in preferred:
+        if candidate == GEMINI_VORTEX_PUBLIC_MODEL:
+            return candidate
+        if candidate in models:
+            return candidate
+    return _resolve_memorial_chat_default_model(payload, private_profile, models)
+
+
 def _load_private_profile(slug: str) -> dict[str, object]:
     safe = _safe_slug(slug)
     root = _private_profile_dir().resolve()
@@ -10432,7 +10451,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             elif _is_memorial_ooda_question(transcript_text):
                 phase_detail = "Komplizierte Frage. Ich ordne erst die Sache"
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail})
-            selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
+            selected_model = _resolve_memorial_realtime_chat_model(payload, private_profile)
             llm_started = time.perf_counter()
             try:
                 answer_payload = await asyncio.wait_for(
@@ -10501,6 +10520,17 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 voice_profile_ready=bool(base_config.get("voice_profile_ready")),
             )
             selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
+            # Realtime conversation optimizes for immediate audible response over premium voice quality.
+            piper_option = next(
+                (
+                    option for option in tts_options
+                    if str(option.get("tts_plugin") or "") == PIPER_FAST_TTS_PLUGIN_ID
+                    and bool(option.get("tts_plugin_enabled"))
+                ),
+                None,
+            )
+            if piper_option is not None:
+                selected_plugin, selected_option = PIPER_FAST_TTS_PLUGIN_ID, piper_option
             if not bool(selected_option.get("tts_plugin_enabled")):
                 raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
             answer_text = _normalize_tts_text(compact_answer)

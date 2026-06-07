@@ -549,10 +549,9 @@ def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
     message_types = [message.get("type") for message in messages]
     assert message_types[:3] == ["transcript", "phase", "answer"]
     answer_message = next(message for message in messages if message.get("type") == "answer")
-    expected_model = public_memorials._resolve_memorial_voice_chat_model(
+    expected_model = public_memorials._resolve_memorial_realtime_chat_model(
         public_memorials._load_memorial(slug),
         public_memorials._load_private_profile(slug),
-        "Hallo Manfred, kannst du jetzt mit mir sprechen?",
     )
     assert "gesicherten Erinnerungsmodus" in answer_message["text"]
     assert answer_message["llm_model"] == expected_model
@@ -684,6 +683,17 @@ def test_memorial_voice_chat_model_uses_gemini_live_fallback_without_explicit_mo
         {},
         {},
         "Hallo Manfred, kann ich jetzt mit dir reden?",
+    )
+
+    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+
+
+def test_memorial_realtime_chat_model_always_prefers_gemini() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_realtime_chat_model(
+        {"chat_models": ["memorial-local-fast", "ea-coder-best"]},
+        {},
     )
 
     assert selected == GEMINI_VORTEX_PUBLIC_MODEL
