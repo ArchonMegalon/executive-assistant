@@ -6100,6 +6100,14 @@ def _memorial_html(
         padding: 16px 28px;
         font-size: 1rem;
       }}
+      .hero-cta.secondary {{
+        background: rgba(255,250,242,.92);
+        border-color: rgba(72,103,126,.22);
+        color: var(--blue);
+        min-height: 50px;
+        font-size: .95rem;
+        box-shadow: 0 10px 24px rgba(64,98,123,.08);
+      }}
       .eyebrow {{
         margin: 0 0 10px;
         color: var(--wine);
@@ -6811,6 +6819,104 @@ def _memorial_html(
       .speech-turn p {{
         color: var(--ink);
       }}
+      .video-call-preview {{
+        width: min(720px, 100%);
+        margin: 18px auto 0;
+        padding: 18px;
+        border: 1px solid rgba(72,103,126,.18);
+        border-radius: 24px;
+        background:
+          radial-gradient(circle at top right, rgba(255,255,255,.36), rgba(255,255,255,0) 32%),
+          linear-gradient(180deg, rgba(255,252,247,.95), rgba(243,234,220,.86));
+        box-shadow: 0 22px 42px rgba(53,42,33,.12);
+      }}
+      .video-call-preview[hidden] {{
+        display: none !important;
+      }}
+      .video-call-preview-head {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 14px;
+      }}
+      .video-call-preview-copy {{
+        display: grid;
+        gap: 4px;
+        text-align: left;
+      }}
+      .video-call-preview-copy strong {{
+        color: var(--blue);
+        font: 700 15px/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+      }}
+      .video-call-preview-copy span {{
+        color: var(--muted);
+        font-size: .94rem;
+      }}
+      .video-call-grid {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }}
+      .video-call-tile {{
+        position: relative;
+        overflow: hidden;
+        min-height: 228px;
+        border-radius: 20px;
+        border: 1px solid rgba(72,103,126,.14);
+        background: linear-gradient(180deg, rgba(53,72,88,.94), rgba(28,40,51,.98));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+      }}
+      .video-call-tile video {{
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }}
+      .video-call-label {{
+        position: absolute;
+        left: 12px;
+        top: 12px;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(18,27,34,.62);
+        color: #fffaf2;
+        font: 700 11px/1 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        backdrop-filter: blur(10px);
+      }}
+      .video-call-placeholder {{
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        text-align: center;
+        color: rgba(255,250,242,.92);
+      }}
+      .video-call-placeholder strong {{
+        display: block;
+        margin-bottom: 8px;
+        font: 700 1.1rem/1.2 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .video-call-placeholder span {{
+        color: rgba(255,250,242,.72);
+        font-size: .94rem;
+        line-height: 1.45;
+      }}
+      .video-call-status {{
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: .94rem;
+        text-align: left;
+      }}
       textarea {{
         width: 100%;
         min-height: 112px;
@@ -6951,6 +7057,12 @@ def _memorial_html(
           width: 100%;
           justify-content: center;
         }}
+        .video-call-grid {{
+          grid-template-columns: 1fr;
+        }}
+        .video-call-tile {{
+          min-height: 188px;
+        }}
         .chat-model-row,
         .chat-model-select {{ width: 100%; max-width: 100%; }}
         .sources li,
@@ -7026,6 +7138,7 @@ def _memorial_html(
           <div class="hero-copy">
             <div class="hero-actions is-readying" id="memorial-hero-actions">
               <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;">Gleich bereit …</button>
+              <button type="button" id="memorial-video-call" class="hero-cta secondary is-readying" title="Video Call mit Manfred Hennig" aria-label="Video Call mit Manfred Hennig" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;">Video Call mit Manfred Hennig</button>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Am Handy/Desktop installieren.
@@ -7056,6 +7169,31 @@ def _memorial_html(
           </div>
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
+        <section class="video-call-preview" id="memorial-video-call-preview" hidden aria-live="polite">
+          <div class="video-call-preview-head">
+            <div class="video-call-preview-copy">
+              <strong>Video Call mit Manfred Hennig</strong>
+              <span>Prelive-Vorschau. Kamera lokal, Manfreds Video-Lane wird vorbereitet.</span>
+            </div>
+            <button type="button" id="memorial-video-call-close">Schließen</button>
+          </div>
+          <div class="video-call-grid">
+            <div class="video-call-tile">
+              <span class="video-call-label">Du</span>
+              <video id="memorial-video-call-self" autoplay muted playsinline></video>
+            </div>
+            <div class="video-call-tile">
+              <span class="video-call-label">Manfred</span>
+              <div class="video-call-placeholder">
+                <div>
+                  <strong>Manfred erscheint hier</strong>
+                  <span>Die Avatar-/Video-Lane ist als nächste Stufe vorbereitet. Bis dahin läuft das Gespräch sofort über Stimme weiter.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="video-call-status" id="memorial-video-call-status">Noch nicht aktiv.</p>
+        </section>
         <div class="minimal-hidden" hidden aria-hidden="true">
           <form class="chat-form" id="memorial-chat-form">
             <select id="memorial-chat-model" class="voice-input chat-model-select" hidden>
@@ -7107,6 +7245,7 @@ def _memorial_html(
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
       const heroActions = document.getElementById("memorial-hero-actions");
+      const videoCallButton = document.getElementById("memorial-video-call");
       const retryButton = document.getElementById("memorial-retry-button");
       const autostartOptin = document.getElementById("memorial-autostart-optin");
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
@@ -7156,6 +7295,10 @@ def _memorial_html(
       const speakingOverlayTitle = document.getElementById("memorial-speaking-overlay-title");
       const speakingOverlayDetail = document.getElementById("memorial-speaking-overlay-detail");
       const speechTranscript = document.getElementById("memorial-speech-transcript");
+      const videoCallPreview = document.getElementById("memorial-video-call-preview");
+      const videoCallCloseButton = document.getElementById("memorial-video-call-close");
+      const videoCallStatus = document.getElementById("memorial-video-call-status");
+      const videoCallSelf = document.getElementById("memorial-video-call-self");
       let lastAnswerText = "";
       let activeRecognition = null;
       let activeRecorder = null;
@@ -7163,6 +7306,7 @@ def _memorial_html(
       let conversationActive = false;
       let activeStream = null;
       let activeAudioContext = null;
+      let activeVideoStream = null;
       let activeSilenceTimer = null;
       let activeMaxTimer = null;
       let activeLevelMonitor = null;
@@ -7533,7 +7677,27 @@ def _memorial_html(
           button.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
         }}
         if (heroActions) heroActions.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
+        if (videoCallButton) {{
+          videoCallButton.disabled = !memorialLandingReady;
+          videoCallButton.setAttribute("aria-disabled", memorialLandingReady ? "false" : "true");
+          videoCallButton.classList.toggle("is-readying", !memorialLandingReady);
+        }}
         if (pushToTalkButton) pushToTalkButton.textContent = label;
+      }}
+      function setVideoCallStatus(message) {{
+        if (videoCallStatus) videoCallStatus.textContent = String(message || "").trim() || "Noch nicht aktiv.";
+      }}
+      function stopVideoCallPreview() {{
+        if (activeVideoStream) {{
+          activeVideoStream.getTracks().forEach((track) => track.stop());
+          activeVideoStream = null;
+        }}
+        if (videoCallSelf) {{
+          try {{ videoCallSelf.pause(); }} catch (error) {{}}
+          videoCallSelf.srcObject = null;
+        }}
+        if (videoCallPreview) videoCallPreview.hidden = true;
+        setVideoCallStatus("Video Call beendet.");
       }}
       function setMemorialLandingReady(ready, detail = "") {{
         memorialLandingReady = Boolean(ready);
@@ -7801,6 +7965,35 @@ def _memorial_html(
         }} catch (error) {{}}
         setMemorialLandingReady(true, "Sprich mit mir");
         void primeRealtimeSocket("page_ready");
+      }}
+      async function startVideoCallPreview() {{
+        if (!memorialLandingReady) {{
+          setSpeechStatus("Ich richte den Video Call kurz ein.", "working", "Einen kleinen Moment");
+          await primeMemorialLanding();
+        }}
+        if (videoCallPreview) videoCallPreview.hidden = false;
+        setVideoCallStatus("Kamera wird vorbereitet ...");
+        try {{
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
+            throw new Error("Kamera im Browser nicht verfügbar.");
+          }}
+          if (activeVideoStream) {{
+            activeVideoStream.getTracks().forEach((track) => track.stop());
+            activeVideoStream = null;
+          }}
+          activeVideoStream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }}, audio: false }});
+          if (videoCallSelf) {{
+            videoCallSelf.srcObject = activeVideoStream;
+            try {{ await videoCallSelf.play(); }} catch (error) {{}}
+          }}
+          setVideoCallStatus("Kamera aktiv. Manfreds Video-Lane ist als nächster Schritt vorgesehen; das Gespräch läuft schon über Stimme.");
+          if (!conversationActive) {{
+            await window.__memorialStartConversation();
+          }}
+        }} catch (error) {{
+          setVideoCallStatus(String(error && error.message ? error.message : "Kamera konnte nicht geöffnet werden."));
+          setSpeechStatus("Video Call konnte die Kamera gerade nicht öffnen.", "error", "Kamera freigeben und noch einmal versuchen");
+        }}
       }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -9041,6 +9234,7 @@ def _memorial_html(
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
+        stopVideoCallPreview();
         setSpeechStatus("Ich warte wieder auf dich.", "idle", "Sprich mit mir");
       }}
       }}
@@ -9055,6 +9249,9 @@ def _memorial_html(
         }}
         setSpeechStatus("Ich oeffne das Mikrofon ...", "working", "Bitte erlaube kurz das Mikrofon, falls dein Browser fragt");
         if (!conversationActive) toggleConversation();
+      }};
+      window.__memorialStartVideoCall = async () => {{
+        await startVideoCallPreview();
       }};
       if (form) {{
         form.addEventListener("submit", (event) => {{
@@ -9076,6 +9273,16 @@ def _memorial_html(
       }}
       if (pushToTalkButton) {{
         pushToTalkButton.addEventListener("click", () => toggleConversation());
+      }}
+      if (videoCallButton) {{
+        videoCallButton.addEventListener("click", () => {{
+          void startVideoCallPreview();
+        }});
+      }}
+      if (videoCallCloseButton) {{
+        videoCallCloseButton.addEventListener("click", () => {{
+          stopVideoCallPreview();
+        }});
       }}
       if (speakingOverlay) {{
         speakingOverlay.addEventListener("click", () => interruptSpeakingPlayback());
@@ -9099,6 +9306,7 @@ def _memorial_html(
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
+        stopVideoCallPreview();
         stopSpeechPlayback();
         if (activeRequestController) {{
           try {{ activeRequestController.abort(); }} catch (error) {{}}

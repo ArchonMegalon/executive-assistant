@@ -141,6 +141,7 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
     assert "Gespräch beginnen" in page.text
+    assert "Video Call mit Manfred Hennig" in page.text
     assert "Am Handy/Desktop installieren" in page.text
     assert "App installieren" not in page.text
     assert f"/memorials/{slug}/icon-180.png" in page.text
@@ -150,6 +151,8 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'requestMemorialWarmup("page_load")' in page.text
     assert 'requestMemorialWarmup("conversation_start")' in page.text
     assert "primeMemorialLanding()" in page.text
+    assert "startVideoCallPreview()" in page.text
+    assert 'id="memorial-video-call-preview"' in page.text
     assert "Gleich bereit" in page.text
     assert "<h1>" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
