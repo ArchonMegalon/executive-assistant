@@ -231,6 +231,73 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert "Erinnerungsgedaechtnis:" not in evidence_block
 
 
+def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_explicit_model_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred, kann ich jetzt mit dir reden?")
+    output_audio = _generated_wav_bytes(textish_seed="Ja, ich bin da.")
+    seen_requested_models: list[str] = []
+
+    def _fake_transcribe(*, payload, content_type):
+        assert payload.startswith(b"RIFF")
+        assert content_type.startswith("audio/wav")
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": "Hallo Manfred, kann ich jetzt mit dir reden?",
+            "transcriber": "unit-test",
+        }
+
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+        seen_requested_models.append(requested_model)
+        return SimpleNamespace(text="Ja, ich bin da. Sprich einfach los.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe)
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-gemini-turn")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert seen_requested_models == [GEMINI_VORTEX_PUBLIC_MODEL]
+    assert body["llm_request_model"] == GEMINI_VORTEX_PUBLIC_MODEL
+    assert body["llm_fallback_used"] is False
+
+
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
