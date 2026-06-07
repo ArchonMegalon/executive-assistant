@@ -42,10 +42,11 @@
     },
     {
       "id": "submit",
-      "type": "click",
+      "type": "submit_login_form",
       "label": "Submit Login",
       "config": {
-        "selector": "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")"
+        "selector": "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")",
+        "password_selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]"
       }
     },
     {
@@ -53,7 +54,7 @@
       "type": "wait",
       "label": "Wait Authenticated",
       "config": {
-        "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']",
+        "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]",
         "state": "hidden",
         "timeout_ms": 45000
       }
