@@ -113,7 +113,7 @@ def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
             200,
             "<html><body>Tippen, sprechen, kurz warten, einfach weiterreden."
             "<button id=\"memorial-conversation\">Sprich mit der Erinnerung</button>"
-            "<button id=\"memorial-retry-button\">Noch einmal versuchen</button></body></html>",
+            "<button id=\"memorial-retry-button\">Bitte noch einmal sprechen</button></body></html>",
         ),
         "https://example.test/memorials/manfred/voice-config": (
             200,

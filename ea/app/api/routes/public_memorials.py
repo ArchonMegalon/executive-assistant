@@ -6766,7 +6766,7 @@ def _memorial_html(
             <span id="memorial-speech-detail"></span>
           </div>
         </div>
-        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Noch einmal versuchen</button>
+        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="minimal-hidden" hidden aria-hidden="true">
           <form class="chat-form" id="memorial-chat-form">
             <select id="memorial-chat-model" class="voice-input chat-model-select" hidden>
@@ -7335,7 +7335,7 @@ def _memorial_html(
           thinking: "Einen Moment",
           speaking: "Ich spreche",
           working: "Einen Moment",
-          error: "Problem"
+          error: "Ich bin noch da"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = detail || ({{
           idle: "Sprich mit mir",
@@ -7344,7 +7344,7 @@ def _memorial_html(
           thinking: "Ich finde gerade die richtigen Worte",
           speaking: "Tippe, wenn du mich unterbrechen willst",
           working: "Bitte kurz warten",
-          error: "Noch einmal versuchen"
+          error: "Bitte sprich noch einmal"
         }})[state] || "";
         if (!speechMeterLive) {{
           const ambientLevel = ({{
@@ -8351,7 +8351,7 @@ def _memorial_html(
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!Recognition) {{
-          setSpeechStatus("Dein Browser kann gerade nicht direkt zuhoeren. Ich versuche es anders.", "error", "Noch einmal versuchen");
+          setSpeechStatus("Dein Browser kann gerade nicht direkt zuhoeren. Ich versuche es anders.", "error", "Bitte sprich noch einmal");
           if (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {{
             void startServerSpeechInput();
           }}
@@ -8397,7 +8397,7 @@ def _memorial_html(
             "network": "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal.",
             "aborted": "Ich habe angehalten."
           }};
-          setSpeechStatus(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal.", "error", "Noch einmal versuchen");
+          setSpeechStatus(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal.", "error", "Bitte sprich noch einmal");
         }};
         recognition.onend = () => {{
           if (listenButton) listenButton.disabled = false;
@@ -8405,7 +8405,7 @@ def _memorial_html(
           if (activeRecognition === recognition) activeRecognition = null;
           if (speechHadError) return;
           const text = normalizeTranscriptText(question.value || finalText || "");
-          setSpeechStatus(text ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.", text ? "working" : "error", text ? "Einen Moment" : "Noch einmal versuchen");
+          setSpeechStatus(text ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.", text ? "working" : "error", text ? "Einen Moment" : "Bitte sprich noch einmal");
           if (text) askMemorialChat(text);
         }};
         try {{
@@ -8413,17 +8413,17 @@ def _memorial_html(
         }} catch (error) {{
           activeRecognition = null;
           if (listenButton) listenButton.disabled = false;
-          setSpeechStatus("Ich konnte das Mikrofon gerade nicht starten. Bitte versuche es noch einmal.", "error", "Noch einmal versuchen");
+          setSpeechStatus("Ich konnte das Mikrofon gerade nicht starten. Bitte versuche es noch einmal.", "error", "Bitte sprich noch einmal");
         }}
       }}
       async function startServerSpeechInput() {{
         try {{
           const result = await captureServerTranscript();
           const transcript = normalizeTranscriptText(result && result.transcript || "");
-          setSpeechStatus(transcript ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert.", transcript ? "working" : "error", transcript ? "Einen Moment" : "Noch einmal versuchen");
+          setSpeechStatus(transcript ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert.", transcript ? "working" : "error", transcript ? "Einen Moment" : "Bitte sprich noch einmal");
           if (transcript) askMemorialChat(transcript);
         }} catch (error) {{
-          setSpeechStatus(String(error && error.message ? error.message : "Ich konnte dein Mikrofon gerade nicht oeffnen."), "error", "Noch einmal versuchen");
+          setSpeechStatus(String(error && error.message ? error.message : "Ich konnte dein Mikrofon gerade nicht oeffnen."), "error", "Bitte sprich noch einmal");
         }}
       }}
       async function captureRealtimeTranscript(options = {{}}) {{
@@ -8559,7 +8559,7 @@ def _memorial_html(
         }} catch (error) {{
           conversationActive = false;
           setConversationUi(false);
-          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespraech beendet");
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Ich warte wieder auf dich");
           releaseConversationAudio();
         }} finally {{
           conversationTurnInFlight = false;
@@ -8588,7 +8588,7 @@ def _memorial_html(
         }} catch (error) {{
           conversationActive = false;
           setConversationUi(false);
-          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespraech beendet");
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Ich warte wieder auf dich");
           releaseConversationAudio();
         }}
       }}

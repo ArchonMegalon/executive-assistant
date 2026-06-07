@@ -382,7 +382,7 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert "Belegte Erinnerungen" not in body
     assert 'id="memorial-voice-config-form"' not in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." in body
-    assert "Noch einmal versuchen" in body
+    assert "Bitte noch einmal sprechen" in body
     assert "overflow-wrap: anywhere;" in body
     assert ".collapse-summary:focus-visible" in body
     assert "<h2>Archiv lesen</h2>" not in body

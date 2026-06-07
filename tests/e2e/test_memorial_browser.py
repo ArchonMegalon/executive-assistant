@@ -546,10 +546,10 @@ def test_memorial_retry_button_recovers_from_microphone_denial(
         assert response is not None and response.ok
 
         page.get_by_role("button", name="Sprich mit der Erinnerung").click()
-        page.get_by_role("button", name="Noch einmal versuchen").wait_for(state="visible", timeout=5000)
+        page.get_by_role("button", name="Bitte noch einmal sprechen").wait_for(state="visible", timeout=5000)
         assert page.get_by_text("Bitte erlaube kurz das Mikrofon und versuche es noch einmal.").is_visible()
 
-        page.get_by_role("button", name="Noch einmal versuchen").click()
+        page.get_by_role("button", name="Bitte noch einmal sprechen").click()
         page.wait_for_function(
             """
             () => {
