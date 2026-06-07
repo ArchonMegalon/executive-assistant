@@ -73,3 +73,13 @@ def test_manual_receipts_remain_unverified_and_write_to_disk(tmp_path: Path) -> 
     loaded = json.loads(path.read_text(encoding="utf-8"))
     assert loaded["verified"] is False
     assert loaded["receipt_type"] == "watermark_export_receipt"
+
+
+def test_failed_capture_summary_marks_captcha_blocker() -> None:
+    module = _load_script()
+
+    summary = module._failed_capture_summary("vidboard_capture_worker_failed:template_worker_failed:captcha_required")
+
+    assert summary["authenticated_workspace_detected"] is False
+    assert summary["render_status"] == "failed"
+    assert summary["ui_failure_code"] == "captcha_required"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.services.browseract_ui_service_catalog import browseract_ui_service_by_alias
+from app.services.browseract_ui_template_catalog import browseract_ui_template_spec
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService, _inventory_markdown_path
 from app.services.provider_registry import ProviderRegistryService
 
@@ -68,6 +69,16 @@ def test_browseract_ui_service_aliases_resolve_inventory_service_names() -> None
     assert vidboard.service_key == "vidboard_workspace_reader"
 
     assert browseract_ui_service_by_alias("BrowserAct") is None
+
+
+def test_vidboard_template_detects_recaptcha_as_auth_failure() -> None:
+    spec = browseract_ui_template_spec("vidboard_workspace_reader")
+    submit = next(node for node in spec["nodes"] if node["id"] == "submit")
+
+    assert submit["type"] == "submit_login_form"
+    assert submit["config"]["auth_failure_code"] == "captcha_required"
+    assert "body" in submit["config"]["auth_failure_selectors"]
+    assert "please complete the recaptcha" in submit["config"]["auth_failure_text_markers"]
 
 
 def test_ltd_runtime_catalog_derives_provider_ui_and_runtime_managed_profiles(tmp_path: Path) -> None:

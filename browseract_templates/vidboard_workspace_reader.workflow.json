@@ -10,7 +10,7 @@
       "type": "visit_page",
       "label": "Open Login",
       "config": {
-        "url": "https://app.vidboard.ai"
+        "url": "https://www.vidboard.ai/tool/accounts/login/"
       }
     },
     {

@@ -25,6 +25,9 @@ class BrowserActUiTemplateDefinition:
         "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), "
         "button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")"
     )
+    direct_auth_failure_code: str = ""
+    direct_auth_failure_selectors: tuple[str, ...] = ()
+    direct_auth_failure_text_markers: tuple[str, ...] = ()
     prompt_selector: str = "textarea, [contenteditable='true'], input[type='text']"
     submit_selector: str = (
         "button[type=submit], button:has-text(\"Generate\"), button:has-text(\"Create\"), "
@@ -131,6 +134,9 @@ class BrowserActUiTemplateDefinition:
                 "config": {
                     "selector": self.direct_submit_selector,
                     "password_selector": self.direct_password_selector,
+                    **({"auth_failure_code": self.direct_auth_failure_code} if self.direct_auth_failure_code else {}),
+                    **({"auth_failure_selectors": list(self.direct_auth_failure_selectors)} if self.direct_auth_failure_selectors else {}),
+                    **({"auth_failure_text_markers": list(self.direct_auth_failure_text_markers)} if self.direct_auth_failure_text_markers else {}),
                 },
             },
             {
@@ -949,11 +955,14 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         template_key="vidboard_workspace_reader",
         workflow_name="VidBoard Workspace Reader",
         description="Open the logged-in VidBoard workspace and extract the visible avatar/video creation surface for provider-proof review.",
-        login_url="https://app.vidboard.ai",
+        login_url="https://www.vidboard.ai/tool/accounts/login/",
         tool_url="",
         workflow_kind="page_extract",
         runtime_input_name="page_url",
         authorized_credential_queries=("vidboard.ai",),
+        direct_auth_failure_code="captcha_required",
+        direct_auth_failure_selectors=("body", "form", ".text-danger", "li"),
+        direct_auth_failure_text_markers=("please complete the recaptcha", "complete the recaptcha", "captcha"),
         wait_selector="main, [role='main'], body",
         result_selector="main, [role='main'], body",
     ),

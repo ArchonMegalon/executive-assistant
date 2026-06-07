@@ -22,6 +22,7 @@ DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
 DEFAULT_RECEIPT_DIR = DEFAULT_OUT_DIR / "receipts"
 DEFAULT_CAPTURE_PATH = DEFAULT_OUT_DIR / "vidboard_workspace_capture.generated.json"
 WORKER_SCRIPT = ROOT / "scripts" / "browseract_template_service_worker.py"
+ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")
 RECEIPT_TYPES = (
     "login_capture",
     "commercial_use_terms_receipt",
@@ -38,7 +39,20 @@ def _utc_now() -> str:
 
 
 def _env_value(name: str) -> str:
-    return str(os.environ.get(name) or "").strip()
+    direct = str(os.environ.get(name) or "").strip()
+    if direct:
+        return direct
+    for env_file in ENV_FILES:
+        if not env_file.is_file():
+            continue
+        for raw_line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == name:
+                return value.strip()
+    return ""
 
 
 def _login_email(value: str) -> str:
@@ -50,17 +64,19 @@ def _login_password(value: str) -> str:
 
 
 def _run_worker(*, login_email: str, login_password: str, page_url: str, timeout_seconds: int) -> dict[str, object]:
+    runtime_inputs = {
+        "browseract_username": login_email,
+        "browseract_password": login_password,
+    }
+    if page_url.strip():
+        runtime_inputs["page_url"] = page_url.strip()
     packet = {
         "template_key": "vidboard_workspace_reader",
         "workflow_spec_json": browseract_ui_template_spec("vidboard_workspace_reader"),
         "browseract_username": login_email,
         "browseract_password": login_password,
-        "page_url": page_url,
-        "runtime_inputs_json": {
-            "browseract_username": login_email,
-            "browseract_password": login_password,
-            "page_url": page_url,
-        },
+        "page_url": page_url.strip(),
+        "runtime_inputs_json": runtime_inputs,
         "timeout_seconds": timeout_seconds,
     }
     completed = subprocess.run(
@@ -110,6 +126,29 @@ def _capture_summary(result: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _failed_capture_summary(detail: str) -> dict[str, object]:
+    normalized = str(detail or "").strip()
+    failure_code = "capture_failed"
+    if "captcha_required" in normalized:
+        failure_code = "captcha_required"
+    elif "invalid_credentials" in normalized:
+        failure_code = "invalid_credentials"
+    return {
+        "captured_at": _utc_now(),
+        "provider_key": "vidboard",
+        "template_key": "vidboard_workspace_reader",
+        "authenticated_workspace_detected": False,
+        "render_status": "failed",
+        "ui_failure_code": failure_code,
+        "title": "",
+        "url": "",
+        "warnings": [],
+        "errors": [normalized[:1200]],
+        "body_excerpt": "",
+        "raw_result": {"error": normalized[:1200]},
+    }
+
+
 def _receipt_payload(receipt_type: str, capture_summary: dict[str, object]) -> dict[str, object]:
     verified = bool(receipt_type == "login_capture" and capture_summary.get("authenticated_workspace_detected") is True)
     notes = {
@@ -143,7 +182,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Capture a VidBoard workspace snapshot and materialize provider-proof receipt stubs.")
     parser.add_argument("--login-email", default="")
     parser.add_argument("--login-password", default="")
-    parser.add_argument("--page-url", default="https://app.vidboard.ai")
+    parser.add_argument("--page-url", default="")
     parser.add_argument("--timeout-seconds", type=int, default=360)
     parser.add_argument("--output", default=str(DEFAULT_CAPTURE_PATH))
     parser.add_argument("--receipt-dir", default=str(DEFAULT_RECEIPT_DIR))
@@ -156,20 +195,25 @@ def main() -> int:
     if not login_password:
         raise SystemExit("vidboard_login_password_missing")
 
-    result = _run_worker(
-        login_email=login_email,
-        login_password=login_password,
-        page_url=str(args.page_url).strip() or "https://app.vidboard.ai",
-        timeout_seconds=max(120, int(args.timeout_seconds)),
-    )
-    capture_summary = _capture_summary(result)
+    exit_code = 0
+    try:
+        result = _run_worker(
+            login_email=login_email,
+            login_password=login_password,
+            page_url=str(args.page_url).strip(),
+            timeout_seconds=max(120, int(args.timeout_seconds)),
+        )
+        capture_summary = _capture_summary(result)
+    except Exception as exc:
+        capture_summary = _failed_capture_summary(str(exc))
+        exit_code = 1
     output_path = Path(args.output)
     _write_json(output_path, capture_summary)
     receipt_dir = Path(args.receipt_dir)
     for receipt_type in RECEIPT_TYPES:
         _write_json(receipt_dir / f"vidboard_{receipt_type}.json", _receipt_payload(receipt_type, capture_summary))
     print(json.dumps({"status": "ok", "capture": output_path.as_posix(), "receipt_dir": receipt_dir.as_posix()}, ensure_ascii=True))
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
