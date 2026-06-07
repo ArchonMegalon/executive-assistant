@@ -316,6 +316,18 @@ def test_memorial_voice_chat_model_keeps_memorial_local_fast_as_default_non_live
     assert selected == "memorial-local-fast"
 
 
+def test_memorial_voice_chat_model_uses_gemini_live_fallback_without_explicit_model_catalog() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_voice_chat_model(
+        {},
+        {},
+        "Hallo Manfred, kann ich jetzt mit dir reden?",
+    )
+
+    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+
+
 def test_memorial_realtime_timeout_copy_invites_retry_without_sounding_like_a_failure() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 

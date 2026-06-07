@@ -2243,14 +2243,17 @@ def _resolve_memorial_voice_chat_model(
     question: str = "",
 ) -> str:
     selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
+    live_interaction = _is_memorial_live_interaction_question(question)
     preferred = (
         (GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat", "memorial-local-fast")
-        if _is_memorial_live_interaction_question(question)
+        if live_interaction
         else ("memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat")
     )
     for candidate in preferred:
         if candidate in models:
             return candidate
+    if live_interaction:
+        return GEMINI_VORTEX_PUBLIC_MODEL
     return selected
 
 
