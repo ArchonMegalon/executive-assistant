@@ -560,6 +560,87 @@ def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
     assert "turn_complete" in message_types
 
 
+def test_memorial_realtime_text_turn_falls_back_to_piper_when_tts_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    piper_audio = _generated_wav_bytes(textish_seed="Schneller Piper Fallback.")
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-live-timeout",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
+            "answer": "Ich bin da und antworte sofort.",
+            "sources": [],
+            "llm_model": "unit-test-model",
+            "llm_provider": "unit-test-model",
+            "llm_request_model": "unit-test-model",
+            "llm_fallback_used": False,
+        },
+    )
+
+    def _slow_unmixr(**kwargs):
+        time.sleep(0.05)
+        return (_generated_wav_bytes(textish_seed="Langsame Unmixr Stimme."), "audio/wav")
+
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _slow_unmixr)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (piper_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-realtime-tts-timeout")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_tts_timeout_1",
+                "text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+                "personal_memory_enabled": False,
+            }
+        )
+        messages = []
+        for _ in range(10):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    message_types = [message.get("type") for message in messages]
+    assert "answer" in message_types
+    assert "audio_complete" in message_types
+    assert "turn_complete" in message_types
+
+
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 

@@ -99,6 +99,7 @@ _MEMORIAL_FAST_TTS_LEAD_IN_MS = 90
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 220
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
+_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 8.0
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
     "speech_transcribe": (10, 60),
@@ -10416,54 +10417,83 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
-            if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-                tts_started = time.perf_counter()
+            tts_started = time.perf_counter()
+            tts_plugin_used = selected_plugin
+            try:
+                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+                    audio, audio_content_type = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            piper_fast_synthesize_request,
+                            text=answer_text,
+                            lang=_text(merged_config.get("lang"), "de-AT"),
+                            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+                        ),
+                        timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
+                    )
+                elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+                    voice_id = _text(
+                        merged_config.get("tts_plugin_voice_id"),
+                        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+                    )
+                    if not voice_id:
+                        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                    audio, audio_content_type = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            unmixr_synthesize_request,
+                            text=answer_text,
+                            voice_id=voice_id,
+                            lang=_text(merged_config.get("lang"), "de"),
+                        ),
+                        timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
+                    )
+                elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+                    voice_id = _text(
+                        merged_config.get("tts_plugin_voice_id"),
+                        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+                    )
+                    if not voice_id:
+                        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                    audio, audio_content_type = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            openvoice_synthesize_request_with_variant,
+                            text=answer_text,
+                            voice_id=voice_id,
+                            lang=_text(merged_config.get("lang"), "de-AT"),
+                            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+                        ),
+                        timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
+                    )
+                else:
+                    raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+            except asyncio.TimeoutError:
+                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+                    raise HTTPException(status_code=504, detail="tts_timeout")
+                tts_plugin_used = PIPER_FAST_TTS_PLUGIN_ID
                 audio, audio_content_type = await asyncio.to_thread(
                     piper_fast_synthesize_request,
                     text=answer_text,
                     lang=_text(merged_config.get("lang"), "de-AT"),
                     base_voice_variant=_effective_tts_base_voice_variant(merged_config),
                 )
-            elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-                voice_id = _text(
-                    merged_config.get("tts_plugin_voice_id"),
-                    _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-                )
-                if not voice_id:
-                    raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-                tts_started = time.perf_counter()
+            except Exception:
+                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+                    raise
+                tts_plugin_used = PIPER_FAST_TTS_PLUGIN_ID
                 audio, audio_content_type = await asyncio.to_thread(
-                    unmixr_synthesize_request,
+                    piper_fast_synthesize_request,
                     text=answer_text,
-                    voice_id=voice_id,
-                    lang=_text(merged_config.get("lang"), "de"),
-                )
-            elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-                voice_id = _text(
-                    merged_config.get("tts_plugin_voice_id"),
-                    _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-                )
-                if not voice_id:
-                    raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-                tts_started = time.perf_counter()
-                audio, audio_content_type = await asyncio.to_thread(
-                    openvoice_synthesize_request_with_variant,
-                    text=answer_text,
-                    voice_id=voice_id,
                     lang=_text(merged_config.get("lang"), "de-AT"),
                     base_voice_variant=_effective_tts_base_voice_variant(merged_config),
                 )
-            else:
-                raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
             tts_ms = (time.perf_counter() - tts_started) * 1000.0
-            lead_in_ms = 90 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else 150
+            lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
             pad_started = time.perf_counter()
             audio, audio_content_type = await asyncio.to_thread(
                 _pad_speech_audio_lead_in,
                 payload=audio,
                 content_type=audio_content_type,
                 silence_ms=lead_in_ms,
-                extra_filters=_speech_postprocess_filters(selected_plugin),
+                extra_filters=_speech_postprocess_filters(tts_plugin_used),
             )
             pad_ms = (time.perf_counter() - pad_started) * 1000.0
             audio_base64 = base64.b64encode(audio).decode("ascii")
@@ -10505,7 +10535,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 requested_model=selected_model,
                 effective_model=_text(answer_payload.get("llm_model")),
                 fallback_used=bool(answer_payload.get("llm_fallback_used")),
-                tts_plugin=selected_plugin,
+                tts_plugin=tts_plugin_used,
                 llm_ms=llm_ms,
                 tts_ms=tts_ms,
                 pad_ms=pad_ms,
