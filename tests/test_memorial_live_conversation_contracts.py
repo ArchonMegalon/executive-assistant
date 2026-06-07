@@ -15,6 +15,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
+from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -289,3 +290,34 @@ def test_memorial_realtime_rejects_audio_bytes_before_start(
         websocket.send_bytes(b"unexpected-audio")
         error = websocket.receive_json()
         assert error == {"type": "error", "message": "audio_start_required"}
+
+
+def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_voice_chat_model(
+        {"chat_models": [GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat"]},
+        {},
+        "Hallo Manfred, kannst du kurz direkt mit mir reden?",
+    )
+
+    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+
+
+def test_memorial_voice_chat_model_keeps_memorial_local_fast_as_default_non_live_choice() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_voice_chat_model(
+        {"chat_models": ["memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast"]},
+        {},
+        "Erzaehl mir etwas ueber deine Jugend.",
+    )
+
+    assert selected == "memorial-local-fast"
+
+
+def test_memorial_realtime_timeout_copy_invites_retry_without_sounding_like_a_failure() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "Ich bin noch da, aber gerade etwas langsamer. Bitte sag es noch einmal." in source
+    assert "Ich brauche gerade laenger als erwartet. Bitte sprich noch einmal." not in source

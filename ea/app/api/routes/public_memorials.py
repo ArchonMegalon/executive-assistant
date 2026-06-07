@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 import requests
 
-from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL
+from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL, GEMINI_VORTEX_PUBLIC_MODEL
 from app.services.memorial_openvoice import (
     OPENVOICE_TTS_PLUGIN_ID,
     PIPER_FAST_TTS_PLUGIN_ID,
@@ -2243,7 +2243,11 @@ def _resolve_memorial_voice_chat_model(
     question: str = "",
 ) -> str:
     selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
-    preferred = ("ea-coder-fast", "deepseek-chat", "memorial-local-fast") if _is_memorial_live_interaction_question(question) else ("memorial-local-fast", "ea-coder-fast", "deepseek-chat")
+    preferred = (
+        (GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat", "memorial-local-fast")
+        if _is_memorial_live_interaction_question(question)
+        else ("memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat")
+    )
     for candidate in preferred:
         if candidate in models:
             return candidate
@@ -7612,7 +7616,7 @@ def _memorial_html(
             realtimeTurnData = null;
             activeRealtimeTurnId = "";
             syncConversationButtons();
-            reject(new Error("Ich brauche gerade laenger als erwartet. Bitte sprich noch einmal."));
+            reject(new Error("Ich bin noch da, aber gerade etwas langsamer. Bitte sag es noch einmal."));
           }}, 25000);
           realtimeTurnPending = {{ resolve, reject, turnId, timeoutId }};
         }});
