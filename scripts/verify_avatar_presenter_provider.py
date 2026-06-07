@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -99,6 +100,70 @@ def _provider_ready(spec: dict[str, object]) -> bool:
     )
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _capture_summary_is_authenticated(capture_path: Path, provider_key: str) -> bool:
+    if not capture_path.is_file():
+        return False
+    try:
+        payload = json.loads(capture_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return (
+        str(payload.get("provider_key") or "").strip().lower() == provider_key
+        and bool(payload.get("authenticated_workspace_detected") is True)
+        and str(payload.get("render_status") or "").strip().lower() in {"completed", "completed_with_warnings"}
+    )
+
+
+def _receipt_capture_path(receipt: dict[str, Any]) -> Path | None:
+    raw = str(receipt.get("capture_path") or "").strip()
+    if not raw:
+        return None
+    return Path(raw)
+
+
+def _receipt_capture_matches(receipt: dict[str, Any], provider_key: str) -> bool:
+    capture_path = _receipt_capture_path(receipt)
+    expected_sha = str(receipt.get("capture_file_sha256") or "").strip().lower()
+    if capture_path is None or not expected_sha or not capture_path.is_file():
+        return False
+    try:
+        actual_sha = _sha256_file(capture_path)
+    except Exception:
+        return False
+    if actual_sha.lower() != expected_sha:
+        return False
+    return _capture_summary_is_authenticated(capture_path, provider_key)
+
+
+def _manual_review_complete(receipt: dict[str, Any]) -> bool:
+    return all(str(receipt.get(field) or "").strip() for field in ("reviewed_by", "reviewed_at", "evidence_ref"))
+
+
+def _receipt_is_trusted(receipt: dict[str, Any], provider_key: str, receipt_type: str) -> tuple[bool, str]:
+    verified = bool(receipt.get("verified") is True)
+    if not verified:
+        return False, "receipt_not_verified"
+    if not _receipt_capture_matches(receipt, provider_key):
+        return False, "capture_missing_or_hash_mismatch"
+    if receipt_type == "login_capture":
+        if bool(receipt.get("source_capture_authenticated") is not True):
+            return False, "login_capture_not_authenticated"
+        return True, "trusted_login_capture"
+    if not _manual_review_complete(receipt):
+        return False, "manual_review_metadata_missing"
+    return True, "trusted_manual_review"
+
+
 def _load_receipts(provider_key: str, receipt_dir: Path) -> list[dict[str, Any]]:
     receipts: list[dict[str, Any]] = []
     if not receipt_dir.is_dir():
@@ -121,21 +186,24 @@ def _load_receipts(provider_key: str, receipt_dir: Path) -> list[dict[str, Any]]
 
 def _apply_receipts(spec: dict[str, object], receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     loaded: list[dict[str, Any]] = []
+    provider_key = str(spec.get("provider") or "").strip().lower()
     for receipt in receipts:
         receipt_type = str(receipt.get("receipt_type") or "").strip()
         target_field = RECEIPT_FIELD_MAP.get(receipt_type)
-        verified = bool(receipt.get("verified") is True)
+        trusted, trust_status = _receipt_is_trusted(receipt, provider_key, receipt_type)
         loaded.append(
             {
                 "receipt_type": receipt_type,
-                "verified": verified,
+                "verified": bool(receipt.get("verified") is True),
+                "trusted": trusted,
+                "trust_status": trust_status,
                 "path": str(receipt.get("path") or ""),
                 "captured_at": str(receipt.get("captured_at") or ""),
             }
         )
-        if target_field and verified:
+        if target_field and trusted:
             spec[target_field] = True
-        if receipt_type == "login_capture" and verified:
+        if receipt_type == "login_capture" and trusted:
             spec["status"] = "verified"
     return loaded
 

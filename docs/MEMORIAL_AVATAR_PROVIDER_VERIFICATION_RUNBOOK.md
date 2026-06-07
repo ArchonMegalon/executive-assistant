@@ -42,6 +42,18 @@ That command writes:
 
 It only auto-verifies `login_capture` when an authenticated workspace snapshot is actually detected. All other receipt files remain manual review stubs until a human confirms the proof.
 
+Every generated receipt now carries:
+
+- `capture_path`
+- `capture_file_sha256`
+- `source_capture_authenticated`
+
+Manual review receipts also require these operator fields before the verifier will trust them:
+
+- `reviewed_by`
+- `reviewed_at`
+- `evidence_ref`
+
 ## Run
 
 ```bash
@@ -91,7 +103,13 @@ Each receipt should be a JSON file with this shape:
   "receipt_type": "commercial_use_terms_receipt",
   "verified": true,
   "captured_at": "2026-06-07T12:00:00Z",
-  "notes": "Commercial use allowed on exported talking-avatar clips."
+  "notes": "Commercial use allowed on exported talking-avatar clips.",
+  "source_capture_authenticated": true,
+  "capture_path": "/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_workspace_capture.generated.json",
+  "capture_file_sha256": "abc123...",
+  "reviewed_by": "operator-1",
+  "reviewed_at": "2026-06-07T12:10:00Z",
+  "evidence_ref": "https://evidence.example/vidboard/commercial-use"
 }
 ```
 
@@ -105,7 +123,14 @@ Recognized `receipt_type` values:
 - `privacy_terms_receipt`
 - `source_data_boundary_receipt`
 
-`VERIFIED_PROVIDER` is only allowed when the login capture is present and all required proof receipts are `verified: true`.
+`VERIFIED_PROVIDER` is only allowed when:
+
+- the login capture is `verified: true`
+- the linked capture file still exists
+- the capture file hash matches `capture_file_sha256`
+- the linked capture proves an authenticated workspace snapshot
+- every manual receipt is `verified: true`
+- every manual receipt includes `reviewed_by`, `reviewed_at`, and `evidence_ref`
 
 ## Current truth
 

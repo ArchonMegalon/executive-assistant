@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -21,6 +22,7 @@ from app.services.browseract_ui_template_catalog import browseract_ui_template_s
 DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
 DEFAULT_RECEIPT_DIR = DEFAULT_OUT_DIR / "receipts"
 DEFAULT_CAPTURE_PATH = DEFAULT_OUT_DIR / "vidboard_workspace_capture.generated.json"
+DEFAULT_HANDOFF_PATH = DEFAULT_OUT_DIR / "vidboard_operator_handoff.generated.json"
 WORKER_SCRIPT = ROOT / "scripts" / "browseract_template_service_worker.py"
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")
 RECEIPT_TYPES = (
@@ -96,20 +98,22 @@ def _run_worker(*, login_email: str, login_password: str, page_url: str, timeout
         payload = json.loads(last_line)
     except Exception as exc:
         raise RuntimeError(f"vidboard_capture_worker_non_json:{last_line[:400]}") from exc
-    if completed.returncode != 0:
-        detail = str(payload.get("error") or payload.get("ui_failure_code") or last_line).strip()
-        raise RuntimeError(f"vidboard_capture_worker_failed:{detail[:400]}")
     if not isinstance(payload, dict):
         raise RuntimeError("vidboard_capture_worker_invalid_output")
+    payload["_worker_exit_code"] = int(completed.returncode)
     return payload
 
 
 def _capture_summary(result: dict[str, object]) -> dict[str, object]:
     render_status = str(result.get("render_status") or "").strip().lower()
     ui_failure_code = str(result.get("ui_failure_code") or "").strip().lower()
-    body_text = str(result.get("body_text") or result.get("output_text") or "").strip()
-    title = str(result.get("title") or "").strip()
-    authenticated = render_status.startswith("completed") and ui_failure_code == "" and bool(title or body_text)
+    structured = dict(result.get("structured_output_json") or {})
+    body_text = str(result.get("body_text") or result.get("output_text") or result.get("raw_text") or "").strip()
+    title = str(structured.get("page_title") or result.get("title") or result.get("result_title") or "").strip()
+    source_url = str(structured.get("url") or result.get("url") or result.get("editor_url") or "").strip()
+    warnings = list(structured.get("warnings") or result.get("warnings") or [])
+    errors = list(structured.get("errors") or result.get("errors") or [])
+    authenticated = render_status in {"completed", "completed_with_warnings"} and ui_failure_code == "" and bool(source_url or title or body_text)
     return {
         "captured_at": _utc_now(),
         "provider_key": "vidboard",
@@ -118,10 +122,14 @@ def _capture_summary(result: dict[str, object]) -> dict[str, object]:
         "render_status": render_status,
         "ui_failure_code": ui_failure_code,
         "title": title,
-        "url": str(result.get("url") or "").strip(),
-        "warnings": list(result.get("warnings") or []),
-        "errors": list(result.get("errors") or []),
+        "url": source_url,
+        "warnings": warnings,
+        "errors": errors,
         "body_excerpt": body_text[:800],
+        "asset_path": str(result.get("asset_path") or "").strip(),
+        "screenshot_path": str(structured.get("screenshot_path") or "").strip(),
+        "html_path": str(structured.get("html_path") or "").strip(),
+        "auth_handoff": dict(structured.get("auth_handoff") or {}),
         "raw_result": result,
     }
 
@@ -145,11 +153,29 @@ def _failed_capture_summary(detail: str) -> dict[str, object]:
         "warnings": [],
         "errors": [normalized[:1200]],
         "body_excerpt": "",
+        "asset_path": "",
+        "screenshot_path": "",
+        "html_path": "",
+        "auth_handoff": {},
         "raw_result": {"error": normalized[:1200]},
     }
 
 
-def _receipt_payload(receipt_type: str, capture_summary: dict[str, object]) -> dict[str, object]:
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _receipt_payload(
+    receipt_type: str,
+    capture_summary: dict[str, object],
+    *,
+    capture_path: Path,
+    capture_file_sha256: str,
+) -> dict[str, object]:
     verified = bool(receipt_type == "login_capture" and capture_summary.get("authenticated_workspace_detected") is True)
     notes = {
         "login_capture": "Authenticated workspace snapshot captured via local BrowserAct template worker.",
@@ -170,12 +196,42 @@ def _receipt_payload(receipt_type: str, capture_summary: dict[str, object]) -> d
         "source_capture_render_status": str(capture_summary.get("render_status") or ""),
         "source_capture_url": str(capture_summary.get("url") or ""),
         "source_capture_title": str(capture_summary.get("title") or ""),
+        "capture_path": capture_path.as_posix(),
+        "capture_file_sha256": capture_file_sha256,
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "evidence_ref": "",
     }
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _operator_handoff_payload(capture_summary: dict[str, object], *, capture_path: Path, receipt_dir: Path) -> dict[str, object]:
+    failure_code = str(capture_summary.get("ui_failure_code") or "").strip()
+    screenshot_path = str(capture_summary.get("screenshot_path") or "").strip()
+    html_path = str(capture_summary.get("html_path") or "").strip()
+    return {
+        "generated_at": _utc_now(),
+        "provider_key": "vidboard",
+        "status": "operator_action_required",
+        "failure_code": failure_code or "capture_failed",
+        "recommended_action": (
+            "Solve the captcha or complete the blocked login step in a supervised browser session, then rerun the capture command."
+            if failure_code == "captcha_required"
+            else "Inspect the capture artifacts, fix the blocked login path, then rerun the capture command."
+        ),
+        "resume_command": "python3 scripts/capture_vidboard_provider_receipts.py --login-email \"$VIDBOARD_LOGIN_EMAIL\" --login-password \"$VIDBOARD_LOGIN_PASSWORD\"",
+        "capture_path": capture_path.as_posix(),
+        "receipt_dir": receipt_dir.as_posix(),
+        "preview_artifacts": {
+            "screenshot_path": screenshot_path,
+            "html_path": html_path,
+        },
+        "notes": list(capture_summary.get("errors") or []),
+    }
 
 
 def main() -> int:
@@ -186,6 +242,7 @@ def main() -> int:
     parser.add_argument("--timeout-seconds", type=int, default=360)
     parser.add_argument("--output", default=str(DEFAULT_CAPTURE_PATH))
     parser.add_argument("--receipt-dir", default=str(DEFAULT_RECEIPT_DIR))
+    parser.add_argument("--handoff-output", default=str(DEFAULT_HANDOFF_PATH))
     args = parser.parse_args()
 
     login_email = _login_email(args.login_email)
@@ -204,15 +261,48 @@ def main() -> int:
             timeout_seconds=max(120, int(args.timeout_seconds)),
         )
         capture_summary = _capture_summary(result)
+        if int(result.get("_worker_exit_code") or 0) != 0 or capture_summary["render_status"] == "failed":
+            exit_code = 1
     except Exception as exc:
         capture_summary = _failed_capture_summary(str(exc))
         exit_code = 1
     output_path = Path(args.output)
     _write_json(output_path, capture_summary)
+    capture_file_sha256 = _sha256_file(output_path)
     receipt_dir = Path(args.receipt_dir)
+    handoff_path = Path(args.handoff_output)
     for receipt_type in RECEIPT_TYPES:
-        _write_json(receipt_dir / f"vidboard_{receipt_type}.json", _receipt_payload(receipt_type, capture_summary))
-    print(json.dumps({"status": "ok", "capture": output_path.as_posix(), "receipt_dir": receipt_dir.as_posix()}, ensure_ascii=True))
+        _write_json(
+            receipt_dir / f"vidboard_{receipt_type}.json",
+            _receipt_payload(
+                receipt_type,
+                capture_summary,
+                capture_path=output_path,
+                capture_file_sha256=capture_file_sha256,
+            ),
+        )
+    handoff_written = False
+    if exit_code != 0:
+        _write_json(
+            handoff_path,
+            _operator_handoff_payload(
+                capture_summary,
+                capture_path=output_path,
+                receipt_dir=receipt_dir,
+            ),
+        )
+        handoff_written = True
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "capture": output_path.as_posix(),
+                "receipt_dir": receipt_dir.as_posix(),
+                "handoff_path": handoff_path.as_posix() if handoff_written else "",
+            },
+            ensure_ascii=True,
+        )
+    )
     return exit_code
 
 

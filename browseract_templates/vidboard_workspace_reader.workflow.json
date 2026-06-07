@@ -1,6 +1,6 @@
 {
   "workflow_name": "VidBoard Workspace Reader",
-  "description": "Open the logged-in VidBoard workspace, confirm the authenticated surface, and extract the visible avatar/video creation controls for provider-proof receipts.",
+  "description": "Open the logged-in VidBoard workspace and extract the visible avatar/video creation surface for provider-proof review.",
   "publish": true,
   "mcp_ready": false,
   "inputs": [],
@@ -18,7 +18,7 @@
       "type": "wait",
       "label": "Wait Login Form",
       "config": {
-        "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][placeholder*='mail' i]",
+        "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]",
         "timeout_ms": 45000
       }
     },
@@ -27,7 +27,7 @@
       "type": "input_text",
       "label": "Email",
       "config": {
-        "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][placeholder*='mail' i]",
+        "selector": "input[type=email], input[name=email], input[name=identifier], input[autocomplete='email'], input[autocomplete='username'], input[type=text][name=email], input[type=text][placeholder*='mail' i]",
         "value_from_secret": "browseract_username"
       }
     },
@@ -42,10 +42,23 @@
     },
     {
       "id": "submit",
-      "type": "click",
+      "type": "submit_login_form",
       "label": "Submit Login",
       "config": {
-        "selector": "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"Get Started\")"
+        "selector": "form button[type=submit], form input[type=submit], button:has-text(\"Sign In\"), button:has-text(\"Log In\"), button:has-text(\"Login\"), button:has-text(\"Continue\"), button:has-text(\"LOG IN\")",
+        "password_selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]",
+        "auth_failure_code": "captcha_required",
+        "auth_failure_selectors": [
+          "body",
+          "form",
+          ".text-danger",
+          "li"
+        ],
+        "auth_failure_text_markers": [
+          "please complete the recaptcha",
+          "complete the recaptcha",
+          "captcha"
+        ]
       }
     },
     {
@@ -53,7 +66,7 @@
       "type": "wait",
       "label": "Wait Authenticated",
       "config": {
-        "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password']",
+        "selector": "input[type=password], input[name=password], input[name=Passwd], input[autocomplete='current-password'], input[placeholder*='Password' i]",
         "state": "hidden",
         "timeout_ms": 45000
       }
@@ -61,7 +74,7 @@
     {
       "id": "wait_content",
       "type": "wait",
-      "label": "Wait Workspace",
+      "label": "Wait Content",
       "config": {
         "selector": "main, [role='main'], body",
         "timeout_ms": 45000
@@ -72,15 +85,15 @@
       "type": "extract",
       "label": "Extract Title",
       "config": {
-        "selector": "h1, h2, [data-testid='page-title']",
+        "selector": "h1, h2",
         "field_name": "page_title",
         "mode": "text"
       }
     },
     {
-      "id": "extract_body",
+      "id": "extract_result",
       "type": "extract",
-      "label": "Extract Body",
+      "label": "Extract Result",
       "config": {
         "selector": "main, [role='main'], body",
         "field_name": "page_body",
@@ -127,10 +140,10 @@
     ],
     [
       "extract_title",
-      "extract_body"
+      "extract_result"
     ],
     [
-      "extract_body",
+      "extract_result",
       "output_result"
     ]
   ],

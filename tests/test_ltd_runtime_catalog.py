@@ -90,6 +90,15 @@ def test_nonverbia_static_workflow_matches_runtime_template() -> None:
     assert static == dynamic
 
 
+def test_vidboard_static_workflow_matches_runtime_template() -> None:
+    import json
+
+    static = json.loads(Path("/docker/EA/browseract_templates/vidboard_workspace_reader.workflow.json").read_text(encoding="utf-8"))
+    dynamic = browseract_ui_template_spec("vidboard_workspace_reader")
+
+    assert static == dynamic
+
+
 def test_ltd_runtime_catalog_derives_provider_ui_and_runtime_managed_profiles(tmp_path: Path) -> None:
     catalog = _catalog(tmp_path)
 
