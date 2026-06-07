@@ -333,3 +333,24 @@ def test_memorial_realtime_timeout_copy_invites_retry_without_sounding_like_a_fa
 
     assert "Ich bin noch da, aber gerade etwas langsamer. Bitte sag es noch einmal." in source
     assert "Ich brauche gerade laenger als erwartet. Bitte sprich noch einmal." not in source
+
+
+def test_memorial_local_fast_fallback_keeps_requested_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_chat_answer(
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+        "Erzaehl mir etwas ueber deine Jugend.",
+        {},
+        "memorial-local-fast",
+        slug=slug,
+    )
+
+    assert answer["llm_model"] == "memorial-local-fast"
+    assert answer["llm_provider"] == "memorial_guardrail"
+    assert answer["llm_request_model"] == "memorial-local-fast"
+    assert answer["llm_fallback_used"] is True

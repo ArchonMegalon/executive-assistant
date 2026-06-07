@@ -4765,7 +4765,7 @@ def _memorial_chat_answer(
         fallback_reason = "local_memorial_fast_path"
         if _is_memorial_ooda_question(normalized_question):
             fallback_reason = "memorial_ooda_local_fast_path"
-        return _memorial_chat_fallback_answer(
+        fallback = _memorial_chat_fallback_answer(
             payload,
             normalized_question,
             private_profile,
@@ -4776,6 +4776,11 @@ def _memorial_chat_answer(
             fallback_reason=fallback_reason,
             difficult_memory_mode=difficult_memory_mode,
         )
+        fallback["llm_model"] = requested_model
+        fallback["llm_provider"] = "memorial_guardrail"
+        fallback["llm_request_model"] = requested_model
+        fallback["llm_fallback_used"] = True
+        return fallback
     source_labels = _memorial_chat_source_labels(
         payload,
         question=normalized_question,
