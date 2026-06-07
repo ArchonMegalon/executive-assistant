@@ -6917,6 +6917,98 @@ def _memorial_html(
         font-size: .94rem;
         text-align: left;
       }}
+      .video-call-avatar-stage {{
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        padding: 22px;
+        background:
+          radial-gradient(circle at 50% 28%, rgba(255,255,255,.16), rgba(255,255,255,0) 32%),
+          linear-gradient(180deg, rgba(41,60,74,.94), rgba(24,34,44,.98));
+      }}
+      .video-call-avatar-stage.is-speaking .video-call-avatar-ring {{
+        box-shadow: 0 0 0 10px rgba(201,153,90,.08), 0 0 0 1px rgba(255,255,255,.08) inset;
+        transform: scale(1.03);
+      }}
+      .video-call-avatar-stage.is-listening .video-call-avatar-ring {{
+        box-shadow: 0 0 0 8px rgba(104,133,117,.08), 0 0 0 1px rgba(255,255,255,.08) inset;
+      }}
+      .video-call-avatar-stage.is-working .video-call-avatar-ring {{
+        box-shadow: 0 0 0 8px rgba(72,103,126,.08), 0 0 0 1px rgba(255,255,255,.08) inset;
+      }}
+      .video-call-avatar-card {{
+        width: min(100%, 290px);
+        display: grid;
+        gap: 14px;
+        justify-items: center;
+        text-align: center;
+      }}
+      .video-call-avatar-ring {{
+        width: 132px;
+        height: 132px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 34% 30%, rgba(255,255,255,.24), rgba(255,255,255,0) 28%),
+          linear-gradient(180deg, rgba(201,153,90,.86), rgba(125,72,81,.92));
+        transition: transform .18s ease, box-shadow .18s ease;
+      }}
+      .video-call-avatar-face {{
+        width: 116px;
+        height: 116px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 38% 32%, rgba(255,255,255,.18), rgba(255,255,255,0) 22%),
+          linear-gradient(180deg, rgba(86,111,131,.92), rgba(41,60,74,.96));
+        color: #fffaf2;
+        font: 700 38px/1 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+      }}
+      .video-call-avatar-wave {{
+        display: flex;
+        align-items: end;
+        justify-content: center;
+        gap: 6px;
+        height: 22px;
+      }}
+      .video-call-avatar-bar {{
+        width: 7px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255,250,242,.48);
+        transform-origin: center bottom;
+        transform: scaleY(.34);
+        opacity: .7;
+      }}
+      .video-call-avatar-stage.is-speaking .video-call-avatar-bar {{
+        animation: memorial-video-avatar-wave 1.04s ease-in-out infinite;
+        background: rgba(255,250,242,.9);
+      }}
+      .video-call-avatar-stage.is-speaking .video-call-avatar-bar:nth-child(2) {{ animation-delay: .08s; }}
+      .video-call-avatar-stage.is-speaking .video-call-avatar-bar:nth-child(3) {{ animation-delay: .16s; }}
+      .video-call-avatar-stage.is-speaking .video-call-avatar-bar:nth-child(4) {{ animation-delay: .24s; }}
+      .video-call-avatar-stage.is-speaking .video-call-avatar-bar:nth-child(5) {{ animation-delay: .32s; }}
+      .video-call-avatar-copy {{
+        display: grid;
+        gap: 6px;
+      }}
+      .video-call-avatar-copy strong {{
+        color: #fffaf2;
+        font: 700 1rem/1.2 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .video-call-avatar-copy span {{
+        color: rgba(255,250,242,.72);
+        font-size: .93rem;
+        line-height: 1.42;
+      }}
+      @keyframes memorial-video-avatar-wave {{
+        0%, 100% {{ transform: scaleY(.34); opacity: .56; }}
+        50% {{ transform: scaleY(1); opacity: 1; }}
+      }}
       textarea {{
         width: 100%;
         min-height: 112px;
@@ -7184,10 +7276,22 @@ def _memorial_html(
             </div>
             <div class="video-call-tile">
               <span class="video-call-label">Manfred</span>
-              <div class="video-call-placeholder">
-                <div>
-                  <strong>Manfred erscheint hier</strong>
-                  <span>Die Avatar-/Video-Lane ist als nächste Stufe vorbereitet. Bis dahin läuft das Gespräch sofort über Stimme weiter.</span>
+              <div class="video-call-avatar-stage" id="memorial-video-call-avatar-stage" data-avatar-state="idle">
+                <div class="video-call-avatar-card">
+                  <div class="video-call-avatar-ring">
+                    <div class="video-call-avatar-face">MH</div>
+                  </div>
+                  <div class="video-call-avatar-wave" aria-hidden="true">
+                    <span class="video-call-avatar-bar"></span>
+                    <span class="video-call-avatar-bar"></span>
+                    <span class="video-call-avatar-bar"></span>
+                    <span class="video-call-avatar-bar"></span>
+                    <span class="video-call-avatar-bar"></span>
+                  </div>
+                  <div class="video-call-avatar-copy">
+                    <strong id="memorial-video-call-avatar-title">Manfred Hennig</strong>
+                    <span id="memorial-video-call-avatar-detail">Wartet auf den Video Call.</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -7299,6 +7403,9 @@ def _memorial_html(
       const videoCallCloseButton = document.getElementById("memorial-video-call-close");
       const videoCallStatus = document.getElementById("memorial-video-call-status");
       const videoCallSelf = document.getElementById("memorial-video-call-self");
+      const videoCallAvatarStage = document.getElementById("memorial-video-call-avatar-stage");
+      const videoCallAvatarTitle = document.getElementById("memorial-video-call-avatar-title");
+      const videoCallAvatarDetail = document.getElementById("memorial-video-call-avatar-detail");
       let lastAnswerText = "";
       let activeRecognition = null;
       let activeRecorder = null;
@@ -7687,6 +7794,34 @@ def _memorial_html(
       function setVideoCallStatus(message) {{
         if (videoCallStatus) videoCallStatus.textContent = String(message || "").trim() || "Noch nicht aktiv.";
       }}
+      function setVideoCallAvatarState(state, detail = "") {{
+        const normalized = String(state || "idle").trim().toLowerCase() || "idle";
+        if (videoCallAvatarStage) {{
+          videoCallAvatarStage.classList.remove("is-idle", "is-listening", "is-working", "is-speaking");
+          videoCallAvatarStage.classList.add("is-" + normalized);
+          videoCallAvatarStage.setAttribute("data-avatar-state", normalized);
+        }}
+        if (videoCallAvatarTitle) {{
+          videoCallAvatarTitle.textContent = normalized === "speaking"
+            ? "Manfred spricht"
+            : (normalized === "listening"
+              ? "Manfred hört zu"
+              : (normalized === "working"
+                ? "Manfred richtet sich ein"
+                : "Manfred Hennig"));
+        }}
+        if (videoCallAvatarDetail) {{
+          videoCallAvatarDetail.textContent = detail || (
+            normalized === "speaking"
+              ? "Antwort läuft über Stimme und Avatar-Bühne."
+              : (normalized === "listening"
+                ? "Er wartet auf deinen nächsten Satz."
+                : (normalized === "working"
+                  ? "Video-Lane und Gespräch werden vorbereitet."
+                  : "Wartet auf den Video Call."))
+          );
+        }}
+      }}
       function stopVideoCallPreview() {{
         if (activeVideoStream) {{
           activeVideoStream.getTracks().forEach((track) => track.stop());
@@ -7697,6 +7832,7 @@ def _memorial_html(
           videoCallSelf.srcObject = null;
         }}
         if (videoCallPreview) videoCallPreview.hidden = true;
+        setVideoCallAvatarState("idle", "Wartet auf den Video Call.");
         setVideoCallStatus("Video Call beendet.");
       }}
       function setMemorialLandingReady(ready, detail = "") {{
@@ -7832,6 +7968,16 @@ def _memorial_html(
             speechMeterFill.style.transform = "scaleX(" + String(Math.max(0.06, Math.min(1, ambientLevel))) + ")";
             speechMeterFill.style.opacity = state === "error" ? ".42" : ".78";
           }}
+        }}
+        if (!videoCallPreview || videoCallPreview.hidden) return;
+        if (state === "speaking") {{
+          setVideoCallAvatarState("speaking", detail || "Manfred antwortet gerade.");
+        }} else if (state === "listening") {{
+          setVideoCallAvatarState("listening", detail || "Manfred hört auf deinen nächsten Satz.");
+        }} else if (state === "thinking" || state === "transcribing" || state === "working") {{
+          setVideoCallAvatarState("working", detail || "Manfred bereitet die Antwort vor.");
+        }} else {{
+          setVideoCallAvatarState("idle", detail || "Manfred wartet im Video Call.");
         }}
       }}
       function setSpeechMeterLevel(level) {{
@@ -7972,6 +8118,7 @@ def _memorial_html(
           await primeMemorialLanding();
         }}
         if (videoCallPreview) videoCallPreview.hidden = false;
+        setVideoCallAvatarState("working", "Manfreds Video-Bühne wird vorbereitet.");
         setVideoCallStatus("Kamera wird vorbereitet ...");
         try {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
@@ -7986,11 +8133,13 @@ def _memorial_html(
             videoCallSelf.srcObject = activeVideoStream;
             try {{ await videoCallSelf.play(); }} catch (error) {{}}
           }}
+          setVideoCallAvatarState("listening", "Manfred ist im Video Call bereit.");
           setVideoCallStatus("Kamera aktiv. Manfreds Video-Lane ist als nächster Schritt vorgesehen; das Gespräch läuft schon über Stimme.");
           if (!conversationActive) {{
             await window.__memorialStartConversation();
           }}
         }} catch (error) {{
+          setVideoCallAvatarState("idle", "Kamera konnte nicht geöffnet werden.");
           setVideoCallStatus(String(error && error.message ? error.message : "Kamera konnte nicht geöffnet werden."));
           setSpeechStatus("Video Call konnte die Kamera gerade nicht öffnen.", "error", "Kamera freigeben und noch einmal versuchen");
         }}

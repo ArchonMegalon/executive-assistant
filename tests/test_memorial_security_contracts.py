@@ -153,6 +153,8 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert "primeMemorialLanding()" in page.text
     assert "startVideoCallPreview()" in page.text
     assert 'id="memorial-video-call-preview"' in page.text
+    assert 'id="memorial-video-call-avatar-stage"' in page.text
+    assert "Manfred Hennig" in page.text
     assert "Gleich bereit" in page.text
     assert "<h1>" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
