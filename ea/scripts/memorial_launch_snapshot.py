@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+EA_DIR = SCRIPT_DIR.parent
+REPO_ROOT = EA_DIR.parent
+
+
+def run_command(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int = 120,
+    retries: int = 0,
+) -> dict[str, Any]:
+    attempts = max(1, retries + 1)
+    last_result: dict[str, Any] | None = None
+    for attempt in range(1, attempts + 1):
+        started = time.time()
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=str(cwd) if cwd else None,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+                check=False,
+            )
+            result = {
+                "command": command,
+                "cwd": str(cwd) if cwd else None,
+                "returncode": proc.returncode,
+                "duration_ms": int((time.time() - started) * 1000),
+                "stdout": proc.stdout[-5000:],
+                "stderr": proc.stderr[-5000:],
+                "attempt": attempt,
+            }
+        except Exception as exc:
+            result = {
+                "command": command,
+                "cwd": str(cwd) if cwd else None,
+                "returncode": -1,
+                "duration_ms": int((time.time() - started) * 1000),
+                "stdout": "",
+                "stderr": f"{type(exc).__name__}: {exc}",
+                "attempt": attempt,
+            }
+        last_result = result
+        stderr = str(result.get("stderr") or "")
+        if int(result.get("returncode") or 0) == 0:
+            return result
+        if "TimeoutError" not in stderr and "timed out" not in stderr.lower():
+            return result
+        if attempt < attempts:
+            time.sleep(1.0)
+    return last_result or {
+        "command": command,
+        "cwd": str(cwd) if cwd else None,
+        "returncode": -1,
+        "duration_ms": 0,
+        "stdout": "",
+        "stderr": "unknown_error",
+        "attempt": attempts,
+    }
+
+
+def env_status() -> dict[str, Any]:
+    keys = [
+        "EA_RUNTIME_MODE",
+        "EA_ENABLE_PUBLIC_MEMORIALS",
+        "EA_PUBLIC_MEMORIAL_RATE_BACKEND",
+        "EA_PUBLIC_MEMORIAL_REDIS_URL",
+        "EA_PUBLIC_MEMORIAL_DIR",
+        "EA_PRIVATE_MEMORIAL_PROFILE_DIR",
+        "FLIPLINK_API_BASE_URL",
+        "FLIPLINK_CREATE_PATH",
+        "FLIPLINK_CUSTOM_DOMAIN",
+    ]
+    redacted: dict[str, Any] = {}
+    for key in keys:
+        value = os.getenv(key)
+        if value is None:
+            redacted[key] = None
+        elif "URL" in key and value:
+            redacted[key] = value.split("@")[-1] if "@" in value else value
+        else:
+            redacted[key] = value
+    redacted["FLIPLINK_API_KEY_configured"] = bool(os.getenv("FLIPLINK_API_KEY"))
+    return redacted
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Create a launch evidence snapshot for the memorial flagship demo.")
+    parser.add_argument("slug")
+    parser.add_argument("--base-url", default="")
+    parser.add_argument("--questions", default="")
+    parser.add_argument("--repo", default=str(REPO_ROOT))
+    parser.add_argument("--output", default="")
+    parser.add_argument("--skip-live", action="store_true")
+    args = parser.parse_args(argv)
+
+    repo_root = Path(args.repo).resolve()
+    ea_dir = repo_root / "ea"
+    output = Path(args.output) if args.output else Path.cwd() / f"memorial_launch_snapshot_{args.slug}_{int(time.time())}.json"
+
+    commands: list[tuple[list[str], Path, int, int]] = [
+        (["git", "rev-parse", "HEAD"], repo_root, 60, 0),
+        (["git", "status", "--short"], repo_root, 60, 0),
+        ([sys.executable, "scripts/memorial_flagship_preflight.py", args.slug, "--json"], ea_dir, 180, 0),
+        (
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/test_memorial_archive_registry_public.py",
+                "tests/test_memorial_flagship_preflight.py",
+                "tests/test_memorial_demo_rehearsal_contracts.py",
+            ],
+            repo_root,
+            180,
+            0,
+        ),
+    ]
+    if args.base_url and not args.skip_live:
+        commands.append(
+            (
+                [sys.executable, "scripts/memorial_flagship_preflight.py", args.slug, "--base-url", args.base_url, "--json"],
+                ea_dir,
+                180,
+                1,
+            )
+        )
+        rehearsal_command = [
+            sys.executable,
+            "scripts/memorial_demo_rehearsal.py",
+            args.slug,
+            "--base-url",
+            args.base_url,
+            "--skip-tts",
+            "--json",
+        ]
+        if args.questions:
+            rehearsal_command.extend(["--questions", args.questions])
+        commands.append((rehearsal_command, ea_dir, 240, 0))
+
+    snapshot = {
+        "slug": args.slug,
+        "base_url": args.base_url,
+        "created_at_epoch": int(time.time()),
+        "host": {
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+        },
+        "environment": env_status(),
+        "commands": [run_command(command, cwd=cwd, timeout=timeout, retries=retries) for command, cwd, timeout, retries in commands],
+    }
+    output.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(output)
+    return 0 if all(item["returncode"] == 0 for item in snapshot["commands"]) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -77,6 +77,13 @@ Full exit gate runner:
 /docker/EA/scripts/memorial_flagship_exit_gates.sh
 ```
 
+Live rehearsal and launch evidence:
+
+```bash
+python3 scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --save-audio-dir /tmp
+python3 scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
+```
+
 ## Recovery plan
 
 If live voice is unstable:

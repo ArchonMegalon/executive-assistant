@@ -37,5 +37,7 @@
 ## Exit gates
 
 - [ ] `pytest -q tests/test_memorial_archive_registry_public.py tests/test_memorial_flagship_preflight.py tests/test_memorial_security_contracts.py tests/test_providers_api_contracts.py -k 'memorial'`
-- [ ] `.venv/bin/pytest -q tests/e2e/test_memorial_browser.py tests/e2e/test_memorial_flagship_exit_gates.py`
+- [ ] `.venv/bin/pytest -q tests/e2e/test_memorial_browser.py tests/e2e/test_memorial_flagship_exit_gates.py tests/e2e/test_memorial_flagship_operator_tools.py`
 - [ ] `/docker/EA/scripts/memorial_flagship_exit_gates.sh`
+- [ ] `python3 ea/scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternalbrain.com --questions /docker/EA/examples/demo_questions.manfred.json --save-audio-dir /tmp`
+- [ ] `python3 ea/scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions /docker/EA/examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json`
