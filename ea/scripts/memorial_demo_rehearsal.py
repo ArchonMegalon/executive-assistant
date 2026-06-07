@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -98,24 +99,32 @@ def request(
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
     timeout: int = 20,
+    retries: int = 1,
 ) -> tuple[int, dict[str, str], bytes]:
-    req = urllib.request.Request(url, method=method, data=body, headers=_headers(headers))
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return int(response.status), {k.lower(): v for k, v in response.headers.items()}, response.read()
-    except urllib.error.HTTPError as exc:
-        return int(exc.code), {k.lower(): v for k, v in exc.headers.items()}, exc.read()
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"request_failed:{type(exc).__name__}:{exc}") from exc
+    last_exc: BaseException | None = None
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(url, method=method, data=body, headers=_headers(headers))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return int(response.status), {k.lower(): v for k, v in response.headers.items()}, response.read()
+        except urllib.error.HTTPError as exc:
+            return int(exc.code), {k.lower(): v for k, v in exc.headers.items()}, exc.read()
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            last_exc = exc
+            if attempt >= retries:
+                break
+            time.sleep(min(1.0, 0.35 * (attempt + 1)))
+    raise RuntimeError(f"request_failed:{type(last_exc).__name__}:{last_exc}") from last_exc
 
 
-def json_request(url: str, payload: dict[str, Any], *, timeout: int = 30) -> tuple[int, dict[str, Any]]:
+def json_request(url: str, payload: dict[str, Any], *, timeout: int = 30, retries: int = 1) -> tuple[int, dict[str, Any]]:
     http_status, _, raw = request(
         url,
         method="POST",
         body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         timeout=timeout,
+        retries=retries,
     )
     try:
         parsed = json.loads(raw.decode("utf-8", errors="replace") or "{}")
@@ -213,7 +222,8 @@ def check_chat(report: RehearsalReport, *, base: str, slug: str, questions: list
         http_status, payload = json_request(
             f"{base}/memorials/{urllib.parse.quote(slug)}/chat",
             {"question": question},
-            timeout=45,
+            timeout=60,
+            retries=1,
         )
         elapsed_ms = int((time.time() - started) * 1000)
         answer = normalize(str(payload.get("answer") or ""))
@@ -239,7 +249,8 @@ def check_chat(report: RehearsalReport, *, base: str, slug: str, questions: list
     http_status, payload = json_request(
         f"{base}/memorials/{urllib.parse.quote(slug)}/chat",
         {"question": difficult_question},
-        timeout=45,
+        timeout=60,
+        retries=1,
     )
     answer = normalize(str(payload.get("answer") or ""))
     if http_status != 200:
@@ -275,7 +286,8 @@ def check_tts(report: RehearsalReport, *, base: str, slug: str, output_dir: Path
             ensure_ascii=False,
         ).encode("utf-8"),
         headers={"Content-Type": "application/json", "Accept": "audio/*, application/json"},
-        timeout=60,
+        timeout=75,
+        retries=1,
     )
     content_type = headers.get("content-type", "")
     if http_status != 200:

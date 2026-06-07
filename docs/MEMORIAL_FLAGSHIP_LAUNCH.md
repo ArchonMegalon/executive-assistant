@@ -36,6 +36,12 @@ Run the one-command showtime wrapper:
 python3 scripts/memorial_showtime.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
 ```
 
+Final room-ready pass right before the presentation:
+
+```bash
+python3 scripts/memorial_room_ready.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
+```
+
 Run the full memorial exit gates:
 
 ```bash

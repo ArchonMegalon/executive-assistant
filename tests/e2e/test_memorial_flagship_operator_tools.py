@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import socket
+import struct
 import subprocess
 import sys
 import threading
 import time
 import urllib.request
+import wave
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,8 +45,15 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
 
 
 def _generated_wav_bytes(*, seed: str) -> bytes:
-    frame = seed.encode("utf-8", errors="ignore") or b"seed"
-    pcm = (frame * 400)[:3200]
+    del seed
+    sample_rate = 16000
+    lead = [0.0] * int(sample_rate * 0.2)
+    tone = [0.18 * math.sin(2 * math.pi * 220 * i / sample_rate) for i in range(int(sample_rate * 1.0))]
+    tail = [0.0] * int(sample_rate * 0.3)
+    pcm = b"".join(
+        struct.pack("<h", int(max(-1.0, min(1.0, value)) * 32767))
+        for value in (lead + tone + tail)
+    )
     data_size = len(pcm)
     riff_size = 36 + data_size
     return (
@@ -323,3 +333,63 @@ def test_memorial_launch_snapshot_cli_writes_green_snapshot(
     command_text = [" ".join(item["command"]) for item in payload["commands"]]
     assert any("memorial_flagship_preflight.py" in item for item in command_text)
     assert any("memorial_demo_rehearsal.py" in item for item in command_text)
+
+
+def test_memorial_room_ready_cli_writes_room_and_audio_reports(
+    memorial_operator_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    base_url = str(memorial_operator_server["base_url"])
+    env = _tool_env(memorial_operator_server, tmp_path)
+    output_dir = tmp_path / "room-ready"
+    questions_path = Path("/docker/EA/examples/demo_questions.manfred.json")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "/docker/EA/ea/scripts/memorial_room_ready.py",
+            "--slug",
+            "manfred",
+            "--base-url",
+            base_url,
+            "--questions",
+            str(questions_path),
+            "--output-dir",
+            str(output_dir),
+            "--skip-exit-gates",
+            "--json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "pass"
+
+    report_json = output_dir / "room_ready_report.json"
+    report_md = output_dir / "room_ready_report.md"
+    audio_probe_json = output_dir / "audio_probe.json"
+    audio_probe_md = output_dir / "audio_probe.md"
+    showtime_json = output_dir / "showtime_report.json"
+    saved_audio = output_dir / "manfred-demo-tts.wav"
+
+    assert report_json.is_file()
+    assert report_md.is_file()
+    assert audio_probe_json.is_file()
+    assert audio_probe_md.is_file()
+    assert showtime_json.is_file()
+    assert saved_audio.is_file()
+
+    report_payload = json.loads(report_json.read_text(encoding="utf-8"))
+    names = [item["name"] for item in report_payload["results"]]
+    assert names == ["showtime", "audio_probe"]
+    assert all(item["effective_status"] == "pass" for item in report_payload["results"])
+
+    probe_payload = json.loads(audio_probe_json.read_text(encoding="utf-8"))
+    assert probe_payload["status"] == "pass"
+    assert probe_payload["metrics"]["duration_seconds"] >= 1.4
+    assert probe_payload["metrics"]["lead_silence_seconds"] >= 0.19
+    assert probe_payload["metrics"]["tail_silence_seconds"] >= 0.29

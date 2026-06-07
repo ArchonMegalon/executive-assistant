@@ -8,8 +8,10 @@ export TMPDIR
 cd "$ROOT"
 pytest -q \
   tests/test_memorial_archive_registry_public.py \
+  tests/test_memorial_audio_probe_contracts.py \
   tests/test_memorial_demo_rehearsal_contracts.py \
   tests/test_memorial_flagship_preflight.py \
+  tests/test_memorial_room_ready_contracts.py \
   tests/test_memorial_security_contracts.py \
   tests/test_providers_api_contracts.py \
   tests/test_memorial_showtime_contracts.py \
@@ -27,3 +29,12 @@ if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
   preflight_args+=("--base-url" "$MEMORIAL_FLAGSHIP_BASE_URL")
 fi
 python3 scripts/memorial_flagship_preflight.py "${preflight_args[@]}"
+
+if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
+  python3 scripts/memorial_room_ready.py \
+    --slug manfred \
+    --base-url "$MEMORIAL_FLAGSHIP_BASE_URL" \
+    --questions ../examples/demo_questions.manfred.json \
+    --output-dir "$TMPDIR/manfred_room_ready_exit_gate" \
+    --skip-exit-gates
+fi

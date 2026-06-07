@@ -4,6 +4,22 @@ import json
 from pathlib import Path
 
 
+class _Response:
+    def __init__(self, body: bytes) -> None:
+        self.status = 200
+        self.headers = {"Content-Type": "application/json"}
+        self._body = body
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
 def test_load_questions_defaults_when_empty() -> None:
     import scripts.memorial_demo_rehearsal as rehearsal
 
@@ -34,3 +50,24 @@ def test_rehearsal_report_status() -> None:
     assert report.as_dict()["status"] == "warn"
     report.add("fail", "fail", "fail")
     assert report.as_dict()["status"] == "fail"
+
+
+def test_request_retries_after_timeout(monkeypatch) -> None:
+    import scripts.memorial_demo_rehearsal as rehearsal
+
+    calls = {"count": 0}
+
+    def _fake_urlopen(request, timeout):
+        del request, timeout
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise TimeoutError("timed out")
+        return _Response(b'{"status":"ok"}')
+
+    monkeypatch.setattr(rehearsal.urllib.request, "urlopen", _fake_urlopen)
+
+    status, _, raw = rehearsal.request("https://example.test/api", retries=1)
+
+    assert calls["count"] == 2
+    assert status == 200
+    assert raw == b'{"status":"ok"}'

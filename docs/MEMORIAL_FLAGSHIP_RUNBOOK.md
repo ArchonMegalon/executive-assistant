@@ -88,6 +88,8 @@ Showtime wrapper:
 
 ```bash
 python3 scripts/memorial_showtime.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
+
+python3 scripts/memorial_room_ready.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready --optional-exit-gates
 ```
 
 ## Recovery plan
