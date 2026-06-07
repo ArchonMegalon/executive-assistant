@@ -367,6 +367,12 @@ def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
         "_prefer_fast_tts_for_conversation_turn",
         lambda warmup_slug: (True, "warmup_cold"),
     )
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_live_warmup",
+        lambda warmup_slug: scheduled.append(warmup_slug) or {"status": "queued", "scheduled": True, "ttl_seconds": 600},
+    )
     monkeypatch.setattr(
         public_memorials,
         "piper_fast_synthesize_request",
@@ -397,6 +403,7 @@ def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
     assert body["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is True
     assert body["tts_fast_path_reason"] == "warmup_cold"
+    assert scheduled == [slug]
 
 
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(

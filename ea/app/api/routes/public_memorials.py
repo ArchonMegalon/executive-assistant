@@ -95,6 +95,8 @@ _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
 _MEMORIAL_TTS_LEAD_IN_MS = 320
 _MEMORIAL_TTS_TAIL_SILENCE_MS = 620
+_MEMORIAL_FAST_TTS_LEAD_IN_MS = 90
+_MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 220
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
@@ -5404,13 +5406,18 @@ def _build_memorial_conversation_turn_payload(
     else:
         raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
     tts_ms = (time.perf_counter() - tts_started) * 1000.0
-    lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+    if prefer_fast_tts:
+        lead_in_ms = _MEMORIAL_FAST_TTS_LEAD_IN_MS
+        tail_silence_ms = _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS
+    else:
+        lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+        tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
     pad_started = time.perf_counter()
     audio, audio_content_type = _pad_speech_audio_lead_in(
         payload=audio,
         content_type=audio_content_type,
         silence_ms=lead_in_ms,
-        tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
+        tail_silence_ms=tail_silence_ms,
         extra_filters=_speech_postprocess_filters(selected_plugin),
     )
     pad_ms = (time.perf_counter() - pad_started) * 1000.0
@@ -9723,6 +9730,8 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
             voice_ab_variant=voice_ab_variant,
             difficult_memory_mode=difficult_memory_mode,
         )
+        if prefer_fast_tts:
+            _schedule_memorial_live_warmup(slug)
         if prefer_fast_reason:
             response_payload["tts_fast_path_reason"] = prefer_fast_reason
         response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
