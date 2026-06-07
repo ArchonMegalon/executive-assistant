@@ -196,24 +196,11 @@ def test_memorial_public_page_answers_visible_prompt_in_real_browser(
         response = page.goto(f"{base_url}/memorials/{slug}", wait_until="networkidle")
         assert response is not None and response.ok
         assert page.get_by_role("heading", name="Manfred Hoza").is_visible()
-        assert page.get_by_role("heading", name="Seine Stimme hoeren").is_visible()
-        assert page.get_by_role("button", name="Was ist wirklich belegt?").is_visible()
-
-        page.get_by_role("button", name="Was ist wirklich belegt?").click()
-        page.wait_for_function(
-            """
-            () => {
-              const answer = document.getElementById('memorial-chat-answer');
-              return Boolean(answer && answer.textContent && answer.textContent.includes('Belegt ist vor allem'));
-            }
-            """,
-            timeout=5000,
-        )
-        answer_text = page.evaluate("document.getElementById('memorial-chat-answer').textContent")
-        assert "Belegt ist vor allem" in str(answer_text)
-
-        page.locator("#memorial-archive .collapse-summary").click()
-        assert page.get_by_role("link", name="Dokument öffnen").is_visible()
+        assert page.get_by_role("button", name="Sprich mit der Erinnerung").is_visible()
+        assert page.get_by_text("Tippen, sprechen, kurz warten, einfach weiterreden.").is_visible()
+        assert page.locator("#memorial-archive").count() == 0
+        assert page.get_by_text("Originalaufnahmen").count() == 0
+        assert page.get_by_text("Belegte Erinnerungen").count() == 0
     finally:
         context.close()
 
@@ -419,7 +406,7 @@ def test_memorial_hero_conversation_uses_realtime_client_flow_without_hardware(
         assert "Quellen: Archiv" in str(answer_text)
 
         phase_text = page.locator("#memorial-speech-phase").text_content()
-        assert phase_text in {"Bereit", "Hört zu"}
+        assert phase_text in {"Bereit", "Ich hoere dir zu"}
 
         page.get_by_role("button", name="Sprich mit der Erinnerung").click()
         page.wait_for_function(
@@ -427,6 +414,151 @@ def test_memorial_hero_conversation_uses_realtime_client_flow_without_hardware(
             () => {
               const phase = document.getElementById('memorial-speech-phase');
               return Boolean(phase && phase.textContent && phase.textContent.includes('Bereit'));
+            }
+            """,
+            timeout=5000,
+        )
+    finally:
+        context.close()
+
+
+def test_memorial_retry_button_recovers_from_microphone_denial(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 1280, "height": 960})
+    context.add_init_script(
+        """
+        (() => {
+          let attempt = 0;
+          class FakeRecognition {
+            constructor() {
+              this.lang = "de-AT";
+              this.interimResults = true;
+              this.continuous = false;
+              this.maxAlternatives = 1;
+              this.onstart = null;
+              this.onresult = null;
+              this.onerror = null;
+              this.onend = null;
+            }
+            start() {
+              attempt += 1;
+              setTimeout(() => {
+                if (this.onstart) this.onstart();
+                if (attempt === 1) {
+                  setTimeout(() => {
+                    if (this.onerror) this.onerror({ error: "not-allowed" });
+                    if (this.onend) this.onend();
+                  }, 10);
+                  return;
+                }
+                setTimeout(() => {
+                  if (this.onresult) {
+                    this.onresult({
+                      resultIndex: 0,
+                      results: [
+                        {
+                          0: { transcript: "Erzaehl mir etwas ueber Gerechtigkeit." },
+                          isFinal: true,
+                          length: 1,
+                        },
+                      ],
+                    });
+                  }
+                  setTimeout(() => {
+                    if (this.onend) this.onend();
+                  }, 10);
+                }, 15);
+              }, 10);
+            }
+            stop() {
+              if (this.onend) setTimeout(() => this.onend(), 0);
+            }
+          }
+
+          class FakeWebSocket {
+            static OPEN = 1;
+            static CLOSED = 3;
+            constructor(url) {
+              this.url = url;
+              this.readyState = FakeWebSocket.OPEN;
+              this.onopen = null;
+              this.onmessage = null;
+              this.onerror = null;
+              this.onclose = null;
+              setTimeout(() => {
+                if (this.onopen) this.onopen();
+                if (this.onmessage) {
+                  this.onmessage({ data: JSON.stringify({ type: "ready" }) });
+                }
+              }, 0);
+            }
+            send(payload) {
+              let parsed = null;
+              try {
+                parsed = JSON.parse(String(payload || ""));
+              } catch (error) {
+                return;
+              }
+              if (!parsed || parsed.type !== "user_text_turn") return;
+              const turnId = String(parsed.turn_id || "");
+              setTimeout(() => {
+                if (this.onmessage) {
+                  this.onmessage({
+                    data: JSON.stringify({
+                      type: "answer",
+                      turn_id: turnId,
+                      text: "Gerechtigkeit war mir wichtig, weil jeder gehoert werden sollte.",
+                      sources: ["Archiv"],
+                    }),
+                  });
+                }
+              }, 20);
+              setTimeout(() => {
+                if (this.onmessage) {
+                  this.onmessage({
+                    data: JSON.stringify({ type: "turn_complete", turn_id: turnId }),
+                  });
+                }
+              }, 40);
+            }
+            close() {
+              this.readyState = FakeWebSocket.CLOSED;
+              if (this.onclose) this.onclose();
+            }
+          }
+
+          window.SpeechRecognition = FakeRecognition;
+          window.webkitSpeechRecognition = FakeRecognition;
+          window.WebSocket = FakeWebSocket;
+          HTMLMediaElement.prototype.play = function play() {
+            return Promise.resolve();
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        page.get_by_role("button", name="Sprich mit der Erinnerung").click()
+        page.get_by_role("button", name="Noch einmal versuchen").wait_for(state="visible", timeout=5000)
+        assert page.get_by_text("Bitte erlaube kurz das Mikrofon und versuche es noch einmal.").is_visible()
+
+        page.get_by_role("button", name="Noch einmal versuchen").click()
+        page.wait_for_function(
+            """
+            () => {
+              const answer = document.getElementById('memorial-chat-answer');
+              return Boolean(
+                answer &&
+                answer.textContent &&
+                answer.textContent.includes('Gerechtigkeit war mir wichtig')
+              );
             }
             """,
             timeout=5000,
@@ -648,7 +780,7 @@ def test_memorial_pwa_offline_reload_uses_cached_memorial_page(
         offline_response = page.reload(wait_until="domcontentloaded")
         assert offline_response is not None
         assert page.get_by_role("heading", name="Manfred Hoza").is_visible()
-        assert page.get_by_role("button", name="Was ist wirklich belegt?").is_visible()
+        assert page.get_by_role("button", name="Sprich mit der Erinnerung").is_visible()
     finally:
         context.set_offline(False)
         context.close()

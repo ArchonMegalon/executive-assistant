@@ -8397,10 +8397,15 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
 
     assert page.status_code == 200
     assert "Manfred" in page.text
-    assert "Seine Stimme hoeren" in page.text
+    assert "Originalaufnahmen" not in page.text
+    assert "Seine Stimme hoeren" not in page.text
+    assert "Quellenbasiertes Profil" not in page.text
+    assert "Weitere gefundene Kandidaten" not in page.text
+    assert "Was ist wirklich belegt?" not in page.text
+    assert "Archiv lesen" not in page.text
     assert "Sprich mit der Erinnerung" in page.text
+    assert "Tippen, sprechen, kurz warten, einfach weiterreden." in page.text
     assert "voice clone" not in page.text.lower()
-    assert f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3" in page.text
     assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
 
     payload = client.get(f"/memorials/{slug}.json")
@@ -8483,21 +8488,25 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "adhd" not in page.text.lower()
     assert "/memorials/manfred/chat" in page.text
     assert "/memorials/manfred/speech-transcribe" in page.text
-    assert "memorial-speech-listen" in page.text
-    assert "memorial-server-stt" in page.text
     assert "memorial-conversation" in page.text
-    assert "memorial-speech-speak" in page.text
+    assert "memorial-retry-button" in page.text
+    assert 'id="memorial-speech-listen"' not in page.text
+    assert 'id="memorial-server-stt"' not in page.text
+    assert 'id="memorial-speech-speak"' not in page.text
+    assert 'id="memorial-voice-config-form"' not in page.text
+    assert 'id="memorial-voice-ab-wrap"' not in page.text
     assert "SpeechRecognition" in page.text
     assert "MediaRecorder" in page.text
     assert "SpeechSynthesisUtterance" in page.text
-    assert "Austauschbare synthetische Stimme" in page.text
-    assert "Mikrofonzugriff braucht HTTPS" in page.text
+    assert "Tibor freigegebene synthetische Stimme" not in page.text
+    assert "Mikrofonzugriff braucht HTTPS" not in page.text
+    assert "Das Mikrofon braucht eine geschuetzte Verbindung." in page.text
     assert "not-allowed" in page.text
     assert "no-speech" in page.text
     assert "speechHadError" in page.text
-    assert "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten." in page.text
+    assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." in page.text
     assert "readJsonResponse" in page.text
-    assert "Gespräch gestartet. Sprich einfach los." in page.text
+    assert "Ich bin da." in page.text
     assert "recorder.start(250)" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text

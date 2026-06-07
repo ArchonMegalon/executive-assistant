@@ -141,6 +141,7 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
     assert "Am Handy/Desktop installieren" in page.text
+    assert "Tippen, sprechen, kurz warten, einfach weiterreden." in page.text
     assert "App installieren" not in page.text
     assert f"/memorials/{slug}/icon-180.png" in page.text
 
@@ -369,20 +370,23 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
 
     assert response.status_code == 200
     body = response.text
-    assert '<details class="hero-settings minimal-disclosure">' in body
-    assert '<summary class="collapse-summary">Optionen</summary>' in body
-    assert '<details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap"' in body
-    assert 'Stimmvergleich und Feedback</summary>' in body
-    assert '<div class="voice-ab-choice-grid">' in body
+    assert '<details class="hero-settings minimal-disclosure">' not in body
+    assert '<summary class="collapse-summary">Optionen</summary>' not in body
+    assert 'id="memorial-voice-ab-wrap"' not in body
+    assert "Stimmvergleich und Feedback" not in body
+    assert '<div class="voice-ab-choice-grid">' not in body
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" not in body
-    assert '<section id="memorial-archive">' in body
-    assert '<details class="minimal-disclosure archive-disclosure">' in body
-    assert '<summary class="collapse-summary">Archiv lesen</summary>' in body
+    assert '<section id="memorial-archive">' not in body
+    assert '<summary class="collapse-summary">Archiv lesen</summary>' not in body
+    assert "Originalaufnahmen" not in body
+    assert "Belegte Erinnerungen" not in body
+    assert 'id="memorial-voice-config-form"' not in body
+    assert "Tippen, sprechen, kurz warten, einfach weiterreden." in body
+    assert "Noch einmal versuchen" in body
     assert "overflow-wrap: anywhere;" in body
     assert ".collapse-summary:focus-visible" in body
     assert "<h2>Archiv lesen</h2>" not in body
     assert "<h2>Stimmvergleich</h2>" not in body
-    assert body.index('<section class="chat quiet-shell">') < body.index('<section id="memorial-archive">')
 
 
 def test_public_memorial_archive_route_redirects_to_registry_url_when_local_build_is_missing(

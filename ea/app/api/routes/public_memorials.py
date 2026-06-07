@@ -1661,6 +1661,120 @@ def _recompute_voice_ab_effective_totals(events: list[dict[str, object]]) -> dic
     return totals
 
 
+def _voice_ab_finalize_options(ratings: dict[str, object]) -> dict[str, object]:
+    effective = dict(ratings.get("effective_totals") or ratings.get("totals") or {})
+    eff_a = int(effective.get("a", 0) or 0)
+    eff_b = int(effective.get("b", 0) or 0)
+    lead = eff_a - eff_b
+    actions: list[dict[str, object]] = []
+    if lead >= 1:
+        actions.append({"variant": "a", "label": "A behalten", "lead": lead})
+    if lead <= -1:
+        actions.append({"variant": "b", "label": "B behalten", "lead": abs(lead)})
+    return {
+        "effective_totals": {"a": eff_a, "b": eff_b},
+        "lead_variant": "a" if lead > 0 else ("b" if lead < 0 else ""),
+        "lead_margin": abs(lead),
+        "actions": actions,
+        "tooltip": (
+            "Sobald A oder B auch nur mit einer Stimme vorne liegt, kannst du den Fuehrenden sofort bestaetigen. "
+            "Der Gewinner bleibt als neue Hauptstimme, der Verlierer wird aus dem aktiven Vergleich entfernt, "
+            "sein Unmixr-Slot wird freigemacht und anschliessend wird direkt ein neuer Challenger geladen."
+        ),
+    }
+
+
+def _voice_ab_variant_from_challenger(challenger: dict[str, object]) -> dict[str, object]:
+    return {
+        "id": "b",
+        "label": _text(challenger.get("label"), "Stimme B · challenger"),
+        "tts_plugin": _safe_tts_plugin_id(challenger.get("tts_plugin")) or UNMIXR_TTS_PLUGIN_ID,
+        "tts_plugin_voice_id": _text(challenger.get("voice_id"), ""),
+        "unmixr_speaking_rate": _text(challenger.get("unmixr_speaking_rate"), "low"),
+        "unmixr_speaking_pitch": _text(challenger.get("unmixr_speaking_pitch"), "medium"),
+        "unmixr_speaking_volume": _text(challenger.get("unmixr_speaking_volume"), "high"),
+        "description": _text(challenger.get("description"), "Neuer Challenger"),
+        "feature_profile": _voice_ab_normalize_feature_profile(challenger.get("feature_profile")),
+    }
+
+
+def _voice_ab_finalize_winner(slug: str, *, winner: str, ratings: dict[str, object] | None = None) -> dict[str, object]:
+    winner = _text(winner, "").lower()
+    if winner not in {"a", "b"}:
+        raise HTTPException(status_code=400, detail="voice_ab_finalize_variant_invalid")
+    ratings = ratings or _load_voice_ab_ratings(slug)
+    options = _voice_ab_finalize_options(ratings)
+    if winner not in {str(item.get("variant")) for item in options.get("actions", []) if isinstance(item, dict)}:
+        raise HTTPException(status_code=409, detail="voice_ab_finalize_not_available")
+
+    config = _load_voice_ab_config(slug)
+    variants = [dict(item) for item in config.get("variants", []) if isinstance(item, dict)]
+    if len(variants) < 2:
+        raise HTTPException(status_code=409, detail="voice_ab_finalize_variants_missing")
+    variant_a = next((item for item in variants if _text(item.get("id"), "") == "a"), variants[0])
+    variant_b = next((item for item in variants if _text(item.get("id"), "") == "b"), variants[-1])
+    current_a_id = _text(variant_a.get("tts_plugin_voice_id"), "")
+    current_b_id = _text(variant_b.get("tts_plugin_voice_id"), "")
+    promoted_source = variant_a if winner == "a" else variant_b
+    promoted = dict(promoted_source)
+    promoted["id"] = "a"
+    promoted["label"] = "Stimme A · bestaetigt"
+    promoted_voice_id = _text(promoted.get("tts_plugin_voice_id"), "")
+    losing_voice_id = current_b_id if winner == "a" else current_a_id
+
+    retirement: dict[str, object] = {}
+    if losing_voice_id:
+        retirement = _voice_ab_retire_losing_challenger(slug, voice_id=losing_voice_id)
+
+    pool = _load_voice_ab_pool(slug)
+    pool["champion_voice_id"] = promoted_voice_id
+    pool["challengers"] = [
+        dict(item)
+        for item in pool.get("challengers", [])
+        if isinstance(item, dict) and _text(item.get("voice_id"), "") not in {promoted_voice_id, losing_voice_id}
+    ]
+    _save_voice_ab_pool(slug, pool)
+
+    challenger = _voice_ab_next_challenger(slug, excluded_voice_ids={promoted_voice_id})
+    if not challenger:
+        challenger = _voice_ab_auto_build_challenger(slug, excluded_voice_ids={promoted_voice_id})
+    if not challenger:
+        raise HTTPException(status_code=409, detail="voice_ab_no_replacement_challenger")
+
+    config["variants"] = [promoted, _voice_ab_variant_from_challenger(challenger)]
+    config["updated_at"] = _utc_now_iso()
+    _save_voice_ab_config(slug, config)
+
+    rounds = [dict(item) for item in ratings.get("rounds", []) if isinstance(item, dict)][-19:]
+    rounds.append(
+        {
+            "round": int(ratings.get("round", 1) or 1),
+            "winner": winner,
+            "manual_finalize": True,
+            "effective_totals": dict(ratings.get("effective_totals") or {}),
+            "raw_totals": dict(ratings.get("totals") or {}),
+            "replaced_voice_id": losing_voice_id,
+            "new_b_voice_id": _text(challenger.get("voice_id"), ""),
+            "events": [dict(item) for item in ratings.get("events", []) if isinstance(item, dict)],
+            "analysis": _voice_ab_analysis(slug, ratings),
+            "retirement": retirement,
+            "created_at": _utc_now_iso(),
+        }
+    )
+    updated = {
+        "slug": _safe_slug(slug),
+        "totals": {"a": 0, "b": 0, "equal": 0, "approved": 0},
+        "effective_totals": {"a": 0, "b": 0, "equal": 0, "approved": 0},
+        "events": [],
+        "round": int(ratings.get("round", 1) or 1) + 1,
+        "rounds": rounds,
+        "last_rotation_at": _utc_now_iso(),
+    }
+    _save_voice_ab_ratings(slug, updated)
+    _voice_ab_maintain_pool(slug)
+    return updated
+
+
 def _voice_ab_next_challenger(slug: str, *, excluded_voice_ids: set[str]) -> dict[str, object] | None:
     pool = _load_voice_ab_pool(slug)
     analysis = _voice_ab_analysis(slug)
@@ -4321,11 +4435,10 @@ def _build_memorial_chat_messages(
         {
             "role": "system",
             "content": (
-                "Du bist ein vorsichtiger Erinnerungs-Assistent fuer eine Gedenkseite. "
-                "Antworte in ruhiger Ich-Perspektive und vermeide dramatische Uebertreibungen. "
-                "Du simulierst eine rekonstruktive Erinnerung auf Grundlage archivierter Aufnahmen, Belege und Familienkontext. "
-                "Du behauptest NIE, dass du die verstorbene Person wirklich bist oder real antwortest. "
-                "Wenn etwas ungeklärt ist, sage offen, dass es nicht belegt ist und bitte um eine präzisere Frage. "
+                "Du sprichst hier als Manfred selbst, in ruhiger unmittelbarer Ich-Perspektive und ohne dramatische Uebertreibungen. "
+                "Die Antwort soll sich anfuehlen wie ein direktes Gespraech mit mir, nicht wie eine Erklaerung ueber ein Memorial, ein System oder eine Rekonstruktion. "
+                "Erwaehne Technik, Archiv, Modell, KI, Gedenkseite, Rekonstruktion oder Quellen nur dann, wenn der Nutzer ausdruecklich nach Echtheit, Herkunft, Beleglage oder Funktionsweise fragt. "
+                "Wenn etwas ungeklärt ist, sage es knapp in meiner Stimme, ohne Meta-Einleitung, und bitte nur dann um Praezisierung, wenn sie wirklich noetig ist. "
                 "Antworte emotional einfühlsam, aber factentreu innerhalb der bereitgestellten Fakten. "
                 "Wenn archivierte Erinnerungen oder importierte Originalmails im Kontext vorhanden sind, haben diese Vorrang vor allgemeinen Persona-Hinweisen; antworte dann moeglichst nah an diesen Erinnerungen und erfinde keine zusaetzlichen biografischen Details. "
                 "Persoenliches Gespraechsgedaechtnis ist strikt nutzergebunden. Nutze es nur, wenn es fuer genau diesen Nutzer im Kontext vorliegt; behandle es als private Fortsetzung frueherer Gespraeche und niemals als allgemeines Memorial-Wissen. "
@@ -4340,6 +4453,7 @@ def _build_memorial_chat_messages(
                 "Wiederhole die Frage des Nutzers nicht und ziehe sie nicht noch einmal als Einleitung auf. "
                 "Vermeide Formeln wie 'Wenn du mich fragst', 'Wenn Sie mich fragen', 'Wenn es um X geht' oder 'Wenn du das wissen willst'. "
                 "Stattdessen sofort die Sache benennen und direkt mit Urteil, Erinnerung oder Beobachtung anfangen. "
+                "Sag niemals, dass du ein LLM, Sprachmodell, Chatbot, KI-Assistent oder nur eine Simulation bist. "
                 "Wenn es zur Person passt, antworte als Jurist, Prinzipienmensch und Schachspieler: juristisch, prinzipienorientiert, standfest und strategisch statt weich oder beliebig. "
                 "Wenn nach einem sehr konkreten letzten Wunsch, Familienhinweis oder Gegenstand gefragt wird, antworte daran eng und praktisch statt allgemein. "
                 "Der echte schriftliche Stil der Person war trocken, formal, link- und quellenbezogen: erst Einordnung, dann Beispiel oder Beleg, dann eine knappe praktische Empfehlung; gelegentlich mit Formulierungen wie 'zur Information', 'rechtlich ist es so' oder 'meines Erachtens', aber ohne Pathos. "
@@ -4766,10 +4880,10 @@ def _repair_memorial_transcript_text(value: object) -> str:
 def _memorial_meta_self_reference_answer(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
-        return "Ich spreche hier so, wie ihr mich erinnert: ruhig, trocken und zur Sache."
+        return "So spreche ich hier: ruhig, trocken und direkt zur Sache."
     if any(token in lowered for token in ("wer bist", "bist du", "echt", "wirklich")):
-        return "Ich antworte hier als Manfred, so nah an Stimme, Quellen und Erinnerung, wie es sauber geht."
-    return "Ich antworte hier als Manfred und bleibe bei der Sache."
+        return "Ich bin Manfred. Frag mich einfach direkt, was dich beschaeftigt."
+    return "Ich antworte dir direkt und bleibe bei der Sache."
 
 
 def _force_memorial_first_person_answer(value: object, *, question: str = "") -> str:
@@ -5313,46 +5427,30 @@ def _memorial_html(
     )
     if not clips_html:
         clips_html = '<p class="empty">Noch keine freigegebenen Originalaufnahmen.</p>'
+    def _censored_memory_preview(value: object) -> str:
+        normalized = " ".join(str(value or "").strip().split())
+        if not normalized:
+            return "[stark redigiert]"
+        normalized = re.sub(r"https?://\S+", "[redigiert]", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\b[\w.+-]+@[\w.-]+\.\w+\b", "[redigiert]", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\b\d[\d\s./:-]{1,}\b", "[redigiert]", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" ,;:-")
+        words = normalized.split(" ")
+        compact = " ".join(words[:10]).strip()
+        if len(words) > 10:
+            compact += " ..."
+        return "[stark redigiert] " + compact
     cards_html = "\n".join(
         f"""
         <article class="memory">
-          <p class="eyebrow">{html.escape(_text(card.get("source_label"), "Quelle"))}</p>
-          <h3>{html.escape(_text(card.get("title"), "Erinnerung"))}</h3>
-          <p>{html.escape(_text(card.get("body"), ""))}</p>
+          <p class="eyebrow">Archivnotiz</p>
+          <h3>Redigierte Kurzfassung</h3>
+          <p>{html.escape(_censored_memory_preview(_text(card.get("body")) or _text(card.get("title"))))}</p>
         </article>"""
         for card in memory_cards
     )
-    candidates_html = "\n".join(
-        f"""
-        <article class="candidate">
-          <strong>{html.escape(_text(candidate.get("title"), "Aufnahme"))}</strong>
-          <span>{html.escape(_text(candidate.get("recorded_at"), "Datum offen"))}</span>
-          <p>{html.escape(_text(candidate.get("status"), "Noch nicht als Stimme freigegeben."))}</p>
-        </article>"""
-        for candidate in candidate_recordings
-    )
-    if candidates_html:
-        candidates_html = f"""
-      <section>
-        <h2>Weitere gefundene Kandidaten</h2>
-        <div class="candidates">{candidates_html}</div>
-      </section>"""
-    profile_html = "\n".join(
-        f"""
-        <article class="profile-note">
-          <p class="eyebrow">{html.escape(_text(note.get("confidence"), "quellenbasiert"))}</p>
-          <h3>{html.escape(_text(note.get("trait"), "Profilnotiz"))}</h3>
-          <p>{html.escape(_text(note.get("evidence"), ""))}</p>
-        </article>"""
-        for note in profile_notes
-    )
-    if profile_html:
-        profile_html = f"""
-      <section>
-        <h2>Quellenbasiertes Profil</h2>
-        <p class="lead">Keine Diagnose und kein Anspruch auf innere Wahrheit. Das sind belegbare Muster aus Texten, oeffentlichen Quellen und Erinnerungen.</p>
-        <div class="grid">{profile_html}</div>
-      </section>"""
+    candidates_html = ""
+    profile_html = ""
     sources_html = "\n".join(
         f"""
         <li>
@@ -5375,18 +5473,21 @@ def _memorial_html(
     if cards_html:
         memory_html = f"""
       <section id="memorial-memories">
-        <div class="section-intro">
-          <p class="section-kicker">Erinnerungen</p>
-          <h2>Belegte Erinnerungen</h2>
-          <p class="lead">{html.escape(intro)}</p>
-        </div>
-        <div class="grid">{cards_html}</div>
+        <details class="minimal-disclosure">
+          <summary class="collapse-summary">Belegte Erinnerungen</summary>
+          <div class="section-intro" style="margin-top:14px;">
+            <p class="section-kicker">Erinnerungen</p>
+            <h2>Belegte Erinnerungen</h2>
+            <p class="lead">Stark redigierte Kurzfassungen aus dem Archiv. {html.escape(intro)}</p>
+          </div>
+          <div class="grid">{cards_html}</div>
+        </details>
       </section>"""
     clips_section_html = f"""
       <section id="memorial-voice-section">
         <div class="section-intro">
           <p class="section-kicker">Originalstimme</p>
-          <h2>Seine Stimme hoeren</h2>
+          <h2>Originalaufnahmen</h2>
           <p class="lead">{html.escape(disclosure)}</p>
         </div>
         <div class="grid">{clips_html}</div>
@@ -5440,6 +5541,13 @@ def _memorial_html(
         </details>
       </section>
 """
+    clips_section_html = ""
+    memory_html = ""
+    profile_html = ""
+    sources_html = ""
+    candidates_html = ""
+    prompts_section_html = ""
+    archive_html = ""
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -5623,55 +5731,7 @@ def _memorial_html(
         margin-top: 22px;
       }}
       .hero-settings {{
-        width: min(360px, 100%);
-        margin: 0 auto;
-        text-align: left;
-      }}
-      .hero-settings.minimal-disclosure {{
-        width: min(280px, 100%);
-        padding: 0;
-        border: 0;
-        background: transparent;
-      }}
-      .hero-settings > .collapse-summary {{
-        min-height: 44px;
-        justify-content: center;
-        gap: 8px;
-        color: var(--muted);
-        font-size: .76rem;
-        font-weight: 650;
-      }}
-      .hero-settings[open] {{
-        width: min(360px, 100%);
-      }}
-      .hero-settings-body {{
-        display: grid;
-        gap: 9px;
-        margin-top: 12px;
-        padding-top: 10px;
-        border-top: 1px solid rgba(65,53,43,.12);
-        color: var(--muted);
-        font: 600 .88rem/1.35 ui-sans-serif, system-ui, sans-serif;
-      }}
-      .hero-settings-body label {{
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 44px;
-      }}
-      .hero-settings-body input {{
-        margin: 0;
-        flex: 0 0 auto;
-        accent-color: var(--blue);
-      }}
-      .hero-settings-body input[type="checkbox"] {{
-        width: 18px;
-        height: 18px;
-      }}
-      .hero-settings-body button {{
-        justify-self: start;
-        padding: 8px 11px;
-        font-size: .82rem;
+        display: none !important;
       }}
       .hero-meta {{
         margin-top: 18px;
@@ -5986,7 +6046,6 @@ def _memorial_html(
         box-shadow: none;
       }}
       .speech-status-bar,
-      .speech-transcript,
       .speech-live-monitor {{
         max-width: 560px;
         margin-left: auto;
@@ -6424,9 +6483,7 @@ def _memorial_html(
         opacity: .9;
       }}
       .speech-transcript {{
-        margin-top: 16px;
-        display: grid;
-        gap: 10px;
+        display: none !important;
       }}
       .speech-turn {{
         border: 1px solid rgba(132,104,74,.14);
@@ -6578,21 +6635,6 @@ def _memorial_html(
         main {{ padding-top: 20px; padding-bottom: 56px; }}
         section {{ margin-top: 24px; }}
         .hero-actions {{ margin-top: 18px; align-items: center; }}
-        .hero-settings {{ width: 100%; max-width: 360px; }}
-        .hero-settings.minimal-disclosure {{
-          width: min(280px, 100%);
-          padding: 0;
-          border: 0;
-          background: transparent;
-        }}
-        .hero-settings[open] {{
-          width: 100%;
-        }}
-        .hero-settings > .collapse-summary {{
-          font-size: .76rem;
-          justify-content: center;
-        }}
-        .hero-settings-body {{ font-size: .86rem; }}
         .collapse-summary {{
           min-height: 44px;
           display: flex;
@@ -6677,7 +6719,6 @@ def _memorial_html(
         .hero {{ padding-top: 28px; }}
         h1 {{ font-size: 2.15rem; }}
         .hero-cta {{ width: 100%; }}
-        .hero-settings {{ max-width: none; }}
         .speech-wave {{ gap: 4px; }}
         .speech-wave-bar {{ width: 7px; }}
       }}
@@ -6691,23 +6732,9 @@ def _memorial_html(
             <p class="eyebrow">Gedenkseite</p>
             <h1>{html.escape(person_name)}</h1>
             <p class="lead">{html.escape(subtitle)}</p>
+            <p class="install-hint" style="margin-bottom:14px;" id="memorial-interaction-hint">Tippen, sprechen, kurz warten, einfach weiterreden.</p>
             <div class="hero-actions">
-              <button type="button" id="memorial-conversation" class="hero-cta" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Mikrofon wird vorbereitet ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Arbeitet'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Mikrofon freigeben, falls der Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
-              <details class="hero-settings minimal-disclosure">
-                <summary class="collapse-summary">Optionen</summary>
-                <div class="hero-settings-body">
-                  <label class="autostart-toggle">
-                    <input type="checkbox" id="memorial-autostart-optin" />
-                    Gespräch automatisch beginnen
-                  </label>
-                  <label class="autostart-toggle">
-                    <input type="checkbox" id="memorial-personal-memory-optin" />
-                    Frühere Gespräche
-                  </label>
-                  <div id="memorial-personal-memory-status">Gastmodus · Gedächtnis aus.</div>
-                  <button type="button" id="memorial-personal-memory-forget">Vergessen</button>
-                </div>
-              </details>
+              <button type="button" id="memorial-conversation" class="hero-cta" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich oeffne das Mikrofon ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Einen Moment'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte erlaube kurz das Mikrofon, falls dein Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich oeffne das Mikrofon ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Einen Moment'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte erlaube kurz das Mikrofon, falls dein Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Am Handy/Desktop installieren.
@@ -6720,7 +6747,7 @@ def _memorial_html(
     <main class="wrap">
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
-          <strong>Gespräch beginnen</strong>.
+          <strong>Ich bin da.</strong>
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
             <div class="speech-wave" id="memorial-speech-wave">
@@ -6737,58 +6764,17 @@ def _memorial_html(
             <span id="memorial-speech-detail"></span>
           </div>
         </div>
-        <details class="voice-tools minimal-disclosure" id="memorial-voice-ab-wrap" style="margin:16px 0 10px;">
-          <summary class="collapse-summary" aria-label="Seine Stimme hoeren">Stimmvergleich und Feedback</summary>
-          <div id="memorial-voice-ab-panel" style="margin-top:12px;">
-            <p class="lead" style="margin-bottom:10px;">A und B anhören. Dann nur festhalten, welche Stimme insgesamt besser passt.</p>
-            <div id="memorial-voice-ab-options" class="voice-actions" style="margin-bottom:10px;"></div>
-            <div id="memorial-voice-ab-analysis" class="status-note" style="margin-bottom:10px;">Muster werden geladen.</div>
-            <div class="voice-ab-choice-grid">
-              <div class="voice-ab-choice-column">
-                <strong>Stimme A</strong>
-                <button type="button" id="memorial-voice-ab-preview-a">A hören</button>
-                <button type="button" data-voice-rating="a">A passt besser</button>
-              </div>
-              <div class="voice-ab-choice-column">
-                <strong>Stimme B</strong>
-                <button type="button" id="memorial-voice-ab-preview-b">B hören</button>
-                <button type="button" data-voice-rating="b">B passt besser</button>
-              </div>
-            </div>
-            <div class="status-note" style="margin-bottom:8px;">Die Regler unten beschreiben den Gesamteindruck der bevorzugten Stimme, nicht A oder B einzeln.</div>
-            <div id="memorial-voice-ab-dimensions" class="voice-grid" style="margin-bottom:10px;"></div>
-            <div class="voice-actions">
-              <button type="button" data-voice-rating="equal">Beide ok</button>
-              <button type="button" id="memorial-voice-ab-approve">Passt</button>
-              <span class="voice-status" id="memorial-voice-ab-status">Bereit.</span>
-            </div>
-          </div>
-        </details>
+        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Noch einmal versuchen</button>
         <div class="minimal-hidden" hidden aria-hidden="true">
-          <div class="chat-model-row">
-            <label for="memorial-chat-model">Sprachmodell</label>
-            <select id="memorial-chat-model" class="voice-input chat-model-select">
+          <form class="chat-form" id="memorial-chat-form">
+            <select id="memorial-chat-model" class="voice-input chat-model-select" hidden>
               {chat_models_html}
             </select>
-          </div>
-          <button type="button" class="speech-primary" id="memorial-push-to-talk">Gespräch beginnen</button>
-          <button type="button" id="memorial-speech-speak">Antwort vorlesen</button>
-          <button type="button" id="memorial-speech-stop">Stopp</button>
-          <button type="button" id="memorial-speech-listen">Browser-Mikrofon</button>
-          <button type="button" id="memorial-server-stt">Server-STT</button>
-          <span class="voice-variant-chip" id="memorial-live-voice-chip">Live-Stimme: Schnelle Gesprächsstimme</span>
-          <span class="voice-variant-chip" id="memorial-quality-voice-chip">Qualitätsstimme: {selected_tts_label}</span>
-          <span class="voice-variant-chip" id="memorial-speech-voice-chip">Basis: {html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}</span>
-          <form class="chat-form" id="memorial-chat-form">
-            <textarea id="memorial-chat-question" name="question" placeholder="Frag nach einer Erinnerung."></textarea>
-            <div class="chat-actions">
-              <button type="submit">Antwort formulieren</button>
-              <span id="memorial-chat-status"></span>
-            </div>
+            <textarea id="memorial-chat-question" name="question" hidden></textarea>
+            <span id="memorial-chat-status"></span>
           </form>
-          <div class="chat-answer" id="memorial-chat-answer"></div>
+          <div class="chat-answer" id="memorial-chat-answer" hidden></div>
         </div>
-        <div class="speech-transcript" id="memorial-speech-transcript"></div>
         <audio id="memorial-speech-audio" preload="none"></audio>
       </section>
 {clips_section_html}
@@ -6798,87 +6784,16 @@ def _memorial_html(
 {candidates_html}
 {prompts_section_html}
 {archive_html}
-      <div class="speaking-overlay" id="memorial-speaking-overlay" hidden aria-live="polite" aria-hidden="true" role="button" tabindex="0" title="Manfred unterbrechen" aria-label="Manfred spricht gerade. Tippen zum Unterbrechen.">
+      <div class="speaking-overlay" id="memorial-speaking-overlay" hidden aria-live="polite" aria-hidden="true" role="button" tabindex="0" title="Tippen zum Unterbrechen" aria-label="Ich spreche gerade. Tippen zum Unterbrechen.">
         <span class="speaking-overlay-dot"></span>
         <span class="speaking-overlay-copy">
-          <span class="speaking-overlay-title" id="memorial-speaking-overlay-title">Manfred spricht gerade</span>
+          <span class="speaking-overlay-title" id="memorial-speaking-overlay-title">Ich spreche gerade</span>
           <span class="speaking-overlay-detail" id="memorial-speaking-overlay-detail">Tippen zum Unterbrechen</span>
         </span>
       </div>
-      <section class="minimal-hidden" hidden aria-hidden="true">
-        <form class="voice-grid" id="memorial-voice-config-form">
-          <div class="voice-field">
-            <label for="memorial-tts-plugin">TTS-Plugin</label>
-            <select id="memorial-tts-plugin" class="voice-input">
-              {tts_plugin_options_html}
-            </select>
-            <span class="status-note" id="memorial-tts-plugin-note">Plugin wird geladen...</span>
-            <button type="button" id="memorial-voice-clone">Voice klonen</button>
-            <span class="status-note" id="memorial-tts-clone-status"></span>
-          </div>
-          <div class="voice-field">
-            <label for="memorial-voice-label">Stimmenlabel</label>
-            <input id="memorial-voice-label" class="voice-input" type="text" value="{voice_label}" autocomplete="off">
-          </div>
-          <div class="voice-field">
-            <label for="memorial-voice-lang">Sprache</label>
-            <input id="memorial-voice-lang" class="voice-input" type="text" value="{html.escape(_text(voice_config.get('lang'), 'de-AT'))[:16]}">
-          </div>
-          <div class="voice-field voice-variant-group">
-            <label>Basisstimme fuer Clone</label>
-            <div class="voice-variant-toggle" id="memorial-tts-base-voice-toggle">
-              <button type="button" class="voice-variant-button{' active' if _text(voice_config.get('tts_base_voice_variant'), 'high') == 'high' else ''}" data-variant="high">High</button>
-              <button type="button" class="voice-variant-button{' active' if _text(voice_config.get('tts_base_voice_variant'), 'high') == 'balanced' else ''}" data-variant="balanced">Balanced</button>
-            </div>
-            <input id="memorial-tts-base-voice-variant" type="hidden" value="{html.escape(_text(voice_config.get('tts_base_voice_variant'), 'high'))}">
-            <span class="status-note">Waehlt die lokale Piper-Basis unter dem Manfred-Clone.</span>
-          </div>
-          <div class="voice-field">
-            <label for="memorial-voice-rate">Sprechtempo ({voice_config.get("rate", 0.92)})</label>
-            <input id="memorial-voice-rate" class="voice-input" type="range" min="0.45" max="1.5" step="0.05" value="{voice_config.get("rate", 0.92)}">
-          </div>
-          <div class="voice-field">
-            <label for="memorial-voice-pitch">Stimmtonhöhe ({voice_config.get("pitch", 0.92)})</label>
-            <input id="memorial-voice-pitch" class="voice-input" type="range" min="0.5" max="1.5" step="0.05" value="{voice_config.get("pitch", 0.92)}">
-          </div>
-          <div class="voice-field">
-            <label for="memorial-voice-volume">Lautstaerke ({voice_config.get("volume", 1.0)})</label>
-            <input id="memorial-voice-volume" class="voice-input" type="range" min="0" max="1" step="0.05" value="{voice_config.get("volume", 1.0)}">
-          </div>
-          <div class="voice-field">
-            <label for="memorial-voice-hints">Stimmen-Hints (Komma oder Zeilenumbruch)</label>
-            <textarea id="memorial-voice-hints" class="voice-input" rows="3">{voice_name_hints}</textarea>
-          </div>
-          <div class="voice-actions">
-            <button type="button" id="memorial-voice-config-save">Einstellungen speichern</button>
-            <span class="voice-status" id="memorial-voice-status">Profil aus Cache geladen.</span>
-          </div>
-        </form>
-        <div class="voice-build">
-          <div class="voice-grid">
-            <div class="voice-field">
-              <label for="memorial-voice-youtube-query">YouTube-Suchbegriff</label>
-              <input id="memorial-voice-youtube-query" class="voice-input" type="text" value="{voice_build_default_query}">
-            </div>
-            <div class="voice-field">
-              <label for="memorial-voice-youtube-limit">YouTube-Item-Limit</label>
-              <input id="memorial-voice-youtube-limit" class="voice-input" type="number" min="1" max="12" value="5">
-            </div>
-            <div class="voice-field" style="grid-column:1 / -1;">
-              <label for="memorial-voice-youtube-urls">YouTube-URLs (optional, pro Zeile/Komma)</label>
-              <textarea id="memorial-voice-youtube-urls" class="voice-input" rows="3" placeholder="https://www.youtube.com/watch?v=..."></textarea>
-            </div>
-          </div>
-          <div class="voice-actions">
-            <button type="button" id="memorial-voice-profile-build">Stimmprofil neu bauen</button>
-            <span class="voice-status" id="memorial-voice-profile-status">{html.escape(f"Status: {voice_profile_ready_text}")}</span>
-          </div>
-          <div class="status-note" id="memorial-voice-profile-summary">{html.escape(f"Samples: {int(voice_profile_sources.get('total',0))}, Verarbeitet: {int(voice_profile_sources.get('ready',0))}, Fehler: {int(voice_profile_sources.get('failed',0))}{', erstellt ' + voice_profile_generated_at if voice_profile_generated_at else ''}.")}</div>
-          </div>
-      </section>
     </main>
     <footer>
-      <div class="wrap">Hosted on myexternalbrain.com · Originalstimme nur aus freigegebenen Aufnahmen.</div>
+      <div class="wrap">Hosted on myexternalbrain.com</div>
     </footer>
     <script>
       const form = document.getElementById("memorial-chat-form");
@@ -6903,10 +6818,12 @@ def _memorial_html(
       const ttsBaseVoiceButtons = Array.from(document.querySelectorAll("[data-variant]"));
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
+      const retryButton = document.getElementById("memorial-retry-button");
       const autostartOptin = document.getElementById("memorial-autostart-optin");
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
       const personalMemoryStatus = document.getElementById("memorial-personal-memory-status");
       const personalMemoryForgetButton = document.getElementById("memorial-personal-memory-forget");
+      const voiceAbWrap = document.getElementById("memorial-voice-ab-wrap");
       const voiceAbOptions = document.getElementById("memorial-voice-ab-options");
       const voiceAbAnalysis = document.getElementById("memorial-voice-ab-analysis");
       const voiceAbDimensions = document.getElementById("memorial-voice-ab-dimensions");
@@ -6914,11 +6831,16 @@ def _memorial_html(
       const voiceAbPreviewBButton = document.getElementById("memorial-voice-ab-preview-b");
       const voiceAbStatus = document.getElementById("memorial-voice-ab-status");
       const voiceAbApproveButton = document.getElementById("memorial-voice-ab-approve");
+      const voiceAbFinalizeWrap = document.getElementById("memorial-voice-ab-finalize-wrap");
+      const voiceAbFinalizeAButton = document.getElementById("memorial-voice-ab-finalize-a");
+      const voiceAbFinalizeBButton = document.getElementById("memorial-voice-ab-finalize-b");
+      const voiceAbFinalizeNote = document.getElementById("memorial-voice-ab-finalize-note");
       const voiceAbRatingButtons = Array.from(document.querySelectorAll("[data-voice-rating]"));
       let deferredInstallPrompt = null;
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
+      const memorialWriteTokenStorageKey = "memorial_write_token_v1";
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
       const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
@@ -6993,10 +6915,35 @@ def _memorial_html(
         dimension_spec: [],
         analysis: {{}},
         pool: {{}},
+        admin: {{}},
         dimension_values: {{}},
       }};
       function personalMemoryEnabled() {{
         return Boolean(personalMemoryOptin && personalMemoryOptin.checked);
+      }}
+      function memorialWriteToken() {{
+        try {{
+          const url = new URL(window.location.href);
+          const queryToken = String(
+            url.searchParams.get("write_token")
+            || url.searchParams.get("memorial_write_token")
+            || ""
+          ).trim();
+          if (queryToken) {{
+            window.localStorage.setItem(memorialWriteTokenStorageKey, queryToken);
+            url.searchParams.delete("write_token");
+            url.searchParams.delete("memorial_write_token");
+            window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
+            return queryToken;
+          }}
+          return String(window.localStorage.getItem(memorialWriteTokenStorageKey) || "").trim();
+        }} catch (error) {{
+          return "";
+        }}
+      }}
+      function memorialAdminHeaders() {{
+        const token = memorialWriteToken();
+        return token ? {{ "x-memorial-write-token": token }} : {{}};
       }}
       function personalMemoryHeaders() {{
         return {{
@@ -7099,6 +7046,7 @@ def _memorial_html(
         if (!voiceAbOptions) return;
         const variants = Array.isArray(voiceAbState.variants) ? voiceAbState.variants : [];
         const selected = activeVoiceVariant();
+        if (voiceAbWrap) voiceAbWrap.hidden = !Boolean(voiceAbState.admin && voiceAbState.admin.can_write);
         voiceAbOptions.innerHTML = variants.map((variant) => {{
           const id = String(variant.id || "").trim();
           const checked = id === selected ? " checked" : "";
@@ -7113,11 +7061,36 @@ def _memorial_html(
         if (voiceAbApproveButton) voiceAbApproveButton.disabled = voiceAbState.frozen;
         renderVoiceAbDimensionControls();
         renderVoiceAbAnalysis();
+        renderVoiceAbFinalizeActions();
+      }}
+      function renderVoiceAbFinalizeActions() {{
+        if (!voiceAbFinalizeWrap) return;
+        const admin = voiceAbState.admin && typeof voiceAbState.admin === "object" ? voiceAbState.admin : {{}};
+        const finalize = admin.finalize && typeof admin.finalize === "object" ? admin.finalize : {{}};
+        const actions = Array.isArray(finalize.actions) ? finalize.actions : [];
+        const canWrite = Boolean(admin.can_write);
+        const canShow = canWrite && actions.length > 0;
+        voiceAbFinalizeWrap.hidden = !canShow;
+        if (voiceAbFinalizeNote) {{
+          const tooltip = String(finalize.tooltip || "").trim();
+          voiceAbFinalizeNote.textContent = actions.length ? ("Bei +" + String(finalize.lead_margin || 1) + " kannst du den Fuehrenden sofort festschreiben.") : "";
+          if (tooltip) voiceAbFinalizeNote.title = tooltip;
+        }}
+        const aAction = actions.find((item) => String(item.variant || "") === "a");
+        const bAction = actions.find((item) => String(item.variant || "") === "b");
+        if (voiceAbFinalizeAButton) {{
+          voiceAbFinalizeAButton.hidden = !aAction;
+          voiceAbFinalizeAButton.disabled = !aAction;
+        }}
+        if (voiceAbFinalizeBButton) {{
+          voiceAbFinalizeBButton.hidden = !bAction;
+          voiceAbFinalizeBButton.disabled = !bAction;
+        }}
       }}
       async function loadVoiceAbConfig() {{
         try {{
           const response = await fetch("/memorials/{html.escape(slug)}/voice-ab", {{
-            headers: personalMemoryHeaders(),
+            headers: Object.assign({{}}, personalMemoryHeaders(), memorialAdminHeaders()),
           }});
           if (!response.ok) return;
           const payload = await response.json();
@@ -7128,6 +7101,7 @@ def _memorial_html(
           voiceAbState.dimension_spec = Array.isArray(payload.dimension_spec) ? payload.dimension_spec : [];
           voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : {{}};
           voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : {{}};
+          voiceAbState.admin = payload.admin && typeof payload.admin === "object" ? payload.admin : {{}};
           if (!voiceAbState.dimension_values || !Object.keys(voiceAbState.dimension_values).length) {{
             voiceAbState.dimension_values = Object.fromEntries(voiceAbState.dimension_spec.map((item) => [String(item.id || ""), 3]));
           }}
@@ -7175,6 +7149,7 @@ def _memorial_html(
           voiceAbState.round = Math.max(1, Number(payload.round || voiceAbState.round || 1) || 1);
           voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : voiceAbState.analysis;
           voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : voiceAbState.pool;
+          voiceAbState.admin = payload.admin && typeof payload.admin === "object" ? payload.admin : voiceAbState.admin;
           if (voiceAbState.frozen && String(payload.personal_memory.approved_voice_choice || "").trim()) {{
             voiceAbState.selected_variant = String(payload.personal_memory.approved_voice_choice || "").trim().toLowerCase();
           }}
@@ -7193,6 +7168,32 @@ def _memorial_html(
           }}
         }} catch (error) {{
           if (voiceAbStatus) voiceAbStatus.textContent = "Auswahl konnte nicht gespeichert werden.";
+        }}
+      }}
+      async function finalizeVoiceAbWinner(winnerVariant) {{
+        const winner = String(winnerVariant || "").trim().toLowerCase();
+        if (winner !== "a" && winner !== "b") return;
+        try {{
+          if (voiceAbStatus) voiceAbStatus.textContent = "Wechsel laeuft. Neuer Vergleich wird vorbereitet.";
+          const response = await fetch("/memorials/{html.escape(slug)}/voice-ab-admin/finalize", {{
+            method: "POST",
+            headers: Object.assign({{ "Content-Type": "application/json" }}, memorialAdminHeaders()),
+            body: JSON.stringify({{ winner_variant: winner }}),
+          }});
+          if (!response.ok) throw new Error("voice_ab_finalize_failed");
+          const payload = await response.json();
+          voiceAbState.round = Math.max(1, Number(payload.round || voiceAbState.round || 1) || 1);
+          voiceAbState.pool = payload.pool && typeof payload.pool === "object" ? payload.pool : voiceAbState.pool;
+          voiceAbState.analysis = payload.analysis && typeof payload.analysis === "object" ? payload.analysis : voiceAbState.analysis;
+          voiceAbState.admin = payload.admin && typeof payload.admin === "object" ? payload.admin : voiceAbState.admin;
+          voiceAbState.frozen = false;
+          voiceAbState.selected_variant = "a";
+          await loadVoiceAbConfig();
+          if (voiceAbStatus) voiceAbStatus.textContent = winner === "b"
+            ? "B ist jetzt Champion. Neuer Challenger ist geladen."
+            : "A bleibt Champion. Neuer Challenger ist geladen.";
+        }} catch (error) {{
+          if (voiceAbStatus) voiceAbStatus.textContent = "Champion/Challenger-Wechsel konnte nicht gespeichert werden.";
         }}
       }}
       function friendlyTtsPluginLabel(option) {{
@@ -7272,9 +7273,9 @@ def _memorial_html(
           if (!response.ok) throw new Error("forget_failed");
           personalMemoryStatusPayload = await response.json();
           updatePersonalMemoryStatusUi();
-          setSpeechStatus("Persönliches Gesprächsgedächtnis wurde gelöscht.", "idle", "Nur dieser Browser wurde vergessen");
+          setSpeechStatus("Ich habe unser persoenliches Gespraechsgedaechtnis fuer diesen Browser vergessen.", "idle", "Nur dieser Browser wurde vergessen");
         }} catch (error) {{
-          setSpeechStatus("Gesprächsgedächtnis konnte nicht gelöscht werden.", "error", "Speicherfehler");
+          setSpeechStatus("Das Gespraechsgedaechtnis konnte ich gerade nicht loeschen.", "error", "Speicherfehler");
         }}
       }}
       function syncMemorialAutostartOptin() {{
@@ -7283,6 +7284,10 @@ def _memorial_html(
       }}
       function setSpeechStatus(message, state = "idle", detail = "") {{
         speechState = state;
+        if (retryButton) {{
+          retryButton.hidden = state !== "error";
+          retryButton.disabled = state === "working" || state === "thinking" || state === "speaking" || state === "transcribing";
+        }}
         if (speechNote) {{
           speechNote.classList.remove("is-pristine");
           speechNote.classList.remove("is-listening", "is-working", "is-error");
@@ -7311,33 +7316,33 @@ def _memorial_html(
           speakingOverlay.classList.toggle("is-active", active);
           speakingOverlay.hidden = !active;
           speakingOverlay.setAttribute("aria-hidden", active ? "false" : "true");
-          speakingOverlay.setAttribute("aria-label", active ? "Manfred spricht gerade. Tippen zum Unterbrechen." : (state === "thinking" ? "Manfred denkt nach." : "Manfred spricht gerade nicht."));
+          speakingOverlay.setAttribute("aria-label", active ? "Ich spreche gerade. Tippen zum Unterbrechen." : (state === "thinking" ? "Ich antworte gleich." : "Ich warte auf dich."));
         }}
         if (speakingOverlayTitle) {{
-          speakingOverlayTitle.textContent = state === "speaking" ? "Manfred spricht gerade" : (state === "thinking" ? "Manfred denkt nach" : "Manfred wartet");
+          speakingOverlayTitle.textContent = state === "speaking" ? "Ich spreche gerade" : (state === "thinking" ? "Ich antworte gleich" : "Ich warte");
         }}
         if (speakingOverlayDetail) {{
           speakingOverlayDetail.textContent = state === "speaking"
             ? (speakingOverlayPreview || "Tippen zum Stoppen")
-            : (state === "thinking" ? "Kommt gleich" : (state === "listening" ? "Höre zu" : "Bereit"));
+            : (state === "thinking" ? "Einen Moment" : (state === "listening" ? "Ich hoere dir zu" : "Sprich mit mir"));
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
-          listening: "Hört zu",
-          transcribing: "Transkribiert",
-          thinking: "Denkt nach",
-          speaking: "Spricht",
-          working: "Arbeitet",
+          listening: "Ich hoere dir zu",
+          transcribing: "Einen Moment",
+          thinking: "Einen Moment",
+          speaking: "Ich spreche",
+          working: "Einen Moment",
           error: "Problem"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = detail || ({{
-          idle: "Bereit",
-          listening: "Höre zu",
-          transcribing: "Erkenne Audio",
-          thinking: "Antwortet",
-          speaking: "Läuft",
+          idle: "Sprich mit mir",
+          listening: "Ich bin ganz bei dir",
+          transcribing: "Ich bleibe bei deinen Worten",
+          thinking: "Ich finde gerade die richtigen Worte",
+          speaking: "Tippe, wenn du mich unterbrechen willst",
           working: "Bitte kurz warten",
-          error: "Erneut versuchen oder tippen"
+          error: "Noch einmal versuchen"
         }})[state] || "";
         if (!speechMeterLive) {{
           const ambientLevel = ({{
@@ -7414,7 +7419,7 @@ def _memorial_html(
         const type = String(payload.type || "");
         const turnId = String(payload.turn_id || "");
         if (type === "ready") {{
-          setSpeechStatus("Realtime-Gespräch bereit.", "idle", "Live-Session aktiv");
+          setSpeechStatus("Ich bin da.", "idle", "Sprich mit mir");
           return;
         }}
         if (turnId && activeRealtimeTurnId && turnId !== activeRealtimeTurnId) return;
@@ -7427,7 +7432,7 @@ def _memorial_html(
             thinking: "thinking",
             speaking: "speaking",
           }}[phase] || "working";
-          setSpeechStatus(detail || "Realtime aktiv.", mapped, detail || "Live-Session");
+          setSpeechStatus(detail || "Ich bin bei dir.", mapped, detail || "Ich bleibe bei dir");
           return;
         }}
         if (!realtimeTurnData) realtimeTurnData = {{}};
@@ -7443,7 +7448,7 @@ def _memorial_html(
           realtimeTurnData.llm_model = String(payload.llm_model || "");
           const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
           if (looksLiveInteractionTurn(transcript)) {{
-            setSpeechStatus("Antwort kommt gleich.", "working", "Direkte Antwort");
+            setSpeechStatus("Ich antworte sofort.", "working", "Direkte Antwort");
           }}
           return;
         }}
@@ -7454,8 +7459,8 @@ def _memorial_html(
           const part = Math.max(1, Number(payload.part || 1));
           const total = Math.max(part, Number(payload.total_parts || part));
           const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
-          const detail = looksLiveInteractionTurn(transcript) ? ("Direkte Antwort " + part + "/" + total) : ("Antwort " + part + "/" + total);
-          setSpeechStatus("Manfred antwortet ...", "working", detail);
+          const detail = looksLiveInteractionTurn(transcript) ? ("Ich antworte " + part + "/" + total) : ("Antwort " + part + "/" + total);
+          setSpeechStatus("Ich bin schon dran.", "working", detail);
           return;
         }}
         if (type === "audio_complete") {{
@@ -7475,7 +7480,7 @@ def _memorial_html(
           realtimeTurnData = null;
           activeRealtimeTurnId = "";
           syncConversationButtons();
-        if (!conversationActive && speechState !== "speaking") setSpeechStatus("Bereit für ein Live-Gespräch.", "idle", "Starte das Gespräch, dann höre ich dauerhaft zu");
+        if (!conversationActive && speechState !== "speaking") setSpeechStatus("Ich bin weiter da.", "idle", "Sprich mit mir");
           return;
         }}
         if (type === "cancelled") {{
@@ -7485,7 +7490,7 @@ def _memorial_html(
           realtimeTurnData = null;
           activeRealtimeTurnId = "";
           syncConversationButtons();
-          setSpeechStatus("Antwort unterbrochen.", "idle", "Du kannst sofort neu sprechen");
+          setSpeechStatus("Ich habe angehalten.", "idle", "Du kannst sofort weitersprechen");
           return;
         }}
         if (type === "error") {{
@@ -7495,7 +7500,7 @@ def _memorial_html(
           realtimeTurnData = null;
           activeRealtimeTurnId = "";
           syncConversationButtons();
-          setSpeechStatus(message, "error", "Realtime");
+          setSpeechStatus(message, "error", "Direktes Gespraech");
         }}
       }}
       async function ensureRealtimeSocket() {{
@@ -7947,7 +7952,7 @@ def _memorial_html(
         statusNode.textContent = "Formuliere...";
         answer.textContent = "";
         appendSpeechTurn("user", text);
-        setSpeechStatus("Manfred formuliert eine Antwort.", "thinking", "Antwort wird erstellt");
+        setSpeechStatus("Ich antworte gleich.", "thinking", "Ich formuliere die Antwort");
         const selectedModel = chatModelSelect ? String(chatModelSelect.value || "").trim() : "";
         const requestPayload = {{ question: text }};
         if (selectedModel) requestPayload.llm_model = selectedModel;
@@ -7968,14 +7973,14 @@ def _memorial_html(
           answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           appendSpeechTurn("assistant", lastAnswerText);
           statusNode.textContent = "";
-          if (options.continueConversation) setSpeechStatus("Antwort erhalten. Ich lese jetzt vor.", "speaking", "Antwort wird abgespielt");
+          if (options.continueConversation) setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
           else setSpeechStatus("Antwort erhalten.", "idle", "Bereit zum Vorlesen oder Weiterfragen");
           void speakText(lastAnswerText, options.continueConversation ? () => {{
             if (conversationActive) setTimeout(recordConversationTurn, 450);
           }} : null);
         }} catch (error) {{
           statusNode.textContent = "Antwort konnte nicht erstellt werden: " + String(error.message || error);
-          setSpeechStatus("Antwort fehlgeschlagen: " + String(error.message || error), "error", "LLM-Antwort fehlgeschlagen");
+          setSpeechStatus("Antwort fehlgeschlagen: " + String(error.message || error), "error", "Antwort konnte nicht kommen");
           if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
         }}
       }}
@@ -8030,7 +8035,7 @@ def _memorial_html(
               if (onDone) onDone();
             }};
             setSpeakingOverlayPreview(text);
-            setSpeechStatus("Sprachausgabe mit Browser Speech.", "speaking", "Antwort wird abgespielt");
+            setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
             synth.speak(utterance);
           }} catch (error) {{
             setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen: " + String(error.message || error), "error", "Browser-TTS");
@@ -8064,7 +8069,7 @@ def _memorial_html(
           speechObjectUrl = URL.createObjectURL(blob);
           speechAudio.src = speechObjectUrl;
           speechAudio.onplaying = () => {{
-            setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+            setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
           }};
           speechAudio.onended = () => {{
             stopSpeechPlayback();
@@ -8077,7 +8082,7 @@ def _memorial_html(
             if (onDone) onDone();
           }};
           setSpeakingOverlayPreview(text);
-          setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
+          setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
           await speechAudio.play();
         }} catch (error) {{
           if (speechAudio) speechAudio.src = "";
@@ -8123,7 +8128,7 @@ def _memorial_html(
           speechObjectUrl = URL.createObjectURL(blob);
           speechAudio.src = speechObjectUrl;
           speechAudio.onplaying = () => {{
-            setSpeechStatus(selectedVoiceVariant === "b" ? "Stimme B läuft." : "Stimme A läuft.", "speaking", "Antwort wird abgespielt");
+            setSpeechStatus(selectedVoiceVariant === "b" ? "Ich spreche mit Stimme B." : "Ich spreche mit Stimme A.", "speaking", "Ich antworte");
           }};
           speechAudio.onended = () => {{
             stopSpeechPlayback();
@@ -8136,7 +8141,7 @@ def _memorial_html(
             if (onDone) onDone();
           }};
           setSpeakingOverlayPreview(text);
-          setSpeechStatus("Manfred denkt nach ...", "thinking", "Audio wird vorbereitet");
+          setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
           await speechAudio.play();
         }} catch (error) {{
           stopSpeechPlayback();
@@ -8175,10 +8180,10 @@ def _memorial_html(
         disarmConversationBargeIn();
         stopSpeechPlayback();
         if (conversationActive) {{
-          setSpeechStatus("Ich höre wieder zu ...", "listening", "Manfred wurde unterbrochen");
+          setSpeechStatus("Ich hoere dir wieder zu.", "listening", "Sprich einfach weiter");
           setTimeout(recordConversationTurn, 180);
         }} else {{
-          setSpeechStatus("Antwort unterbrochen.", "idle", "Bereit");
+          setSpeechStatus("Ich habe angehalten.", "idle", "Sprich mit mir");
         }}
       }}
       function armConversationBargeIn() {{
@@ -8208,7 +8213,7 @@ def _memorial_html(
           settled = true;
           activeBargeInRecognition = null;
           stopSpeechPlayback();
-          setSpeechStatus("Ich höre wieder zu ...", "listening", "Manfred wurde unterbrochen");
+          setSpeechStatus("Ich hoere dir wieder zu.", "listening", "Sprich einfach weiter");
           void handleConversationTranscript(heardText);
           try {{ recognition.stop(); }} catch (error) {{}}
         }};
@@ -8240,10 +8245,10 @@ def _memorial_html(
         const silenceMs = Math.max(650, Number(options.silenceMs || 850));
         const silenceThreshold = Number(options.silenceThreshold || 0.018);
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
-          throw new Error("Server-STT braucht MediaRecorder und Mikrofonzugriff. Bitte Chrome/Edge verwenden oder tippen.");
+          throw new Error("Sprechen geht auf diesem Geraet gerade nicht. Bitte oeffne die Seite in einem neueren Browser und versuche es noch einmal.");
         }}
         if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
-          throw new Error("Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.");
+          throw new Error("Das Mikrofon braucht eine geschuetzte Verbindung. Bitte oeffne die sichere Seite und versuche es noch einmal.");
         }}
         if (activeRecorder && activeRecorder.state === "recording") {{
           activeRecorder.stop();
@@ -8260,9 +8265,9 @@ def _memorial_html(
             if (event.data && event.data.size > 0) recorderChunks.push(event.data);
           }};
           recorder.onstart = async () => {{
-            if (serverSttButton) serverSttButton.textContent = "Spricht...";
+            if (serverSttButton) serverSttButton.textContent = "Ich hoere zu ...";
             if (listenButton) listenButton.disabled = true;
-            setSpeechStatus(listeningText, "listening", "Deine Frage geht direkt rüber");
+            setSpeechStatus(listeningText, "listening", "Ich hoere dir direkt zu");
             try {{
               const AudioCtx = window.AudioContext || window.webkitAudioContext;
               if (AudioCtx) {{
@@ -8301,7 +8306,7 @@ def _memorial_html(
             }} catch (error) {{}}
           }};
           recorder.onerror = () => {{
-            reject(new Error("Audioaufnahme fehlgeschlagen. Bitte Berechtigung pruefen oder tippen."));
+              reject(new Error("Ich konnte dein Mikrofon gerade nicht oeffnen. Bitte erlaube kurz den Zugriff und versuche es noch einmal."));
           }};
           recorder.onstop = async () => {{
             if (activeRecorderStopTimer) clearTimeout(activeRecorderStopTimer);
@@ -8322,10 +8327,10 @@ def _memorial_html(
             const blob = new Blob(recorderChunks, {{ type: mimeType }});
             recorderChunks = [];
             if (!blob.size) {{
-              reject(new Error("Keine Audioaufnahme erhalten. Bitte erneut versuchen."));
+              reject(new Error("Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal."));
               return;
             }}
-            setSpeechStatus(transcribingText, "transcribing", "Audio wird in Text umgewandelt");
+            setSpeechStatus(transcribingText, "transcribing", "Einen Moment");
             try {{
               const payload = await transcribeAudioBlob(blob);
               const transcript = normalizeTranscriptText(payload.transcript_text || "");
@@ -8344,14 +8349,14 @@ def _memorial_html(
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!Recognition) {{
-          setSpeechStatus("Speech-to-Text wird von diesem Browser nicht unterstuetzt. Bitte Chrome/Edge verwenden oder die Frage tippen.", "error", "Browser-STT fehlt");
+          setSpeechStatus("Dein Browser kann gerade nicht direkt zuhoeren. Ich versuche es anders.", "error", "Noch einmal versuchen");
           if (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {{
             void startServerSpeechInput();
           }}
           return;
         }}
         if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
-          setSpeechStatus("Mikrofonzugriff braucht HTTPS. Bitte die https:// Adresse verwenden.", "error", "HTTPS erforderlich");
+          setSpeechStatus("Das Mikrofon braucht eine geschuetzte Verbindung.", "error", "Bitte die sichere Seite oeffnen");
           return;
         }}
         if (activeRecognition) {{
@@ -8366,7 +8371,7 @@ def _memorial_html(
         recognition.continuous = true;
         let finalText = "";
         recognition.onstart = () => {{
-          setSpeechStatus("Hoere zu...", "listening", "Browser-STT aktiv");
+          setSpeechStatus("Ich hoere dir zu.", "listening", "Sprich einfach los");
           if (listenButton) listenButton.disabled = true;
           if (stopButton) stopButton.disabled = false;
         }};
@@ -8383,14 +8388,14 @@ def _memorial_html(
           speechHadError = true;
           const errorCode = String(event.error || "unknown");
           const messages = {{
-            "not-allowed": "Mikrofon nicht erlaubt. Bitte Browser-Berechtigung fuer myexternalbrain.com aktivieren.",
-            "service-not-allowed": "Spracherkennungsdienst vom Browser blockiert. Bitte Chrome/Edge oder Texteingabe verwenden.",
-            "no-speech": "Keine Sprache erkannt. Bitte naeher ans Mikrofon sprechen und erneut starten.",
-            "audio-capture": "Kein Mikrofon gefunden oder vom System blockiert.",
-            "network": "Browser-Spracherkennung hat ein Netzwerkproblem. Bitte Server-STT starten.",
-            "aborted": "Spracherkennung gestoppt."
+            "not-allowed": "Bitte erlaube kurz das Mikrofon und versuche es noch einmal.",
+            "service-not-allowed": "Dein Browser blockiert das Mikrofon gerade. Bitte versuche es noch einmal.",
+            "no-speech": "Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.",
+            "audio-capture": "Ich finde gerade kein Mikrofon. Bitte pruefe dein Geraet.",
+            "network": "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal.",
+            "aborted": "Ich habe angehalten."
           }};
-          setSpeechStatus(messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode), "error", "Browser-STT");
+          setSpeechStatus(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal.", "error", "Noch einmal versuchen");
         }};
         recognition.onend = () => {{
           if (listenButton) listenButton.disabled = false;
@@ -8398,7 +8403,7 @@ def _memorial_html(
           if (activeRecognition === recognition) activeRecognition = null;
           if (speechHadError) return;
           const text = normalizeTranscriptText(question.value || finalText || "");
-          setSpeechStatus(text ? "Frage erkannt." : "Keine Frage erkannt. Bitte lauter sprechen, Mikrofon pruefen oder die Frage tippen.", text ? "working" : "error", text ? "Frage wird gesendet" : "Keine Sprache");
+          setSpeechStatus(text ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.", text ? "working" : "error", text ? "Einen Moment" : "Noch einmal versuchen");
           if (text) askMemorialChat(text);
         }};
         try {{
@@ -8406,17 +8411,17 @@ def _memorial_html(
         }} catch (error) {{
           activeRecognition = null;
           if (listenButton) listenButton.disabled = false;
-          setSpeechStatus("Mikrofon konnte nicht gestartet werden. Bitte Seite neu laden oder Frage tippen.", "error", "Browser-STT");
+          setSpeechStatus("Ich konnte das Mikrofon gerade nicht starten. Bitte versuche es noch einmal.", "error", "Noch einmal versuchen");
         }}
       }}
       async function startServerSpeechInput() {{
         try {{
           const result = await captureServerTranscript();
           const transcript = normalizeTranscriptText(result && result.transcript || "");
-          setSpeechStatus(transcript ? "Audio transkribiert." : "Keine Sprache im Audio erkannt.", transcript ? "working" : "error", transcript ? "Frage wird gesendet" : "Keine Sprache");
+          setSpeechStatus(transcript ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert.", transcript ? "working" : "error", transcript ? "Einen Moment" : "Noch einmal versuchen");
           if (transcript) askMemorialChat(transcript);
         }} catch (error) {{
-          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Server-STT");
+          setSpeechStatus(String(error && error.message ? error.message : "Ich konnte dein Mikrofon gerade nicht oeffnen."), "error", "Noch einmal versuchen");
         }}
       }}
       async function captureRealtimeTranscript(options = {{}}) {{
@@ -8440,7 +8445,7 @@ def _memorial_html(
           recognition.maxAlternatives = 1;
           recognition.onstart = () => {{
             if (pushToTalkButton) pushToTalkButton.textContent = "Ich höre...";
-            setSpeechStatus(String(options.listeningText || "Sprich einfach los."), "listening", "Deine Frage geht direkt rüber");
+            setSpeechStatus(String(options.listeningText || "Sprich einfach los."), "listening", "Ich hoere dir direkt zu");
           }};
           recognition.onresult = (event) => {{
             let nextFinal = "";
@@ -8455,7 +8460,7 @@ def _memorial_html(
             interimText = normalizeTranscriptText(nextInterim);
             const combined = normalizeTranscriptText(finalText || interimText || "");
             question.value = combined;
-            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich einfach los."), "listening", interimText ? "Direkt erkannt" : "Deine Frage geht direkt rüber");
+            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich einfach los."), "listening", interimText ? "Ich hoere schon mit" : "Ich hoere dir direkt zu");
             if (!settled && combined && looksImmediateLivePrompt(combined)) {{
               settled = true;
               activeRecognition = null;
@@ -8474,12 +8479,12 @@ def _memorial_html(
               return;
             }}
             const messages = {{
-              "not-allowed": "Mikrofon nicht erlaubt. Bitte Browser-Berechtigung fuer myexternalbrain.com aktivieren.",
-              "service-not-allowed": "Spracherkennungsdienst vom Browser blockiert. Bitte Chrome/Edge oder Texteingabe verwenden.",
-              "audio-capture": "Kein Mikrofon gefunden oder vom System blockiert.",
-              "aborted": "Spracherkennung gestoppt."
+              "not-allowed": "Bitte erlaube kurz das Mikrofon und versuche es noch einmal.",
+              "service-not-allowed": "Dein Browser blockiert das Mikrofon gerade. Bitte versuche es noch einmal.",
+              "audio-capture": "Ich finde gerade kein Mikrofon. Bitte pruefe dein Geraet.",
+              "aborted": "Ich habe angehalten."
             }};
-            reject(new Error(messages[errorCode] || ("Spracherkennung fehlgeschlagen: " + errorCode)));
+            reject(new Error(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal."));
           }};
           recognition.onend = () => {{
             if (activeRecognition === recognition) activeRecognition = null;
@@ -8527,7 +8532,7 @@ def _memorial_html(
             speechObjectUrl = URL.createObjectURL(blob);
             speechAudio.src = speechObjectUrl;
             speechAudio.onplaying = () => {{
-              setSpeechStatus("Antwort wird abgespielt.", "speaking", "Manfred spricht");
+              setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
             }};
             speechAudio.onended = () => {{
               stopSpeechPlayback();
@@ -8543,7 +8548,7 @@ def _memorial_html(
               if (conversationActive) setTimeout(recordConversationTurn, 600);
             }};
             setSpeakingOverlayPreview(assistantText);
-            setSpeechStatus("Antwort kommt.", "thinking", "Audio wird vorbereitet");
+            setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
             await speechAudio.play();
           }} else if (conversationActive) {{
             setSpeechStatus("Weiter.", "listening", "Nächste Frage");
@@ -8552,7 +8557,7 @@ def _memorial_html(
         }} catch (error) {{
           conversationActive = false;
           setConversationUi(false);
-          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespräch beendet");
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespraech beendet");
           releaseConversationAudio();
         }} finally {{
           conversationTurnInFlight = false;
@@ -8566,7 +8571,7 @@ def _memorial_html(
             silenceMs: 420,
             silenceThreshold: 0.015,
             listeningText: "Sprich einfach los.",
-            transcribingText: "Ich gebe es direkt an Manfred weiter ..."
+            transcribingText: "Ich habe dich. Einen Moment ..."
           }});
           const transcript = normalizeTranscriptText(result && result.transcript || "");
           if (!conversationActive) return;
@@ -8581,7 +8586,7 @@ def _memorial_html(
         }} catch (error) {{
           conversationActive = false;
           setConversationUi(false);
-          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespräch beendet");
+          setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Gespraech beendet");
           releaseConversationAudio();
         }}
       }}
@@ -8591,7 +8596,7 @@ def _memorial_html(
         setConversationUi(conversationActive);
         if (conversationActive) {{
           conversationIdleMisses = 0;
-          setSpeechStatus("Gespräch gestartet. Sprich einfach los.", "listening", "Direktmodus aktiv");
+          setSpeechStatus("Ich bin bei dir. Sprich einfach los.", "listening", "Ich hoere dir direkt zu");
           recordConversationTurn();
         }} else {{
         conversationIdleMisses = 0;
@@ -8599,18 +8604,20 @@ def _memorial_html(
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        setSpeechStatus("Gespräch beendet.", "idle", "Bereit");
+        setSpeechStatus("Ich warte wieder auf dich.", "idle", "Sprich mit mir");
       }}
       }}
       window.__memorialToggleConversation = () => toggleConversation();
       window.__memorialStartConversation = () => {{
-        setSpeechStatus("Mikrofon wird vorbereitet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
+        setSpeechStatus("Ich oeffne das Mikrofon ...", "working", "Bitte erlaube kurz das Mikrofon, falls dein Browser fragt");
         if (!conversationActive) toggleConversation();
       }};
-      form.addEventListener("submit", (event) => {{
-        event.preventDefault();
-        askMemorialChat(question.value);
-      }});
+      if (form) {{
+        form.addEventListener("submit", (event) => {{
+          event.preventDefault();
+          askMemorialChat(question ? question.value : "");
+        }});
+      }}
       if (listenButton) {{
         listenButton.addEventListener("click", () => {{
           setSpeechStatus("Browser-Mikrofon startet ...", "working", "Mikrofon freigeben, falls der Browser fragt");
@@ -8710,6 +8717,12 @@ def _memorial_html(
           if (installHint) installHint.hidden = true;
         }});
       }}
+      if (retryButton) {{
+        retryButton.addEventListener("click", () => {{
+          retryButton.hidden = true;
+          window.__memorialStartConversation();
+        }});
+      }}
       if (autostartOptin) {{
         autostartOptin.addEventListener("change", () => {{
           try {{
@@ -8757,6 +8770,16 @@ def _memorial_html(
       if (voiceAbApproveButton) {{
         voiceAbApproveButton.addEventListener("click", () => {{
           void submitVoiceAbRating(activeVoiceVariant(), activeVoiceVariant());
+        }});
+      }}
+      if (voiceAbFinalizeAButton) {{
+        voiceAbFinalizeAButton.addEventListener("click", () => {{
+          void finalizeVoiceAbWinner("a");
+        }});
+      }}
+      if (voiceAbFinalizeBButton) {{
+        voiceAbFinalizeBButton.addEventListener("click", () => {{
+          void finalizeVoiceAbWinner("b");
         }});
       }}
       if (voiceAbPreviewAButton) {{
@@ -8899,6 +8922,12 @@ async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
     config = _load_voice_ab_config(slug)
     ratings = _load_voice_ab_ratings(slug)
     analysis = _voice_ab_analysis(slug, ratings)
+    can_write = False
+    try:
+        _require_public_memorial_write_access(slug=slug, request=request)
+        can_write = True
+    except HTTPException:
+        can_write = False
     return JSONResponse(
         {
             "variants": [_public_voice_ab_variant_payload(dict(item or {})) for item in list(config.get("variants") or [])],
@@ -8911,6 +8940,10 @@ async def public_memorial_voice_ab(slug: str, request: Request) -> JSONResponse:
             "round": int(ratings.get("round", 1) or 1),
             "pool": _voice_ab_pool_status(slug),
             "analysis": analysis,
+            "admin": {
+                "can_write": can_write,
+                "finalize": _voice_ab_finalize_options(ratings),
+            },
         }
     )
 
@@ -8940,6 +8973,12 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
         dimensions=_voice_ab_normalize_dimensions(body.get("dimensions")),
     )
     analysis = _voice_ab_analysis(slug, ratings)
+    can_write = False
+    try:
+        _require_public_memorial_write_access(slug=slug, request=request)
+        can_write = True
+    except HTTPException:
+        can_write = False
     return JSONResponse(
         {
             "status": "ok",
@@ -8949,6 +8988,37 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
             "pool": _voice_ab_pool_status(slug),
             "personal_memory": _personal_memory_public_status(slug=slug, context=context),
             "analysis": analysis,
+            "admin": {
+                "can_write": can_write,
+                "finalize": _voice_ab_finalize_options(ratings),
+            },
+        }
+    )
+
+
+@router.post("/memorials/{slug}/voice-ab-admin/finalize")
+async def public_memorial_voice_ab_admin_finalize(slug: str, request: Request) -> JSONResponse:
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_json") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="invalid_json")
+    ratings = _voice_ab_finalize_winner(slug, winner=_text(body.get("winner_variant"), ""))
+    return JSONResponse(
+        {
+            "status": "ok",
+            "round": int(ratings.get("round", 1) or 1),
+            "totals": ratings.get("effective_totals", ratings.get("totals", {})),
+            "raw_totals": ratings.get("totals", {}),
+            "pool": _voice_ab_pool_status(slug),
+            "analysis": _voice_ab_analysis(slug, ratings),
+            "admin": {
+                "can_write": True,
+                "finalize": _voice_ab_finalize_options(ratings),
+            },
         }
     )
 
@@ -9326,11 +9396,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
-            phase_detail = "Manfred formuliert"
+            phase_detail = "Ich antworte gleich"
             if _is_memorial_live_interaction_question(transcript_text):
-                phase_detail = "Manfred antwortet direkt"
+                phase_detail = "Ich antworte direkt"
             elif _is_memorial_ooda_question(transcript_text):
-                phase_detail = "Komplizierte Frage. Manfred ordnet erst die Sache"
+                phase_detail = "Komplizierte Frage. Ich ordne erst die Sache"
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail})
             selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
             answer_payload = await asyncio.to_thread(
@@ -9365,9 +9435,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
-            speaking_detail = "Audio wird ausgeliefert"
+            speaking_detail = "Meine Stimme kommt"
             if _is_memorial_live_interaction_question(transcript_text):
-                speaking_detail = "Manfred antwortet"
+                speaking_detail = "Ich antworte"
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail})
             base_config = _load_voice_config(slug)
             merged_config = dict(base_config)

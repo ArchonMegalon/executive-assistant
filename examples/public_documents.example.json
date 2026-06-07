@@ -1,0 +1,14 @@
+[
+  {
+    "title": "Manfred: Life Overview",
+    "asset_relpath": "documents/manfred-life-overview.pdf",
+    "audience": "public",
+    "description": "A reviewed, public-facing memorial overview document."
+  },
+  {
+    "title": "How This Memorial Works",
+    "asset_relpath": "documents/how-this-memorial-works.pdf",
+    "audience": "public",
+    "description": "A short explanation of sourcing, consent, and memorial boundaries."
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "voice_consent": {
+    "status": "approved",
+    "scope": [
+      "synthesize",
+      "conversation_turn",
+      "realtime"
+    ],
+    "authorized_by": "family-owner",
+    "authorized_at": "2026-06-06T00:00:00Z",
+    "source_assets_reviewed": true,
+    "notes": "Explicit approval for the public memorial conversation demo. Clone/profile_build are intentionally omitted unless admin voice tooling is demonstrated separately.",
+    "revoked": false
+  }
+}
