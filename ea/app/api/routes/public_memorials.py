@@ -136,6 +136,8 @@ _BLOCKED_PUBLIC_ASSET_NAMES = {
     "memorial.json",
     "tts_voice.json",
     "voice_ab.json",
+    "voice_ab_challengers.json",
+    "archive_registry.json",
     "ratings.json",
     "llm_profile_notes.json",
     "transcript_signal_report.json",
@@ -2372,6 +2374,19 @@ def _resolve_tts_plugin(*, payload: dict[str, object], options: list[dict[str, o
         "tts_plugin_label": "OpenVoice Local Clone",
         "tts_plugin_description": "Keine Voice-Konfiguration aktiv.",
     }
+
+
+def _resolve_server_tts_plugin(*, payload: dict[str, object], options: list[dict[str, object]]) -> tuple[str, dict[str, object]]:
+    selected_plugin, selected_option = _resolve_tts_plugin(payload=payload, options=options)
+    if selected_plugin != _BROWSER_SPEECH_TTS_PLUGIN_ID and bool(selected_option.get("tts_plugin_enabled")):
+        return selected_plugin, selected_option
+    for option in options:
+        option_plugin = _safe_tts_plugin_id(option.get("tts_plugin"))
+        if option_plugin == _BROWSER_SPEECH_TTS_PLUGIN_ID:
+            continue
+        if bool(option.get("tts_plugin_enabled")):
+            return option_plugin or _TTS_PLUGIN_DEFAULT_ID, option
+    return selected_plugin, selected_option
 
 
 def _display_tts_plugin_label(*, option: dict[str, object], voice_label: str) -> str:
@@ -5134,7 +5149,7 @@ def _build_memorial_conversation_turn_payload(
     if prefer_fast_tts:
         merged_config["tts_plugin"] = PIPER_FAST_TTS_PLUGIN_ID
         merged_config["tts_base_voice_variant"] = "high"
-    selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
+    selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
     answer_payload["answer"] = compact_answer
     answer_text = _normalize_tts_text(compact_answer)
@@ -5591,7 +5606,7 @@ def _memorial_html(
       }}
       body {{
         margin: 0;
-        background: linear-gradient(180deg, #f8f4ec 0%, var(--paper) 100%);
+        background: #f7f2e8;
         color: var(--ink);
         font: 16px/1.7 Georgia, "Times New Roman", serif;
         position: relative;
@@ -5610,11 +5625,11 @@ def _memorial_html(
       a {{ color: inherit; }}
       .wrap {{ width: min(1120px, calc(100vw - 36px)); margin: 0 auto; }}
       header {{
-        min-height: 56vh;
+        min-height: 100vh;
         display: grid;
         align-items: center;
-        border-bottom: 1px solid rgba(65,53,43,.10);
-        background: linear-gradient(180deg, rgba(255,252,247,.72), rgba(244,236,223,.44));
+        border-bottom: 0;
+        background: transparent;
         position: relative;
         overflow: hidden;
       }}
@@ -5628,7 +5643,7 @@ def _memorial_html(
         pointer-events: none;
       }}
       .hero {{
-        padding: 54px 0 46px;
+        padding: 0;
         position: relative;
         z-index: 1;
       }}
@@ -5729,8 +5744,8 @@ def _memorial_html(
       .hero-actions {{
         display: grid;
         justify-items: center;
-        gap: 10px;
-        margin-top: 22px;
+        gap: 14px;
+        margin-top: 0;
       }}
       .hero-settings {{
         display: none !important;
@@ -5742,7 +5757,7 @@ def _memorial_html(
         display: none;
       }}
       .install-hint {{
-        margin: 10px auto 0;
+        margin: 0 auto;
         max-width: 42rem;
         padding: 0;
         border: 0;
@@ -5841,6 +5856,10 @@ def _memorial_html(
         background: #48677e;
         border-color: #48677e;
         color: #fffaf2;
+        min-width: min(360px, calc(100vw - 48px));
+        min-height: 58px;
+        padding: 16px 28px;
+        font-size: 1rem;
       }}
       .eyebrow {{
         margin: 0 0 10px;
@@ -5924,13 +5943,23 @@ def _memorial_html(
       .voice-variant-chip {{
         display: none !important;
       }}
+      .hero-copy > .eyebrow,
+      .hero-copy > h1,
+      .hero-copy > .lead,
+      #memorial-interaction-hint,
+      footer {{
+        display: none !important;
+      }}
+      main.wrap {{
+        width: min(100vw - 24px, 720px);
+        margin-top: -96px;
+      }}
       body.pwa-standalone {{
-        background:
-          radial-gradient(circle at top, rgba(255,248,233,.86), rgba(239,224,199,.94) 36%, rgba(211,191,160,.98) 100%);
+        background: #f7f2e8;
       }}
       body.pwa-standalone header {{
         min-height: 100vh;
-        padding-bottom: 14px;
+        padding-bottom: 0;
       }}
       body.pwa-standalone main {{
         padding-top: 16px;
@@ -5951,7 +5980,7 @@ def _memorial_html(
         display: none !important;
       }}
       body.pwa-standalone .hero-copy {{
-        max-width: 680px;
+        max-width: 420px;
         margin: 0 auto;
         text-align: center;
         align-items: center;
@@ -6621,10 +6650,10 @@ def _memorial_html(
         background: linear-gradient(180deg, rgba(247,243,234,0), rgba(237,228,212,.56));
       }}
       @media (max-width: 760px) {{
-        header {{ min-height: auto; align-items: center; }}
+        header {{ min-height: 100vh; align-items: center; }}
         .grid, .clip, .voice-grid {{ grid-template-columns: 1fr; }}
         .wrap {{ width: min(100vw - 24px, 1120px); }}
-        .hero {{ padding: 34px 0 22px; min-height: auto; display: block; }}
+        .hero {{ padding: 0; min-height: 100vh; display: grid; align-items: center; }}
         .hero-stage {{ grid-template-columns: 1fr; gap: 0; }}
         .hero-copy {{ padding: 0; border-radius: 0; }}
         .hero-memorial {{ min-height: 240px; padding: 16px; border-radius: 22px; order: -1; }}
@@ -6634,9 +6663,9 @@ def _memorial_html(
         h2 {{ font-size: 1.55rem; }}
         .lead {{ font-size: .98rem; line-height: 1.55; max-width: 34rem; margin-left: auto; margin-right: auto; }}
         .notice {{ margin-top: 20px; }}
-        main {{ padding-top: 20px; padding-bottom: 56px; }}
+        main {{ padding-top: 0; padding-bottom: 56px; }}
         section {{ margin-top: 24px; }}
-        .hero-actions {{ margin-top: 18px; align-items: center; }}
+        .hero-actions {{ margin-top: 0; align-items: center; }}
         .collapse-summary {{
           min-height: 44px;
           display: flex;
@@ -6700,6 +6729,9 @@ def _memorial_html(
           display: none;
         }}
         .minimal-disclosure {{ padding: 8px 10px; }}
+        main.wrap {{
+          margin-top: -120px;
+        }}
         footer {{
           padding: 22px 0;
           font-size: .82rem;
@@ -6718,7 +6750,6 @@ def _memorial_html(
       }}
       @media (max-width: 380px) {{
         .wrap {{ width: min(100vw - 20px, 1120px); }}
-        .hero {{ padding-top: 28px; }}
         h1 {{ font-size: 2.15rem; }}
         .hero-cta {{ width: 100%; }}
         .speech-wave {{ gap: 4px; }}
@@ -9348,7 +9379,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
     )
-    selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
+    selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     text = _normalize_tts_text(body.get("text"))
@@ -9530,7 +9561,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 payload=merged_config,
                 voice_profile_ready=bool(base_config.get("voice_profile_ready")),
             )
-            selected_plugin, selected_option = _resolve_tts_plugin(payload=merged_config, options=tts_options)
+            selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
             if not bool(selected_option.get("tts_plugin_enabled")):
                 raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
             answer_text = _normalize_tts_text(compact_answer)
