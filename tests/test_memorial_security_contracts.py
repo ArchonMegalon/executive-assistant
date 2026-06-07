@@ -141,7 +141,7 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
     assert "Gespräch beginnen" in page.text
-    assert "Video Call mit Manfred Hennig" in page.text
+    assert "Video Call mit Manfred Hoza" in page.text
     assert "Am Handy/Desktop installieren" in page.text
     assert "App installieren" not in page.text
     assert f"/memorials/{slug}/icon-180.png" in page.text
@@ -155,10 +155,14 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert "continueVideoCallWithoutCamera()" in page.text
     assert 'id="memorial-video-call-preview"' in page.text
     assert 'id="memorial-video-call-avatar-stage"' in page.text
+    assert 'id="memorial-video-call-avatar-face"' in page.text
     assert 'id="memorial-video-call-continue-no-camera"' in page.text
-    assert "Manfred Hennig" in page.text
+    assert 'alt="Manfred Hoza"' in page.text
+    assert "Manfred Hennig" not in page.text
     assert "Kamera ist optional" in page.text
     assert "Gleich bereit" in page.text
+    assert "server_stt_cooldown" in page.text
+    assert "Ich brauche gerade einen kurzen Moment, bevor ich wieder zuhöre." in page.text
     assert "<h1>" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text

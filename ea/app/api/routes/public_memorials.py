@@ -102,7 +102,7 @@ _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 8.0
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
-    "speech_transcribe": (10, 60),
+    "speech_transcribe": (24, 60),
     "speech_synthesize": (20, 60),
     "conversation_turn": (8, 60),
     "realtime_connect": (6, 60),
@@ -5599,6 +5599,14 @@ def _memorial_html(
         payload.get("disclosure"),
         "Originalaufnahmen sind als Original gekennzeichnet. Antworttexte werden aus gespeicherten Quellen formuliert und sprechen nicht an seiner Stelle.",
     )
+    person_label = person_name.split()[0].strip() or person_name
+    person_initials = "".join(part[:1].upper() for part in person_name.split()[:2] if part[:1]) or person_name[:2].upper() or "M"
+    person_name_html = html.escape(person_name)
+    person_label_html = html.escape(person_label)
+    person_initials_html = html.escape(person_initials)
+    person_name_js = json.dumps(person_name)
+    person_label_js = json.dumps(person_label)
+    memorial_avatar_url = html.escape(_memorial_pwa_icon_url(slug, payload, 180))
     audio_clips = _list_of_dicts(payload.get("audio_clips"))
     memory_cards = _list_of_dicts(payload.get("memory_cards"))
     candidate_recordings = _list_of_dicts(payload.get("candidate_recordings"))
@@ -6984,14 +6992,30 @@ def _memorial_html(
         width: 116px;
         height: 116px;
         border-radius: 999px;
+        position: relative;
         display: grid;
         place-items: center;
+        overflow: hidden;
         background:
           radial-gradient(circle at 38% 32%, rgba(255,255,255,.18), rgba(255,255,255,0) 22%),
           linear-gradient(180deg, rgba(86,111,131,.92), rgba(41,60,74,.96));
         color: #fffaf2;
         font: 700 38px/1 ui-sans-serif, system-ui, sans-serif;
         letter-spacing: .08em;
+      }}
+      .video-call-avatar-face img {{
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }}
+      .video-call-avatar-face span {{
+        position: relative;
+        z-index: 1;
+      }}
+      .video-call-avatar-face.has-portrait span {{
+        opacity: 0;
       }}
       .video-call-avatar-wave {{
         display: flex;
@@ -7266,7 +7290,7 @@ def _memorial_html(
           <div class="hero-copy">
             <div class="hero-actions is-readying" id="memorial-hero-actions">
               <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;">Gleich bereit …</button>
-              <button type="button" id="memorial-video-call" class="hero-cta secondary is-readying" title="Video Call mit Manfred Hennig" aria-label="Video Call mit Manfred Hennig" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;">Video Call mit Manfred Hennig</button>
+              <button type="button" id="memorial-video-call" class="hero-cta secondary is-readying" title="Video Call mit {person_name_html}" aria-label="Video Call mit {person_name_html}" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;">Video Call mit {person_name_html}</button>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Am Handy/Desktop installieren.
@@ -7300,8 +7324,8 @@ def _memorial_html(
         <section class="video-call-preview" id="memorial-video-call-preview" hidden aria-live="polite">
           <div class="video-call-preview-head">
             <div class="video-call-preview-copy">
-              <strong>Video Call mit Manfred Hennig</strong>
-              <span>Prelive-Vorschau. Kamera ist optional, Manfreds Video-Lane wird vorbereitet.</span>
+              <strong>Video Call mit {person_name_html}</strong>
+              <span>Prelive-Vorschau. Kamera ist optional, {person_label_html}s Video-Lane wird vorbereitet.</span>
             </div>
             <div class="video-call-preview-actions">
               <button type="button" id="memorial-video-call-continue-no-camera">Ohne Kamera fortfahren</button>
@@ -7314,11 +7338,14 @@ def _memorial_html(
               <video id="memorial-video-call-self" autoplay muted playsinline></video>
             </div>
             <div class="video-call-tile">
-              <span class="video-call-label">Manfred</span>
+              <span class="video-call-label">{person_label_html}</span>
               <div class="video-call-avatar-stage" id="memorial-video-call-avatar-stage" data-avatar-state="idle">
                 <div class="video-call-avatar-card">
                   <div class="video-call-avatar-ring">
-                    <div class="video-call-avatar-face">MH</div>
+                    <div class="video-call-avatar-face has-portrait" id="memorial-video-call-avatar-face">
+                      <img src="{memorial_avatar_url}" alt="{person_name_html}">
+                      <span>{person_initials_html}</span>
+                    </div>
                   </div>
                   <div class="video-call-avatar-wave" aria-hidden="true">
                     <span class="video-call-avatar-bar"></span>
@@ -7328,7 +7355,7 @@ def _memorial_html(
                     <span class="video-call-avatar-bar"></span>
                   </div>
                   <div class="video-call-avatar-copy">
-                    <strong id="memorial-video-call-avatar-title">Manfred Hennig</strong>
+                    <strong id="memorial-video-call-avatar-title">{person_name_html}</strong>
                     <span id="memorial-video-call-avatar-detail">Wartet auf den Video Call.</span>
                   </div>
                 </div>
@@ -7366,6 +7393,8 @@ def _memorial_html(
     </main>
     <script>
       const form = document.getElementById("memorial-chat-form");
+      const memorialPersonName = {person_name_js};
+      const memorialPersonLabel = {person_label_js};
       const question = document.getElementById("memorial-chat-question");
       const chatModelSelect = document.getElementById("memorial-chat-model");
       const answer = document.getElementById("memorial-chat-answer");
@@ -7464,6 +7493,9 @@ def _memorial_html(
       let speechObjectUrl = null;
       let activeRecorderStopTimer = null;
       let activeRequestController = null;
+      let activeServerTranscriptPromise = null;
+      let serverTranscriptCooldownUntil = 0;
+      let serverTranscriptFailureCount = 0;
       let speechState = "idle";
       let speechMeterLive = false;
       let speakingOverlayPreview = "";
@@ -7834,6 +7866,25 @@ def _memorial_html(
       function setVideoCallStatus(message) {{
         if (videoCallStatus) videoCallStatus.textContent = String(message || "").trim() || "Noch nicht aktiv.";
       }}
+      function memorialJsError(message, code = "", extras = {{}}) {{
+        const error = new Error(String(message || "request_failed"));
+        if (code) error.code = code;
+        Object.assign(error, extras || {{}});
+        return error;
+      }}
+      function serverTranscriptRetryDelayMs(error) {{
+        const retryAt = Number(error && error.retryAt || 0);
+        if (retryAt > Date.now()) return Math.max(350, retryAt - Date.now());
+        const code = String(error && error.code || "").trim().toLowerCase();
+        if (code === "rate_limited") return 2600;
+        if (code === "server_stt_cooldown") return Math.max(350, serverTranscriptCooldownUntil - Date.now());
+        if (code === "no_speech") return 900;
+        return 0;
+      }}
+      function shouldKeepConversationListening(error) {{
+        const code = String(error && error.code || "").trim().toLowerCase();
+        return code === "rate_limited" || code === "server_stt_cooldown" || code === "no_speech";
+      }}
       async function ensureConversationStartedForVideoCall() {{
         if (conversationActive) return;
         try {{
@@ -7849,12 +7900,12 @@ def _memorial_html(
         }}
         if (videoCallAvatarTitle) {{
           videoCallAvatarTitle.textContent = normalized === "speaking"
-            ? "Manfred spricht"
+            ? (memorialPersonLabel + " spricht")
             : (normalized === "listening"
-              ? "Manfred hört zu"
+              ? (memorialPersonLabel + " hört zu")
               : (normalized === "working"
-                ? "Manfred richtet sich ein"
-                : "Manfred Hennig"));
+                ? (memorialPersonLabel + " richtet sich ein")
+                : memorialPersonName));
         }}
         if (videoCallAvatarDetail) {{
           videoCallAvatarDetail.textContent = detail || (
@@ -9073,32 +9124,53 @@ def _memorial_html(
           headers: {{ "Content-Type": blob.type || "application/octet-stream" }},
           body: blob
         }}, 45000);
+        if (response.status === 429) {{
+          const retryAfterSeconds = Number(response.headers.get("retry-after") || 0);
+          const retryAfterMs = retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 2600;
+          throw memorialJsError(
+            "Ich brauche gerade einen kurzen Moment, bevor ich wieder zuhöre. Bitte gleich noch einmal sprechen.",
+            "rate_limited",
+            {{
+              retryAfterMs,
+              retryAt: Date.now() + retryAfterMs,
+            }}
+          );
+        }}
         return readJsonResponse(response);
       }}
       async function captureServerTranscript(options = {{}}) {{
+        if (activeServerTranscriptPromise) return activeServerTranscriptPromise;
+        if (serverTranscriptCooldownUntil > Date.now()) {{
+          throw memorialJsError(
+            "Ich brauche gerade einen kurzen Moment, bevor ich wieder zuhöre. Bitte gleich noch einmal sprechen.",
+            "server_stt_cooldown",
+            {{ retryAt: serverTranscriptCooldownUntil }}
+          );
+        }}
         const autoStopMs = Math.max(0, Number(options.autoStopMs || 0));
         const listeningText = String(options.listeningText || (autoStopMs ? "Sprich einfach los." : "Server-STT hört zu."));
         const transcribingText = String(options.transcribingText || "Transkribiere Audio...");
         const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 1600) : 9000;
         const silenceMs = Math.max(220, Number(options.silenceMs || 850));
         const silenceThreshold = Number(options.silenceThreshold || 0.018);
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
-          throw new Error("Sprechen geht auf diesem Geraet gerade nicht. Bitte oeffne die Seite in einem neueren Browser und versuche es noch einmal.");
-        }}
-        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
-          throw new Error("Das Mikrofon braucht eine geschuetzte Verbindung. Bitte oeffne die sichere Seite und versuche es noch einmal.");
-        }}
-        if (activeRecorder && activeRecorder.state === "recording") {{
-          activeRecorder.stop();
-          return {{ transcript: "", blob: null }};
-        }}
-        const stream = await navigator.mediaDevices.getUserMedia({{ audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }} }});
-        activeStream = stream;
-        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
-        const recorder = new MediaRecorder(stream, {{ mimeType }});
-        activeRecorder = recorder;
-        recorderChunks = [];
-        return await new Promise((resolve, reject) => {{
+        const runCapture = async () => {{
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
+            throw new Error("Sprechen geht auf diesem Geraet gerade nicht. Bitte oeffne die Seite in einem neueren Browser und versuche es noch einmal.");
+          }}
+          if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
+            throw new Error("Das Mikrofon braucht eine geschuetzte Verbindung. Bitte oeffne die sichere Seite und versuche es noch einmal.");
+          }}
+          if (activeRecorder && activeRecorder.state === "recording") {{
+            activeRecorder.stop();
+            return {{ transcript: "", blob: null }};
+          }}
+          const stream = await navigator.mediaDevices.getUserMedia({{ audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }} }});
+          activeStream = stream;
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+          const recorder = new MediaRecorder(stream, {{ mimeType }});
+          activeRecorder = recorder;
+          recorderChunks = [];
+          return await new Promise((resolve, reject) => {{
           recorder.ondataavailable = (event) => {{
             if (event.data && event.data.size > 0) recorderChunks.push(event.data);
           }};
@@ -9165,16 +9237,23 @@ def _memorial_html(
             const blob = new Blob(recorderChunks, {{ type: mimeType }});
             recorderChunks = [];
             if (!blob.size) {{
-              reject(new Error("Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal."));
+              reject(memorialJsError("Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.", "no_speech"));
               return;
             }}
             setSpeechStatus(transcribingText, "transcribing", "Einen Moment");
             try {{
               const payload = await transcribeAudioBlob(blob);
               const transcript = normalizeTranscriptText(payload.transcript_text || "");
+              serverTranscriptFailureCount = 0;
+              serverTranscriptCooldownUntil = 0;
               question.value = transcript;
               resolve({{ transcript, blob }});
             }} catch (error) {{
+              const retryDelay = serverTranscriptRetryDelayMs(error);
+              if (retryDelay > 0) {{
+                serverTranscriptFailureCount += 1;
+                serverTranscriptCooldownUntil = Date.now() + Math.max(retryDelay, Math.min(9000, 2200 + (serverTranscriptFailureCount - 1) * 1800));
+              }}
               reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
             }}
           }};
@@ -9182,7 +9261,14 @@ def _memorial_html(
           activeRecorderStopTimer = setTimeout(() => {{
             if (recorder.state === "recording") recorder.stop();
           }}, maxMs + 250);
-        }});
+          }});
+        }};
+        activeServerTranscriptPromise = runCapture();
+        try {{
+          return await activeServerTranscriptPromise;
+        }} finally {{
+          activeServerTranscriptPromise = null;
+        }}
       }}
       function startSpeechInput() {{
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -9418,6 +9504,12 @@ def _memorial_html(
           }}
           await handleConversationTranscript(transcript);
         }} catch (error) {{
+          if (conversationActive && shouldKeepConversationListening(error)) {{
+            const waitMs = serverTranscriptRetryDelayMs(error) || 900;
+            setSpeechStatus(String(error && error.message ? error.message : "Bitte gleich noch einmal sprechen."), "working", "Ich hoere gleich wieder zu");
+            setTimeout(recordConversationTurn, waitMs);
+            return;
+          }}
           conversationActive = false;
           setConversationUi(false);
           setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Ich warte wieder auf dich");
