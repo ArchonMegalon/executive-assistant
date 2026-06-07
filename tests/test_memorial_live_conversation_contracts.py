@@ -449,3 +449,39 @@ def test_memorial_warmup_route_schedules_background_prewarm(
         "ttl_seconds": 600,
     }
     assert seen == [slug]
+
+
+def test_memorial_warmup_status_route_reports_snapshot_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_live_warmup_snapshot",
+        lambda warmup_slug: {
+            "status": "warm_recent",
+            "warm": True,
+            "inflight": False,
+            "started_at": 123.0,
+            "completed_at": 145.0,
+            "errors": [],
+        },
+    )
+
+    client = _client(principal_id="exec-memorial-warmup-status")
+    response = client.get(f"/memorials/{slug}/warmup-status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "slug": slug,
+        "status": "warm_recent",
+        "warm": True,
+        "inflight": False,
+        "started_at": 123.0,
+        "completed_at": 145.0,
+        "errors": [],
+        "ttl_seconds": 600,
+    }

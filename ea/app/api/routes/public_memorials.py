@@ -9118,6 +9118,25 @@ async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
     )
 
 
+@router.get("/memorials/{slug}/warmup-status")
+def public_memorial_warmup_status(slug: str) -> JSONResponse:
+    _load_memorial(slug)
+    snapshot = _memorial_live_warmup_snapshot(_safe_slug(slug))
+    return JSONResponse(
+        {
+            "slug": _safe_slug(slug),
+            "status": str(snapshot["status"]),
+            "warm": bool(snapshot["warm"]),
+            "inflight": bool(snapshot["inflight"]),
+            "started_at": float(snapshot["started_at"]),
+            "completed_at": float(snapshot["completed_at"]),
+            "errors": list(snapshot["errors"]),
+            "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/memorials/{slug}/archive/{publication_slug}")
 def public_memorial_archive_publication(slug: str, publication_slug: str) -> Response:
     _load_memorial(slug)

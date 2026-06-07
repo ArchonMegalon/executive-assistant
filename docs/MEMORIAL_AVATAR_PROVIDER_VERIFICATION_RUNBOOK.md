@@ -39,6 +39,7 @@ That command writes:
 
 - `/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_workspace_capture.generated.json`
 - `/docker/fleet/state/chummer6/avatar_presenter_provider/receipts/vidboard_*.json`
+- `/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_operator_handoff.generated.json` when the capture fails or is blocked
 
 It only auto-verifies `login_capture` when an authenticated workspace snapshot is actually detected. All other receipt files remain manual review stubs until a human confirms the proof.
 
@@ -53,6 +54,19 @@ Manual review receipts also require these operator fields before the verifier wi
 - `reviewed_by`
 - `reviewed_at`
 - `evidence_ref`
+
+## Operator handoff packet
+
+When the capture runner exits non-zero, it now writes an operator handoff packet with:
+
+- `failure_code`
+- `recommended_action`
+- `resume_command`
+- `capture_path`
+- `receipt_dir`
+- preview artifact pointers such as `screenshot_path` and `html_path`
+
+Use that file as the single resume surface for captcha/login blocks instead of reconstructing the failed attempt manually.
 
 ## Run
 
