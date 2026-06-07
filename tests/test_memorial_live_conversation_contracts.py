@@ -654,3 +654,14 @@ def test_memorial_warmup_snapshot_marks_recent_errors_as_degraded(monkeypatch: p
     assert snapshot["status"] == "degraded_recent"
     assert snapshot["warm"] is False
     assert snapshot["errors"] == ["speech:failed"]
+
+
+def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_turn_thresholds() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert 'void primeRealtimeSocket("page_ready");' in source
+    assert "autoStopMs: 1750" in source
+    assert "silenceMs: 280" in source
+    assert "silenceThreshold: 0.012" in source
+    assert "Math.max(autoStopMs, 1600)" in source
+    assert "Math.max(220, Number(options.silenceMs || 850))" in source

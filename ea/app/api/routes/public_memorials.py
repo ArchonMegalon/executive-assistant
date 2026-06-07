@@ -7178,9 +7178,11 @@ def _memorial_html(
       let speakingOverlayPreview = "";
       let realtimeSocket = null;
       let realtimeSocketPromise = null;
+      let realtimePrefetchPromise = null;
       let realtimeTurnPending = null;
       let realtimeTurnData = null;
       let realtimeTurnCounter = 0;
+      let conversationTurnCount = 0;
       let activeRealtimeTurnId = "";
       let realtimeTurnFallbackTimer = null;
       let memorialWarmupPromise = null;
@@ -7754,6 +7756,38 @@ def _memorial_html(
         }}).catch(() => null);
         return memorialWarmupPromise;
       }}
+      function recordConversationOptions() {{
+        const firstTurn = conversationTurnCount <= 0;
+        if (firstTurn) {{
+          return {{
+            autoStopMs: 1750,
+            silenceMs: 280,
+            silenceThreshold: 0.012,
+            listeningText: "Sprich direkt los.",
+            transcribingText: "Ich habe dich sofort. Einen Moment ..."
+          }};
+        }}
+        return {{
+          autoStopMs: 2200,
+          silenceMs: 360,
+          silenceThreshold: 0.014,
+          listeningText: "Sprich einfach los.",
+          transcribingText: "Ich habe dich. Einen Moment ..."
+        }};
+      }}
+      function primeRealtimeSocket(reason = "page_ready") {{
+        if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) return Promise.resolve(realtimeSocket);
+        if (realtimeSocketPromise) return realtimeSocketPromise;
+        if (realtimePrefetchPromise) return realtimePrefetchPromise;
+        realtimePrefetchPromise = Promise.resolve()
+          .then(() => requestMemorialWarmup(reason))
+          .then(() => ensureRealtimeSocket())
+          .catch(() => null)
+          .finally(() => {{
+            realtimePrefetchPromise = null;
+          }});
+        return realtimePrefetchPromise;
+      }}
       async function primeMemorialLanding() {{
         setMemorialLandingReady(false, "Ich werde gerade bereit");
         try {{
@@ -7766,6 +7800,7 @@ def _memorial_html(
           ]);
         }} catch (error) {{}}
         setMemorialLandingReady(true, "Sprich mit mir");
+        void primeRealtimeSocket("page_ready");
       }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -8645,8 +8680,8 @@ def _memorial_html(
         const autoStopMs = Math.max(0, Number(options.autoStopMs || 0));
         const listeningText = String(options.listeningText || (autoStopMs ? "Sprich einfach los." : "Server-STT hört zu."));
         const transcribingText = String(options.transcribingText || "Transkribiere Audio...");
-        const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 6500) : 9000;
-        const silenceMs = Math.max(650, Number(options.silenceMs || 850));
+        const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 1600) : 9000;
+        const silenceMs = Math.max(220, Number(options.silenceMs || 850));
         const silenceThreshold = Number(options.silenceThreshold || 0.018);
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
           throw new Error("Sprechen geht auf diesem Geraet gerade nicht. Bitte oeffne die Seite in einem neueren Browser und versuche es noch einmal.");
@@ -8942,6 +8977,7 @@ def _memorial_html(
               stopSpeechPlayback();
               disarmConversationBargeIn();
               if (!conversationActive) return;
+              conversationTurnCount += 1;
               setSpeechStatus("Weiter.", "listening", "Nächste Frage");
               setTimeout(recordConversationTurn, 450);
             }};
@@ -8955,6 +8991,7 @@ def _memorial_html(
             setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
             await speechAudio.play();
           }} else if (conversationActive) {{
+            conversationTurnCount += 1;
             setSpeechStatus("Weiter.", "listening", "Nächste Frage");
             setTimeout(recordConversationTurn, 450);
           }}
@@ -8970,13 +9007,7 @@ def _memorial_html(
       async function recordConversationTurn() {{
         if (!conversationActive || conversationTurnInFlight) return;
         try {{
-          const result = await captureRealtimeTranscript({{
-            autoStopMs: 2600,
-            silenceMs: 420,
-            silenceThreshold: 0.015,
-            listeningText: "Sprich einfach los.",
-            transcribingText: "Ich habe dich. Einen Moment ..."
-          }});
+          const result = await captureRealtimeTranscript(recordConversationOptions());
           const transcript = normalizeTranscriptText(result && result.transcript || "");
           if (!conversationActive) return;
           if (!transcript) {{
@@ -9000,10 +9031,12 @@ def _memorial_html(
         setConversationUi(conversationActive);
         if (conversationActive) {{
           conversationIdleMisses = 0;
+          conversationTurnCount = 0;
           setSpeechStatus("Ich bin bei dir. Sprich einfach los.", "listening", "Ich hoere dir direkt zu");
           recordConversationTurn();
         }} else {{
         conversationIdleMisses = 0;
+        conversationTurnCount = 0;
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
