@@ -30,6 +30,12 @@ python3 scripts/memorial_demo_rehearsal.py manfred --base-url https://myexternal
 python3 scripts/memorial_launch_snapshot.py manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output /tmp/manfred_launch_snapshot.json
 ```
 
+Run the one-command showtime wrapper:
+
+```bash
+python3 scripts/memorial_showtime.py --slug manfred --base-url https://myexternalbrain.com --questions ../examples/demo_questions.manfred.json --output-dir /tmp/manfred_showtime --optional-exit-gates
+```
+
 Run the full memorial exit gates:
 
 ```bash
