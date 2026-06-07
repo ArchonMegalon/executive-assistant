@@ -754,3 +754,23 @@ def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(
     body = response.json()
     assert body["fallback_reason"] == "difficult_memory_guardrail"
     assert "keine Ich-Form-Rekonstruktion" in body["answer"]
+
+
+def test_difficult_family_question_prefers_difficult_memory_guardrail_over_transcript_relationship(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-difficult-family")
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Was haettest du ueber Schuld in der Familie gesagt?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "difficult_memory_guardrail"
+    assert "keine Ich-Form-Rekonstruktion" in body["answer"]

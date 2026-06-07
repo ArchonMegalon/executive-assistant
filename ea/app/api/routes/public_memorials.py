@@ -4037,6 +4037,8 @@ def _memorial_chat_fallback_answer(
             f"Ich halte mich kuenftig daran: {preference_text}. "
             "Ich antworte also direkt und ohne unnoetigen Umweg."
         )
+    elif not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
+        body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif _is_memorial_contact_question(normalized_question):
         body = _memorial_contact_answer_body(normalized_question)
     elif _is_memorial_family_mail_question(normalized_question):
@@ -9180,7 +9182,22 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
     difficult_memory_mode = _extract_difficult_memory_mode(request=request, body=body)
     _enforce_public_memorial_rate_limit("chat", request=request, context=personal_memory_context)
-    if _is_memorial_transcript_relationship_question(question_text) or _is_memorial_mail_practice_question(question_text):
+    if not difficult_memory_mode and _is_difficult_memory_question(question_text):
+        answer = _memorial_chat_fallback_answer(
+            payload,
+            question_text,
+            private_profile,
+            slug=slug,
+            memory_runtime=memory_runtime,
+            llm_model=selected_model,
+            fallback_reason="difficult_memory_guardrail",
+            difficult_memory_mode=False,
+        )
+        answer["llm_model"] = selected_model
+        answer["llm_provider"] = "memorial_guardrail"
+        answer["llm_request_model"] = selected_model
+        answer["llm_fallback_used"] = True
+    elif _is_memorial_transcript_relationship_question(question_text) or _is_memorial_mail_practice_question(question_text):
         answer = _memorial_chat_fallback_answer(
             payload,
             question_text,
