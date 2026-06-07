@@ -26,6 +26,22 @@ Use the repo template at:
 
 This is the starting point for the authenticated VidBoard workspace read. It is not itself proof of production readiness; it only scaffolds the login and workspace extraction pass.
 
+For a local capture + receipt-stub pass, use:
+
+```bash
+cd /docker/EA
+python3 scripts/capture_vidboard_provider_receipts.py \
+  --login-email "$VIDBOARD_LOGIN_EMAIL" \
+  --login-password "$VIDBOARD_LOGIN_PASSWORD"
+```
+
+That command writes:
+
+- `/docker/fleet/state/chummer6/avatar_presenter_provider/vidboard_workspace_capture.generated.json`
+- `/docker/fleet/state/chummer6/avatar_presenter_provider/receipts/vidboard_*.json`
+
+It only auto-verifies `login_capture` when an authenticated workspace snapshot is actually detected. All other receipt files remain manual review stubs until a human confirms the proof.
+
 ## Run
 
 ```bash

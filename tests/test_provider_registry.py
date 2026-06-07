@@ -205,6 +205,7 @@ def test_provider_registry_routes_crezlo_property_tour_with_alias_hints() -> Non
         ("approvethis", ("BrowserAct", "ApproveThis"), "browseract.approvethis_queue_reader", "browseract.approvethis_queue_reader"),
         ("metasurvey", ("BrowserAct", "MetaSurvey"), "browseract.metasurvey_results_reader", "browseract.metasurvey_results_reader"),
         ("nonverbia", ("BrowserAct", "Nonverbia"), "browseract.nonverbia_workspace_reader", "browseract.nonverbia_workspace_reader"),
+        ("vidboard", ("BrowserAct", "VidBoard"), "browseract.vidboard_workspace_reader", "browseract.vidboard_workspace_reader"),
         ("documentation_ai", ("BrowserAct", "Documentation.AI"), "browseract.documentation_ai_workspace_reader", "browseract.documentation_ai_workspace_reader"),
         ("invoiless", ("BrowserAct", "Invoiless"), "browseract.invoiless_workspace_reader", "browseract.invoiless_workspace_reader"),
         ("markupgo", ("BrowserAct", "MarkupGo"), "browseract.markupgo_workspace_reader", "browseract.markupgo_workspace_reader"),

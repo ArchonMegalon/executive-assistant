@@ -946,6 +946,18 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         result_selector="main, [role='main'], body",
     ),
     BrowserActUiTemplateDefinition(
+        template_key="vidboard_workspace_reader",
+        workflow_name="VidBoard Workspace Reader",
+        description="Open the logged-in VidBoard workspace and extract the visible avatar/video creation surface for provider-proof review.",
+        login_url="https://app.vidboard.ai",
+        tool_url="",
+        workflow_kind="page_extract",
+        runtime_input_name="page_url",
+        authorized_credential_queries=("vidboard.ai",),
+        wait_selector="main, [role='main'], body",
+        result_selector="main, [role='main'], body",
+    ),
+    BrowserActUiTemplateDefinition(
         template_key="documentation_ai_workspace_reader",
         workflow_name="Documentation AI Workspace Reader",
         description="Open the Documentation.AI workspace or docs surface and extract the visible document-generation workspace state for later automation refinement.",

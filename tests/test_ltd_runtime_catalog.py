@@ -63,6 +63,10 @@ def test_browseract_ui_service_aliases_resolve_inventory_service_names() -> None
     assert apixdrive is not None
     assert apixdrive.service_key == "apixdrive_workspace_reader"
 
+    vidboard = browseract_ui_service_by_alias("VidBoard")
+    assert vidboard is not None
+    assert vidboard.service_key == "vidboard_workspace_reader"
+
     assert browseract_ui_service_by_alias("BrowserAct") is None
 
 
