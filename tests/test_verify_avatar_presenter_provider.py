@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -131,3 +132,74 @@ def test_verify_vidboard_avatar_provider_rejects_forged_receipts_without_capture
     assert payload["verdict"] == "NOT_READY"
     assert payload["provider_ready"] is False
     assert any(item["trusted"] is False for item in payload["receipts_loaded"])
+
+
+def test_verify_avatar_provider_cli_returns_success_for_fallback_payload(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "verify_avatar_presenter_provider.py"
+    out_dir = tmp_path / "out"
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            "--provider",
+            "vidboard",
+            "--allow-fallback",
+            "--write-dir",
+            str(out_dir),
+            "--receipt-dir",
+            str(tmp_path / "receipts"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    generated = out_dir / "vidboard_AVATAR_PRESENTER_PROVIDER_PROOF.generated.json"
+    payload = json.loads(generated.read_text(encoding="utf-8"))
+    assert payload["verdict"] == "READY_VIA_FALLBACK"
+
+
+def test_verify_avatar_provider_cli_returns_nonzero_when_trust_requirements_are_unmet(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "verify_avatar_presenter_provider.py"
+    receipt_dir = tmp_path / "receipts"
+    receipt_dir.mkdir()
+    for receipt_type in [
+        "login_capture",
+        "commercial_use_terms_receipt",
+        "watermark_export_receipt",
+        "lip_sync_review_receipt",
+        "viseme_quality_receipt",
+        "privacy_terms_receipt",
+        "source_data_boundary_receipt",
+    ]:
+        (receipt_dir / f"{receipt_type}.json").write_text(
+            json.dumps(
+                {
+                    "provider_key": "vidboard",
+                    "receipt_type": receipt_type,
+                    "verified": True,
+                    "captured_at": "2026-06-07T12:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            "--provider",
+            "vidboard",
+            "--write-dir",
+            str(tmp_path / "out"),
+            "--receipt-dir",
+            str(receipt_dir),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
