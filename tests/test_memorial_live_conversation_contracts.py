@@ -665,3 +665,11 @@ def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_t
     assert "silenceThreshold: 0.012" in source
     assert "Math.max(autoStopMs, 1600)" in source
     assert "Math.max(220, Number(options.silenceMs || 850))" in source
+
+
+def test_memorial_live_page_source_keeps_video_call_running_without_camera() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "continueVideoCallWithoutCamera()" in source
+    assert "Kamera ist optional. Manfred bleibt im Video Call ueber Stimme und Avatar." in source
+    assert "Video Call laeuft auch ohne Kamera weiter." in source

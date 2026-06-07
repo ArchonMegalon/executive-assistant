@@ -6855,6 +6855,29 @@ def _memorial_html(
         color: var(--muted);
         font-size: .94rem;
       }}
+      .video-call-preview-actions {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+      }}
+      .video-call-preview-actions button {{
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 10px 14px;
+        font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+        cursor: pointer;
+        color: #fcf7f0;
+        background: rgba(53,72,88,.94);
+        box-shadow: 0 12px 22px rgba(28,40,51,.14);
+      }}
+      .video-call-preview-actions button:hover {{
+        transform: translateY(-1px);
+      }}
       .video-call-grid {{
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7152,6 +7175,17 @@ def _memorial_html(
         .video-call-grid {{
           grid-template-columns: 1fr;
         }}
+        .video-call-preview-head {{
+          align-items: flex-start;
+          flex-direction: column;
+        }}
+        .video-call-preview-actions {{
+          width: 100%;
+          justify-content: stretch;
+        }}
+        .video-call-preview-actions button {{
+          flex: 1 1 0;
+        }}
         .video-call-tile {{
           min-height: 188px;
         }}
@@ -7265,9 +7299,12 @@ def _memorial_html(
           <div class="video-call-preview-head">
             <div class="video-call-preview-copy">
               <strong>Video Call mit Manfred Hennig</strong>
-              <span>Prelive-Vorschau. Kamera lokal, Manfreds Video-Lane wird vorbereitet.</span>
+              <span>Prelive-Vorschau. Kamera ist optional, Manfreds Video-Lane wird vorbereitet.</span>
             </div>
-            <button type="button" id="memorial-video-call-close">Schließen</button>
+            <div class="video-call-preview-actions">
+              <button type="button" id="memorial-video-call-continue-no-camera">Ohne Kamera fortfahren</button>
+              <button type="button" id="memorial-video-call-close">Schließen</button>
+            </div>
           </div>
           <div class="video-call-grid">
             <div class="video-call-tile">
@@ -7401,6 +7438,7 @@ def _memorial_html(
       const speechTranscript = document.getElementById("memorial-speech-transcript");
       const videoCallPreview = document.getElementById("memorial-video-call-preview");
       const videoCallCloseButton = document.getElementById("memorial-video-call-close");
+      const videoCallContinueNoCameraButton = document.getElementById("memorial-video-call-continue-no-camera");
       const videoCallStatus = document.getElementById("memorial-video-call-status");
       const videoCallSelf = document.getElementById("memorial-video-call-self");
       const videoCallAvatarStage = document.getElementById("memorial-video-call-avatar-stage");
@@ -7794,6 +7832,12 @@ def _memorial_html(
       function setVideoCallStatus(message) {{
         if (videoCallStatus) videoCallStatus.textContent = String(message || "").trim() || "Noch nicht aktiv.";
       }}
+      async function ensureConversationStartedForVideoCall() {{
+        if (conversationActive) return;
+        try {{
+          await window.__memorialStartConversation();
+        }} catch (error) {{}}
+      }}
       function setVideoCallAvatarState(state, detail = "") {{
         const normalized = String(state || "idle").trim().toLowerCase() || "idle";
         if (videoCallAvatarStage) {{
@@ -7834,6 +7878,16 @@ def _memorial_html(
         if (videoCallPreview) videoCallPreview.hidden = true;
         setVideoCallAvatarState("idle", "Wartet auf den Video Call.");
         setVideoCallStatus("Video Call beendet.");
+      }}
+      async function continueVideoCallWithoutCamera() {{
+        if (videoCallPreview) videoCallPreview.hidden = false;
+        setVideoCallAvatarState("working", "Manfred startet auch ohne Kamera im Video Call.");
+        setVideoCallStatus("Kamera ist optional. Manfred bleibt im Video Call ueber Stimme und Avatar.");
+        await ensureConversationStartedForVideoCall();
+        setVideoCallAvatarState("listening", "Manfred ist ohne Kamera im Video Call bereit.");
+        if (speechState === "idle") {{
+          setSpeechStatus("Video Call ist bereit, auch ohne Kamera.", "listening", "Sprich mit mir");
+        }}
       }}
       function setMemorialLandingReady(ready, detail = "") {{
         memorialLandingReady = Boolean(ready);
@@ -8119,7 +8173,8 @@ def _memorial_html(
         }}
         if (videoCallPreview) videoCallPreview.hidden = false;
         setVideoCallAvatarState("working", "Manfreds Video-Bühne wird vorbereitet.");
-        setVideoCallStatus("Kamera wird vorbereitet ...");
+        setVideoCallStatus("Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar.");
+        const conversationPromise = ensureConversationStartedForVideoCall();
         try {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
             throw new Error("Kamera im Browser nicht verfügbar.");
@@ -8133,15 +8188,15 @@ def _memorial_html(
             videoCallSelf.srcObject = activeVideoStream;
             try {{ await videoCallSelf.play(); }} catch (error) {{}}
           }}
+          await conversationPromise;
           setVideoCallAvatarState("listening", "Manfred ist im Video Call bereit.");
-          setVideoCallStatus("Kamera aktiv. Manfreds Video-Lane ist als nächster Schritt vorgesehen; das Gespräch läuft schon über Stimme.");
-          if (!conversationActive) {{
-            await window.__memorialStartConversation();
-          }}
+          setVideoCallStatus("Kamera aktiv. Manfred ist jetzt ueber Stimme, Avatar und deine Vorschau im Video Call.");
         }} catch (error) {{
-          setVideoCallAvatarState("idle", "Kamera konnte nicht geöffnet werden.");
-          setVideoCallStatus(String(error && error.message ? error.message : "Kamera konnte nicht geöffnet werden."));
-          setSpeechStatus("Video Call konnte die Kamera gerade nicht öffnen.", "error", "Kamera freigeben und noch einmal versuchen");
+          await conversationPromise;
+          const detail = String(error && error.message ? error.message : "Kamera konnte nicht geöffnet werden.");
+          setVideoCallAvatarState("listening", "Manfred bleibt auch ohne Kamera im Video Call da.");
+          setVideoCallStatus(detail + " Video Call laeuft weiter ueber Stimme und Avatar.");
+          setSpeechStatus("Video Call laeuft auch ohne Kamera weiter.", "listening", "Sprich mit mir");
         }}
       }}
       function realtimeSocketUrl() {{
@@ -9402,6 +9457,9 @@ def _memorial_html(
       window.__memorialStartVideoCall = async () => {{
         await startVideoCallPreview();
       }};
+      window.__memorialContinueVideoCallWithoutCamera = async () => {{
+        await continueVideoCallWithoutCamera();
+      }};
       if (form) {{
         form.addEventListener("submit", (event) => {{
           event.preventDefault();
@@ -9426,6 +9484,11 @@ def _memorial_html(
       if (videoCallButton) {{
         videoCallButton.addEventListener("click", () => {{
           void startVideoCallPreview();
+        }});
+      }}
+      if (videoCallContinueNoCameraButton) {{
+        videoCallContinueNoCameraButton.addEventListener("click", () => {{
+          void continueVideoCallWithoutCamera();
         }});
       }}
       if (videoCallCloseButton) {{
