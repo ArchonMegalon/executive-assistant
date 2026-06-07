@@ -421,3 +421,31 @@ def test_memorial_local_fast_fallback_keeps_requested_model_metadata(
     assert answer["llm_provider"] == "memorial_guardrail"
     assert answer["llm_request_model"] == "memorial-local-fast"
     assert answer["llm_fallback_used"] is True
+
+
+def test_memorial_warmup_route_schedules_background_prewarm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    seen: list[str] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_live_warmup",
+        lambda warmup_slug: seen.append(warmup_slug) or {"status": "queued", "scheduled": True, "ttl_seconds": 600},
+    )
+
+    client = _client(principal_id="exec-memorial-warmup")
+    response = client.post(f"/memorials/{slug}/warmup", json={"reason": "page_load"})
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "slug": slug,
+        "status": "queued",
+        "scheduled": True,
+        "ttl_seconds": 600,
+    }
+    assert seen == [slug]

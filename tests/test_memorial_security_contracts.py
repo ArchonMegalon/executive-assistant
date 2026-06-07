@@ -144,6 +144,9 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert "Am Handy/Desktop installieren" in page.text
     assert "App installieren" not in page.text
     assert f"/memorials/{slug}/icon-180.png" in page.text
+    assert f'/memorials/{slug}/warmup' in page.text
+    assert 'requestMemorialWarmup("page_load")' in page.text
+    assert 'requestMemorialWarmup("conversation_start")' in page.text
     assert "<h1>" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text

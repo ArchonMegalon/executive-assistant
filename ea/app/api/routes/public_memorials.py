@@ -89,6 +89,7 @@ _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
 _MEMORIAL_TTS_LEAD_IN_MS = 320
 _MEMORIAL_TTS_TAIL_SILENCE_MS = 620
+_MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
     "speech_transcribe": (10, 60),
@@ -110,6 +111,8 @@ _VOICE_AB_DIMENSION_KEYS = tuple(item["id"] for item in _VOICE_AB_DIMENSION_DEFS
 _PUBLIC_MEMORIAL_RATE_DB = Path("/data/artifacts/memorial_rate_limits.sqlite3")
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
+_MEMORIAL_LIVE_WARMUP_STATE: dict[str, dict[str, object]] = {}
+_MEMORIAL_LIVE_WARMUP_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
     "slug",
     "person_name",
@@ -5122,6 +5125,143 @@ def _speech_postprocess_filters(tts_plugin: str) -> str:
     )
 
 
+def _memorial_warmup_probe_wav_bytes(*, textish_seed: str = "Hallo Manfred", duration_seconds: float = 0.22) -> bytes:
+    sample_rate = 16_000
+    frequency = 240 + (sum(ord(ch) for ch in textish_seed) % 180)
+    total_frames = max(1, int(sample_rate * duration_seconds))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        frames = bytearray()
+        for index in range(total_frames):
+            envelope = 0.28 * math.sin(math.pi * index / total_frames)
+            sample = int(12_000 * envelope * math.sin(2.0 * math.pi * frequency * index / sample_rate))
+            frames.extend(struct.pack("<h", sample))
+        wav_file.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
+def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
+    with _MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+    now = time.time()
+    completed_at = float(current.get("completed_at") or 0.0)
+    inflight = bool(current.get("inflight"))
+    warm = bool(completed_at and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS)
+    status = "cold"
+    if inflight:
+        status = "warming"
+    elif warm:
+        status = "warm_recent"
+    return {
+        "status": status,
+        "warm": warm,
+        "inflight": inflight,
+        "completed_at": completed_at or 0.0,
+        "started_at": float(current.get("started_at") or 0.0),
+        "errors": list(current.get("errors") or []),
+    }
+
+
+def _run_memorial_live_warmup(slug: str) -> None:
+    errors: list[str] = []
+    started_at = time.time()
+    with _MEMORIAL_LIVE_WARMUP_LOCK:
+        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+        current["inflight"] = True
+        current["started_at"] = started_at
+        current["errors"] = []
+        _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+    try:
+        payload = _load_memorial(slug)
+        private_profile = _load_private_profile(slug)
+        live_prompt = "Hallo Manfred, kann ich jetzt mit dir reden?"
+        try:
+            _memorial_transcribe_audio_blob(
+                payload=_memorial_warmup_probe_wav_bytes(),
+                content_type="audio/wav",
+            )
+        except Exception as exc:
+            errors.append(f"speech:{str(exc)[:120]}")
+        selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, live_prompt)
+        try:
+            _memorial_chat_answer(
+                payload,
+                live_prompt,
+                private_profile,
+                requested_model=selected_model,
+                slug=slug,
+                memory_runtime=None,
+                personal_memory_context={"enabled": False, "available": False, "guest_mode": True},
+                difficult_memory_mode=False,
+            )
+        except Exception as exc:
+            errors.append(f"chat:{str(exc)[:120]}")
+        try:
+            base_config = _load_voice_config(slug)
+            tts_options = _tts_plugin_options(
+                payload=base_config,
+                voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+            )
+            selected_plugin, selected_option = _resolve_server_tts_plugin(payload=base_config, options=tts_options)
+            if bool(selected_option.get("tts_plugin_enabled")):
+                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+                    piper_fast_synthesize_request(
+                        text="Ich bin da.",
+                        lang=_text(base_config.get("lang"), "de-AT"),
+                        base_voice_variant=_effective_tts_base_voice_variant(base_config),
+                    )
+                elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+                    voice_id = _text(
+                        base_config.get("tts_plugin_voice_id"),
+                        _text(selected_option.get("tts_plugin_voice_id"), ""),
+                    )
+                    if voice_id:
+                        unmixr_synthesize_request(
+                            text="Ich bin da.",
+                            voice_id=voice_id,
+                            lang=_text(base_config.get("lang"), "de"),
+                            speaking_rate=_text(base_config.get("unmixr_speaking_rate"), ""),
+                            speaking_pitch=_text(base_config.get("unmixr_speaking_pitch"), ""),
+                            speaking_volume=_text(base_config.get("unmixr_speaking_volume"), ""),
+                        )
+                elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+                    voice_id = _text(
+                        base_config.get("tts_plugin_voice_id"),
+                        _text(selected_option.get("tts_plugin_voice_id"), ""),
+                    )
+                    if voice_id:
+                        openvoice_synthesize_request_with_variant(
+                            text="Ich bin da.",
+                            voice_id=voice_id,
+                            lang=_text(base_config.get("lang"), "de-AT"),
+                            base_voice_variant=_effective_tts_base_voice_variant(base_config),
+                        )
+        except Exception as exc:
+            errors.append(f"tts:{str(exc)[:120]}")
+    finally:
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            current["inflight"] = False
+            current["completed_at"] = time.time()
+            current["errors"] = errors[:6]
+            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+
+
+def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
+    safe_slug = _safe_slug(slug)
+    snapshot = _memorial_live_warmup_snapshot(safe_slug)
+    if snapshot["inflight"]:
+        return {"status": "warming", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    if snapshot["warm"]:
+        return {"status": "warm_recent", "scheduled": False, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+    worker = threading.Thread(target=_run_memorial_live_warmup, args=(safe_slug,), daemon=True, name=f"memorial-warmup-{safe_slug}")
+    worker.start()
+    return {"status": "queued", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
+
+
 def _build_memorial_conversation_turn_payload(
     *,
     slug: str,
@@ -6912,6 +7052,7 @@ def _memorial_html(
       let realtimeTurnCounter = 0;
       let activeRealtimeTurnId = "";
       let realtimeTurnFallbackTimer = null;
+      let memorialWarmupPromise = null;
       const settledRealtimeTurnIds = new Set();
       let memorialVoiceConfig = {{
         tts_plugin: "browser_speech_synthesis",
@@ -7453,6 +7594,19 @@ def _memorial_html(
           if (activeRequestController === controller) activeRequestController = null;
         }}
       }}
+      async function requestMemorialWarmup(reason = "page_load") {{
+        if (memorialWarmupPromise) return memorialWarmupPromise;
+        memorialWarmupPromise = fetch("/memorials/{html.escape(slug)}/warmup", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{
+            reason: String(reason || "page_load"),
+            personal_memory_enabled: personalMemoryEnabled()
+          }}),
+          keepalive: true,
+        }}).catch(() => null);
+        return memorialWarmupPromise;
+      }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
         const params = new URLSearchParams();
@@ -7582,6 +7736,12 @@ def _memorial_html(
       async function ensureRealtimeSocket() {{
         if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) return realtimeSocket;
         if (realtimeSocketPromise) return realtimeSocketPromise;
+        try {{
+          await Promise.race([
+            requestMemorialWarmup("conversation_start"),
+            new Promise((resolve) => window.setTimeout(resolve, 1500)),
+          ]);
+        }} catch (error) {{}}
         realtimeSocketPromise = new Promise((resolve, reject) => {{
           try {{
             const socket = new WebSocket(realtimeSocketUrl());
@@ -8906,6 +9066,9 @@ def _memorial_html(
       loadVoiceConfig();
       syncConversationButtons();
       void refreshVoiceProfileSummary();
+      window.setTimeout(() => {{
+        void requestMemorialWarmup("page_load");
+      }}, 120);
     </script>
   </body>
 </html>"""
@@ -8936,6 +9099,22 @@ def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
     )
     _ensure_memorial_guest_cookie(response, request, slug=slug)
     return response
+
+
+@router.post("/memorials/{slug}/warmup")
+async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    result = _schedule_memorial_live_warmup(slug)
+    return JSONResponse(
+        {
+            "slug": _safe_slug(slug),
+            "status": result["status"],
+            "scheduled": bool(result["scheduled"]),
+            "ttl_seconds": int(result["ttl_seconds"]),
+        },
+        headers={"Cache-Control": "no-store"},
+        status_code=202,
+    )
 
 
 @router.get("/memorials/{slug}/archive/{publication_slug}")
