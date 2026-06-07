@@ -5943,13 +5943,6 @@ def _memorial_html(
       .voice-variant-chip {{
         display: none !important;
       }}
-      .hero-copy > .eyebrow,
-      .hero-copy > h1,
-      .hero-copy > .lead,
-      #memorial-interaction-hint,
-      footer {{
-        display: none !important;
-      }}
       main.wrap {{
         width: min(100vw - 24px, 720px);
         margin-top: -96px;
@@ -6641,14 +6634,6 @@ def _memorial_html(
       button:active {{
         transform: translateY(0);
       }}
-      footer {{
-        border-top: 1px solid var(--line);
-        padding: 30px 0;
-        color: var(--muted);
-        font-size: .94rem;
-        line-height: 1.5;
-        background: linear-gradient(180deg, rgba(247,243,234,0), rgba(237,228,212,.56));
-      }}
       @media (max-width: 760px) {{
         header {{ min-height: 100vh; align-items: center; }}
         .grid, .clip, .voice-grid {{ grid-template-columns: 1fr; }}
@@ -6732,11 +6717,6 @@ def _memorial_html(
         main.wrap {{
           margin-top: -120px;
         }}
-        footer {{
-          padding: 22px 0;
-          font-size: .82rem;
-          line-height: 1.45;
-        }}
         .speaking-overlay {{
           left: 12px;
           right: 12px;
@@ -6762,10 +6742,6 @@ def _memorial_html(
       <div class="wrap hero">
         <div class="hero-stage">
           <div class="hero-copy">
-            <p class="eyebrow">Gedenkseite</p>
-            <h1>{html.escape(person_name)}</h1>
-            <p class="lead">{html.escape(subtitle)}</p>
-            <p class="install-hint" style="margin-bottom:14px;" id="memorial-interaction-hint">Tippen, sprechen, kurz warten, einfach weiterreden.</p>
             <div class="hero-actions">
               <button type="button" id="memorial-conversation" class="hero-cta" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" onclick="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich oeffne das Mikrofon ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Einen Moment'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte erlaube kurz das Mikrofon, falls dein Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); this.textContent='Starte ...'; var n=document.getElementById('memorial-speech-note'); if(n&&n.firstChild) n.firstChild.textContent='Ich oeffne das Mikrofon ... '; var p=document.getElementById('memorial-speech-phase'); if(p) p.textContent='Einen Moment'; var d=document.getElementById('memorial-speech-detail'); if(d) d.textContent='Bitte erlaube kurz das Mikrofon, falls dein Browser fragt'; window.__memorialToggleConversation && window.__memorialToggleConversation(); return false;">Gespräch beginnen</button>
             </div>
@@ -6825,9 +6801,6 @@ def _memorial_html(
         </span>
       </div>
     </main>
-    <footer>
-      <div class="wrap">Hosted on myexternalbrain.com</div>
-    </footer>
     <script>
       const form = document.getElementById("memorial-chat-form");
       const question = document.getElementById("memorial-chat-question");
