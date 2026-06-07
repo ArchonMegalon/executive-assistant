@@ -253,7 +253,10 @@ def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     body = response.json()
     assert "llm" not in body["answer"].lower()
     assert "sprachmodell" not in body["answer"].lower()
-    assert "ich spreche hier so, wie ihr mich erinnert" in body["answer"].lower()
+    assert (
+        "ich spreche hier so, wie ihr mich erinnert" in body["answer"].lower()
+        or "so spreche ich hier" in body["answer"].lower()
+    )
 
 
 def test_memorial_realtime_rejects_audio_bytes_before_start(

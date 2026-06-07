@@ -567,6 +567,151 @@ def test_memorial_retry_button_recovers_from_microphone_denial(
         context.close()
 
 
+def test_memorial_realtime_answer_falls_back_when_turn_complete_never_arrives(
+    browser: Browser,
+    memorial_browser_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_browser_server["base_url"])
+    slug = str(memorial_browser_server["slug"])
+    context = browser.new_context(viewport={"width": 430, "height": 932})
+    context.add_init_script(
+        """
+        (() => {
+          class FakeRecognition {
+            constructor() {
+              this.lang = "de-AT";
+              this.interimResults = true;
+              this.continuous = false;
+              this.maxAlternatives = 1;
+              this.onstart = null;
+              this.onresult = null;
+              this.onerror = null;
+              this.onend = null;
+            }
+            start() {
+              setTimeout(() => {
+                if (this.onstart) this.onstart();
+                setTimeout(() => {
+                  if (this.onresult) {
+                    this.onresult({
+                      resultIndex: 0,
+                      results: [
+                        {
+                          0: { transcript: "Wie klingt deine Stimme?" },
+                          isFinal: true,
+                          length: 1,
+                        },
+                      ],
+                    });
+                  }
+                  setTimeout(() => {
+                    if (this.onend) this.onend();
+                  }, 10);
+                }, 20);
+              }, 10);
+            }
+            stop() {
+              if (this.onend) setTimeout(() => this.onend(), 0);
+            }
+          }
+
+          class FakeWebSocket {
+            static OPEN = 1;
+            static CLOSED = 3;
+            constructor(url) {
+              this.url = url;
+              this.readyState = FakeWebSocket.OPEN;
+              this.onopen = null;
+              this.onmessage = null;
+              this.onerror = null;
+              this.onclose = null;
+              setTimeout(() => {
+                if (this.onopen) this.onopen();
+                if (this.onmessage) {
+                  this.onmessage({
+                    data: JSON.stringify({ type: "ready", mode: "memorial_realtime_voice" }),
+                  });
+                }
+              }, 0);
+            }
+            send(payload) {
+              let parsed = null;
+              try {
+                parsed = JSON.parse(String(payload || ""));
+              } catch (error) {
+                return;
+              }
+              if (!parsed || parsed.type !== "user_text_turn") return;
+              const turnId = String(parsed.turn_id || "");
+              setTimeout(() => {
+                if (this.onmessage) {
+                  this.onmessage({
+                    data: JSON.stringify({
+                      type: "phase",
+                      turn_id: turnId,
+                      phase: "thinking",
+                      detail: "Ich antworte direkt",
+                    }),
+                  });
+                }
+              }, 10);
+              setTimeout(() => {
+                if (this.onmessage) {
+                  this.onmessage({
+                    data: JSON.stringify({
+                      type: "answer",
+                      turn_id: turnId,
+                      text: "Meine Stimme klingt ruhig und klar.",
+                      sources: ["Archiv"],
+                      llm_model: "fake-realtime-model",
+                    }),
+                  });
+                }
+              }, 30);
+            }
+            close() {
+              this.readyState = FakeWebSocket.CLOSED;
+              if (this.onclose) this.onclose();
+            }
+          }
+
+          window.SpeechRecognition = FakeRecognition;
+          window.webkitSpeechRecognition = FakeRecognition;
+          window.WebSocket = FakeWebSocket;
+          HTMLMediaElement.prototype.play = function play() {
+            return Promise.resolve();
+          };
+        })();
+        """
+    )
+    page: Page = context.new_page()
+    try:
+      response = page.goto(f"{base_url}/memorials/{slug}", wait_until="networkidle")
+      assert response is not None and response.ok
+
+      page.get_by_role("button", name="Sprich mit der Erinnerung").click()
+      page.wait_for_function(
+          """
+          () => {
+            const answer = document.getElementById('memorial-chat-answer');
+            return Boolean(answer && answer.textContent && answer.textContent.includes('Meine Stimme klingt ruhig und klar.'));
+          }
+          """,
+          timeout=7000,
+      )
+      page.wait_for_function(
+          """
+          () => {
+            const phase = document.getElementById('memorial-speech-phase');
+            return Boolean(phase && phase.textContent && phase.textContent.includes('Ich hoere dir zu'));
+          }
+          """,
+          timeout=7000,
+      )
+    finally:
+      context.close()
+
+
 def test_memorial_pwa_launch_autostarts_conversation_when_opted_in(
     browser: Browser,
     memorial_browser_server: dict[str, object],

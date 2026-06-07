@@ -6895,6 +6895,8 @@ def _memorial_html(
       let realtimeTurnData = null;
       let realtimeTurnCounter = 0;
       let activeRealtimeTurnId = "";
+      let realtimeTurnFallbackTimer = null;
+      const settledRealtimeTurnIds = new Set();
       let memorialVoiceConfig = {{
         tts_plugin: "browser_speech_synthesis",
         tts_plugin_voice_id: "",
@@ -7368,6 +7370,37 @@ def _memorial_html(
         speechMeterFill.style.transform = "scaleX(" + String(normalized) + ")";
         speechMeterFill.style.opacity = normalized > 0.2 ? ".96" : ".7";
       }}
+      function clearRealtimeTurnFallbackTimer() {{
+        if (realtimeTurnFallbackTimer) {{
+          clearTimeout(realtimeTurnFallbackTimer);
+          realtimeTurnFallbackTimer = null;
+        }}
+      }}
+      function markRealtimeTurnSettled(turnId) {{
+        const normalized = String(turnId || "").trim();
+        if (!normalized) return;
+        settledRealtimeTurnIds.add(normalized);
+        if (settledRealtimeTurnIds.size > 16) {{
+          const oldest = settledRealtimeTurnIds.values().next();
+          if (oldest && !oldest.done) settledRealtimeTurnIds.delete(String(oldest.value || ""));
+        }}
+      }}
+      function finalizeRealtimeTurn(turnId) {{
+        const normalizedTurnId = String(turnId || activeRealtimeTurnId || "").trim();
+        if (!normalizedTurnId || settledRealtimeTurnIds.has(normalizedTurnId)) return null;
+        clearRealtimeTurnFallbackTimer();
+        markRealtimeTurnSettled(normalizedTurnId);
+        const payload = Object.assign({{}}, realtimeTurnData || {{}});
+        if (realtimeTurnPending && realtimeTurnPending.timeoutId) {{
+          clearTimeout(realtimeTurnPending.timeoutId);
+        }}
+        if (realtimeTurnPending && realtimeTurnPending.resolve) realtimeTurnPending.resolve(payload);
+        realtimeTurnPending = null;
+        realtimeTurnData = null;
+        activeRealtimeTurnId = "";
+        syncConversationButtons();
+        return payload;
+      }}
       function setInteractiveEnabled(enabled) {{
         if (listenButton) listenButton.disabled = !enabled || conversationActive;
         if (serverSttButton) serverSttButton.disabled = !enabled || conversationActive;
@@ -7420,6 +7453,7 @@ def _memorial_html(
         if (!payload || typeof payload !== "object") return;
         const type = String(payload.type || "");
         const turnId = String(payload.turn_id || "");
+        if (turnId && settledRealtimeTurnIds.has(turnId) && type !== "error" && type !== "cancelled") return;
         if (type === "ready") {{
           setSpeechStatus("Ich bin da.", "idle", "Sprich mit mir");
           return;
@@ -7448,13 +7482,35 @@ def _memorial_html(
           realtimeTurnData.answer = normalizeTranscriptText(payload.text || "");
           realtimeTurnData.sources = Array.isArray(payload.sources) ? payload.sources : [];
           realtimeTurnData.llm_model = String(payload.llm_model || "");
+          if (answer && realtimeTurnData.answer) {{
+            lastAnswerText = realtimeTurnData.answer;
+            answer.textContent = realtimeTurnData.answer + (realtimeTurnData.sources.length ? "\\n\\nQuellen: " + realtimeTurnData.sources.join(", ") : "");
+          }}
           const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
           if (looksLiveInteractionTurn(transcript)) {{
             setSpeechStatus("Ich antworte sofort.", "working", "Direkte Antwort");
           }}
+          clearRealtimeTurnFallbackTimer();
+          realtimeTurnFallbackTimer = window.setTimeout(() => {{
+            if (String(activeRealtimeTurnId || "") !== turnId) return;
+            if (!realtimeTurnData || !String(realtimeTurnData.answer || "").trim()) return;
+            const hasAudio = Boolean(
+              String(realtimeTurnData.audio_base64 || "").trim()
+              || (Array.isArray(realtimeTurnData.audio_chunks) && realtimeTurnData.audio_chunks.length)
+            );
+            if (hasAudio) return;
+            finalizeRealtimeTurn(turnId);
+            if (conversationActive) {{
+              setSpeechStatus("Weiter.", "listening", "Naechste Frage");
+              setTimeout(recordConversationTurn, 450);
+            }} else {{
+              setSpeechStatus("Ich bin weiter da.", "idle", "Sprich mit mir");
+            }}
+          }}, 3200);
           return;
         }}
         if (type === "audio_chunk") {{
+          clearRealtimeTurnFallbackTimer();
           realtimeTurnData.audio_content_type = String(payload.content_type || "audio/wav");
           if (!Array.isArray(realtimeTurnData.audio_chunks)) realtimeTurnData.audio_chunks = [];
           realtimeTurnData.audio_chunks.push(String(payload.audio_base64 || ""));
@@ -7477,16 +7533,15 @@ def _memorial_html(
           return;
         }}
         if (type === "turn_complete") {{
-          if (realtimeTurnPending && realtimeTurnPending.resolve) realtimeTurnPending.resolve(Object.assign({{}}, realtimeTurnData || {{}}));
-          realtimeTurnPending = null;
-          realtimeTurnData = null;
-          activeRealtimeTurnId = "";
-          syncConversationButtons();
-        if (!conversationActive && speechState !== "speaking") setSpeechStatus("Ich bin weiter da.", "idle", "Sprich mit mir");
+          finalizeRealtimeTurn(turnId);
+          if (!conversationActive && speechState !== "speaking") setSpeechStatus("Ich bin weiter da.", "idle", "Sprich mit mir");
           return;
         }}
         if (type === "cancelled") {{
           const message = String(payload.message || "realtime_turn_cancelled");
+          clearRealtimeTurnFallbackTimer();
+          if (turnId) markRealtimeTurnSettled(turnId);
+          if (realtimeTurnPending && realtimeTurnPending.timeoutId) clearTimeout(realtimeTurnPending.timeoutId);
           if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error(message));
           realtimeTurnPending = null;
           realtimeTurnData = null;
@@ -7497,6 +7552,9 @@ def _memorial_html(
         }}
         if (type === "error") {{
           const message = String(payload.message || "realtime_failed");
+          clearRealtimeTurnFallbackTimer();
+          if (turnId) markRealtimeTurnSettled(turnId);
+          if (realtimeTurnPending && realtimeTurnPending.timeoutId) clearTimeout(realtimeTurnPending.timeoutId);
           if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error(message));
           realtimeTurnPending = null;
           realtimeTurnData = null;
@@ -7544,7 +7602,15 @@ def _memorial_html(
         activeRealtimeTurnId = turnId;
         realtimeTurnData = {{ turn_id: turnId, audio_chunks: [] }};
         const resultPromise = new Promise((resolve, reject) => {{
-          realtimeTurnPending = {{ resolve, reject, turnId }};
+          const timeoutId = window.setTimeout(() => {{
+            if (!realtimeTurnPending || realtimeTurnPending.turnId !== turnId) return;
+            realtimeTurnPending = null;
+            realtimeTurnData = null;
+            activeRealtimeTurnId = "";
+            syncConversationButtons();
+            reject(new Error("Ich brauche gerade laenger als erwartet. Bitte sprich noch einmal."));
+          }}, 25000);
+          realtimeTurnPending = {{ resolve, reject, turnId, timeoutId }};
         }});
         const directText = normalizeTranscriptText(input && typeof input === "object" && !("size" in input) ? (input.text || "") : "");
         if (directText) {{
