@@ -42,3 +42,39 @@ def test_verify_nonverbia_avatar_provider_returns_not_ready_without_fallback() -
     assert payload["provider"] == "Nonverbia"
     assert payload["verdict"] == "NOT_READY"
     assert payload["provider_ready"] is False
+
+
+def test_verify_vidboard_avatar_provider_promotes_with_complete_receipts(tmp_path: Path) -> None:
+    module = _load_script()
+    receipt_dir = tmp_path / "receipts"
+    receipt_dir.mkdir()
+    receipt_types = [
+        "login_capture",
+        "commercial_use_terms_receipt",
+        "watermark_export_receipt",
+        "lip_sync_review_receipt",
+        "viseme_quality_receipt",
+        "privacy_terms_receipt",
+        "source_data_boundary_receipt",
+    ]
+    for receipt_type in receipt_types:
+        (receipt_dir / f"{receipt_type}.json").write_text(
+            json.dumps(
+                {
+                    "provider_key": "vidboard",
+                    "receipt_type": receipt_type,
+                    "verified": True,
+                    "captured_at": "2026-06-07T12:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    payload = module.build_payload("vidboard", allow_fallback=False, receipt_dir=receipt_dir)
+
+    assert payload["provider"] == "VidBoard"
+    assert payload["verdict"] == "VERIFIED_PROVIDER"
+    assert payload["provider_ready"] is True
+    assert len(payload["receipts_loaded"]) == len(receipt_types)
+    assert payload["verification_checklist"]["lip_sync_quality"]["verified"] is True
+    assert payload["verification_checklist"]["watermark_free_export"]["verified"] is True

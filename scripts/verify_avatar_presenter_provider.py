@@ -5,11 +5,13 @@ import argparse
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LTD_PATH = ROOT / "LTDs.md"
 DEFAULT_OUT_DIR = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
+DEFAULT_RECEIPT_DIR = DEFAULT_OUT_DIR / "receipts"
 
 
 PROVIDER_SPECS = {
@@ -53,6 +55,16 @@ PROVIDER_SPECS = {
     },
 }
 
+RECEIPT_FIELD_MAP = {
+    "login_capture": None,
+    "commercial_use_terms_receipt": "commercial_use_allowed",
+    "watermark_export_receipt": "watermark_free",
+    "lip_sync_review_receipt": "lip_sync_verified",
+    "viseme_quality_receipt": "viseme_quality_verified",
+    "privacy_terms_receipt": "privacy_terms_reviewed",
+    "source_data_boundary_receipt": "source_data_allowed",
+}
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -87,11 +99,53 @@ def _provider_ready(spec: dict[str, object]) -> bool:
     )
 
 
-def build_payload(provider_key: str, *, allow_fallback: bool) -> dict[str, object]:
+def _load_receipts(provider_key: str, receipt_dir: Path) -> list[dict[str, Any]]:
+    receipts: list[dict[str, Any]] = []
+    if not receipt_dir.is_dir():
+        return receipts
+    for path in sorted(receipt_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        receipt_provider = str(payload.get("provider_key") or "").strip().lower()
+        if receipt_provider and receipt_provider != provider_key:
+            continue
+        receipt = dict(payload)
+        receipt["path"] = path.as_posix()
+        receipts.append(receipt)
+    return receipts
+
+
+def _apply_receipts(spec: dict[str, object], receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    loaded: list[dict[str, Any]] = []
+    for receipt in receipts:
+        receipt_type = str(receipt.get("receipt_type") or "").strip()
+        target_field = RECEIPT_FIELD_MAP.get(receipt_type)
+        verified = bool(receipt.get("verified") is True)
+        loaded.append(
+            {
+                "receipt_type": receipt_type,
+                "verified": verified,
+                "path": str(receipt.get("path") or ""),
+                "captured_at": str(receipt.get("captured_at") or ""),
+            }
+        )
+        if target_field and verified:
+            spec[target_field] = True
+        if receipt_type == "login_capture" and verified:
+            spec["status"] = "verified"
+    return loaded
+
+
+def build_payload(provider_key: str, *, allow_fallback: bool, receipt_dir: Path | None = None) -> dict[str, object]:
     normalized = provider_key.strip().lower()
     if normalized not in PROVIDER_SPECS:
         raise SystemExit(f"unknown provider: {provider_key}")
     spec = dict(PROVIDER_SPECS[normalized])
+    loaded_receipts = _apply_receipts(spec, _load_receipts(normalized, receipt_dir or DEFAULT_RECEIPT_DIR))
     ltd_rows = _parse_ltd_rows()
     row = dict(ltd_rows.get(str(spec["service_key"])) or {})
     provider_ready = _provider_ready(spec)
@@ -117,6 +171,7 @@ def build_payload(provider_key: str, *, allow_fallback: bool) -> dict[str, objec
         "verdict": verdict,
         "fallback_mode": str(spec["fallback_mode"]),
         "provider_ready": provider_ready,
+        "receipts_loaded": loaded_receipts,
         "account": {
             "service_key": str(spec["service_key"]),
             "account_status": str(row.get("status") or "tracked"),
@@ -161,8 +216,13 @@ def main() -> int:
     parser.add_argument("--provider", required=True, choices=sorted(PROVIDER_SPECS.keys()))
     parser.add_argument("--allow-fallback", action="store_true")
     parser.add_argument("--write-dir", default=str(DEFAULT_OUT_DIR))
+    parser.add_argument("--receipt-dir", default=str(DEFAULT_RECEIPT_DIR))
     args = parser.parse_args()
-    payload = build_payload(args.provider, allow_fallback=bool(args.allow_fallback))
+    payload = build_payload(
+        args.provider,
+        allow_fallback=bool(args.allow_fallback),
+        receipt_dir=Path(args.receipt_dir),
+    )
     path = write_payload(payload, Path(args.write_dir))
     print(path)
     return 0 if payload["verdict"] != "NOT_READY" else 1
