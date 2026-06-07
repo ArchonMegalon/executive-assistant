@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import html
+import io
 import json
 import hmac
 import logging
@@ -11,9 +12,11 @@ import math
 import mimetypes
 import os
 import re
+import struct
 import subprocess
 import tempfile
 import time
+import wave
 from datetime import datetime, timezone
 from functools import lru_cache
 from http.cookies import SimpleCookie
@@ -2250,16 +2253,12 @@ def _resolve_memorial_voice_chat_model(
 ) -> str:
     selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
     live_interaction = _is_memorial_live_interaction_question(question)
-    preferred = (
-        (GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat", "memorial-local-fast")
-        if live_interaction
-        else ("memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat")
-    )
+    if live_interaction:
+        return GEMINI_VORTEX_PUBLIC_MODEL
+    preferred = ("memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat")
     for candidate in preferred:
         if candidate in models:
             return candidate
-    if live_interaction:
-        return GEMINI_VORTEX_PUBLIC_MODEL
     return selected
 
 
@@ -5152,10 +5151,13 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
     now = time.time()
     completed_at = float(current.get("completed_at") or 0.0)
     inflight = bool(current.get("inflight"))
-    warm = bool(completed_at and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS)
+    errors = list(current.get("errors") or [])
+    warm = bool(completed_at and not errors and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS)
     status = "cold"
     if inflight:
         status = "warming"
+    elif completed_at and errors and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS:
+        status = "degraded_recent"
     elif warm:
         status = "warm_recent"
     return {
@@ -5164,7 +5166,7 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
         "inflight": inflight,
         "completed_at": completed_at or 0.0,
         "started_at": float(current.get("started_at") or 0.0),
-        "errors": list(current.get("errors") or []),
+        "errors": errors,
     }
 
 

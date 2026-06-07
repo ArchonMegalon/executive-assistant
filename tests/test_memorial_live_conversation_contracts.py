@@ -380,6 +380,18 @@ def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None
     assert selected == GEMINI_VORTEX_PUBLIC_MODEL
 
 
+def test_memorial_voice_chat_model_forces_gemini_for_live_interaction_even_when_catalog_prefers_coder() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_voice_chat_model(
+        {"chat_models": ["ea-coder-fast", "deepseek-chat"]},
+        {},
+        "Hallo Manfred, kannst du kurz direkt mit mir reden?",
+    )
+
+    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+
+
 def test_memorial_voice_chat_model_keeps_memorial_local_fast_as_default_non_live_choice() -> None:
     from app.api.routes import public_memorials
 
@@ -494,3 +506,37 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
         "errors": [],
         "ttl_seconds": 600,
     }
+
+
+def test_memorial_warmup_probe_wav_bytes_returns_valid_wav() -> None:
+    from app.api.routes import public_memorials
+
+    payload = public_memorials._memorial_warmup_probe_wav_bytes()
+
+    assert payload.startswith(b"RIFF")
+    assert b"WAVE" in payload[:16]
+
+
+def test_memorial_warmup_snapshot_marks_recent_errors_as_degraded(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    now = 1_234_567.0
+    monkeypatch.setattr(public_memorials.time, "time", lambda: now)
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_LIVE_WARMUP_STATE",
+        {
+            "manfred": {
+                "inflight": False,
+                "started_at": now - 12.0,
+                "completed_at": now - 4.0,
+                "errors": ["speech:failed"],
+            }
+        },
+    )
+
+    snapshot = public_memorials._memorial_live_warmup_snapshot("manfred")
+
+    assert snapshot["status"] == "degraded_recent"
+    assert snapshot["warm"] is False
+    assert snapshot["errors"] == ["speech:failed"]
