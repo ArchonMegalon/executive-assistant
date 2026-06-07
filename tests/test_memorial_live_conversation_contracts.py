@@ -206,6 +206,11 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
         "_pad_speech_audio_lead_in",
         lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
     )
+    monkeypatch.setattr(
+        public_memorials,
+        "_prefer_fast_tts_for_conversation_turn",
+        lambda warmup_slug: (False, ""),
+    )
     caplog.set_level(logging.INFO, logger=public_memorials.logger.name)
 
     client = _client(principal_id="exec-memorial-live-audio")
@@ -228,6 +233,8 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     decoded_audio = base64.b64decode(body["audio_base64"])
     assert decoded_audio.startswith(b"RIFF")
     assert body["audio_content_type"] == "audio/wav"
+    assert body["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
+    assert body["tts_fast_path"] is False
     assert seen_messages
     assert any(
         "memorial_timing event=conversation_turn" in record.getMessage()
@@ -292,6 +299,11 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
         "_pad_speech_audio_lead_in",
         lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
     )
+    monkeypatch.setattr(
+        public_memorials,
+        "_prefer_fast_tts_for_conversation_turn",
+        lambda warmup_slug: (False, ""),
+    )
 
     client = _client(principal_id="exec-memorial-live-gemini-turn")
     response = client.post(
@@ -305,6 +317,86 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
     assert seen_requested_models == [GEMINI_VORTEX_PUBLIC_MODEL]
     assert body["llm_request_model"] == GEMINI_VORTEX_PUBLIC_MODEL
     assert body["llm_fallback_used"] is False
+
+
+def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred, kann ich jetzt mit dir reden?")
+    output_audio = _generated_wav_bytes(textish_seed="Ja, ich bin da.")
+    piper_calls: list[dict[str, object]] = []
+    unmixr_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Hallo Manfred, kann ich jetzt mit dir reden?",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(text="Ja, ich bin da. Sprich einfach los.", provider_key="unit-test-model", model="unit-test-model"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_prefer_fast_tts_for_conversation_turn",
+        lambda warmup_slug: (True, "warmup_cold"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: piper_calls.append(kwargs) or (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: unmixr_calls.append(kwargs) or (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-fast-tts")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert piper_calls
+    assert not unmixr_calls
+    assert body["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
+    assert body["tts_fast_path"] is True
+    assert body["tts_fast_path_reason"] == "warmup_cold"
 
 
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
@@ -506,6 +598,21 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
         "errors": [],
         "ttl_seconds": 600,
     }
+
+
+def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_live_warmup_snapshot",
+        lambda warmup_slug: {"status": "warm_recent", "warm": True, "inflight": False, "errors": []},
+    )
+
+    prefer_fast_tts, reason = public_memorials._prefer_fast_tts_for_conversation_turn("manfred")
+
+    assert prefer_fast_tts is False
+    assert reason == ""
 
 
 def test_memorial_warmup_probe_wav_bytes_returns_valid_wav() -> None:

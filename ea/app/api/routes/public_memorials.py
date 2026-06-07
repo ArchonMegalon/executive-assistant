@@ -5300,6 +5300,18 @@ def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
     return {"status": "queued", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
 
 
+def _prefer_fast_tts_for_conversation_turn(slug: str) -> tuple[bool, str]:
+    snapshot = _memorial_live_warmup_snapshot(_safe_slug(slug))
+    status = _text(snapshot.get("status"), "cold")
+    if status in {"warm_recent"} and bool(snapshot.get("warm")):
+        return False, ""
+    if status == "warming":
+        return True, "warmup_inflight"
+    if status == "degraded_recent":
+        return True, "warmup_degraded"
+    return True, "warmup_cold"
+
+
 def _build_memorial_conversation_turn_payload(
     *,
     slug: str,
@@ -5406,6 +5418,8 @@ def _build_memorial_conversation_turn_payload(
     response_payload["transcript_text"] = transcript_text
     response_payload["audio_content_type"] = audio_content_type
     response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
+    response_payload["tts_plugin"] = selected_plugin
+    response_payload["tts_fast_path"] = bool(prefer_fast_tts)
     _remember_personal_conversation_turn(
         slug=slug,
         context=personal_memory_context or {},
@@ -5422,6 +5436,7 @@ def _build_memorial_conversation_turn_payload(
         effective_model=_text(answer_payload.get("llm_model")),
         fallback_used=bool(answer_payload.get("llm_fallback_used")),
         tts_plugin=selected_plugin,
+        tts_fast_path=bool(prefer_fast_tts),
         stt_ms=stt_ms,
         llm_ms=llm_ms,
         tts_ms=tts_ms,
@@ -9697,16 +9712,19 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
     try:
         _enforce_public_memorial_rate_limit("conversation_turn", request=request, context=personal_memory_context)
         voice_ab_variant = _voice_ab_variant_from_request(request=request)
+        prefer_fast_tts, prefer_fast_reason = _prefer_fast_tts_for_conversation_turn(slug)
         response_payload = _build_memorial_conversation_turn_payload(
             slug=slug,
             audio_payload=audio_payload,
             content_type=content_type,
-            prefer_fast_tts=False,
+            prefer_fast_tts=prefer_fast_tts,
             memory_runtime=memory_runtime,
             personal_memory_context=personal_memory_context,
             voice_ab_variant=voice_ab_variant,
             difficult_memory_mode=difficult_memory_mode,
         )
+        if prefer_fast_reason:
+            response_payload["tts_fast_path_reason"] = prefer_fast_reason
         response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
         return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
     except HTTPException as exc:
