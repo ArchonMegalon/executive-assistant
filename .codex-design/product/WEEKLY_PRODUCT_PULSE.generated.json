@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-06-06T05:56:17Z",
-  "as_of": "2026-06-06",
+  "generated_at": "2026-06-07T03:38:06Z",
+  "as_of": "2026-06-07",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
@@ -13,7 +13,7 @@
     "mtime_utc": "2026-06-05T16:10:46Z",
     "sha256": "e8ae132ec61b9035084682f11a7381ca1710b09ec85e392716fac42257fc625f",
     "git_repo_root": "/docker/EA",
-    "git_head": "cf46ef9b7e5db6e23738e3261493448d6d48de71",
+    "git_head": "d4f24b6ce83443b983df300ffdabc89388abd3e4",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -125,13 +125,13 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
-      "review_due": "2026-06-13T05:56:17Z",
+      "review_due": "2026-06-14T03:38:06Z",
       "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "9374a4a11b26dad8b7892da6d8c4ee43cb6438cd",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "cf46ef9b7e5db6e23738e3261493448d6d48de71",
+    "flagship_release_receipt_git_head": "d4f24b6ce83443b983df300ffdabc89388abd3e4",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
