@@ -14,10 +14,22 @@ from pathlib import Path
 
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/docker/fleet/state/browseract_ui_worker_outputs")).expanduser()
-SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
+
+
+def _resolve_worker_root(env_name: str, default_dir_name: str) -> Path:
+    explicit = str(os.environ.get(env_name) or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    onedrive_root = Path("/mnt/onedrive/Attachments")
+    if onedrive_root.exists():
+        return onedrive_root / default_dir_name
+    return Path(f"/docker/fleet/state/{default_dir_name}").expanduser()
+
+
+OUTPUT_ROOT = _resolve_worker_root("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "browseract_ui_worker_outputs")
+SHARED_TEMP_ROOT = _resolve_worker_root("EA_UI_SERVICE_SHARED_TEMP_ROOT", "browseract_ui_worker_shared")
 
 
 def _load_packet(path: str | None) -> dict[str, object]:
@@ -948,6 +960,13 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
         spec_path = temp_dir / "spec.json"
         script_path = temp_dir / "worker.js"
         result_path = temp_dir / "result.json"
+        container_work_dir = Path("/work")
+        container_packet_path = container_work_dir / "packet.json"
+        container_spec_path = container_work_dir / "spec.json"
+        container_script_path = container_work_dir / "worker.js"
+        container_result_path = container_work_dir / "result.json"
+        container_screenshot_dir = Path("/outputs")
+        container_screenshot_path = container_screenshot_dir / screenshot_path.name
         packet_path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
         spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
         script_path.write_text(_template_node_script(), encoding="utf-8")
@@ -956,46 +975,64 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
         run_args: list[str]
         env_pairs = [
             "-e",
-            f"TEMPLATE_PACKET_PATH={packet_path}",
+            f"TEMPLATE_PACKET_PATH={container_packet_path}",
             "-e",
-            f"TEMPLATE_SPEC_PATH={spec_path}",
+            f"TEMPLATE_SPEC_PATH={container_spec_path}",
             "-e",
-            f"TEMPLATE_RESULT_PATH={temp_dir / 'result.json'}",
+            f"TEMPLATE_RESULT_PATH={container_result_path}",
             "-e",
-            f"TEMPLATE_SCREENSHOT_PATH={screenshot_path}",
+            f"TEMPLATE_SCREENSHOT_PATH={container_screenshot_path}",
             "-e",
-            f"TEMPLATE_TRACE_DIR={screenshot_path.parent}",
+            f"TEMPLATE_TRACE_DIR={container_screenshot_dir}",
         ]
         container_name = f"ea-ui-worker-{uuid.uuid4().hex[:12]}"
         if auth_flow == "google_oauth" and google_headed:
             env_pairs += ["-e", "TEMPLATE_BROWSER_HEADLESS=false"]
-            run_args = ["bash", "-lc", f"xvfb-run -a node {script_path}"]
+            run_args = ["bash", "-lc", f"xvfb-run -a node {container_script_path}"]
         else:
-            run_args = ["node", str(script_path)]
+            run_args = ["node", str(container_script_path)]
         docker_network = str(os.getenv("EA_UI_SERVICE_DOCKER_NETWORK") or "").strip()
-        command = [
+        create_command = [
             "docker",
-            "run",
+            "create",
             "--name",
             container_name,
-            "--rm",
             "-i",
             "-w",
-            "/work",
-            "-v",
-            f"{temp_dir}:{temp_dir}",
-            "-v",
-            f"{screenshot_path.parent}:{screenshot_path.parent}",
+            str(container_work_dir),
             "-e",
             "NODE_PATH=/work/node_modules",
             *env_pairs,
         ]
         if docker_network:
-            command.extend(["--network", docker_network])
-        command.extend([PLAYWRIGHT_IMAGE, *run_args])
+            create_command.extend(["--network", docker_network])
+        create_command.extend([PLAYWRIGHT_IMAGE, *run_args])
+        created = False
         try:
+            created_process = subprocess.run(
+                create_command,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if created_process.returncode != 0:
+                raise RuntimeError(f"template_worker_create_failed:{str(created_process.stderr or created_process.stdout).strip()[:400]}")
+            created = True
+            for local_path, container_path in (
+                (packet_path, container_packet_path),
+                (spec_path, container_spec_path),
+                (script_path, container_script_path),
+            ):
+                copied = subprocess.run(
+                    ["docker", "cp", str(local_path), f"{container_name}:{container_path}"],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                if copied.returncode != 0:
+                    raise RuntimeError(f"template_worker_copy_failed:{str(copied.stderr or copied.stdout).strip()[:400]}")
             completed = subprocess.run(
-                command,
+                ["docker", "start", "-a", container_name],
                 text=True,
                 capture_output=True,
                 timeout=max(180, timeout_seconds + 60),
@@ -1004,6 +1041,21 @@ def _run_browser(packet: dict[str, object], *, spec: dict[str, object], screensh
         except subprocess.TimeoutExpired as exc:
             subprocess.run(["docker", "kill", container_name], text=True, capture_output=True, check=False)
             raise RuntimeError(f"template_worker_timeout:{container_name}") from exc
+        finally:
+            if created:
+                subprocess.run(
+                    ["docker", "cp", f"{container_name}:{container_result_path}", str(result_path)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                subprocess.run(
+                    ["docker", "cp", f"{container_name}:{container_screenshot_dir}/.", str(screenshot_path.parent)],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                subprocess.run(["docker", "rm", "-f", container_name], text=True, capture_output=True, check=False)
         raw = str(completed.stdout or "").strip()
         loaded: dict[str, object] | None = None
         if result_path.exists():
