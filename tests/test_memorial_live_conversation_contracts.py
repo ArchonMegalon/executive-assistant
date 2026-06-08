@@ -196,7 +196,8 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
         Path(str(tmp_path / "private")),
         slug,
         {
-            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
             "voice_consent": {
                 "status": "approved",
                 "scope": ["synthesize", "conversation_turn", "realtime"],
@@ -229,7 +230,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
     monkeypatch.setattr(
         public_memorials,
-        "piper_fast_synthesize_request",
+        "openvoice_synthesize_request_with_variant",
         lambda **kwargs: (output_audio, "audio/wav"),
     )
     monkeypatch.setattr(
@@ -267,13 +268,13 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     decoded_audio = base64.b64decode(body["audio_base64"])
     assert decoded_audio.startswith(b"RIFF")
     assert body["audio_content_type"] == "audio/wav"
-    assert body["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
+    assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is False
     assert any(
         "memorial_timing event=conversation_turn" in record.getMessage()
         and "requested_model=ea-gemini-flash" in record.getMessage()
         and "effective_model=memorial_guardrail" in record.getMessage()
-        and f"tts_plugin={public_memorials.PIPER_FAST_TTS_PLUGIN_ID}" in record.getMessage()
+        and f"tts_plugin={public_memorials.OPENVOICE_TTS_PLUGIN_ID}" in record.getMessage()
         for record in caplog.records
     )
 
@@ -289,7 +290,8 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
         Path(str(tmp_path / "private")),
         slug,
         {
-            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
             "voice_consent": {
                 "status": "approved",
                 "scope": ["synthesize", "conversation_turn", "realtime"],
@@ -322,7 +324,7 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
     monkeypatch.setattr(
         public_memorials,
-        "piper_fast_synthesize_request",
+        "openvoice_synthesize_request_with_variant",
         lambda **kwargs: (output_audio, "audio/wav"),
     )
     monkeypatch.setattr(
@@ -352,7 +354,7 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
     assert body["fallback_reason"] == "direct_contact_opening"
 
 
-def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
+def test_memorial_conversation_turn_keeps_configured_voice_even_while_warmup_is_cold(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -363,8 +365,8 @@ def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
         Path(str(tmp_path / "private")),
         slug,
         {
-            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "tts_plugin_voice_id": "voice-123",
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
             "voice_consent": {
                 "status": "approved",
                 "scope": ["synthesize", "conversation_turn", "realtime"],
@@ -378,8 +380,7 @@ def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
 
     input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred, kann ich jetzt mit dir reden?")
     output_audio = _generated_wav_bytes(textish_seed="Ja, ich bin da.")
-    piper_calls: list[dict[str, object]] = []
-    unmixr_calls: list[dict[str, object]] = []
+    openvoice_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         public_memorials,
@@ -408,13 +409,8 @@ def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
     )
     monkeypatch.setattr(
         public_memorials,
-        "piper_fast_synthesize_request",
-        lambda **kwargs: piper_calls.append(kwargs) or (output_audio, "audio/wav"),
-    )
-    monkeypatch.setattr(
-        public_memorials,
-        "unmixr_synthesize_request",
-        lambda **kwargs: unmixr_calls.append(kwargs) or (output_audio, "audio/wav"),
+        "openvoice_synthesize_request_with_variant",
+        lambda **kwargs: openvoice_calls.append(kwargs) or (output_audio, "audio/wav"),
     )
     monkeypatch.setattr(
         public_memorials,
@@ -431,12 +427,11 @@ def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
 
     assert response.status_code == 200
     body = response.json()
-    assert piper_calls
-    assert not unmixr_calls
-    assert body["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
-    assert body["tts_fast_path"] is True
-    assert body["tts_fast_path_reason"] == "warmup_cold"
-    assert scheduled == [slug]
+    assert openvoice_calls
+    assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
+    assert body["tts_fast_path"] is False
+    assert "tts_fast_path_reason" not in body
+    assert scheduled == []
 
 
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
@@ -592,85 +587,12 @@ def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
     assert "turn_complete" in message_types
 
 
-def test_memorial_realtime_text_turn_falls_back_to_piper_when_tts_times_out(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    slug = _setup_memorial(monkeypatch, tmp_path)
-    from app.api.routes import public_memorials
+def test_memorial_realtime_text_turn_does_not_fallback_to_piper_when_configured_tts_times_out() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
-    piper_audio = _generated_wav_bytes(textish_seed="Schneller Piper Fallback.")
-    _write_private_voice(
-        Path(str(tmp_path / "private")),
-        slug,
-        {
-            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "tts_plugin_voice_id": "voice-live-timeout",
-            "voice_consent": {
-                "status": "approved",
-                "scope": ["synthesize", "conversation_turn", "realtime"],
-                "authorized_by": "test-family",
-                "authorized_at": "2026-06-06T08:00:00Z",
-                "source_assets_reviewed": True,
-                "revoked": False,
-            },
-        },
-    )
-
-    monkeypatch.setattr(public_memorials, "_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(
-        public_memorials,
-        "_memorial_chat_answer",
-        lambda *args, **kwargs: {
-            "answer": "Ich bin da und antworte sofort.",
-            "sources": [],
-            "llm_model": "unit-test-model",
-            "llm_provider": "unit-test-model",
-            "llm_request_model": "unit-test-model",
-            "llm_fallback_used": False,
-        },
-    )
-
-    def _slow_unmixr(**kwargs):
-        time.sleep(0.05)
-        return (_generated_wav_bytes(textish_seed="Langsame Unmixr Stimme."), "audio/wav")
-
-    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _slow_unmixr)
-    monkeypatch.setattr(
-        public_memorials,
-        "piper_fast_synthesize_request",
-        lambda **kwargs: (piper_audio, "audio/wav"),
-    )
-    monkeypatch.setattr(
-        public_memorials,
-        "_pad_speech_audio_lead_in",
-        lambda *, payload, content_type, silence_ms, extra_filters: (payload, content_type),
-    )
-
-    client = _client(principal_id="exec-memorial-live-realtime-tts-timeout")
-
-    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
-        ready = websocket.receive_json()
-        assert ready["type"] == "ready"
-        websocket.send_json(
-            {
-                "type": "user_text_turn",
-                "turn_id": "turn_tts_timeout_1",
-                "text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
-                "personal_memory_enabled": False,
-            }
-        )
-        messages = []
-        for _ in range(10):
-            message = websocket.receive_json()
-            messages.append(message)
-            if message.get("type") == "turn_complete":
-                break
-
-    message_types = [message.get("type") for message in messages]
-    assert "answer" in message_types
-    assert "audio_complete" in message_types
-    assert "turn_complete" in message_types
+    assert 'raise HTTPException(status_code=504, detail="tts_timeout")' in source
+    assert 'raise HTTPException(status_code=502, detail="tts_plugin_failed")' in source
+    assert "Realtime conversation optimizes for immediate audible response over premium voice quality." not in source
 
 
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
@@ -857,8 +779,8 @@ def test_memorial_browser_playback_guardrails_are_shipped() -> None:
     assert "audio_never_started" in source
     assert "audio_ended_too_soon" in source
     assert "/memorials/{html.escape(slug)}/playback-telemetry" in source
-    assert 'browser_speech_synthesis' in source
-    assert "Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme." in source
+    assert "Manfreds Stimme konnte gerade nicht sauber starten." in source
+    assert "Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme." not in source
 
 
 def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
@@ -881,11 +803,11 @@ def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcript
     assert "if (!looksDirected && !(conversationIdleMisses >= 1 && normalized.length >= 8 && words.length >= 2)) return false;" in source
 
 
-def test_memorial_live_page_source_uses_browser_voice_when_realtime_server_audio_is_missing() -> None:
+def test_memorial_live_page_source_does_not_fallback_to_browser_voice_when_realtime_server_audio_is_missing() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
-    assert 'browserSpeechFallbackConfig("Browser Fallback")' in source
-    assert 'void speakText(' in source
+    assert 'browserSpeechFallbackConfig("Browser Fallback")' not in source
+    assert "Manfreds Stimme konnte gerade nicht sauber starten." in source
     assert '}} else if (conversationActive) {{' in source
 
 

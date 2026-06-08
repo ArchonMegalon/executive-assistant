@@ -5381,15 +5381,8 @@ def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
 
 
 def _prefer_fast_tts_for_conversation_turn(slug: str) -> tuple[bool, str]:
-    snapshot = _memorial_live_warmup_snapshot(_safe_slug(slug))
-    status = _text(snapshot.get("status"), "cold")
-    if status in {"warm_recent"} and bool(snapshot.get("warm")):
-        return False, ""
-    if status == "warming":
-        return True, "warmup_inflight"
-    if status == "degraded_recent":
-        return True, "warmup_degraded"
-    return True, "warmup_cold"
+    # Live memorial conversations should keep a single consistent speaker identity.
+    return False, ""
 
 
 def _build_memorial_conversation_turn_payload(
@@ -5433,9 +5426,6 @@ def _build_memorial_conversation_turn_payload(
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
     )
-    if prefer_fast_tts:
-        merged_config["tts_plugin"] = PIPER_FAST_TTS_PLUGIN_ID
-        merged_config["tts_base_voice_variant"] = "high"
     selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
     answer_payload["answer"] = compact_answer
@@ -5484,12 +5474,8 @@ def _build_memorial_conversation_turn_payload(
     else:
         raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
     tts_ms = (time.perf_counter() - tts_started) * 1000.0
-    if prefer_fast_tts:
-        lead_in_ms = _MEMORIAL_FAST_TTS_LEAD_IN_MS
-        tail_silence_ms = _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS
-    else:
-        lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
-        tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
+    lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+    tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
     pad_started = time.perf_counter()
     audio, audio_content_type = _pad_speech_audio_lead_in(
         payload=audio,
@@ -5503,8 +5489,9 @@ def _build_memorial_conversation_turn_payload(
     response_payload["transcript_text"] = transcript_text
     response_payload["audio_content_type"] = audio_content_type
     response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
+    actual_fast_path = bool(prefer_fast_tts and selected_plugin == PIPER_FAST_TTS_PLUGIN_ID)
     response_payload["tts_plugin"] = selected_plugin
-    response_payload["tts_fast_path"] = bool(prefer_fast_tts)
+    response_payload["tts_fast_path"] = actual_fast_path
     _remember_personal_conversation_turn(
         slug=slug,
         context=personal_memory_context or {},
@@ -5521,7 +5508,7 @@ def _build_memorial_conversation_turn_payload(
         effective_model=_text(answer_payload.get("llm_model")),
         fallback_used=bool(answer_payload.get("llm_fallback_used")),
         tts_plugin=selected_plugin,
-        tts_fast_path=bool(prefer_fast_tts),
+        tts_fast_path=actual_fast_path,
         stt_ms=stt_ms,
         llm_ms=llm_ms,
         tts_ms=tts_ms,
@@ -8896,14 +8883,14 @@ def _memorial_html(
           }}
           return true;
         }};
-        const fallbackToBrowser = (reason, detail = "") => {{
+        const failPlayback = (reason, detail = "") => {{
           if (!finish("fallback", detail)) return;
           reportPlaybackTelemetry("fallback", {{
             context: contextLabel,
             reason,
             detail,
             plugin: safePluginId,
-            fallback_plugin: "browser_speech_synthesis",
+            fallback_plugin: "",
             playback_started: playbackStarted,
             elapsed_ms: Date.now() - startedAt,
             expected_ms: metadataDurationMs || expectedMinMs,
@@ -8911,12 +8898,7 @@ def _memorial_html(
             text: normalizedText,
           }});
           stopSpeechPlayback();
-          if (fallbackConfig && String(fallbackConfig.tts_plugin || "") !== "browser_speech_synthesis") {{
-            setSpeechStatus("Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme.", "working", "Ich bleibe bei dir");
-            void speakText(normalizedText, onDone, browserSpeechFallbackConfig("Browser Fallback"), "");
-            return;
-          }}
-          setSpeechStatus("Sprachausgabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
+          setSpeechStatus("Manfreds Stimme konnte gerade nicht sauber starten.", "error", "Bitte noch einmal versuchen");
           if (onDone) onDone();
         }};
         speechObjectUrl = URL.createObjectURL(blob);
@@ -8953,7 +8935,7 @@ def _memorial_html(
           const elapsedMs = Date.now() - startedAt;
           const minimumAudibleMs = Math.max(1500, Math.min(7000, (metadataDurationMs || expectedMinMs) * 0.45));
           if (!playbackStarted || elapsedMs < minimumAudibleMs) {{
-            fallbackToBrowser("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
+            failPlayback("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
             return;
           }}
           stopSpeechPlayback();
@@ -8962,18 +8944,18 @@ def _memorial_html(
           if (onDone) onDone();
         }};
         speechAudio.onerror = () => {{
-          fallbackToBrowser("audio_error", "media_error");
+          failPlayback("audio_error", "media_error");
         }};
         speechPlaybackWatchdogTimer = setTimeout(() => {{
           if (playbackStarted || playbackSettled) return;
-          fallbackToBrowser("audio_never_started", "watchdog_timeout");
+          failPlayback("audio_never_started", "watchdog_timeout");
         }}, 2200);
         setSpeakingOverlayPreview(normalizedText);
         setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
         try {{
           await speechAudio.play();
         }} catch (error) {{
-          fallbackToBrowser("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
+          failPlayback("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
         }}
       }}
       async function askMemorialChat(value, options = {{}}) {{
@@ -9592,7 +9574,7 @@ def _memorial_html(
               "realtime_turn",
               "Realtime Audio",
               "realtime_stream",
-              browserSpeechFallbackConfig("Browser Fallback"),
+              null,
             );
           }} else if (conversationActive) {{
             void speakText(
@@ -9603,7 +9585,7 @@ def _memorial_html(
                 setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
                 setTimeout(recordConversationTurn, 1200);
               }},
-              browserSpeechFallbackConfig("Browser Fallback"),
+              null,
               "",
             );
           }}
@@ -10567,10 +10549,6 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
             voice_ab_variant=voice_ab_variant,
             difficult_memory_mode=difficult_memory_mode,
         )
-        if prefer_fast_tts:
-            _schedule_memorial_live_warmup(slug)
-        if prefer_fast_reason:
-            response_payload["tts_fast_path_reason"] = prefer_fast_reason
         response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
         return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
     except HTTPException as exc:
@@ -10726,17 +10704,6 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 voice_profile_ready=bool(base_config.get("voice_profile_ready")),
             )
             selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
-            # Realtime conversation optimizes for immediate audible response over premium voice quality.
-            piper_option = next(
-                (
-                    option for option in tts_options
-                    if str(option.get("tts_plugin") or "") == PIPER_FAST_TTS_PLUGIN_ID
-                    and bool(option.get("tts_plugin_enabled"))
-                ),
-                None,
-            )
-            if piper_option is not None:
-                selected_plugin, selected_option = PIPER_FAST_TTS_PLUGIN_ID, piper_option
             if not bool(selected_option.get("tts_plugin_enabled")):
                 raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
             answer_text = _normalize_tts_text(compact_answer)
@@ -10794,25 +10761,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 else:
                     raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
             except asyncio.TimeoutError:
-                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-                    raise HTTPException(status_code=504, detail="tts_timeout")
-                tts_plugin_used = PIPER_FAST_TTS_PLUGIN_ID
-                audio, audio_content_type = await asyncio.to_thread(
-                    piper_fast_synthesize_request,
-                    text=answer_text,
-                    lang=_text(merged_config.get("lang"), "de-AT"),
-                    base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-                )
+                raise HTTPException(status_code=504, detail="tts_timeout")
             except Exception:
-                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-                    raise
-                tts_plugin_used = PIPER_FAST_TTS_PLUGIN_ID
-                audio, audio_content_type = await asyncio.to_thread(
-                    piper_fast_synthesize_request,
-                    text=answer_text,
-                    lang=_text(merged_config.get("lang"), "de-AT"),
-                    base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-                )
+                raise HTTPException(status_code=502, detail="tts_plugin_failed")
             tts_ms = (time.perf_counter() - tts_started) * 1000.0
             lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
             pad_started = time.perf_counter()
