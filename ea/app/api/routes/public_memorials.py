@@ -8951,7 +8951,10 @@ def _memorial_html(
         const normalized = normalizeTranscriptText(transcript || "");
         if (!normalized) return false;
         const words = normalized.split(/\\s+/).filter(Boolean);
+        const isFirstConversationTurn = conversationTurnCount <= 0;
         if (looksImmediateLivePrompt(normalized)) return true;
+        if (isFirstConversationTurn && normalized.length >= 8 && words.length >= 2) return true;
+        if (conversationIdleMisses >= 1 && normalized.length >= 10 && words.length >= 2) return true;
         if (normalized.length < 12 || words.length < 3) return false;
         if (lastAnswerText && conversationEchoScore(normalized, lastAnswerText) >= 0.72) return false;
         const lowered = normalizeConversationCompareText(normalized);
