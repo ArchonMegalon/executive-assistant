@@ -3513,6 +3513,9 @@ def _is_memorial_contact_question(question: str) -> bool:
         for token in (
             "kann ich jetzt mit dir reden",
             "kann ich mit dir reden",
+            "kannst du jetzt mit mir sprechen",
+            "kannst du mit mir sprechen",
+            "kannst du jetzt mit mir reden",
             "rede ich mit dir",
             "sprichst du mit mir",
             "bist du da",
@@ -7998,6 +8001,9 @@ def _memorial_html(
         const normalizedDetail = String(detail || "").trim();
         const now = Date.now();
         const chatterState = state === "listening" || state === "working" || state === "thinking" || state === "transcribing";
+        const silentProgressState = state === "working" || state === "thinking" || state === "transcribing";
+        const visibleMessage = silentProgressState ? "" : normalizedMessage;
+        const visibleDetail = silentProgressState ? "" : normalizedDetail;
         if (
           normalizedMessage === speechStatusLastMessage &&
           normalizedDetail === speechStatusLastDetail &&
@@ -8029,7 +8035,7 @@ def _memorial_html(
           if (state === "error") speechNote.classList.add("is-error");
           const nodes = Array.from(speechNote.childNodes);
           const textNode = nodes.find((node) => node.nodeType === Node.TEXT_NODE);
-          if (textNode) textNode.textContent = normalizedMessage + " ";
+          if (textNode) textNode.textContent = visibleMessage ? (visibleMessage + " ") : "";
         }}
         if (speechMonitor) {{
           speechMonitor.classList.remove("is-idle", "is-listening", "is-working", "is-speaking", "is-error");
@@ -8062,19 +8068,19 @@ def _memorial_html(
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
           listening: "Ich hoere dir zu",
-          transcribing: "Einen Moment",
-          thinking: "Einen Moment",
+          transcribing: "",
+          thinking: "",
           speaking: "Ich spreche",
-          working: "Einen Moment",
+          working: "",
           error: "Ich bin noch da"
         }})[state] || "Bereit";
-        if (speechDetail) speechDetail.textContent = normalizedDetail || ({{
+        if (speechDetail) speechDetail.textContent = visibleDetail || ({{
           idle: "Sprich mit mir",
           listening: "Ich bin ganz bei dir",
-          transcribing: "Ich bleibe bei deinen Worten",
-          thinking: "Ich finde gerade die richtigen Worte",
+          transcribing: "",
+          thinking: "",
           speaking: "Tippe, wenn du mich unterbrechen willst",
-          working: "Bitte kurz warten",
+          working: "",
           error: "Bitte sprich noch einmal"
         }})[state] || "";
         if (!speechMeterLive) {{

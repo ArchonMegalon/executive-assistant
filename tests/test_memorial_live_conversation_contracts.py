@@ -169,7 +169,7 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     client = _client(principal_id="exec-memorial-contact-opening")
 
     started = time.perf_counter()
-    response = client.post(f"/memorials/{slug}/chat", json={"question": "Hallo Manfred, kann ich jetzt mit dir reden?"})
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Hallo Manfred, kannst du jetzt mit mir sprechen?"})
     elapsed = time.perf_counter() - started
 
     assert response.status_code == 200
