@@ -88,3 +88,33 @@ def test_create_video_meeting_session_uses_tavus_when_live_ready(monkeypatch) ->
     assert payload["provider_key"] == "tavus"
     assert payload["next_action"] == "join_provider_session"
     assert payload["provider_session"]["conversation_url"] == "https://tavus.daily.co/c123"
+
+
+def test_sanitize_provider_callback_strips_tavus_payload_to_summary() -> None:
+    payload = memorial_video_meeting.sanitize_provider_callback(
+        "tavus",
+        {
+            "event_type": "conversation.updated",
+            "conversation_id": "conv-123",
+            "status": "ended",
+            "meeting_token": "secret",
+            "created_at": "2026-06-08T12:00:00Z",
+            "updated_at": "2026-06-08T12:03:00Z",
+            "ended_at": "2026-06-08T12:04:00Z",
+            "persona_id": "persona-123",
+            "replica_id": "replica-123",
+            "participant_count": 2,
+        },
+    )
+    assert payload == {
+        "provider_key": "tavus",
+        "event_type": "conversation.updated",
+        "conversation_id": "conv-123",
+        "status": "ended",
+        "created_at": "2026-06-08T12:00:00Z",
+        "updated_at": "2026-06-08T12:03:00Z",
+        "ended_at": "2026-06-08T12:04:00Z",
+        "persona_id": "persona-123",
+        "replica_id": "replica-123",
+        "participant_count": 2,
+    }

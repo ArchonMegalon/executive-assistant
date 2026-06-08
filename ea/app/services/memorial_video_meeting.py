@@ -96,6 +96,34 @@ def _tavus_callback_url(request_host: str, slug: str) -> str:
     return ""
 
 
+def sanitize_provider_callback(provider_key: str, payload: object) -> dict[str, object]:
+    normalized_provider = str(provider_key or "").strip().lower()
+    body = payload if isinstance(payload, dict) else {}
+    if normalized_provider == "tavus":
+        event_type = str(body.get("event_type") or body.get("type") or "").strip()
+        conversation_id = str(body.get("conversation_id") or body.get("conversationId") or "").strip()
+        status = str(body.get("status") or body.get("conversation_status") or "").strip()
+        summary = {
+            "provider_key": "tavus",
+            "event_type": event_type,
+            "conversation_id": conversation_id,
+            "status": status,
+            "created_at": str(body.get("created_at") or "").strip(),
+            "updated_at": str(body.get("updated_at") or "").strip(),
+            "ended_at": str(body.get("ended_at") or body.get("completed_at") or "").strip(),
+            "persona_id": str(body.get("persona_id") or "").strip(),
+            "replica_id": str(body.get("replica_id") or "").strip(),
+        }
+        if isinstance(body.get("participant_count"), int):
+            summary["participant_count"] = int(body.get("participant_count"))
+        return summary
+    return {
+        "provider_key": normalized_provider,
+        "event_type": str(body.get("event_type") or body.get("type") or "").strip() if isinstance(body, dict) else "",
+        "status": str(body.get("status") or "").strip() if isinstance(body, dict) else "",
+    }
+
+
 def create_video_meeting_session(
     *,
     slug: str,

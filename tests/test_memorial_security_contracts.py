@@ -46,6 +46,7 @@ def _patch_memorial_runtime_roots(tmp_path: Path) -> None:
     artifacts_root = tmp_path / "artifacts"
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
+    public_memorials._VIDEO_MEETING_RUNTIME_ROOT = artifacts_root / "memorial_video_meeting"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = tmp_path / "public_registry"
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
@@ -456,6 +457,60 @@ def test_public_memorial_video_meeting_session_creates_tavus_session(
     assert seen["headers"]["x-api-key"] == "test-key"
     assert seen["json"]["persona_id"] == "persona-123"
     assert seen["json"]["replica_id"] == "replica-123"
+
+
+def test_public_memorial_video_meeting_provider_callback_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-video-meeting-provider-callback")
+    response = client.post(
+        f"/memorials/{slug}/video-meeting/provider-callback",
+        json={
+            "event_type": "conversation.updated",
+            "conversation_id": "conv-123",
+            "status": "ended",
+            "meeting_token": "must-not-leak",
+            "created_at": "2026-06-08T12:00:00Z",
+            "updated_at": "2026-06-08T12:03:00Z",
+            "ended_at": "2026-06-08T12:04:00Z",
+            "persona_id": "persona-123",
+            "replica_id": "replica-123",
+            "participant_count": 2,
+        },
+    )
+    assert response.status_code == 202
+    assert response.json() == {
+        "slug": slug,
+        "status": "accepted",
+        "provider_key": "tavus",
+    }
+
+    callback_path = tmp_path / "artifacts" / "memorial_video_meeting" / slug / "provider_callback.latest.json"
+    stored = json.loads(callback_path.read_text(encoding="utf-8"))
+    assert stored["slug"] == slug
+    assert stored["provider_key"] == "tavus"
+    assert stored["event"] == {
+        "provider_key": "tavus",
+        "event_type": "conversation.updated",
+        "conversation_id": "conv-123",
+        "status": "ended",
+        "created_at": "2026-06-08T12:00:00Z",
+        "updated_at": "2026-06-08T12:03:00Z",
+        "ended_at": "2026-06-08T12:04:00Z",
+        "persona_id": "persona-123",
+        "replica_id": "replica-123",
+        "participant_count": 2,
+    }
+    assert "meeting_token" not in stored["event"]
 
 
 def test_public_memorial_json_includes_public_archive_registry_only(

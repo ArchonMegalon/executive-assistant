@@ -62,7 +62,11 @@ from app.services.memorial_memory import (
 )
 from app.services.memorial_archive_registry import archive_slug_root, load_json as load_archive_json
 from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
-from app.services.memorial_video_meeting import create_video_meeting_session, public_video_meeting_payload
+from app.services.memorial_video_meeting import (
+    create_video_meeting_session,
+    public_video_meeting_payload,
+    sanitize_provider_callback,
+)
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
 
@@ -87,6 +91,7 @@ _TTS_MAX_TEXT_LEN = 3000
 _PERSONAL_MEMORY_ROOT = Path("/data/artifacts/memorial_user_memory")
 _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
+_VIDEO_MEETING_RUNTIME_ROOT = Path("/data/artifacts/memorial_video_meeting")
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
 _MEMORIAL_PWA_VERSION = "20260606b"
@@ -2652,6 +2657,11 @@ def _load_voice_config(slug: str) -> dict[str, object]:
 def _voice_config_path(slug: str) -> Path:
     safe = _safe_slug(slug)
     return (_private_profile_dir() / safe / "tts_voice.json").resolve()
+
+
+def _video_meeting_callback_path(slug: str) -> Path:
+    safe = _safe_slug(slug)
+    return (_VIDEO_MEETING_RUNTIME_ROOT / safe / "provider_callback.latest.json").resolve()
 
 
 def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
@@ -10228,6 +10238,36 @@ async def public_memorial_video_meeting_session(slug: str, request: Request) -> 
     integration_state = _text(response_payload.get("integration_state"), "fallback_only")
     status_code = 202 if integration_state == "provider_configured_contract_only" else 200
     return JSONResponse(response_payload, headers={"Cache-Control": "no-store"}, status_code=status_code)
+
+
+@router.post("/memorials/{slug}/video-meeting/provider-callback")
+async def public_memorial_video_meeting_provider_callback(slug: str, request: Request) -> JSONResponse:
+    payload = _load_memorial(slug)
+    safe_slug = _safe_slug(slug)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    provider_key = _text(os.getenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER"), "").lower()
+    callback_payload = {
+        "slug": safe_slug,
+        "person_name": _text(payload.get("person_name"), "Manfred"),
+        "provider_key": provider_key,
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "event": sanitize_provider_callback(provider_key, body),
+    }
+    _write_json_atomic(_video_meeting_callback_path(safe_slug), callback_payload)
+    return JSONResponse(
+        {
+            "slug": safe_slug,
+            "status": "accepted",
+            "provider_key": provider_key,
+        },
+        headers={"Cache-Control": "no-store"},
+        status_code=202,
+    )
 
 
 @router.post("/memorials/{slug}/playback-telemetry")
