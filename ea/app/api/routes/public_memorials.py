@@ -7422,49 +7422,6 @@ def _memorial_html(
           </div>
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
-        <section class="video-call-preview" id="memorial-video-call-preview" hidden aria-live="polite">
-          <div class="video-call-preview-head">
-            <div class="video-call-preview-copy">
-              <strong>Video Call mit {person_name_html}</strong>
-              <span>Prelive-Vorschau. Kamera ist optional. {video_call_avatar_provider_html}.</span>
-            </div>
-            <div class="video-call-preview-actions">
-              <button type="button" id="memorial-video-call-continue-no-camera">Ohne Kamera fortfahren</button>
-              <button type="button" id="memorial-video-call-close">Schließen</button>
-            </div>
-          </div>
-          <div class="video-call-grid">
-            <div class="video-call-tile">
-              <span class="video-call-label">Du</span>
-              <video id="memorial-video-call-self" autoplay muted playsinline></video>
-            </div>
-            <div class="video-call-tile">
-              <span class="video-call-label">{person_label_html}</span>
-              <div class="video-call-avatar-stage" id="memorial-video-call-avatar-stage" data-avatar-state="idle">
-                <div class="video-call-avatar-card">
-                  <div class="video-call-avatar-ring">
-                    <div class="video-call-avatar-face{' has-portrait' if not video_call_avatar_enabled else ''}" id="memorial-video-call-avatar-face">
-                      {f'<video id="memorial-video-call-avatar-video" autoplay loop muted playsinline preload="auto" src="{video_call_avatar_asset_url}" poster="{video_call_avatar_poster_url}"></video>' if video_call_avatar_enabled else f'<img src="{memorial_avatar_url}" alt="{person_name_html}">'}
-                      <span>{person_initials_html}</span>
-                    </div>
-                  </div>
-                  <div class="video-call-avatar-wave" aria-hidden="true">
-                    <span class="video-call-avatar-bar"></span>
-                    <span class="video-call-avatar-bar"></span>
-                    <span class="video-call-avatar-bar"></span>
-                    <span class="video-call-avatar-bar"></span>
-                    <span class="video-call-avatar-bar"></span>
-                  </div>
-                  <div class="video-call-avatar-copy">
-                    <strong id="memorial-video-call-avatar-title">{video_call_avatar_title_html}</strong>
-                    <span id="memorial-video-call-avatar-detail">{video_call_avatar_detail_html}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <p class="video-call-status" id="memorial-video-call-status">Noch nicht aktiv.</p>
-        </section>
         <div class="minimal-hidden" hidden aria-hidden="true">
           <form class="chat-form" id="memorial-chat-form">
             <select id="memorial-chat-model" class="voice-input chat-model-select" hidden>
@@ -7518,7 +7475,6 @@ def _memorial_html(
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
       const heroActions = document.getElementById("memorial-hero-actions");
-      const videoCallButton = document.getElementById("memorial-video-call");
       const retryButton = document.getElementById("memorial-retry-button");
       const autostartOptin = document.getElementById("memorial-autostart-optin");
       const personalMemoryOptin = document.getElementById("memorial-personal-memory-optin");
@@ -7568,17 +7524,6 @@ def _memorial_html(
       const speakingOverlayTitle = document.getElementById("memorial-speaking-overlay-title");
       const speakingOverlayDetail = document.getElementById("memorial-speaking-overlay-detail");
       const speechTranscript = document.getElementById("memorial-speech-transcript");
-      const videoCallPreview = document.getElementById("memorial-video-call-preview");
-      const videoCallCloseButton = document.getElementById("memorial-video-call-close");
-      const videoCallContinueNoCameraButton = document.getElementById("memorial-video-call-continue-no-camera");
-      const videoCallStatus = document.getElementById("memorial-video-call-status");
-      const videoCallSelf = document.getElementById("memorial-video-call-self");
-      const videoCallAvatarStage = document.getElementById("memorial-video-call-avatar-stage");
-      const videoCallAvatarVideo = document.getElementById("memorial-video-call-avatar-video");
-      const videoCallAvatarTitle = document.getElementById("memorial-video-call-avatar-title");
-      const videoCallAvatarDetail = document.getElementById("memorial-video-call-avatar-detail");
-      const videoMeetingSessionEndpoint = "/memorials/{html.escape(slug)}/video-meeting/session";
-      const videoMeetingStatusEndpoint = "/memorials/{html.escape(slug)}/video-meeting/status";
       let lastAnswerText = "";
       let activeRecognition = null;
       let activeRecorder = null;
@@ -7586,7 +7531,6 @@ def _memorial_html(
       let conversationActive = false;
       let activeStream = null;
       let activeAudioContext = null;
-      let activeVideoStream = null;
       let activeSilenceTimer = null;
       let activeMaxTimer = null;
       let activeLevelMonitor = null;
@@ -7617,7 +7561,6 @@ def _memorial_html(
       let activeRealtimeTurnId = "";
       let realtimeTurnFallbackTimer = null;
       let memorialWarmupPromise = null;
-      let videoMeetingBootstrap = null;
       let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
       let memorialVoiceConfig = {{
@@ -7965,23 +7908,7 @@ def _memorial_html(
           button.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
         }}
         if (heroActions) heroActions.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
-        if (videoCallButton) {{
-          videoCallButton.disabled = !memorialLandingReady;
-          videoCallButton.setAttribute("aria-disabled", memorialLandingReady ? "false" : "true");
-          videoCallButton.classList.toggle("is-readying", !memorialLandingReady);
-        }}
         if (pushToTalkButton) pushToTalkButton.textContent = label;
-      }}
-      function setVideoCallStatus(message) {{
-        if (videoCallStatus) videoCallStatus.textContent = String(message || "").trim() || "Noch nicht aktiv.";
-      }}
-      function syncVideoCallAvatarPlayback() {{
-        if (!videoCallAvatarVideo) return;
-        try {{
-          videoCallAvatarVideo.currentTime = 0;
-          const playResult = videoCallAvatarVideo.play();
-          if (playResult && typeof playResult.catch === "function") playResult.catch(() => null);
-        }} catch (error) {{}}
       }}
       function memorialJsError(message, code = "", extras = {{}}) {{
         const error = new Error(String(message || "request_failed"));
@@ -8001,63 +7928,6 @@ def _memorial_html(
       function shouldKeepConversationListening(error) {{
         const code = String(error && error.code || "").trim().toLowerCase();
         return code === "rate_limited" || code === "server_stt_cooldown" || code === "no_speech";
-      }}
-      async function ensureConversationStartedForVideoCall() {{
-        if (conversationActive) return;
-        try {{
-          await window.__memorialStartConversation();
-        }} catch (error) {{}}
-      }}
-      function setVideoCallAvatarState(state, detail = "") {{
-        const normalized = String(state || "idle").trim().toLowerCase() || "idle";
-        if (videoCallAvatarStage) {{
-          videoCallAvatarStage.classList.remove("is-idle", "is-listening", "is-working", "is-speaking");
-          videoCallAvatarStage.classList.add("is-" + normalized);
-          videoCallAvatarStage.setAttribute("data-avatar-state", normalized);
-        }}
-        if (videoCallAvatarTitle) {{
-          videoCallAvatarTitle.textContent = normalized === "speaking"
-            ? (memorialPersonLabel + " spricht")
-            : (normalized === "listening"
-              ? (memorialPersonLabel + " hört zu")
-              : (normalized === "working"
-                ? (memorialPersonLabel + " richtet sich ein")
-                : memorialPersonName));
-        }}
-        if (videoCallAvatarDetail) {{
-          videoCallAvatarDetail.textContent = detail || (
-            normalized === "speaking"
-              ? "Antwort läuft über Stimme und Avatar-Bühne."
-              : (normalized === "listening"
-                ? "Er wartet auf deinen nächsten Satz."
-                : (normalized === "working"
-                  ? "Video-Lane und Gespräch werden vorbereitet."
-                  : "Wartet auf den Video Call."))
-          );
-        }}
-      }}
-      function stopVideoCallPreview() {{
-        if (activeVideoStream) {{
-          activeVideoStream.getTracks().forEach((track) => track.stop());
-          activeVideoStream = null;
-        }}
-        if (videoCallSelf) {{
-          try {{ videoCallSelf.pause(); }} catch (error) {{}}
-          videoCallSelf.srcObject = null;
-        }}
-        if (videoCallPreview) videoCallPreview.hidden = true;
-        setVideoCallAvatarState("idle", "Wartet auf den Video Call.");
-        setVideoCallStatus("Video Call beendet.");
-      }}
-      async function continueVideoCallWithoutCamera() {{
-        if (videoCallPreview) videoCallPreview.hidden = false;
-        setVideoCallAvatarState("working", "Manfred startet auch ohne Kamera im Video Call.");
-        setVideoCallStatus("Kamera ist optional. Manfred bleibt im Video Call ueber Stimme und Avatar.");
-        await ensureConversationStartedForVideoCall();
-        setVideoCallAvatarState("listening", "Manfred ist ohne Kamera im Video Call bereit.");
-        if (speechState === "idle") {{
-          setSpeechStatus("Video Call ist bereit, auch ohne Kamera.", "listening", "Sprich mit mir");
-        }}
       }}
       function setMemorialLandingReady(ready, detail = "") {{
         memorialLandingReady = Boolean(ready);
@@ -8215,16 +8085,6 @@ def _memorial_html(
             speechMeterFill.style.opacity = state === "error" ? ".42" : ".78";
           }}
         }}
-        if (!videoCallPreview || videoCallPreview.hidden) return;
-        if (state === "speaking") {{
-          setVideoCallAvatarState("speaking", detail || "Manfred antwortet gerade.");
-        }} else if (state === "listening") {{
-          setVideoCallAvatarState("listening", detail || "Manfred hört auf deinen nächsten Satz.");
-        }} else if (state === "thinking" || state === "transcribing" || state === "working") {{
-          setVideoCallAvatarState("working", detail || "Manfred bereitet die Antwort vor.");
-        }} else {{
-          setVideoCallAvatarState("idle", detail || "Manfred wartet im Video Call.");
-        }}
       }}
       function setSpeechMeterLevel(level) {{
         if (!speechMeterFill) return;
@@ -8312,54 +8172,6 @@ def _memorial_html(
         }}).catch(() => null);
         return memorialWarmupPromise;
       }}
-      async function fetchVideoMeetingBootstrap(cameraRequested = false) {{
-        try {{
-          const response = await fetchWithTimeout(videoMeetingSessionEndpoint, {{
-            method: "POST",
-            headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify({{
-              camera_requested: Boolean(cameraRequested),
-              personal_memory_enabled: personalMemoryEnabled()
-            }}),
-          }}, 20000);
-          if (!response.ok) throw new Error("video_meeting_session_failed");
-          videoMeetingBootstrap = await response.json();
-        }} catch (error) {{
-          videoMeetingBootstrap = {{
-            integration_state: "fallback_only",
-            provider_key: "",
-            provider_label: "",
-            fallback_mode: "portrait_voice",
-            detail: "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme.",
-            next_action: "fallback_to_portrait_voice",
-          }};
-        }}
-        return videoMeetingBootstrap;
-      }}
-      function providerSessionJoinUrl(bootstrap) {{
-        const providerSession = bootstrap && typeof bootstrap.provider_session === "object" ? bootstrap.provider_session : null;
-        const conversationUrl = providerSession && typeof providerSession.conversation_url === "string"
-          ? providerSession.conversation_url.trim()
-          : "";
-        return conversationUrl;
-      }}
-      function tryOpenProviderVideoMeetingSession(bootstrap) {{
-        const joinUrl = providerSessionJoinUrl(bootstrap);
-        if (!joinUrl) return false;
-        let openedWindow = null;
-        try {{
-          openedWindow = window.open(joinUrl, "_blank", "noopener,noreferrer");
-        }} catch (error) {{
-          openedWindow = null;
-        }}
-        if (openedWindow) return true;
-        try {{
-          window.location.href = joinUrl;
-          return true;
-        }} catch (error) {{
-          return false;
-        }}
-      }}
       function recordConversationOptions() {{
         const firstTurn = conversationTurnCount <= 0;
         if (firstTurn) {{
@@ -8405,72 +8217,6 @@ def _memorial_html(
         }} catch (error) {{}}
         setMemorialLandingReady(true, "Sprich mit mir");
         void primeRealtimeSocket("page_ready");
-      }}
-      async function startVideoCallPreview() {{
-        if (!memorialLandingReady) {{
-          setSpeechStatus("Ich richte den Video Call kurz ein.", "working", "Einen kleinen Moment");
-          await primeMemorialLanding();
-        }}
-        const bootstrap = await fetchVideoMeetingBootstrap(true);
-        if (videoCallPreview) videoCallPreview.hidden = false;
-        syncVideoCallAvatarPlayback();
-        const bootstrapDetail = String((bootstrap && bootstrap.detail) || "").trim();
-        const bootstrapState = String((bootstrap && bootstrap.integration_state) || "").trim();
-        const providerLabel = String((bootstrap && bootstrap.provider_label) || "").trim();
-        const joinUrl = providerSessionJoinUrl(bootstrap);
-        setVideoCallAvatarState(
-          "working",
-          bootstrapState === "provider_live_session_created"
-            ? ((providerLabel || "Live-Avatar") + " ist live. Ich öffne jetzt die Avatar-Session.")
-            : bootstrapState === "provider_live_session_ready"
-              ? ((providerLabel || "Live-Avatar") + " ist bereit. Ich öffne gleich die Avatar-Session.")
-            : bootstrapState === "provider_configured_contract_only"
-            ? ((providerLabel || "Live-Avatar") + " ist vorbereitet, die Seite bleibt aber bis zur echten Session-Integration auf Portrait und Stimme fail-closed.")
-            : (videoCallAvatarVideo ? "VidBoard-Avatar wird eingeblendet." : "Live-Avatar ist noch nicht freigegeben. Bis dahin bleibt die Portraitvorschau.")
-        );
-        setVideoCallStatus(
-          bootstrapState === "provider_live_session_created"
-            ? (bootstrapDetail || (providerLabel || "Live-Avatar") + " ist bereit. Die Video-Session wird jetzt geöffnet.")
-            : bootstrapState === "provider_live_session_ready"
-              ? ((providerLabel || "Live-Avatar") + " ist bereit. Die Session wird jetzt erzeugt.")
-            : bootstrapState === "provider_configured_contract_only"
-            ? (bootstrapDetail || "Provider ist konfiguriert, aber die öffentliche Live-Avatar-Session ist noch nicht aktiviert. Der Video Call läuft weiter über Portrait und Stimme.")
-            : (videoCallAvatarVideo ? "Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar." : "Kamera wird vorbereitet ... Der Live-Avatar ist noch nicht freigegeben, daher siehst du vorerst nur die Portraitvorschau.")
-        );
-        if (bootstrapState === "provider_live_session_created" && joinUrl) {{
-          const joined = tryOpenProviderVideoMeetingSession(bootstrap);
-          if (joined) {{
-            setSpeechStatus((providerLabel || "Live-Avatar") + " ist bereit. Die Session öffnet sich jetzt.", "working", "Video Call wird geöffnet");
-            return;
-          }}
-          setVideoCallStatus("Die Avatar-Session ist bereit, aber der Browser hat das Öffnen blockiert. Bitte öffne den Video Call erneut.");
-          setSpeechStatus("Die Avatar-Session ist bereit, aber ich konnte sie hier nicht öffnen.", "error", "Bitte tippe noch einmal");
-          return;
-        }}
-        const conversationPromise = ensureConversationStartedForVideoCall();
-        try {{
-          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
-            throw new Error("Kamera im Browser nicht verfügbar.");
-          }}
-          if (activeVideoStream) {{
-            activeVideoStream.getTracks().forEach((track) => track.stop());
-            activeVideoStream = null;
-          }}
-          activeVideoStream = await navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: "user" }}, audio: false }});
-          if (videoCallSelf) {{
-            videoCallSelf.srcObject = activeVideoStream;
-            try {{ await videoCallSelf.play(); }} catch (error) {{}}
-          }}
-          await conversationPromise;
-          setVideoCallAvatarState("listening", videoCallAvatarVideo ? "Manfred ist im Video Call bereit." : "Manfred ist mit Portrait und Stimme im Video Call bereit.");
-          setVideoCallStatus(videoCallAvatarVideo ? "Kamera aktiv. Manfred ist jetzt ueber Stimme, Avatar und deine Vorschau im Video Call." : "Kamera aktiv. Die Stimme ist live, aber der VidBoard-Avatar fehlt noch; darum siehst du nur die Portraitvorschau.");
-        }} catch (error) {{
-          await conversationPromise;
-          const detail = String(error && error.message ? error.message : "Kamera konnte nicht geöffnet werden.");
-          setVideoCallAvatarState("listening", videoCallAvatarVideo ? "Manfred bleibt auch ohne Kamera im Video Call da." : "Manfred bleibt auch ohne Kamera mit Portrait und Stimme im Video Call da.");
-          setVideoCallStatus(detail + " Video Call laeuft weiter ueber Stimme und Avatar.");
-          setSpeechStatus("Video Call laeuft auch ohne Kamera weiter.", "listening", "Sprich mit mir");
-        }}
       }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -9885,7 +9631,6 @@ def _memorial_html(
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        stopVideoCallPreview();
         setSpeechStatus("Ich warte wieder auf dich.", "idle", "Sprich mit mir");
       }}
       }}
@@ -9900,12 +9645,6 @@ def _memorial_html(
         }}
         setSpeechStatus("Ich oeffne das Mikrofon ...", "working", "Bitte erlaube kurz das Mikrofon, falls dein Browser fragt");
         if (!conversationActive) toggleConversation();
-      }};
-      window.__memorialStartVideoCall = async () => {{
-        await startVideoCallPreview();
-      }};
-      window.__memorialContinueVideoCallWithoutCamera = async () => {{
-        await continueVideoCallWithoutCamera();
       }};
       if (form) {{
         form.addEventListener("submit", (event) => {{
@@ -9927,21 +9666,6 @@ def _memorial_html(
       }}
       if (pushToTalkButton) {{
         pushToTalkButton.addEventListener("click", () => toggleConversation());
-      }}
-      if (videoCallButton) {{
-        videoCallButton.addEventListener("click", () => {{
-          void startVideoCallPreview();
-        }});
-      }}
-      if (videoCallContinueNoCameraButton) {{
-        videoCallContinueNoCameraButton.addEventListener("click", () => {{
-          void continueVideoCallWithoutCamera();
-        }});
-      }}
-      if (videoCallCloseButton) {{
-        videoCallCloseButton.addEventListener("click", () => {{
-          stopVideoCallPreview();
-        }});
       }}
       if (speakingOverlay) {{
         speakingOverlay.addEventListener("click", () => interruptSpeakingPlayback());
@@ -9965,7 +9689,6 @@ def _memorial_html(
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
         releaseConversationAudio();
-        stopVideoCallPreview();
         stopSpeechPlayback();
         if (activeRequestController) {{
           try {{ activeRequestController.abort(); }} catch (error) {{}}

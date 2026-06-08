@@ -152,19 +152,13 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'requestMemorialWarmup("page_load")' in page.text
     assert 'requestMemorialWarmup("conversation_start")' in page.text
     assert "primeMemorialLanding()" in page.text
-    assert "startVideoCallPreview()" in page.text
-    assert "continueVideoCallWithoutCamera()" in page.text
-    assert 'id="memorial-video-call-preview"' in page.text
-    assert 'id="memorial-video-call-avatar-stage"' in page.text
-    assert 'id="memorial-video-call-avatar-face"' in page.text
-    assert 'id="memorial-video-call-continue-no-camera"' in page.text
-    assert f"/memorials/{slug}/video-meeting/session" in page.text
-    assert f"/memorials/{slug}/video-meeting/status" in page.text
-    assert 'alt="Manfred Hoza"' in page.text
-    assert "Manfred Hennig" not in page.text
-    assert "VidBoard noch nicht live" in page.text
-    assert "Live-Avatar ist noch nicht freigegeben" in page.text
-    assert "Kamera ist optional" in page.text
+    assert "startVideoCallPreview()" not in page.text
+    assert "continueVideoCallWithoutCamera()" not in page.text
+    assert 'id="memorial-video-call-preview"' not in page.text
+    assert 'id="memorial-video-call-avatar-stage"' not in page.text
+    assert 'id="memorial-video-call-avatar-face"' not in page.text
+    assert 'id="memorial-video-call-continue-no-camera"' not in page.text
+    assert 'id="memorial-video-call-avatar-video"' not in page.text
     assert "Gleich bereit" in page.text
     assert "server_stt_cooldown" in page.text
     assert "Ich brauche gerade einen kurzen Moment, bevor ich wieder zuhöre." in page.text
@@ -210,10 +204,9 @@ def test_public_memorial_video_call_can_render_real_avatar_video_asset(
 
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
-    assert 'id="memorial-video-call-avatar-video"' in page.text
-    assert f'/memorials/files/{slug}/video/manfred-avatar.mp4' in page.text
-    assert f'poster="/memorials/files/{slug}/video/manfred-avatar-poster.png"' in page.text
-    assert "VidBoard Avatar bereit" in page.text
+    assert 'id="memorial-video-call-avatar-video"' not in page.text
+    assert f'/memorials/files/{slug}/video/manfred-avatar.mp4' not in page.text
+    assert "VidBoard Avatar bereit" not in page.text
 
     asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
     assert asset.status_code == 200
@@ -269,7 +262,7 @@ def test_public_memorial_video_call_blocks_unverified_avatar_asset(
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
     assert 'id="memorial-video-call-avatar-video"' not in page.text
-    assert "liegt vor, ist aber noch nicht freigegeben" in page.text
+    assert "liegt vor, ist aber noch nicht freigegeben" not in page.text
 
     asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
     assert asset.status_code == 404
