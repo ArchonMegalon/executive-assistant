@@ -967,6 +967,18 @@ _TEMPLATES: tuple[BrowserActUiTemplateDefinition, ...] = (
         result_selector="main, [role='main'], body",
     ),
     BrowserActUiTemplateDefinition(
+        template_key="voicewave_workspace_reader",
+        workflow_name="VoiceWave Workspace Reader",
+        description="Open the logged-in VoiceWave workspace and extract the visible voice generation, timeline, export, and voice-cloning surface for provider review.",
+        login_url="https://www.voicewave.ai/signin",
+        tool_url="",
+        workflow_kind="page_extract",
+        runtime_input_name="page_url",
+        authorized_credential_queries=("voicewave.ai",),
+        wait_selector="main, [role='main'], body",
+        result_selector="main, [role='main'], body",
+    ),
+    BrowserActUiTemplateDefinition(
         template_key="documentation_ai_workspace_reader",
         workflow_name="Documentation AI Workspace Reader",
         description="Open the Documentation.AI workspace or docs surface and extract the visible document-generation workspace state for later automation refinement.",

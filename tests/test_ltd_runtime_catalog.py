@@ -68,6 +68,10 @@ def test_browseract_ui_service_aliases_resolve_inventory_service_names() -> None
     assert vidboard is not None
     assert vidboard.service_key == "vidboard_workspace_reader"
 
+    voicewave = browseract_ui_service_by_alias("VoiceWave")
+    assert voicewave is not None
+    assert voicewave.service_key == "voicewave_workspace_reader"
+
     assert browseract_ui_service_by_alias("BrowserAct") is None
 
 
@@ -95,6 +99,15 @@ def test_vidboard_static_workflow_matches_runtime_template() -> None:
 
     static = json.loads(Path("/docker/EA/browseract_templates/vidboard_workspace_reader.workflow.json").read_text(encoding="utf-8"))
     dynamic = browseract_ui_template_spec("vidboard_workspace_reader")
+
+    assert static == dynamic
+
+
+def test_voicewave_static_workflow_matches_runtime_template() -> None:
+    import json
+
+    static = json.loads(Path("/docker/EA/browseract_templates/voicewave_workspace_reader.workflow.json").read_text(encoding="utf-8"))
+    dynamic = browseract_ui_template_spec("voicewave_workspace_reader")
 
     assert static == dynamic
 

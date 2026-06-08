@@ -659,6 +659,11 @@ def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[
         notes = []
     voice_profile_summary = _public_voice_profile_summary(slug)
     tts_options = _tts_plugin_options(payload=payload, voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")))
+    selected_plugin_id = _safe_tts_plugin_id(payload.get("tts_plugin")) or _TTS_PLUGIN_DEFAULT_ID
+    selected_option = next(
+        (option for option in tts_options if _safe_tts_plugin_id(option.get("tts_plugin")) == selected_plugin_id),
+        {},
+    )
     safe_options = [
         {
             "tts_plugin": _safe_tts_plugin_id(option.get("tts_plugin")),
@@ -669,13 +674,13 @@ def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[
             "tts_plugin_needs_clone": bool(option.get("tts_plugin_needs_clone")),
             "tts_plugin_requires_voice_id": bool(option.get("tts_plugin_requires_voice_id")),
         }
-        for option in tts_options
+        for option in ([selected_option] if selected_option else [])
         if _safe_tts_plugin_id(option.get("tts_plugin"))
     ]
     return {
         "slug": slug,
-        "tts_plugin": _safe_tts_plugin_id(payload.get("tts_plugin")),
-        "tts_mode": _safe_tts_plugin_id(payload.get("tts_plugin")),
+        "tts_plugin": selected_plugin_id,
+        "tts_mode": selected_plugin_id,
         "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), "default"),
         "voice_label": _text(payload.get("voice_label"), "Manfreds Stimme"),
         "voice_profile_ready": bool(voice_profile_summary.get("voice_profile_ready")),
