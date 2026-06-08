@@ -8538,6 +8538,7 @@ def _memorial_html(
         if (type === "cancelled") {{
           const message = String(payload.message || "realtime_turn_cancelled");
           clearRealtimeTurnFallbackTimer();
+          stopSpeechPlayback();
           if (turnId) markRealtimeTurnSettled(turnId);
           if (realtimeTurnPending && realtimeTurnPending.timeoutId) clearTimeout(realtimeTurnPending.timeoutId);
           if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error(message));
@@ -8551,6 +8552,7 @@ def _memorial_html(
         if (type === "error") {{
           const message = String(payload.message || "realtime_failed");
           clearRealtimeTurnFallbackTimer();
+          stopSpeechPlayback();
           if (turnId) markRealtimeTurnSettled(turnId);
           if (realtimeTurnPending && realtimeTurnPending.timeoutId) clearTimeout(realtimeTurnPending.timeoutId);
           if (realtimeTurnPending && realtimeTurnPending.reject) realtimeTurnPending.reject(new Error(message));
@@ -8601,6 +8603,12 @@ def _memorial_html(
         return realtimeSocketPromise;
       }}
       async function sendRealtimeTurn(input) {{
+        if (activeRealtimeTurnId) {{
+          try {{
+            await cancelRealtimeTurn("superseded_by_new_turn");
+          }} catch (error) {{}}
+          stopSpeechPlayback();
+        }}
         const socket = await ensureRealtimeSocket();
         const turnId = "turn_" + String(Date.now()) + "_" + String(++realtimeTurnCounter);
         activeRealtimeTurnId = turnId;
@@ -8643,6 +8651,7 @@ def _memorial_html(
       async function cancelRealtimeTurn(reason = "user_interrupt") {{
         const turnId = String(activeRealtimeTurnId || "");
         if (!turnId) return;
+        stopSpeechPlayback();
         try {{
           const socket = await ensureRealtimeSocket();
           socket.send(JSON.stringify({{ type: "cancel_current_turn", turn_id: turnId, reason: String(reason || "user_interrupt") }}));
