@@ -212,6 +212,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     seen_messages: list[list[dict[str, str]]] = []
     input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred, kann ich jetzt mit dir reden?")
     output_audio = _generated_wav_bytes(textish_seed="Ja, ich bin da.")
+    seen_pad_calls: list[dict[str, object]] = []
 
     def _fake_transcribe(*, payload, content_type):
         assert payload.startswith(b"RIFF")
@@ -236,7 +237,12 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     monkeypatch.setattr(
         public_memorials,
         "_pad_speech_audio_lead_in",
-        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: seen_pad_calls.append(
+            {
+                "silence_ms": silence_ms,
+                "tail_silence_ms": tail_silence_ms,
+            }
+        ) or (payload, content_type),
     )
     monkeypatch.setattr(
         public_memorials,
@@ -270,6 +276,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["audio_content_type"] == "audio/wav"
     assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is False
+    assert seen_pad_calls == [{"silence_ms": 70, "tail_silence_ms": 180}]
     assert any(
         "memorial_timing event=conversation_turn" in record.getMessage()
         and "requested_model=ea-gemini-flash" in record.getMessage()
@@ -572,15 +579,15 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     assert seen_voicewave_calls == [
         {
-            "text": "Ja, ich bin da. Sprich die Sache einfach aus, dann ordne ich sie Schritt fuer Schritt.",
+            "text": "Ja. Ich bin da. Sag direkt, worum es geht.",
             "voice_label": "Manfred Hoza Memorial",
         },
         {
-            "text": "Ja, ich hoere zu. Sag klar, worum es geht, dann antworte ich direkt darauf.",
+            "text": "Ja. Ich hoere zu. Sag klar, worum es geht.",
             "voice_label": "Manfred Hoza Memorial",
         },
         {
-            "text": "Ja, du kannst mit mir reden. Sag kurz, worum es geht, dann ordne ich die Sache und antworte direkt.",
+            "text": "Ja. Du kannst mit mir reden. Sag kurz, worum es geht.",
             "voice_label": "Manfred Hoza Memorial",
         },
     ]

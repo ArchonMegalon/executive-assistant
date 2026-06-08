@@ -3545,10 +3545,10 @@ def _is_memorial_contact_question(question: str) -> bool:
 def _memorial_contact_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("bist du da", "bist du noch da")):
-        return "Ja, ich bin da. Sprich die Sache einfach aus, dann ordne ich sie Schritt fuer Schritt."
+        return "Ja. Ich bin da. Sag direkt, worum es geht."
     if any(token in lowered for token in ("hoerst du zu", "hörst du zu", "kannst du mich hoeren", "kannst du mich hören")):
-        return "Ja, ich hoere zu. Sag klar, worum es geht, dann antworte ich direkt darauf."
-    return "Ja, du kannst mit mir reden. Sag kurz, worum es geht, dann ordne ich die Sache und antworte direkt."
+        return "Ja. Ich hoere zu. Sag klar, worum es geht."
+    return "Ja. Du kannst mit mir reden. Sag kurz, worum es geht."
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -5539,8 +5539,13 @@ def _build_memorial_conversation_turn_payload(
     else:
         raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
     tts_ms = (time.perf_counter() - tts_started) * 1000.0
-    lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
-    tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
+    direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
+    if direct_contact_opening:
+        lead_in_ms = 70
+        tail_silence_ms = 180
+    else:
+        lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+        tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
     pad_started = time.perf_counter()
     audio, audio_content_type = _pad_speech_audio_lead_in(
         payload=audio,
