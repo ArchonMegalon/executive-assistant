@@ -549,7 +549,7 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
     monkeypatch.setenv("VOICEWAVE_LOGIN_EMAIL", "voicewave@example.com")
     monkeypatch.setenv("VOICEWAVE_LOGIN_PASSWORD", "secret")
 
-    seen_voicewave_calls: list[dict[str, object]] = []
+    seen_render_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         public_memorials,
@@ -568,25 +568,42 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
     )
     monkeypatch.setattr(
         public_memorials,
-        "voicewave_synthesize_request",
-        lambda **kwargs: seen_voicewave_calls.append(kwargs) or (b"RIFFvoicewave", "audio/wav"),
+        "_render_memorial_tts_audio",
+        lambda **kwargs: seen_render_calls.append(
+            {
+                "text": kwargs["text"],
+                "slug": kwargs["slug"],
+                "selected_plugin": kwargs["selected_plugin"],
+                "lead_in_ms": kwargs["lead_in_ms"],
+                "tail_silence_ms": kwargs["tail_silence_ms"],
+            }
+        ) or (b"RIFFvoicewave", "audio/wav"),
     )
     monkeypatch.setattr(public_memorials.threading, "Thread", _ImmediateThread)
 
     public_memorials._run_memorial_live_warmup(slug)
 
-    assert seen_voicewave_calls == [
+    assert seen_render_calls == [
         {
             "text": "Ja.",
-            "voice_label": "Manfred Hoza Memorial",
+            "slug": slug,
+            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
         },
         {
             "text": "Ja.",
-            "voice_label": "Manfred Hoza Memorial",
+            "slug": slug,
+            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
         },
         {
             "text": "Ja. Sprich.",
-            "voice_label": "Manfred Hoza Memorial",
+            "slug": slug,
+            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
         },
     ]
 

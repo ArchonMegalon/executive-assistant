@@ -5501,11 +5501,26 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
     errors: list[str] = []
     started_clock = time.perf_counter()
     try:
+        base_config = _load_voice_config(slug)
+        merged_config = dict(base_config)
+        tts_options = _tts_plugin_options(
+            payload=merged_config,
+            voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+        )
+        selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
+        if selected_plugin != VOICEWAVE_TTS_PLUGIN_ID or not bool(selected_option.get("tts_plugin_enabled")):
+            return
         for seed_question in ("Bist du da?", "Hoerst du zu?", "Kann ich jetzt mit dir reden?"):
             try:
-                voicewave_synthesize_request(
+                _render_memorial_tts_audio(
+                    slug=slug,
                     text=_memorial_contact_answer_body(seed_question),
-                    voice_label=voice_label,
+                    merged_config=merged_config,
+                    base_config=base_config,
+                    selected_plugin=selected_plugin,
+                    selected_option=selected_option,
+                    lead_in_ms=40,
+                    tail_silence_ms=120,
                 )
             except Exception as exc:
                 errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
