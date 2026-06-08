@@ -1347,6 +1347,8 @@ def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_t
     assert "(payload.voice_required === false || payload.voice_ready === true)" in source
     assert 'await cancelRealtimeTurn("superseded_by_new_turn");' in source
     assert 'if (type === "cancelled") {{\n          const message = String(payload.message || "realtime_turn_cancelled");\n          clearRealtimeTurnFallbackTimer();\n          stopSpeechPlayback();' in source
+    assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
+    assert 'setSpeechStatus("Nur Manfreds Server-Stimme ist aktiv.", "error", "Browser-Stimmen sind hier abgeschaltet");' in source
     assert "autoStopMs: 1750" in source
     assert "silenceMs: 280" in source
     assert "silenceThreshold: 0.012" in source

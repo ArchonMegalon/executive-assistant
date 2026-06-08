@@ -8976,6 +8976,9 @@ def _memorial_html(
           clearTimeout(speechPlaybackWatchdogTimer);
           speechPlaybackWatchdogTimer = null;
         }}
+        try {{
+          if (window.speechSynthesis) window.speechSynthesis.cancel();
+        }} catch (error) {{}}
         speakingOverlayPreview = "";
         if (speechAudio) {{
           try {{
@@ -9243,45 +9246,8 @@ def _memorial_html(
           return;
         }}
         if (pluginConfig.tts_plugin === "browser_speech_synthesis") {{
-          const synth = window.speechSynthesis;
-          if (!synth || typeof SpeechSynthesisUtterance === "undefined") {{
-            setSpeechStatus("Browser-Sprachausgabe ist nicht verfügbar.", "error", "Kein Browser-TTS");
-            if (onDone) onDone();
-            return;
-          }}
-          try {{
-            synth.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = String(memorialVoiceConfig.lang || "de-AT");
-            utterance.rate = Number(memorialVoiceConfig.rate || 0.92);
-            utterance.pitch = Number(memorialVoiceConfig.pitch || 0.92);
-            utterance.volume = Number(memorialVoiceConfig.volume || 1);
-            const hints = Array.isArray(memorialVoiceConfig.voice_name_hints) ? memorialVoiceConfig.voice_name_hints.map((item) => String(item || "").toLowerCase()) : [];
-            const voices = typeof synth.getVoices === "function" ? synth.getVoices() : [];
-            const matchedVoice = voices.find((voice) => {{
-              const name = String(voice && voice.name || "").toLowerCase();
-              const lang = String(voice && voice.lang || "").toLowerCase();
-              return hints.some((hint) => hint && (name.includes(hint) || lang.includes(hint)));
-            }});
-            if (matchedVoice) utterance.voice = matchedVoice;
-            utterance.onstart = () => {{
-              setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
-            }};
-            utterance.onend = () => {{
-              setSpeechStatus("Sprachausgabe bereit.", "idle", "Bereit für die nächste Runde");
-              if (onDone) onDone();
-            }};
-            utterance.onerror = (event) => {{
-              setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen.", "error", "Browser-TTS");
-              if (onDone) onDone();
-            }};
-            setSpeakingOverlayPreview(text);
-            setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet");
-            synth.speak(utterance);
-          }} catch (error) {{
-            setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen: " + String(error.message || error), "error", "Browser-TTS");
-            if (onDone) onDone();
-          }}
+          setSpeechStatus("Nur Manfreds Server-Stimme ist aktiv.", "error", "Browser-Stimmen sind hier abgeschaltet");
+          if (onDone) onDone();
           return;
         }}
         if (!speechAudio) {{
