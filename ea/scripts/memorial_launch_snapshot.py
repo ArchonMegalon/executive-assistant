@@ -142,6 +142,22 @@ def main(argv: list[str] | None = None) -> int:
                 1,
             )
         )
+        commands.append(
+            (
+                [
+                    sys.executable,
+                    "scripts/verify_memorial_video_call_avatar_ready.py",
+                    "--slug",
+                    args.slug,
+                    "--base-url",
+                    args.base_url,
+                    "--json",
+                ],
+                ea_dir,
+                120,
+                0,
+            )
+        )
         rehearsal_command = [
             sys.executable,
             "scripts/memorial_demo_rehearsal.py",

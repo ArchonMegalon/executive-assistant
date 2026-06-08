@@ -332,7 +332,11 @@ def test_memorial_launch_snapshot_cli_writes_green_snapshot(
     assert all(item["returncode"] == 0 for item in payload["commands"])
     command_text = [" ".join(item["command"]) for item in payload["commands"]]
     assert any("memorial_flagship_preflight.py" in item for item in command_text)
+    assert any("verify_memorial_video_call_avatar_ready.py" in item for item in command_text)
     assert any("memorial_demo_rehearsal.py" in item for item in command_text)
+    avatar_command = next(item for item in payload["commands"] if "verify_memorial_video_call_avatar_ready.py" in " ".join(item["command"]))
+    avatar_payload = json.loads(avatar_command["stdout"])
+    assert avatar_payload["status"] == "warn"
 
 
 def test_memorial_room_ready_cli_writes_room_and_audio_reports(
