@@ -36,5 +36,6 @@ if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
     --base-url "$MEMORIAL_FLAGSHIP_BASE_URL" \
     --questions ../examples/demo_questions.manfred.json \
     --output-dir "$TMPDIR/manfred_room_ready_exit_gate" \
-    --skip-exit-gates
+    --skip-exit-gates \
+    --optional-exit-gates
 fi
