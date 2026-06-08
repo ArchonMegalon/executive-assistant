@@ -10776,7 +10776,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     current_audio = bytearray()
     current_audio_started = False
     current_turn_id = ""
-    turn_tasks: set[asyncio.Task[None]] = set()
+    turn_tasks: dict[str, asyncio.Task[None]] = {}
     cancelled_turn_ids: set[str] = set()
     cancelled_notice_sent: set[str] = set()
 
@@ -10797,6 +10797,24 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             return
         cancelled_notice_sent.add(turn_id)
         await _safe_send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
+
+    async def _replace_active_turns(next_turn_id: str) -> None:
+        for active_turn_id, task in list(turn_tasks.items()):
+            if active_turn_id == next_turn_id:
+                continue
+            cancelled_turn_ids.add(active_turn_id)
+            await _send_cancelled(active_turn_id)
+            task.cancel()
+
+    def _register_turn_task(turn_id: str, task: asyncio.Task[None]) -> None:
+        turn_tasks[turn_id] = task
+
+        def _discard_done_task(done_task: asyncio.Task[None]) -> None:
+            current_task = turn_tasks.get(turn_id)
+            if current_task is done_task:
+                turn_tasks.pop(turn_id, None)
+
+        task.add_done_callback(_discard_done_task)
 
     async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
         total_started = time.perf_counter()
@@ -10986,6 +11004,10 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 pad_ms=pad_ms,
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
+        except asyncio.CancelledError:
+            cancelled_turn_ids.add(turn_id)
+            await _send_cancelled(turn_id)
+            raise
         except HTTPException as exc:
             _log_memorial_timing(
                 "realtime_transcript_turn_error",
@@ -11028,6 +11050,10 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 stt_ms=stt_ms,
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
+        except asyncio.CancelledError:
+            cancelled_turn_ids.add(turn_id)
+            await _send_cancelled(turn_id)
+            raise
         except HTTPException as exc:
             _log_memorial_timing(
                 "realtime_audio_turn_error",
@@ -11100,17 +11126,15 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 if len(transcript_text) > _MAX_REALTIME_TEXT_CHARS:
                     await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "text_too_long"})
                     continue
-                if len(turn_tasks) >= _MAX_REALTIME_CONCURRENT_TURNS:
-                    await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "too_many_active_turns"})
-                    continue
+                if turn_tasks:
+                    await _replace_active_turns(turn_id)
                 try:
                     _enforce_public_memorial_rate_limit("realtime_turn", websocket=websocket, context=personal_memory_context)
                 except HTTPException:
                     await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "memorial_rate_limited"})
                     continue
                 task = asyncio.create_task(_process_transcript_turn(turn_id, transcript_text))
-                turn_tasks.add(task)
-                task.add_done_callback(turn_tasks.discard)
+                _register_turn_task(turn_id, task)
                 continue
             if message_type == "user_audio_start":
                 current_audio = bytearray()
@@ -11130,12 +11154,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 current_turn_id = ""
                 await websocket.send_json({"type": "error", "message": "audio_missing"})
                 continue
-            if len(turn_tasks) >= _MAX_REALTIME_CONCURRENT_TURNS:
-                current_audio = bytearray()
-                current_audio_started = False
-                current_turn_id = ""
-                await websocket.send_json({"type": "error", "message": "too_many_active_turns"})
-                continue
+            if turn_tasks:
+                await _replace_active_turns(_text(payload.get("turn_id")) or current_turn_id or f"turn_{len(turn_tasks) + 1}")
             try:
                 _enforce_public_memorial_rate_limit("realtime_turn", websocket=websocket, context=personal_memory_context)
             except HTTPException:
@@ -11147,13 +11167,12 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             turn_id = _text(payload.get("turn_id")) or current_turn_id or f"turn_{len(turn_tasks) + 1}"
             await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Audio wird transkribiert"})
             task = asyncio.create_task(_process_turn(turn_id, bytes(current_audio), current_content_type))
-            turn_tasks.add(task)
-            task.add_done_callback(turn_tasks.discard)
+            _register_turn_task(turn_id, task)
             current_audio = bytearray()
             current_audio_started = False
             current_turn_id = ""
     except WebSocketDisconnect:
-        for task in list(turn_tasks):
+        for task in list(turn_tasks.values()):
             task.cancel()
         return
     except HTTPException as exc:

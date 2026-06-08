@@ -894,6 +894,90 @@ def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
     assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
 
 
+def test_memorial_realtime_latest_turn_replaces_active_turn_instead_of_too_many_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.")
+
+    def _chat_answer(payload, question, *args, **kwargs):
+        if "erste" in question.lower():
+            time.sleep(0.3)
+        return {
+            "answer": "Ja.",
+            "sources": [],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+            "fallback_reason": "direct_contact_opening",
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-realtime-replace-turn")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_old",
+                "text": "Das ist der erste Turn.",
+                "personal_memory_enabled": False,
+            }
+        )
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_new",
+                "text": "Hallo Manfred, bist du da?",
+                "personal_memory_enabled": False,
+            }
+        )
+        messages = []
+        for _ in range(14):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete" and message.get("turn_id") == "turn_new":
+                break
+
+    assert not any(message.get("message") == "too_many_active_turns" for message in messages)
+    assert any(message.get("type") == "cancelled" and message.get("turn_id") == "turn_old" for message in messages)
+    assert any(message.get("type") == "answer" and message.get("turn_id") == "turn_new" and message.get("text") == "Ja." for message in messages)
+    assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_new" for message in messages)
+
+
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 
