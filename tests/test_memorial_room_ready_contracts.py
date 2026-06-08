@@ -44,3 +44,12 @@ def test_room_ready_extracts_semantic_warn_codes() -> None:
     assert status == "warn"
     assert detail["warn_codes"] == ["lead_silence_short"]
     assert detail["warn_steps"] == ["audio_probe"]
+
+
+def test_room_ready_builds_avatar_video_check_command() -> None:
+    import scripts.memorial_room_ready as room
+
+    command = room.avatar_video_check_command(slug="manfred", base_url="https://example.test")
+
+    assert "verify_memorial_video_call_avatar_ready.py" in " ".join(command)
+    assert command[-1] == "--json"

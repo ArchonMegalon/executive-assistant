@@ -249,6 +249,18 @@ def default_output_dir(slug: str) -> Path:
     return Path(os.getenv("MEMORIAL_ROOM_READY_OUTPUT_DIR") or f"/tmp/memorial_room_ready_{slug}_{int(time.time())}")
 
 
+def avatar_video_check_command(*, slug: str, base_url: str) -> list[str]:
+    return [
+        sys.executable,
+        "scripts/verify_memorial_video_call_avatar_ready.py",
+        "--slug",
+        slug,
+        "--base-url",
+        base_url,
+        "--json",
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Final room-readiness runner for the memorial presentation.")
     parser.add_argument("--slug", default="manfred")
@@ -257,6 +269,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--skip-showtime", action="store_true")
     parser.add_argument("--skip-audio-probe", action="store_true")
+    parser.add_argument("--skip-avatar-video-check", action="store_true")
     parser.add_argument("--skip-exit-gates", action="store_true")
     parser.add_argument("--optional-exit-gates", action="store_true")
     parser.add_argument("--json", action="store_true")
@@ -358,6 +371,16 @@ def main() -> int:
                 )
                 report.results.append(probe_result)
                 report.notes.append(f"Audio probe target: {fresh_audio}")
+
+    if args.optional_exit_gates and not args.skip_avatar_video_check:
+        avatar_result = run(
+            "avatar_video_call_status",
+            avatar_video_check_command(slug=args.slug, base_url=args.base_url),
+            cwd=EA_DIR,
+            gate="warning",
+            timeout=120,
+        )
+        report.results.append(avatar_result)
 
     write_report(report, output_dir)
     rendered = json.dumps(report.as_dict(), ensure_ascii=False, indent=2) if args.json else str(output_dir / "room_ready_report.md")
