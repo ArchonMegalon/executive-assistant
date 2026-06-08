@@ -156,7 +156,7 @@ _BLOCKED_PUBLIC_ASSET_NAMES = {
     "transcript_signal_report.json",
 }
 _ALLOWED_PUBLIC_ASSET_SUFFIXES = {
-    ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm",
+    ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".mp4",
     ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
 }
 
@@ -2076,10 +2076,47 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         rel = _text(doc.get("asset_relpath"), "")
         if rel:
             allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
+    video_call_avatar = payload.get("video_call_avatar")
+    if isinstance(video_call_avatar, dict):
+        for key in ("asset_relpath", "poster_relpath"):
+            rel = _text(video_call_avatar.get(key), "")
+            if rel:
+                allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
     relative_path = candidate.relative_to(bundle_dir).as_posix().lstrip("/")
     if relative_path not in allowed_relpaths:
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
     return candidate
+
+
+def _memorial_video_call_avatar(payload: dict[str, object], slug: str) -> dict[str, object]:
+    raw = payload.get("video_call_avatar")
+    person_name = _text(payload.get("person_name"), "Manfred")
+    result: dict[str, object] = {
+        "enabled": False,
+        "kind": "portrait",
+        "provider_label": "VidBoard noch nicht live",
+        "asset_url": "",
+        "poster_url": "",
+        "title": person_name,
+        "detail": "Der Video-Avatar ist noch nicht freigegeben. Bis dahin zeigen wir nur die Portraitvorschau.",
+    }
+    if not isinstance(raw, dict):
+        return result
+    asset_relpath = _text(raw.get("asset_relpath"), "")
+    poster_relpath = _text(raw.get("poster_relpath"), "")
+    provider_label = _text(raw.get("provider_label"), "VidBoard")
+    title = _text(raw.get("title"), person_name)
+    detail = _text(raw.get("detail"), "Avatar-Video wird vorbereitet.")
+    if asset_relpath:
+        result["enabled"] = True
+        result["kind"] = "video"
+        result["asset_url"] = f"/memorials/files/{html.escape(slug)}/{html.escape(asset_relpath)}"
+        if poster_relpath:
+            result["poster_url"] = f"/memorials/files/{html.escape(slug)}/{html.escape(poster_relpath)}"
+        result["provider_label"] = provider_label
+        result["title"] = title
+        result["detail"] = detail
+    return result
 
 
 def _content_length_or_zero(request: Request) -> int:
@@ -5626,6 +5663,13 @@ def _memorial_html(
     person_name_js = json.dumps(person_name)
     person_label_js = json.dumps(person_label)
     memorial_avatar_url = html.escape(_memorial_pwa_icon_url(slug, payload, 180))
+    video_call_avatar = _memorial_video_call_avatar(payload, slug)
+    video_call_avatar_enabled = bool(video_call_avatar.get("enabled"))
+    video_call_avatar_provider_html = html.escape(_text(video_call_avatar.get("provider_label"), "VidBoard noch nicht live"))
+    video_call_avatar_title_html = html.escape(_text(video_call_avatar.get("title"), person_name))
+    video_call_avatar_detail_html = html.escape(_text(video_call_avatar.get("detail"), "Der Video-Avatar ist noch nicht freigegeben."))
+    video_call_avatar_asset_url = html.escape(_text(video_call_avatar.get("asset_url"), ""))
+    video_call_avatar_poster_url = html.escape(_text(video_call_avatar.get("poster_url"), ""))
     audio_clips = _list_of_dicts(payload.get("audio_clips"))
     memory_cards = _list_of_dicts(payload.get("memory_cards"))
     candidate_recordings = _list_of_dicts(payload.get("candidate_recordings"))
@@ -7029,6 +7073,13 @@ def _memorial_html(
         height: 100%;
         object-fit: cover;
       }}
+      .video-call-avatar-face video {{
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }}
       .video-call-avatar-face span {{
         position: relative;
         z-index: 1;
@@ -7344,7 +7395,7 @@ def _memorial_html(
           <div class="video-call-preview-head">
             <div class="video-call-preview-copy">
               <strong>Video Call mit {person_name_html}</strong>
-              <span>Prelive-Vorschau. Kamera ist optional, {person_label_html}s Video-Lane wird vorbereitet.</span>
+              <span>Prelive-Vorschau. Kamera ist optional. {video_call_avatar_provider_html}.</span>
             </div>
             <div class="video-call-preview-actions">
               <button type="button" id="memorial-video-call-continue-no-camera">Ohne Kamera fortfahren</button>
@@ -7361,8 +7412,8 @@ def _memorial_html(
               <div class="video-call-avatar-stage" id="memorial-video-call-avatar-stage" data-avatar-state="idle">
                 <div class="video-call-avatar-card">
                   <div class="video-call-avatar-ring">
-                    <div class="video-call-avatar-face has-portrait" id="memorial-video-call-avatar-face">
-                      <img src="{memorial_avatar_url}" alt="{person_name_html}">
+                    <div class="video-call-avatar-face{' has-portrait' if not video_call_avatar_enabled else ''}" id="memorial-video-call-avatar-face">
+                      {f'<video id="memorial-video-call-avatar-video" autoplay loop muted playsinline preload="auto" src="{video_call_avatar_asset_url}" poster="{video_call_avatar_poster_url}"></video>' if video_call_avatar_enabled else f'<img src="{memorial_avatar_url}" alt="{person_name_html}">'}
                       <span>{person_initials_html}</span>
                     </div>
                   </div>
@@ -7374,8 +7425,8 @@ def _memorial_html(
                     <span class="video-call-avatar-bar"></span>
                   </div>
                   <div class="video-call-avatar-copy">
-                    <strong id="memorial-video-call-avatar-title">{person_name_html}</strong>
-                    <span id="memorial-video-call-avatar-detail">Wartet auf den Video Call.</span>
+                    <strong id="memorial-video-call-avatar-title">{video_call_avatar_title_html}</strong>
+                    <span id="memorial-video-call-avatar-detail">{video_call_avatar_detail_html}</span>
                   </div>
                 </div>
               </div>
@@ -7492,6 +7543,7 @@ def _memorial_html(
       const videoCallStatus = document.getElementById("memorial-video-call-status");
       const videoCallSelf = document.getElementById("memorial-video-call-self");
       const videoCallAvatarStage = document.getElementById("memorial-video-call-avatar-stage");
+      const videoCallAvatarVideo = document.getElementById("memorial-video-call-avatar-video");
       const videoCallAvatarTitle = document.getElementById("memorial-video-call-avatar-title");
       const videoCallAvatarDetail = document.getElementById("memorial-video-call-avatar-detail");
       let lastAnswerText = "";
@@ -7889,6 +7941,14 @@ def _memorial_html(
       function setVideoCallStatus(message) {{
         if (videoCallStatus) videoCallStatus.textContent = String(message || "").trim() || "Noch nicht aktiv.";
       }}
+      function syncVideoCallAvatarPlayback() {{
+        if (!videoCallAvatarVideo) return;
+        try {{
+          videoCallAvatarVideo.currentTime = 0;
+          const playResult = videoCallAvatarVideo.play();
+          if (playResult && typeof playResult.catch === "function") playResult.catch(() => null);
+        }} catch (error) {{}}
+      }}
       function memorialJsError(message, code = "", extras = {{}}) {{
         const error = new Error(String(message || "request_failed"));
         if (code) error.code = code;
@@ -8270,8 +8330,9 @@ def _memorial_html(
           await primeMemorialLanding();
         }}
         if (videoCallPreview) videoCallPreview.hidden = false;
-        setVideoCallAvatarState("working", "Manfreds Video-Bühne wird vorbereitet.");
-        setVideoCallStatus("Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar.");
+        syncVideoCallAvatarPlayback();
+        setVideoCallAvatarState("working", videoCallAvatarVideo ? "VidBoard-Avatar wird eingeblendet." : "VidBoard-Avatar ist noch nicht live. Bis dahin bleibt die Portraitvorschau.");
+        setVideoCallStatus(videoCallAvatarVideo ? "Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar." : "Kamera wird vorbereitet ... Der eigentliche VidBoard-Avatar ist noch nicht freigegeben, daher siehst du vorerst nur die Portraitvorschau.");
         const conversationPromise = ensureConversationStartedForVideoCall();
         try {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
@@ -8287,12 +8348,12 @@ def _memorial_html(
             try {{ await videoCallSelf.play(); }} catch (error) {{}}
           }}
           await conversationPromise;
-          setVideoCallAvatarState("listening", "Manfred ist im Video Call bereit.");
-          setVideoCallStatus("Kamera aktiv. Manfred ist jetzt ueber Stimme, Avatar und deine Vorschau im Video Call.");
+          setVideoCallAvatarState("listening", videoCallAvatarVideo ? "Manfred ist im Video Call bereit." : "Manfred ist mit Portrait und Stimme im Video Call bereit.");
+          setVideoCallStatus(videoCallAvatarVideo ? "Kamera aktiv. Manfred ist jetzt ueber Stimme, Avatar und deine Vorschau im Video Call." : "Kamera aktiv. Die Stimme ist live, aber der VidBoard-Avatar fehlt noch; darum siehst du nur die Portraitvorschau.");
         }} catch (error) {{
           await conversationPromise;
           const detail = String(error && error.message ? error.message : "Kamera konnte nicht geöffnet werden.");
-          setVideoCallAvatarState("listening", "Manfred bleibt auch ohne Kamera im Video Call da.");
+          setVideoCallAvatarState("listening", videoCallAvatarVideo ? "Manfred bleibt auch ohne Kamera im Video Call da." : "Manfred bleibt auch ohne Kamera mit Portrait und Stimme im Video Call da.");
           setVideoCallStatus(detail + " Video Call laeuft weiter ueber Stimme und Avatar.");
           setSpeechStatus("Video Call laeuft auch ohne Kamera weiter.", "listening", "Sprich mit mir");
         }}

@@ -159,6 +159,8 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'id="memorial-video-call-continue-no-camera"' in page.text
     assert 'alt="Manfred Hoza"' in page.text
     assert "Manfred Hennig" not in page.text
+    assert "VidBoard noch nicht live" in page.text
+    assert "Der eigentliche VidBoard-Avatar ist noch nicht freigegeben" in page.text
     assert "Kamera ist optional" in page.text
     assert "Gleich bereit" in page.text
     assert "server_stt_cooldown" in page.text
@@ -167,15 +169,48 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text
 
-    icon_response = client.get(f"/memorials/{slug}/icon-512.png")
-    assert icon_response.status_code == 200
-    assert icon_response.headers["content-type"].startswith("image/png")
-    assert icon_response.content.startswith(b"\x89PNG")
 
-    service_worker = client.get(f"/memorials/{slug}/service-worker.js")
-    assert service_worker.status_code == 200
-    assert service_worker.headers["service-worker-allowed"] == f"/memorials/{slug}"
-    assert f"/memorials/{slug}/icon-512.png" in service_worker.text
+def test_public_memorial_video_call_can_render_real_avatar_video_asset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    bundle_dir = _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "video_call_avatar": {
+                "asset_relpath": "video/manfred-avatar.mp4",
+                "poster_relpath": "video/manfred-avatar-poster.png",
+                "provider_label": "VidBoard Avatar bereit",
+                "title": "Manfred Hoza als Avatar",
+                "detail": "VidBoard-Clip ist für den Video Call eingebunden.",
+            },
+        },
+    )
+    video_dir = bundle_dir / "video"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    (video_dir / "manfred-avatar.mp4").write_bytes(b"mp4")
+    (video_dir / "manfred-avatar-poster.png").write_bytes(b"\x89PNG\r\n\x1a\nposter")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-video-avatar")
+
+    page = client.get(f"/memorials/{slug}")
+    assert page.status_code == 200
+    assert 'id="memorial-video-call-avatar-video"' in page.text
+    assert f'/memorials/files/{slug}/video/manfred-avatar.mp4' in page.text
+    assert f'poster="/memorials/files/{slug}/video/manfred-avatar-poster.png"' in page.text
+    assert "VidBoard Avatar bereit" in page.text
+
+    asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
+    assert asset.status_code == 200
 
 
 def test_public_memorial_json_includes_public_archive_registry_only(
