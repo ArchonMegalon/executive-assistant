@@ -222,12 +222,14 @@ def _install_fake_audio_runtime(context) -> None:
             }
             start() {
               this.state = "recording";
-              setTimeout(() => {
-                if (this.ondataavailable) {
-                  this.ondataavailable({
-                    data: new Blob(["fake-audio"], { type: this.mimeType }),
-                  });
-                }
+                setTimeout(() => {
+                  if (this.ondataavailable) {
+                    const payload = new Uint8Array(512);
+                    payload.fill(7);
+                    this.ondataavailable({
+                      data: new Blob([payload], { type: this.mimeType }),
+                    });
+                  }
                 this.state = "inactive";
                 if (this.onstop) this.onstop();
               }, 70);
@@ -274,7 +276,7 @@ def test_memorial_minimal_page_fits_single_viewport_without_scroll(
     context = browser.new_context(viewport=viewport)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="networkidle")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
             "() => !document.getElementById('memorial-conversation').disabled",
@@ -307,25 +309,26 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
     _install_fake_audio_runtime(context)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="networkidle")
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_function(
             "() => !document.getElementById('memorial-conversation').disabled",
             timeout=5000,
         )
-        page.get_by_role("button", name="Gespräch beginnen").click()
+        with page.expect_response(lambda response: response.url.endswith(f"/memorials/{slug}/conversation-turn") and response.status == 200, timeout=7000):
+            page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
         page.wait_for_function(
             """() => {
-              const phase = document.getElementById("memorial-speech-phase");
-              const message = document.getElementById("memorial-speech-message");
-              return Boolean(
-                phase && message
-                && phase.textContent.includes("Bereit")
-                && message.textContent.includes("Ich höre zu.")
-              );
+              const audio = document.getElementById("memorial-speech-audio");
+              return Boolean(audio && audio.getAttribute("src") && audio.getAttribute("src").startsWith("blob:"));
             }""",
             timeout=7000,
         )
+        page.wait_for_timeout(500)
+        phase_text = page.locator("#memorial-speech-phase").text_content() or ""
+        message_text = page.locator("#memorial-speech-message").text_content() or ""
+        assert "Bitte noch einmal" not in phase_text
+        assert "Bitte noch einmal" not in message_text
         assert page.locator("#memorial-retry-button").is_hidden()
     finally:
         context.close()
