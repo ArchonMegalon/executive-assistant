@@ -38,6 +38,8 @@ ALLOWED_PUBLIC_ASSET_SUFFIXES = {
     ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm",
     ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
 }
+ALLOWED_AVATAR_VIDEO_SUFFIXES = {".mp4", ".webm", ".mov"}
+ALLOWED_AVATAR_POSTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 REQUIRED_PUBLIC_CONSENT_SCOPES = {"synthesize", "conversation_turn", "realtime"}
 REQUIRED_PUBLIC_PAGE_MARKERS = {
     "Gespräch beginnen",
@@ -168,6 +170,55 @@ def _public_registry_for(slug: str) -> tuple[dict[str, Any], Path]:
     return public_registry_payload(raw), path
 
 
+def _check_avatar_bundle(memorial: dict[str, Any], *, bundle: Path, report: Report) -> None:
+    raw = memorial.get("video_call_avatar")
+    if not isinstance(raw, dict) or not raw:
+        report.add("warn", "avatar_manifest_missing", "Public memorial manifest does not declare a video-call avatar block.")
+        return
+    avatar = dict(raw)
+    enabled = bool(avatar.get("public_ready") is True)
+    asset_relpath = _relpath(str(avatar.get("asset_relpath") or ""))
+    poster_relpath = _relpath(str(avatar.get("poster_relpath") or ""))
+    provider_key = str(avatar.get("provider_key") or "").strip().lower()
+    proof_verdict = str(avatar.get("provider_proof_verdict") or "").strip().upper()
+    if enabled:
+        missing = []
+        if not provider_key:
+            missing.append("provider_key")
+        if proof_verdict != "VERIFIED_PROVIDER":
+            missing.append("provider_proof_verdict")
+        if not asset_relpath:
+            missing.append("asset_relpath")
+        if missing:
+            report.add("fail", "avatar_manifest_incomplete", "Enabled avatar manifest is missing required fields.", fields=missing)
+            return
+        asset_path = bundle / asset_relpath
+        asset_suffix = asset_path.suffix.lower()
+        if asset_suffix not in ALLOWED_AVATAR_VIDEO_SUFFIXES:
+            report.add("fail", "avatar_video_suffix_invalid", "Enabled avatar video uses an unsupported suffix.", relpath=asset_relpath, suffix=asset_suffix)
+        elif not asset_path.is_file():
+            report.add("fail", "avatar_video_asset_missing", "Enabled avatar video asset is missing from disk.", relpath=asset_relpath)
+        else:
+            report.add("pass", "avatar_video_asset_present", "Enabled avatar video asset exists on disk.", relpath=asset_relpath)
+        if poster_relpath:
+            poster_path = bundle / poster_relpath
+            poster_suffix = poster_path.suffix.lower()
+            if poster_suffix not in ALLOWED_AVATAR_POSTER_SUFFIXES:
+                report.add("fail", "avatar_poster_suffix_invalid", "Enabled avatar poster uses an unsupported suffix.", relpath=poster_relpath, suffix=poster_suffix)
+            elif not poster_path.is_file():
+                report.add("fail", "avatar_poster_missing", "Enabled avatar poster asset is missing from disk.", relpath=poster_relpath)
+            else:
+                report.add("pass", "avatar_poster_present", "Enabled avatar poster asset exists on disk.", relpath=poster_relpath)
+        else:
+            report.add("warn", "avatar_poster_not_declared", "Enabled avatar has no poster asset declared.")
+        report.add("pass", "avatar_manifest_verified", "Enabled avatar manifest is tied to a verified provider verdict.", provider_key=provider_key)
+        return
+    if asset_relpath and proof_verdict == "VERIFIED_PROVIDER":
+        report.add("warn", "avatar_verified_but_disabled", "Avatar proof is verified but public_ready is still false; portrait fallback remains active.", relpath=asset_relpath)
+    else:
+        report.add("warn", "avatar_not_live_yet", "Avatar video is not live yet; portrait fallback remains active.", provider_key=provider_key or "unknown")
+
+
 def check_filesystem(slug: str, report: Report, *, require_clone_consent: bool = False) -> None:
     bundle = public_memorial_root() / safe_slug(slug)
     manifest_path = bundle / "memorial.json"
@@ -236,6 +287,8 @@ def check_filesystem(slug: str, report: Report, *, require_clone_consent: bool =
     else:
         report.add("pass", "blocked_files_absent_from_public_bundle", "Private memorial config files are absent from the public bundle.")
 
+    _check_avatar_bundle(memorial, bundle=bundle, report=report)
+
     try:
         registry, registry_path = _public_registry_for(slug)
     except Exception as exc:
@@ -278,6 +331,7 @@ def http_request(url: str, *, method: str = "GET", body: bytes | None = None, he
 
 def check_live(slug: str, report: Report, base_url: str) -> None:
     base = base_url.rstrip("/")
+    public_json_payload: dict[str, Any] = {}
 
     status, _ = http_request(f"{base}/memorials/files/{slug}/memorial.json")
     if status == 404:
@@ -293,6 +347,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             payload = json.loads(body)
         except json.JSONDecodeError:
             payload = {}
+        public_json_payload = payload if isinstance(payload, dict) else {}
         leaked = sorted(key for key in PUBLIC_JSON_BLOCK_KEYS if payload.get(key))
         if leaked:
             report.add("fail", "live_public_json_leaks_sensitive_fields", "Live public memorial JSON leaks sensitive fields.", keys=leaked)
@@ -318,6 +373,17 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             report.add("fail", "live_public_page_not_minimal", "Live public memorial page still exposes removed public sections.", markers=present_forbidden)
         else:
             report.add("pass", "live_public_page_minimal", "Live public memorial page stays on the minimal conversation-only surface.")
+        avatar_payload = dict(public_json_payload.get("video_call_avatar") or {}) if isinstance(public_json_payload, dict) else {}
+        avatar_enabled = bool(avatar_payload.get("enabled") is True)
+        page_has_avatar_video = 'id="memorial-video-call-avatar-video"' in body
+        if avatar_enabled and not page_has_avatar_video:
+            report.add("fail", "live_avatar_video_missing_from_page", "Live page does not render avatar video even though public JSON says enabled.")
+        elif avatar_enabled and page_has_avatar_video:
+            report.add("pass", "live_avatar_video_present_on_page", "Live page renders avatar video when public JSON says enabled.")
+        elif (not avatar_enabled) and page_has_avatar_video:
+            report.add("fail", "live_avatar_video_present_while_disabled", "Live page still renders avatar video even though public JSON says disabled.")
+        else:
+            report.add("pass", "live_avatar_portrait_fallback_consistent", "Live page portrait fallback matches the public JSON avatar-disabled state.")
 
     status, body = http_request(f"{base}/memorials/{slug}/voice-config")
     if status != 200:

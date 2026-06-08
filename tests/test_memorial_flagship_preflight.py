@@ -101,6 +101,46 @@ def test_preflight_passes_explicit_consent_and_public_registry(monkeypatch, tmp_
 
     assert any(item.code == "voice_consent_ok" and item.status == "pass" for item in report.findings)
     assert any(item.code == "archive_registry_public_only" and item.status == "pass" for item in report.findings)
+    assert any(item.code == "avatar_manifest_missing" and item.status == "warn" for item in report.findings)
+
+
+def test_preflight_passes_verified_avatar_bundle(monkeypatch, tmp_path) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    (bundle / "video").mkdir(parents=True)
+    (bundle / "video" / "avatar.mp4").write_bytes(b"mp4")
+    (bundle / "video" / "avatar-poster.png").write_bytes(b"\x89PNG\r\n\x1a\nposter")
+    (bundle / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": "manfred",
+                "audio_clips": [],
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                },
+                "video_call_avatar": {
+                    "provider_key": "vidboard",
+                    "provider_proof_verdict": "VERIFIED_PROVIDER",
+                    "public_ready": True,
+                    "asset_relpath": "video/avatar.mp4",
+                    "poster_relpath": "video/avatar-poster.png",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "public_registry_path", lambda slug, generated=False: tmp_path / "missing.json")
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(item.code == "avatar_video_asset_present" and item.status == "pass" for item in report.findings)
+    assert any(item.code == "avatar_manifest_verified" and item.status == "pass" for item in report.findings)
 
 
 def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
@@ -108,7 +148,7 @@ def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
 
     responses = {
         "https://example.test/memorials/files/manfred/memorial.json": (404, ""),
-        "https://example.test/memorials/manfred.json": (200, json.dumps({"slug": "manfred", "person_name": "Manfred"})),
+        "https://example.test/memorials/manfred.json": (200, json.dumps({"slug": "manfred", "person_name": "Manfred", "video_call_avatar": {"enabled": False, "kind": "portrait"}})),
         "https://example.test/memorials/manfred": (
             200,
             "<html><body>Gespräch beginnen"
@@ -150,3 +190,50 @@ def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
     assert report.failed is False
     assert any(item.code == "live_public_page_minimal" and item.status == "pass" for item in report.findings)
     assert any(item.code == "live_public_tts_rejects_override" and item.status == "pass" for item in report.findings)
+    assert any(item.code == "live_avatar_portrait_fallback_consistent" and item.status == "pass" for item in report.findings)
+
+
+def test_preflight_live_checks_avatar_video_when_public_json_enabled(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    responses = {
+        "https://example.test/memorials/files/manfred/memorial.json": (404, ""),
+        "https://example.test/memorials/manfred.json": (
+            200,
+            json.dumps(
+                {
+                    "slug": "manfred",
+                    "person_name": "Manfred",
+                    "video_call_avatar": {
+                        "enabled": True,
+                        "kind": "video",
+                        "asset_url": "/memorials/files/manfred/video/avatar.mp4",
+                        "poster_url": "/memorials/files/manfred/video/avatar-poster.png",
+                    },
+                }
+            ),
+        ),
+        "https://example.test/memorials/manfred": (
+            200,
+            "<html><body>Gespräch beginnen"
+            "Am Handy/Desktop installieren"
+            "<video id=\"memorial-video-call-avatar-video\" src=\"/memorials/files/manfred/video/avatar.mp4\"></video></body></html>",
+        ),
+        "https://example.test/memorials/manfred/voice-config": (
+            200,
+            json.dumps({"slug": "manfred", "tts_plugin": "browser_speech_synthesis", "voice_label": "Safe"}),
+        ),
+        "https://example.test/memorials/manfred/archive.json": (200, json.dumps({"fliplink_publications": []})),
+        "https://example.test/memorials/manfred/speech-synthesize": (400, '{"error":{"code":"unsupported_public_tts_fields"}}'),
+    }
+
+    def fake_http_request(url: str, *, method: str = "GET", body: bytes | None = None, headers=None):
+        return responses[url]
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_live("manfred", report, "https://example.test")
+
+    assert report.failed is False
+    assert any(item.code == "live_avatar_video_present_on_page" and item.status == "pass" for item in report.findings)
