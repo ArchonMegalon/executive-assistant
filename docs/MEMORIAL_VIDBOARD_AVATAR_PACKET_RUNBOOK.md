@@ -33,10 +33,20 @@ Default output:
 - copied portrait image from the public memorial bundle
 - extracted WAV segment from the public memorial audio clip
 - transcript from `/memorials/{slug}/speech-transcribe` when `--base-url` is provided
+- multiple candidate segments plus an automatically selected best candidate
 - provider instruction:
   - use the supplied portrait
   - use the supplied original archive audio only
   - do not invent or rewrite Manfred copy
+
+## Review rule
+
+The packet now marks the chosen segment as either:
+
+- `auto_candidate_ready`
+- `manual_review_required`
+
+If the selected segment is marked `manual_review_required`, do not export blindly in VidBoard. Pick a better candidate from the generated packet or rerun with an explicit `--start-seconds`.
 
 ## Operator step
 
