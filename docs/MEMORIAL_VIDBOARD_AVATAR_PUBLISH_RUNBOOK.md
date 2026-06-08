@@ -20,6 +20,7 @@ If any of those conditions are missing, the page must stay on the portrait fallb
   - local `.mp4`, `.webm`, or `.mov`
 - poster image:
   - local `.png`, `.jpg`, `.jpeg`, or `.webp`
+  - optional; if omitted or the target file does not exist yet, the publish script generates one from the first frame
 
 ## Publish
 
@@ -40,12 +41,14 @@ Optional overrides:
 - `--provider-label "VidBoard Avatar bereit"`
 - `--title "Manfred Hoza als Avatar"`
 - `--detail "VidBoard-Clip ist fuer den Video Call eingebunden."`
+- `--poster /tmp/manfred-poster.png` to let the script generate that file if it does not exist yet
 
 ## Result
 
 The script:
 
 - verifies the proof file is really `VERIFIED_PROVIDER`
+- verifies the video has a real video stream, valid dimensions, and at least `1.0s` duration
 - copies the video and poster into `memorial_data/public_memorials/{slug}/video/`
 - updates `memorial.json` with a `video_call_avatar` block
 - writes a publish receipt to:

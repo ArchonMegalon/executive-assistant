@@ -44,6 +44,35 @@ def _write_proof(path: Path, *, verdict: str = "VERIFIED_PROVIDER", provider_rea
     )
 
 
+def _write_test_video(path: Path) -> None:
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=320x240:d=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=mono",
+            "-shortest",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_publish_memorial_video_call_avatar_updates_bundle_and_receipt(tmp_path: Path) -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "publish_memorial_video_call_avatar.py"
     bundle_root = tmp_path / "public_memorials"
@@ -52,7 +81,7 @@ def test_publish_memorial_video_call_avatar_updates_bundle_and_receipt(tmp_path:
     _write_proof(proof_path)
     asset_path = tmp_path / "avatar.mp4"
     poster_path = tmp_path / "poster.png"
-    asset_path.write_bytes(b"mp4")
+    _write_test_video(asset_path)
     poster_path.write_bytes(b"\x89PNG\r\n\x1a\nposter")
     receipt_path = tmp_path / "publish_receipt.generated.json"
 
@@ -88,6 +117,9 @@ def test_publish_memorial_video_call_avatar_updates_bundle_and_receipt(tmp_path:
     assert avatar["public_ready"] is True
     assert avatar["asset_relpath"].startswith("video/manfred-vidboard-avatar.")
     assert avatar["poster_relpath"].startswith("video/manfred-vidboard-avatar-poster.")
+    assert avatar["asset_metadata"]["duration_seconds"] >= 1.0
+    assert avatar["asset_metadata"]["width"] == 320
+    assert avatar["asset_metadata"]["height"] == 240
     assert (bundle_root / "manfred" / avatar["asset_relpath"]).is_file()
     assert (bundle_root / "manfred" / avatar["poster_relpath"]).is_file()
 
@@ -95,6 +127,46 @@ def test_publish_memorial_video_call_avatar_updates_bundle_and_receipt(tmp_path:
     assert receipt["slug"] == "manfred"
     assert receipt["provider_key"] == "vidboard"
     assert receipt["provider_proof_verdict"] == "VERIFIED_PROVIDER"
+    assert receipt["asset_metadata"]["codec_name"] == "h264"
+
+
+def test_publish_memorial_video_call_avatar_generates_poster_when_missing(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "publish_memorial_video_call_avatar.py"
+    bundle_root = tmp_path / "public_memorials"
+    _write_memorial_bundle(bundle_root, "manfred")
+    proof_path = tmp_path / "vidboard_AVATAR_PRESENTER_PROVIDER_PROOF.generated.json"
+    _write_proof(proof_path)
+    asset_path = tmp_path / "avatar.mp4"
+    _write_test_video(asset_path)
+    auto_poster_path = tmp_path / "generated-poster.png"
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            "--slug",
+            "manfred",
+            "--provider",
+            "vidboard",
+            "--asset",
+            str(asset_path),
+            "--poster",
+            str(auto_poster_path),
+            "--bundle-root",
+            str(bundle_root),
+            "--proof",
+            str(proof_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert auto_poster_path.is_file()
+    payload = json.loads((bundle_root / "manfred" / "memorial.json").read_text(encoding="utf-8"))
+    avatar = dict(payload["video_call_avatar"])
+    assert avatar["poster_relpath"].startswith("video/manfred-vidboard-avatar-poster.")
 
 
 def test_publish_memorial_video_call_avatar_rejects_unverified_proof(tmp_path: Path) -> None:
@@ -105,7 +177,7 @@ def test_publish_memorial_video_call_avatar_rejects_unverified_proof(tmp_path: P
     _write_proof(proof_path, verdict="READY_VIA_FALLBACK", provider_ready=False)
     asset_path = tmp_path / "avatar.mp4"
     poster_path = tmp_path / "poster.png"
-    asset_path.write_bytes(b"mp4")
+    _write_test_video(asset_path)
     poster_path.write_bytes(b"\x89PNG\r\n\x1a\nposter")
 
     try:
@@ -114,3 +186,58 @@ def test_publish_memorial_video_call_avatar_rejects_unverified_proof(tmp_path: P
         assert str(exc) == "provider_proof_not_verified"
     else:
         raise AssertionError("expected provider proof rejection")
+
+
+def test_publish_memorial_video_call_avatar_rejects_too_short_video(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "publish_memorial_video_call_avatar.py"
+    bundle_root = tmp_path / "public_memorials"
+    _write_memorial_bundle(bundle_root, "manfred")
+    proof_path = tmp_path / "vidboard_AVATAR_PRESENTER_PROVIDER_PROOF.generated.json"
+    _write_proof(proof_path)
+    asset_path = tmp_path / "avatar.mp4"
+    poster_path = tmp_path / "poster.png"
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=320x240:d=0.3",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(asset_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    poster_path.write_bytes(b"\x89PNG\r\n\x1a\nposter")
+
+    completed = subprocess.run(
+        [
+            "python3",
+            str(script),
+            "--slug",
+            "manfred",
+            "--provider",
+            "vidboard",
+            "--asset",
+            str(asset_path),
+            "--poster",
+            str(poster_path),
+            "--bundle-root",
+            str(bundle_root),
+            "--proof",
+            str(proof_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "avatar_asset_too_short" in (completed.stderr or completed.stdout)

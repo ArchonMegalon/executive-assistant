@@ -6,6 +6,7 @@ import hashlib
 import json
 import mimetypes
 import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -15,6 +16,7 @@ DEFAULT_BUNDLE_ROOT = ROOT / "memorial_data" / "public_memorials"
 DEFAULT_PROOF_ROOT = Path("/docker/fleet/state/chummer6/avatar_presenter_provider")
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".webm", ".mov"}
 ALLOWED_POSTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+MIN_VIDEO_DURATION_SECONDS = 1.0
 
 
 def _utc_now() -> str:
@@ -73,6 +75,86 @@ def _validated_asset(path: Path, *, allowed_suffixes: set[str], error_code: str)
     return path
 
 
+def _run_ffprobe(path: Path) -> dict[str, object]:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_streams",
+            "-show_format",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(f"ffprobe_failed:{path}")
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"ffprobe_invalid_json:{path}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"ffprobe_invalid_payload:{path}")
+    return payload
+
+
+def _validated_video_metadata(path: Path) -> dict[str, object]:
+    payload = _run_ffprobe(path)
+    streams = [dict(item) for item in payload.get("streams", []) if isinstance(item, dict)]
+    format_payload = dict(payload.get("format", {}) or {})
+    video_stream = next((item for item in streams if str(item.get("codec_type") or "").strip().lower() == "video"), None)
+    if not video_stream:
+        raise SystemExit("avatar_asset_no_video_stream")
+    width = int(video_stream.get("width") or 0)
+    height = int(video_stream.get("height") or 0)
+    if width <= 0 or height <= 0:
+        raise SystemExit("avatar_asset_invalid_dimensions")
+    try:
+        duration_seconds = float(video_stream.get("duration") or format_payload.get("duration") or 0.0)
+    except (TypeError, ValueError):
+        duration_seconds = 0.0
+    if duration_seconds < MIN_VIDEO_DURATION_SECONDS:
+        raise SystemExit("avatar_asset_too_short")
+    codec_name = str(video_stream.get("codec_name") or "").strip().lower()
+    if not codec_name:
+        raise SystemExit("avatar_asset_codec_missing")
+    return {
+        "duration_seconds": round(duration_seconds, 3),
+        "width": width,
+        "height": height,
+        "codec_name": codec_name,
+    }
+
+
+def _ensure_poster_source(path: Path, *, asset_source: Path) -> Path:
+    if path.is_file():
+        return _validated_asset(path, allowed_suffixes=ALLOWED_POSTER_SUFFIXES, error_code="avatar_poster")
+    if path.exists():
+        raise SystemExit(f"avatar_poster_unsupported:{path.suffix.lower()}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(asset_source),
+            "-frames:v",
+            "1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not path.is_file():
+        raise SystemExit("avatar_poster_generate_failed")
+    return _validated_asset(path, allowed_suffixes=ALLOWED_POSTER_SUFFIXES, error_code="avatar_poster")
+
+
 def _copy_asset(source: Path, target: Path) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
@@ -89,6 +171,7 @@ def _receipt_payload(
     poster_relpath: str,
     asset_sha256: str,
     poster_sha256: str,
+    asset_metadata: dict[str, object],
 ) -> dict[str, object]:
     return {
         "generated_at": _utc_now(),
@@ -102,6 +185,7 @@ def _receipt_payload(
         "poster_relpath": poster_relpath,
         "asset_sha256": asset_sha256,
         "poster_sha256": poster_sha256,
+        "asset_metadata": asset_metadata,
         "public_ready": True,
     }
 
@@ -111,7 +195,7 @@ def main() -> int:
     parser.add_argument("--slug", required=True)
     parser.add_argument("--provider", default="vidboard")
     parser.add_argument("--asset", required=True)
-    parser.add_argument("--poster", required=True)
+    parser.add_argument("--poster", default="")
     parser.add_argument("--bundle-root", default=str(DEFAULT_BUNDLE_ROOT))
     parser.add_argument("--proof", default="")
     parser.add_argument("--title", default="")
@@ -127,7 +211,9 @@ def main() -> int:
     proof = _validated_proof(proof_path, provider_key)
     bundle_dir, memorial_payload = _validated_bundle(slug, bundle_root)
     asset_source = _validated_asset(Path(args.asset), allowed_suffixes=ALLOWED_VIDEO_SUFFIXES, error_code="avatar_asset")
-    poster_source = _validated_asset(Path(args.poster), allowed_suffixes=ALLOWED_POSTER_SUFFIXES, error_code="avatar_poster")
+    asset_metadata = _validated_video_metadata(asset_source)
+    requested_poster = Path(args.poster) if str(args.poster).strip() else asset_source.with_suffix(".poster.png")
+    poster_source = _ensure_poster_source(requested_poster, asset_source=asset_source)
 
     asset_target_name = f"{_safe_relname(slug)}-{_safe_relname(provider_key)}-avatar{asset_source.suffix.lower()}"
     poster_target_name = f"{_safe_relname(slug)}-{_safe_relname(provider_key)}-avatar-poster{poster_source.suffix.lower()}"
@@ -156,6 +242,7 @@ def main() -> int:
         "poster_mime_type": mimetypes.guess_type(poster_target.name)[0] or "application/octet-stream",
         "asset_sha256": asset_sha256,
         "poster_sha256": poster_sha256,
+        "asset_metadata": asset_metadata,
     }
     (bundle_dir / "memorial.json").write_text(json.dumps(memorial_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -172,6 +259,7 @@ def main() -> int:
                 poster_relpath=poster_relpath,
                 asset_sha256=asset_sha256,
                 poster_sha256=poster_sha256,
+                asset_metadata=asset_metadata,
             ),
             indent=2,
             ensure_ascii=False,
@@ -186,6 +274,7 @@ def main() -> int:
                 "provider_key": provider_key,
                 "asset_relpath": asset_relpath,
                 "poster_relpath": poster_relpath,
+                "asset_metadata": asset_metadata,
                 "receipt_path": receipt_path.as_posix(),
                 "verdict": "published",
             },
