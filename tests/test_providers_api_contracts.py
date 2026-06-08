@@ -8604,6 +8604,7 @@ def test_public_memorial_speech_transcribe_uploads_audio_and_returns_text(
     from app.api.routes import public_memorials
 
     seen: dict[str, object] = {}
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
 
     def _fake_transcribe(*, payload, content_type):
         seen["payload"] = payload
@@ -8642,6 +8643,7 @@ def test_public_memorial_speech_transcribe_normalizes_json_text_payload(
     from app.api.routes import public_memorials
 
     from app.product import service as product_service
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
 
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"fileContent": {"path": "asset/audio.webm"}})
@@ -8688,6 +8690,7 @@ def test_public_memorial_speech_transcribe_converts_browser_webm_before_upload(
     from app.product import service as product_service
 
     seen: dict[str, object] = {}
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
     monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: b"converted-wav")
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
 
@@ -8722,6 +8725,62 @@ def test_public_memorial_speech_transcribe_converts_browser_webm_before_upload(
     assert seen["payload"] == b"converted-wav"
 
 
+def test_public_memorial_speech_transcribe_retries_with_enhanced_wav_after_empty_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    uploads: list[dict[str, object]] = []
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
+
+    def _fake_convert_audio_to_wav(**kwargs):
+        return b"enhanced-wav" if kwargs.get("enhance_for_speech") else b"converted-wav"
+
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", _fake_convert_audio_to_wav)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: uploads.append(kwargs) or {"fileContent": {"path": f"asset/{len(uploads)}.wav"}},
+    )
+
+    transcribe_calls = {"count": 0}
+
+    def _fake_transcribe(**kwargs):
+        transcribe_calls["count"] += 1
+        if transcribe_calls["count"] == 1:
+            return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": ""}}}}
+        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Was war ihm bei Familie wichtig?"}}}}
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_transcribe)
+    client = _client(principal_id="exec-public-memorial-speech-enhanced-retry")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"browser-webm",
+        headers={"content-type": "audio/webm;codecs=opus"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["transcript_text"] == "Was war ihm bei Familie wichtig?"
+    assert response.json()["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
+    assert len(uploads) == 2
+    assert uploads[0]["payload"] == b"converted-wav"
+    assert uploads[1]["payload"] == b"enhanced-wav"
+
+
 def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_audio_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -8736,7 +8795,9 @@ def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_a
     )
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
 
+    from app.api.routes import public_memorials
     from app.product import service as product_service
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
 
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"fileContent": {"path": "asset/audio.webm"}})

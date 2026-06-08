@@ -5556,12 +5556,12 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         keys = product_service._pocket_onemin_api_keys()
         if not keys:
             raise HTTPException(status_code=503, detail="speech_transcriber_unavailable")
-        upload_payload = payload
-        upload_content_type = normalized_content_type
-        upload_extension = extension
-        if normalized_content_type not in _ONEMIN_SPEECH_AUDIO_TYPES:
+        upload_variants: list[tuple[bytes, str, str, str]] = []
+        if normalized_content_type in _ONEMIN_SPEECH_AUDIO_TYPES:
+            upload_variants.append((payload, normalized_content_type, extension, "original"))
+        else:
             try:
-                upload_payload = _convert_audio_to_wav(payload=payload, extension=extension)
+                converted_payload = _convert_audio_to_wav(payload=payload, extension=extension)
             except Exception as exc:
                 return {
                     "transcription_status": "no_speech",
@@ -5570,52 +5570,62 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     "retryable": True,
                     "detail": str(exc)[:180],
                 }
-            upload_content_type = "audio/wav"
-            upload_extension = ".wav"
+            upload_variants.append((converted_payload, "audio/wav", ".wav", "converted_wav"))
+        if normalized_content_type not in {"audio/wav", "audio/wave", "audio/x-wav"}:
+            try:
+                enhanced_payload = _convert_audio_to_wav(payload=payload, extension=extension, enhance_for_speech=True)
+            except Exception:
+                enhanced_payload = b""
+            if enhanced_payload and not any(item[0] == enhanced_payload for item in upload_variants):
+                upload_variants.append((enhanced_payload, "audio/wav", ".wav", "enhanced_wav"))
         last_error: Exception | None = None
         for api_key in keys:
-            try:
-                uploaded = product_service._onemin_asset_upload(
-                    api_key=api_key,
-                    filename=f"memorial-speech{upload_extension}",
-                    content_type=upload_content_type,
-                    payload=upload_payload,
-                )
-                asset = dict(uploaded.get("asset") or {}) if isinstance(uploaded.get("asset"), dict) else {}
-                file_content = dict(uploaded.get("fileContent") or {}) if isinstance(uploaded.get("fileContent"), dict) else {}
-                audio_path = str(file_content.get("path") or asset.get("key") or "").strip()
-                if not audio_path:
-                    raise RuntimeError("speech_asset_missing_path")
-                transcribed = product_service._onemin_speech_to_text(
-                    api_key=api_key,
-                    audio_path=audio_path,
-                    language="de",
-                )
-                ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
-                ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
-                text = _repair_memorial_transcript_text(
-                    product_service._extract_transcript_text(ai_detail.get("responseObject"))
-                    or product_service._extract_transcript_text(ai_detail.get("resultObject"))
-                )
-                if text.startswith("{") and text.endswith("}"):
-                    try:
-                        parsed_text = json.loads(text)
-                    except json.JSONDecodeError:
-                        parsed_text = {}
-                    if isinstance(parsed_text, dict):
-                        text = _repair_memorial_transcript_text(
-                            product_service._extract_transcript_text(parsed_text.get("text")) or text
-                        )
-                if not text:
-                    raise RuntimeError("speech_transcript_empty")
-                return {
-                    "transcription_status": "transcribed",
-                    "transcript_text": text,
-                    "transcriber": "1min.ai/whisper-1",
-                }
-            except Exception as exc:
-                last_error = exc
-                continue
+            for variant_payload, variant_content_type, variant_extension, variant_label in upload_variants:
+                try:
+                    uploaded = product_service._onemin_asset_upload(
+                        api_key=api_key,
+                        filename=f"memorial-speech{variant_extension}",
+                        content_type=variant_content_type,
+                        payload=variant_payload,
+                    )
+                    asset = dict(uploaded.get("asset") or {}) if isinstance(uploaded.get("asset"), dict) else {}
+                    file_content = dict(uploaded.get("fileContent") or {}) if isinstance(uploaded.get("fileContent"), dict) else {}
+                    audio_path = str(file_content.get("path") or asset.get("key") or "").strip()
+                    if not audio_path:
+                        raise RuntimeError("speech_asset_missing_path")
+                    transcribed = product_service._onemin_speech_to_text(
+                        api_key=api_key,
+                        audio_path=audio_path,
+                        language="de",
+                    )
+                    ai_record = dict(transcribed.get("aiRecord") or {}) if isinstance(transcribed.get("aiRecord"), dict) else {}
+                    ai_detail = dict(ai_record.get("aiRecordDetail") or {}) if isinstance(ai_record.get("aiRecordDetail"), dict) else {}
+                    text = _repair_memorial_transcript_text(
+                        product_service._extract_transcript_text(ai_detail.get("responseObject"))
+                        or product_service._extract_transcript_text(ai_detail.get("resultObject"))
+                    )
+                    if text.startswith("{") and text.endswith("}"):
+                        try:
+                            parsed_text = json.loads(text)
+                        except json.JSONDecodeError:
+                            parsed_text = {}
+                        if isinstance(parsed_text, dict):
+                            text = _repair_memorial_transcript_text(
+                                product_service._extract_transcript_text(parsed_text.get("text")) or text
+                            )
+                    if not text:
+                        raise RuntimeError(f"speech_transcript_empty:{variant_label}")
+                    transcriber = "1min.ai/whisper-1"
+                    if variant_label != "original":
+                        transcriber = f"{transcriber}+{variant_label}"
+                    return {
+                        "transcription_status": "transcribed",
+                        "transcript_text": text,
+                        "transcriber": transcriber,
+                    }
+                except Exception as exc:
+                    last_error = exc
+                    continue
         detail = str(last_error or "speech_transcription_failed")[:180]
         return {
             "transcription_status": "no_speech",
@@ -5630,22 +5640,31 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         raise HTTPException(status_code=502, detail=f"speech_transcription_failed:{str(exc)[:120]}") from exc
 
 
-def _convert_audio_to_wav(*, payload: bytes, extension: str) -> bytes:
+def _convert_audio_to_wav(*, payload: bytes, extension: str, enhance_for_speech: bool = False) -> bytes:
     suffix = extension if str(extension or "").startswith(".") else ".webm"
     with tempfile.TemporaryDirectory(prefix="ea-memorial-stt-") as tmp_dir:
         input_path = Path(tmp_dir) / f"input{suffix}"
         output_path = Path(tmp_dir) / "output.wav"
         input_path.write_bytes(payload)
-        proc = subprocess.run(
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vn",
+        ]
+        if enhance_for_speech:
+            cmd.extend(
+                [
+                    "-af",
+                    "highpass=f=100,lowpass=f=3800,dynaudnorm=f=150:g=15",
+                ]
+            )
+        cmd.extend(
             [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                str(input_path),
-                "-vn",
                 "-ac",
                 "1",
                 "-ar",
@@ -5653,7 +5672,10 @@ def _convert_audio_to_wav(*, payload: bytes, extension: str) -> bytes:
                 "-f",
                 "wav",
                 str(output_path),
-            ],
+            ]
+        )
+        proc = subprocess.run(
+            cmd,
             capture_output=True,
             timeout=20,
             check=False,
