@@ -524,6 +524,15 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
     slug = _setup_memorial(monkeypatch, tmp_path)
     from app.api.routes import public_memorials
 
+    class _ImmediateThread:
+        def __init__(self, *, target, args=(), kwargs=None, daemon=None, name=None):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self) -> None:
+            self._target(*self._args, **self._kwargs)
+
     _write_private_voice(
         Path(str(tmp_path / "private")),
         slug,
@@ -557,6 +566,7 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
         "voicewave_synthesize_request",
         lambda **kwargs: seen_voicewave_calls.append(kwargs) or (b"RIFFvoicewave", "audio/wav"),
     )
+    monkeypatch.setattr(public_memorials.threading, "Thread", _ImmediateThread)
 
     public_memorials._run_memorial_live_warmup(slug)
 

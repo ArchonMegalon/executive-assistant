@@ -5364,15 +5364,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
         if _safe_tts_plugin_id(base_config.get("tts_plugin")) == VOICEWAVE_TTS_PLUGIN_ID:
             voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
             if voice_label:
-                for seed_question in ("Bist du da?", "Hoerst du zu?", "Kann ich jetzt mit dir reden?"):
-                    try:
-                        voicewave_synthesize_request(
-                            text=_memorial_contact_answer_body(seed_question),
-                            voice_label=voice_label,
-                        )
-                    except Exception as exc:
-                        errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
-                        break
+                _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
         _log_memorial_timing(
@@ -5392,6 +5384,41 @@ def _run_memorial_live_warmup(slug: str) -> None:
             current["completed_at"] = time.time()
             current["errors"] = errors[:6]
             _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+
+
+def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
+    errors: list[str] = []
+    started_clock = time.perf_counter()
+    try:
+        for seed_question in ("Bist du da?", "Hoerst du zu?", "Kann ich jetzt mit dir reden?"):
+            try:
+                voicewave_synthesize_request(
+                    text=_memorial_contact_answer_body(seed_question),
+                    voice_label=voice_label,
+                )
+            except Exception as exc:
+                errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
+                break
+    finally:
+        _log_memorial_timing(
+            "voicewave_contact_prewarm",
+            slug=slug,
+            total_ms=(time.perf_counter() - started_clock) * 1000.0,
+            tts_plugin=VOICEWAVE_TTS_PLUGIN_ID,
+            errors="|".join(errors[:6]) if errors else "-",
+        )
+
+
+def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
+    if not str(voice_label or "").strip():
+        return
+    worker = threading.Thread(
+        target=_run_memorial_voicewave_contact_prewarm,
+        args=(slug, voice_label),
+        daemon=True,
+        name=f"memorial-voicewave-prewarm-{slug}",
+    )
+    worker.start()
 
 
 def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
