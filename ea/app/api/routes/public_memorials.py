@@ -8699,10 +8699,12 @@ def _memorial_html(
         const isFirstConversationTurn = conversationTurnCount <= 0;
         const lowered = normalizeConversationCompareText(normalized);
         const looksGreeting = /(^| )(hallo|hi|hey|servus|gruess gott|gruesz gott|grüß gott|manfred)( |$)/.test(lowered);
+        const hasSpeechLikeChars = /[a-z0-9äöüß]/i.test(normalized);
         if (looksImmediateLivePrompt(normalized)) return true;
-        if (isFirstConversationTurn && ((normalized.length >= 6 && words.length >= 2) || looksGreeting)) return true;
-        if (conversationIdleMisses >= 1 && ((normalized.length >= 6 && words.length >= 2) || looksGreeting)) return true;
-        if (conversationIdleMisses >= 2 && normalized.length >= 4) return true;
+        if (isFirstConversationTurn && looksGreeting) return true;
+        if (isFirstConversationTurn && hasSpeechLikeChars && normalized.length >= 3) return true;
+        if (conversationIdleMisses >= 1 && hasSpeechLikeChars && normalized.length >= 2) return true;
+        if (conversationIdleMisses >= 2 && hasSpeechLikeChars) return true;
         if (normalized.length < 12 || words.length < 3) return false;
         if (lastAnswerText && conversationEchoScore(normalized, lastAnswerText) >= 0.72) return false;
         const starters = new Set([
@@ -10408,7 +10410,17 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
         raise HTTPException(status_code=413, detail="audio_too_large")
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
-    return JSONResponse(_memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
+    result = _memorial_transcribe_audio_blob(payload=payload, content_type=content_type)
+    _log_memorial_timing(
+        "speech_transcribe",
+        slug=slug,
+        content_type=content_type,
+        audio_bytes=len(payload),
+        transcript_chars=len(_text(result.get("transcript_text"))),
+        status=_text(result.get("transcription_status")),
+        transcriber=_text(result.get("transcriber")),
+    )
+    return JSONResponse(result)
 
 
 @router.get("/memorials/{slug}/speech-synthesize")

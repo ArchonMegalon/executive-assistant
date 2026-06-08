@@ -842,9 +842,46 @@ def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcript
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
     assert "const looksGreeting =" in source
-    assert "normalized.length >= 6 && words.length >= 2" in source
-    assert "conversationIdleMisses >= 2 && normalized.length >= 4" in source
+    assert "const hasSpeechLikeChars = /[a-z0-9äöüß]/i.test(normalized);" in source
+    assert "isFirstConversationTurn && hasSpeechLikeChars && normalized.length >= 3" in source
+    assert "conversationIdleMisses >= 1 && hasSpeechLikeChars && normalized.length >= 2" in source
     assert "if (!looksDirected && !(conversationIdleMisses >= 1 && normalized.length >= 8 && words.length >= 2)) return false;" in source
+
+
+def test_memorial_speech_transcribe_route_logs_timing_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Hallo Manfred",
+            "transcriber": "unit-test",
+        },
+    )
+    caplog.set_level(logging.INFO, logger=public_memorials.logger.name)
+    client = _client(principal_id="exec-memorial-speech-transcribe-log")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=_generated_wav_bytes(textish_seed="Hallo Manfred"),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["transcript_text"] == "Hallo Manfred"
+    assert any(
+        "memorial_timing event=speech_transcribe" in record.getMessage()
+        and "transcript_chars=13" in record.getMessage()
+        and "status=transcribed" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
