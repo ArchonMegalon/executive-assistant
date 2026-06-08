@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import math
 import re
 import shutil
@@ -18,6 +19,8 @@ PIPER_FAST_TTS_PLUGIN_ID = "piper_local_fast"
 PIPER_FAST_TTS_PLUGIN_LABEL = "Piper Local Fast"
 UNMIXR_TTS_PLUGIN_ID = "unmixr_clone"
 UNMIXR_TTS_PLUGIN_LABEL = "Unmixr AI Clone"
+VOICEWAVE_TTS_PLUGIN_ID = "voicewave_clone"
+VOICEWAVE_TTS_PLUGIN_LABEL = "VoiceWave Clone"
 _OPENVOICE_BASE_URL_ENV = "OPENVOICE_BASE_URL"
 _OPENVOICE_TIMEOUT_ENV = "OPENVOICE_TIMEOUT_SECONDS"
 _OPENVOICE_MEMORIAL_VOICE_ID_ENV = "OPENVOICE_MEMORIAL_VOICE_ID"
@@ -35,6 +38,11 @@ _UNMIXR_SPEAKING_RATE_ENV = "UNMIXR_SPEAKING_RATE"
 _UNMIXR_SPEAKING_PITCH_ENV = "UNMIXR_SPEAKING_PITCH"
 _UNMIXR_SPEAKING_VOLUME_ENV = "UNMIXR_SPEAKING_VOLUME"
 _UNMIXR_BASE_URL = "https://unmixr.com/api/v1"
+_VOICEWAVE_LOGIN_EMAIL_ENV = "VOICEWAVE_LOGIN_EMAIL"
+_VOICEWAVE_LOGIN_PASSWORD_ENV = "VOICEWAVE_LOGIN_PASSWORD"
+_VOICEWAVE_MEMORIAL_VOICE_LABEL_ENV = "VOICEWAVE_MEMORIAL_VOICE_LABEL"
+_VOICEWAVE_SCRIPT_PATH = Path("/docker/EA/scripts/voicewave_memorial_voice.py")
+_VOICEWAVE_TIMEOUT_SECONDS = 420
 
 
 def openvoice_base_url() -> str:
@@ -80,6 +88,18 @@ def unmixr_speaking_pitch() -> str:
 
 def unmixr_speaking_volume() -> str:
     return str(os.environ.get(_UNMIXR_SPEAKING_VOLUME_ENV) or "medium").strip() or "medium"
+
+
+def voicewave_login_email() -> str:
+    return str(os.environ.get(_VOICEWAVE_LOGIN_EMAIL_ENV) or "").strip()
+
+
+def voicewave_login_password() -> str:
+    return str(os.environ.get(_VOICEWAVE_LOGIN_PASSWORD_ENV) or "").strip()
+
+
+def voicewave_memorial_voice_label() -> str:
+    return str(os.environ.get(_VOICEWAVE_MEMORIAL_VOICE_LABEL_ENV) or "Manfred Hoza Memorial").strip() or "Manfred Hoza Memorial"
 
 
 def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
@@ -151,6 +171,28 @@ def unmixr_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool)
     }
 
 
+def voicewave_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
+    login_ready = bool(voicewave_login_email() and voicewave_login_password())
+    voice_label = configured_voice_id or voicewave_memorial_voice_label()
+    if not login_ready:
+        description = "Bitte VOICEWAVE_LOGIN_EMAIL und VOICEWAVE_LOGIN_PASSWORD setzen."
+    elif not voice_label:
+        description = "VoiceWave ist verbunden. Es fehlt noch das aktive Clone-Label."
+    else:
+        description = "VoiceWave-Studio-Clone fuer memoriale Sprachausgabe ist verbunden."
+    return {
+        "tts_plugin": VOICEWAVE_TTS_PLUGIN_ID,
+        "tts_plugin_label": VOICEWAVE_TTS_PLUGIN_LABEL,
+        "tts_plugin_description": description,
+        "tts_plugin_enabled": login_ready and bool(voice_label),
+        "tts_plugin_needs_clone": False,
+        "tts_plugin_clone_capable": True,
+        "tts_plugin_requires_voice_id": True,
+        "tts_plugin_voice_id": voice_label,
+        "tts_plugin_voice_profile_ready": bool(voice_profile_ready),
+    }
+
+
 def _openvoice_request(
     *,
     method: str,
@@ -204,6 +246,61 @@ def _unmixr_request(
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"unmixr_upstream_unreachable:{type(exc).__name__}") from exc
     return response
+
+
+def voicewave_synthesize_request(*, text: str, voice_label: str) -> tuple[bytes, str]:
+    if not _VOICEWAVE_SCRIPT_PATH.is_file():
+        raise HTTPException(status_code=503, detail="voicewave_runtime_script_missing")
+    if not voicewave_login_email() or not voicewave_login_password():
+        raise HTTPException(status_code=503, detail="voicewave_login_missing")
+    normalized_text = " ".join(str(text or "").split()).strip()
+    if not normalized_text:
+        raise HTTPException(status_code=400, detail="voicewave_tts_text_missing")
+    normalized_label = str(voice_label or "").strip() or voicewave_memorial_voice_label()
+    if not normalized_label:
+        raise HTTPException(status_code=409, detail="voicewave_voice_label_missing")
+    with tempfile.TemporaryDirectory(prefix="ea-voicewave-render-") as temp_dir_raw:
+        temp_dir = Path(temp_dir_raw)
+        output_path = temp_dir / "voicewave_render.generated.json"
+        screenshot_path = temp_dir / "voicewave_render.png"
+        audio_path = temp_dir / "voicewave_render.wav"
+        command = [
+            shutil.which("python3") or "python3",
+            str(_VOICEWAVE_SCRIPT_PATH),
+            "render",
+            "--voice-label",
+            normalized_label,
+            "--text",
+            normalized_text,
+            "--output",
+            str(output_path),
+            "--screenshot-output",
+            str(screenshot_path),
+            "--audio-output",
+            str(audio_path),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                timeout=_VOICEWAVE_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=504, detail="voicewave_tts_timeout") from exc
+        if completed.returncode != 0:
+            detail = str(completed.stdout or completed.stderr or "").strip()[:500]
+            if output_path.is_file():
+                try:
+                    payload = json.loads(output_path.read_text(encoding="utf-8"))
+                    detail = str((payload.get("errors") or [detail])[0] or detail)[:500]
+                except Exception:
+                    pass
+            raise HTTPException(status_code=502, detail=f"voicewave_tts_failed:{detail or 'render_failed'}")
+        if not audio_path.is_file() or audio_path.stat().st_size <= 0:
+            raise HTTPException(status_code=502, detail="voicewave_tts_no_audio")
+        return audio_path.read_bytes(), "audio/wav"
 
 
 def _prepare_clone_upload_path(path: Path) -> tuple[Path, bool]:

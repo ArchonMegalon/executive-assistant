@@ -37,6 +37,7 @@ from app.services.memorial_openvoice import (
     OPENVOICE_TTS_PLUGIN_ID,
     PIPER_FAST_TTS_PLUGIN_ID,
     UNMIXR_TTS_PLUGIN_ID,
+    VOICEWAVE_TTS_PLUGIN_ID,
     openvoice_clone_request,
     openvoice_memorial_voice_id,
     openvoice_plugin_option,
@@ -49,6 +50,9 @@ from app.services.memorial_openvoice import (
     unmixr_plugin_option,
     unmixr_synthesize_request,
     unmixr_voice_profile_id,
+    voicewave_memorial_voice_label,
+    voicewave_plugin_option,
+    voicewave_synthesize_request,
 )
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
@@ -2431,6 +2435,7 @@ def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool
     configured_voice_id = _text(payload.get("tts_plugin_voice_id"), "")
     unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
     openvoice_voice_id = configured_voice_id or openvoice_memorial_voice_id()
+    voicewave_voice_id = configured_voice_id or voicewave_memorial_voice_label()
     return [
         piper_fast_plugin_option(),
         {
@@ -2444,6 +2449,10 @@ def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool
         },
         unmixr_plugin_option(
             configured_voice_id=unmixr_voice_id,
+            voice_profile_ready=bool(voice_profile_ready),
+        ),
+        voicewave_plugin_option(
+            configured_voice_id=voicewave_voice_id,
             voice_profile_ready=bool(voice_profile_ready),
         ),
         openvoice_plugin_option(
@@ -5461,6 +5470,18 @@ def _build_memorial_conversation_turn_payload(
             speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
             speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
             speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+        )
+    elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+        voice_label = _text(
+            merged_config.get("tts_plugin_voice_id"),
+            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+        )
+        if not voice_label:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        tts_started = time.perf_counter()
+        audio, audio_content_type = voicewave_synthesize_request(
+            text=answer_text,
+            voice_label=voice_label,
         )
     elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
         voice_id = _text(
@@ -10500,6 +10521,17 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
             speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
             speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
         )
+    elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+        voice_label = _text(
+            merged_config.get("tts_plugin_voice_id"),
+            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+        )
+        if not voice_label:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, content_type = voicewave_synthesize_request(
+            text=text,
+            voice_label=voice_label,
+        )
     elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
         voice_id = _text(
             merged_config.get("tts_plugin_voice_id"),
@@ -10745,6 +10777,21 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             lang=_text(merged_config.get("lang"), "de"),
                         ),
                         timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
+                    )
+                elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+                    voice_label = _text(
+                        merged_config.get("tts_plugin_voice_id"),
+                        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+                    )
+                    if not voice_label:
+                        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+                    audio, audio_content_type = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            voicewave_synthesize_request,
+                            text=answer_text,
+                            voice_label=voice_label,
+                        ),
+                        timeout=max(_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS, 45.0),
                     )
                 elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
                     voice_id = _text(
