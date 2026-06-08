@@ -341,7 +341,13 @@ def _curate_clone_paths(sample_paths: list[Path]) -> list[Path]:
     return curated
 
 
-def openvoice_clone_request(*, slug: str, voice_label: str, sample_paths: list[Path]) -> str:
+def openvoice_clone_request(
+    *,
+    slug: str,
+    voice_label: str,
+    sample_paths: list[Path],
+    voice_id: str | None = None,
+) -> str:
     if not sample_paths:
         raise HTTPException(status_code=400, detail="voice_profile_no_samples")
     sample_paths = _curate_clone_paths(sample_paths)
@@ -368,7 +374,7 @@ def openvoice_clone_request(*, slug: str, voice_label: str, sample_paths: list[P
             data={
                 "slug": slug,
                 "voice_label": voice_label,
-                "voice_id": f"{slug}-openvoice",
+                "voice_id": str(voice_id or f"{slug}-openvoice").strip() or f"{slug}-openvoice",
             },
             files=prepared_files,
         )

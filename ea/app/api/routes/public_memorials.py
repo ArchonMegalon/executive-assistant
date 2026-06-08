@@ -7392,7 +7392,6 @@ def _memorial_html(
           <div class="hero-copy">
             <div class="hero-actions is-readying" id="memorial-hero-actions">
               <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;">Gleich bereit …</button>
-              <button type="button" id="memorial-video-call" class="hero-cta secondary is-readying" title="Video Call mit {person_name_html}" aria-label="Video Call mit {person_name_html}" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartVideoCall && window.__memorialStartVideoCall(); return false;">Video Call mit {person_name_html}</button>
             </div>
             <p class="install-hint" id="memorial-install-hint" hidden>
               Am Handy/Desktop installieren.
