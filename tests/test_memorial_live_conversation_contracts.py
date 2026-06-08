@@ -1340,25 +1340,43 @@ def test_memorial_warmup_snapshot_tracks_voicewave_contact_readiness(monkeypatch
     assert snapshot["voice_ready"] is False
 
 
-def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_turn_thresholds() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+def test_memorial_live_page_uses_minimal_conversation_turn_client(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    client = _client(principal_id="exec-memorial-minimal-client")
 
-    assert 'void primeRealtimeSocket("page_ready");' in source
+    response = client.get(f"/memorials/{slug}")
+    assert response.status_code == 200
+    source = response.text
+
     assert "(payload.voice_required === false || payload.voice_ready === true)" in source
-    assert 'await cancelRealtimeTurn("superseded_by_new_turn");' in source
-    assert 'if (type === "cancelled") {{\n          const message = String(payload.message || "realtime_turn_cancelled");\n          clearRealtimeTurnFallbackTimer();\n          stopSpeechPlayback();' in source
-    assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
-    assert 'setSpeechStatus("Nur Manfreds Server-Stimme ist aktiv.", "error", "Browser-Stimmen sind hier abgeschaltet");' in source
-    assert "autoStopMs: 1750" in source
-    assert "silenceMs: 280" in source
+    assert "/memorials/manfred/conversation-turn" in source
+    assert 'requestMemorialWarmup("page_load")' in source
+    assert 'requestMemorialWarmup("conversation_start")' in source
+    assert "captureTurnAudio" in source
+    assert "autoStopMs: 2100" in source
+    assert "silenceMs: 260" in source
     assert "silenceThreshold: 0.012" in source
-    assert "Math.max(autoStopMs, 1600)" in source
-    assert "Math.max(220, Number(options.silenceMs || 850))" in source
+    assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
+    assert "primeRealtimeSocket" not in source
+    assert "cancelRealtimeTurn" not in source
 
 
-def test_memorial_live_page_source_stays_voice_only_without_legacy_video_call_ui() -> None:
-    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    client = _client(principal_id="exec-memorial-voice-only-page")
+
+    response = client.get(f"/memorials/{slug}")
+    assert response.status_code == 200
+    source = response.text
 
     assert "continueVideoCallWithoutCamera()" not in source
     assert 'id="memorial-video-call-preview"' not in source
     assert 'id="memorial-video-call-avatar-video"' not in source
+    assert 'id="memorial-voice-config-form"' not in source
+    assert 'id="memorial-voice-ab-wrap"' not in source

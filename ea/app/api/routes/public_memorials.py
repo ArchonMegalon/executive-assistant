@@ -5861,6 +5861,694 @@ def _convert_audio_to_wav(*, payload: bytes, extension: str, enhance_for_speech:
         return output_path.read_bytes()
 
 
+def _minimal_public_memorial_html(
+    *,
+    slug: str,
+    page_title: str,
+    subtitle: str,
+    memorial_avatar_url: str,
+    pwa_short_name: str,
+    clickrank_html: str,
+) -> str:
+    return f"""<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{page_title}</title>
+    <meta name="description" content="{html.escape(subtitle)}">
+    <meta name="theme-color" content="#48677e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="{html.escape(pwa_short_name)}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}">
+    <link rel="apple-touch-icon" href="{memorial_avatar_url}">
+    {clickrank_html}
+    <style>
+      :root {{
+        --paper: #f7f2e8;
+        --panel: rgba(255, 251, 244, 0.96);
+        --ink: #2b211c;
+        --muted: #6f6255;
+        --blue: #48677e;
+        --line: rgba(65, 53, 43, 0.12);
+        --shadow: 0 18px 36px rgba(56, 45, 36, 0.1);
+      }}
+      * {{ box-sizing: border-box; }}
+      html {{ -webkit-text-size-adjust: 100%; }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at top, rgba(255,255,255,.42), rgba(255,255,255,0) 30%),
+          linear-gradient(180deg, #d7e0e5 0%, #f7f2e8 22%, #f7f2e8 100%);
+        color: var(--ink);
+        font: 16px/1.6 Georgia, "Times New Roman", serif;
+      }}
+      .wrap {{ width: min(100vw - 28px, 720px); margin: 0 auto; }}
+      header {{ min-height: 100vh; display: grid; align-items: center; }}
+      .hero {{ padding: 0; display: grid; gap: 18px; justify-items: center; text-align: center; }}
+      .hero-copy {{ display: grid; gap: 14px; justify-items: center; }}
+      .hero-actions {{ display: grid; gap: 14px; justify-items: center; }}
+      .hero-cta {{
+        appearance: none;
+        border: 1px solid rgba(72,103,126,.24);
+        border-radius: 999px;
+        min-width: min(360px, calc(100vw - 48px));
+        min-height: 58px;
+        padding: 16px 28px;
+        background: #48677e;
+        color: #fffaf2;
+        font: 700 16px/1 ui-sans-serif, system-ui, sans-serif;
+        box-shadow: 0 14px 30px rgba(72,103,126,.18);
+        transition: transform .18s ease, opacity .18s ease;
+      }}
+      .hero-cta.is-readying,
+      .hero-cta[disabled] {{ opacity: .86; }}
+      .hero-cta:not([disabled]):hover {{ transform: translateY(-1px); }}
+      .install-hint {{
+        margin: 0;
+        color: var(--muted);
+        font: 600 .82rem/1.4 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .install-hint button {{
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--blue);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: underline;
+        padding: 0 0 0 4px;
+      }}
+      main {{ margin-top: -104px; padding: 0 0 54px; }}
+      .chat {{
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 18px 18px 16px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }}
+      .speech-status-bar {{ display: grid; gap: 10px; justify-items: center; text-align: center; }}
+      .speech-note strong {{ display: block; font-size: 1rem; font-weight: 700; }}
+      .speech-live-monitor {{ display: grid; gap: 10px; width: min(100%, 360px); }}
+      .speech-meter {{
+        position: relative;
+        overflow: hidden;
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(72,103,126,.14);
+      }}
+      .speech-meter-fill {{
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 100%;
+        transform-origin: left center;
+        transform: scaleX(.06);
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(104,133,117,.72), rgba(72,103,126,.92), rgba(201,153,90,.92));
+        transition: transform .12s ease, opacity .16s ease;
+        opacity: .72;
+      }}
+      .speech-wave {{
+        display: flex;
+        align-items: end;
+        justify-content: center;
+        gap: 5px;
+        height: 30px;
+      }}
+      .speech-wave-bar {{
+        width: 7px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(72,103,126,.28);
+        transform-origin: center bottom;
+        transform: scaleY(.42);
+        opacity: .72;
+      }}
+      .speech-live-monitor.is-listening .speech-wave-bar,
+      .speech-live-monitor.is-speaking .speech-wave-bar {{ animation: memorial-wave 1.02s ease-in-out infinite; }}
+      .speech-live-monitor.is-listening .speech-wave-bar {{ background: rgba(104,133,117,.66); }}
+      .speech-live-monitor.is-working .speech-wave-bar {{ background: rgba(189,145,84,.44); }}
+      .speech-live-monitor.is-speaking .speech-wave-bar {{ background: rgba(72,103,126,.66); }}
+      .speech-wave-bar:nth-child(2) {{ animation-delay: .08s; }}
+      .speech-wave-bar:nth-child(3) {{ animation-delay: .16s; }}
+      .speech-wave-bar:nth-child(4) {{ animation-delay: .24s; }}
+      .speech-wave-bar:nth-child(5) {{ animation-delay: .32s; }}
+      .speech-wave-bar:nth-child(6) {{ animation-delay: .4s; }}
+      @keyframes memorial-wave {{
+        0%, 100% {{ transform: scaleY(.34); opacity: .55; }}
+        50% {{ transform: scaleY(1); opacity: 1; }}
+      }}
+      .speech-status-meta {{
+        display: grid;
+        gap: 2px;
+        color: var(--muted);
+        font: 600 12px/1.35 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .speech-primary {{
+        appearance: none;
+        margin-top: 12px;
+        border: 1px solid rgba(72,103,126,.24);
+        border-radius: 999px;
+        min-height: 44px;
+        padding: 10px 16px;
+        background: rgba(255,255,255,.9);
+        color: var(--blue);
+        font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      [hidden] {{ display: none !important; }}
+      @media (max-width: 760px) {{
+        main {{ margin-top: -120px; padding-bottom: 36px; }}
+        .hero-cta {{ width: 100%; min-width: 0; }}
+      }}
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap hero">
+        <div class="hero-copy">
+          <div class="hero-actions is-readying" id="memorial-hero-actions">
+            <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;">Gleich bereit …</button>
+          </div>
+          <p class="install-hint" id="memorial-install-hint" hidden>
+            Am Handy/Desktop installieren.
+            <button type="button" id="memorial-install-button" hidden>Am Handy/Desktop installieren</button>
+          </p>
+        </div>
+      </div>
+    </header>
+    <main class="wrap">
+      <section class="chat quiet-shell">
+        <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
+          <strong id="memorial-speech-message">Ich bin da.</strong>
+          <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
+            <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
+            <div class="speech-wave" id="memorial-speech-wave">
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+            </div>
+          </div>
+          <div class="speech-status-meta">
+            <span id="memorial-speech-phase">Bereit</span>
+            <span id="memorial-speech-detail"></span>
+          </div>
+        </div>
+        <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
+        <audio id="memorial-speech-audio" preload="none"></audio>
+      </section>
+    </main>
+    <script>
+      const installHint = document.getElementById("memorial-install-hint");
+      const installButton = document.getElementById("memorial-install-button");
+      const heroActions = document.getElementById("memorial-hero-actions");
+      const retryButton = document.getElementById("memorial-retry-button");
+      const speechAudio = document.getElementById("memorial-speech-audio");
+      const speechNote = document.getElementById("memorial-speech-note");
+      const speechMessage = document.getElementById("memorial-speech-message");
+      const speechPhase = document.getElementById("memorial-speech-phase");
+      const speechDetail = document.getElementById("memorial-speech-detail");
+      const speechMonitor = document.getElementById("memorial-speech-monitor");
+      const speechMeterFill = document.getElementById("memorial-speech-meter-fill");
+      const conversationButtons = Array.from(document.querySelectorAll("[data-hero-action='conversation']"));
+      let deferredInstallPrompt = null;
+      let memorialWarmupPromise = null;
+      let memorialLandingReady = false;
+      let conversationActive = false;
+      let conversationBusy = false;
+      let conversationTurnCount = 0;
+      let conversationGeneration = 0;
+      let activeStream = null;
+      let activeRecorder = null;
+      let activeAudioContext = null;
+      let activeAnalyser = null;
+      let activeMeterTimer = null;
+      let activeMaxTimer = null;
+      let activeSilenceTimer = null;
+      let activeRequestController = null;
+      let speechObjectUrl = null;
+      let speechMeterLive = false;
+
+      function setSpeechMeterLevel(level) {{
+        if (!speechMeterFill) return;
+        const normalized = Math.max(0.06, Math.min(1, Number(level || 0)));
+        speechMeterFill.style.transform = "scaleX(" + String(normalized) + ")";
+        speechMeterFill.style.opacity = normalized > 0.2 ? ".96" : ".72";
+      }}
+
+      function disarmMeter() {{
+        speechMeterLive = false;
+        if (activeMeterTimer) {{
+          clearInterval(activeMeterTimer);
+          activeMeterTimer = null;
+        }}
+        if (activeAudioContext) {{
+          try {{ activeAudioContext.close(); }} catch (error) {{}}
+          activeAudioContext = null;
+        }}
+        activeAnalyser = null;
+      }}
+
+      function armMeter(stream) {{
+        disarmMeter();
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextCtor || !stream) return;
+        try {{
+          activeAudioContext = new AudioContextCtor();
+          const source = activeAudioContext.createMediaStreamSource(stream);
+          activeAnalyser = activeAudioContext.createAnalyser();
+          activeAnalyser.fftSize = 256;
+          source.connect(activeAnalyser);
+          const samples = new Uint8Array(activeAnalyser.fftSize);
+          speechMeterLive = true;
+          activeMeterTimer = window.setInterval(() => {{
+            if (!activeAnalyser) return;
+            activeAnalyser.getByteTimeDomainData(samples);
+            let sum = 0;
+            for (let index = 0; index < samples.length; index += 1) {{
+              const centered = (samples[index] - 128) / 128;
+              sum += centered * centered;
+            }}
+            setSpeechMeterLevel(Math.min(1, 0.08 + Math.sqrt(sum / samples.length) * 4.2));
+          }}, 70);
+        }} catch (error) {{
+          disarmMeter();
+        }}
+      }}
+
+      function setSpeechStatus(message, state = "idle", detail = "") {{
+        if (retryButton) retryButton.hidden = state !== "error";
+        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Ich bin da.";
+        if (speechNote) {{
+          speechNote.classList.remove("is-pristine", "is-listening", "is-working", "is-error");
+          if (state === "idle") speechNote.classList.add("is-pristine");
+          if (state === "listening") speechNote.classList.add("is-listening");
+          if (state === "working" || state === "playing") speechNote.classList.add("is-working");
+          if (state === "error") speechNote.classList.add("is-error");
+        }}
+        if (speechPhase) speechPhase.textContent = ({{
+          idle: "Bereit",
+          listening: "Ich höre zu",
+          working: "Einen Moment",
+          playing: "Manfred",
+          error: "Bitte noch einmal"
+        }})[state] || "Bereit";
+        if (speechDetail) speechDetail.textContent = String(detail || "").trim();
+        if (speechMonitor) {{
+          speechMonitor.classList.remove("is-idle", "is-listening", "is-working", "is-speaking", "is-error");
+          speechMonitor.classList.add(({{
+            idle: "is-idle",
+            listening: "is-listening",
+            working: "is-working",
+            playing: "is-speaking",
+            error: "is-error"
+          }})[state] || "is-idle");
+        }}
+        if (!speechMeterLive) {{
+          const ambient = ({{ idle: 0.06, listening: 0.22, working: 0.14, playing: 0.34, error: 0.08 }})[state] || 0.06;
+          setSpeechMeterLevel(ambient);
+        }}
+      }}
+
+      function syncConversationButtons() {{
+        const label = conversationActive ? "Gespräch stoppen" : (memorialLandingReady ? "Gespräch beginnen" : "Gleich bereit …");
+        for (const button of conversationButtons) {{
+          if (!button) continue;
+          button.textContent = label;
+          button.setAttribute("aria-pressed", conversationActive ? "true" : "false");
+          button.disabled = !conversationActive && !memorialLandingReady;
+          button.setAttribute("aria-disabled", (!conversationActive && !memorialLandingReady) ? "true" : "false");
+          button.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
+        }}
+        if (heroActions) heroActions.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
+      }}
+
+      function setMemorialLandingReady(ready, detail = "") {{
+        memorialLandingReady = Boolean(ready);
+        syncConversationButtons();
+        if (!conversationActive) {{
+          if (memorialLandingReady) setSpeechStatus("Ich bin da.", "idle", detail || "");
+          else setSpeechStatus("Ich richte mich kurz ein.", "working", detail || "");
+        }}
+      }}
+
+      async function fetchWithTimeout(url, options = {{}}, timeoutMs = 45000) {{
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        activeRequestController = controller;
+        try {{
+          return await fetch(url, Object.assign({{}}, options, {{ signal: controller.signal }}));
+        }} finally {{
+          clearTimeout(timer);
+          if (activeRequestController === controller) activeRequestController = null;
+        }}
+      }}
+
+      async function requestMemorialWarmup(reason = "page_load") {{
+        if (memorialWarmupPromise) return memorialWarmupPromise;
+        memorialWarmupPromise = fetch("/memorials/{html.escape(slug)}/warmup", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{ reason: String(reason || "page_load") }}),
+          keepalive: true,
+        }}).catch(() => null);
+        return memorialWarmupPromise;
+      }}
+
+      async function fetchMemorialWarmupStatus() {{
+        const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/warmup-status", {{
+          method: "GET",
+          headers: {{ "Accept": "application/json" }}
+        }}, 15000);
+        if (!response.ok) throw new Error("warmup_status_failed");
+        return await response.json();
+      }}
+
+      async function waitForMemorialVoiceReady(maxWaitMs = 12000) {{
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < maxWaitMs) {{
+          try {{
+            const payload = await fetchMemorialWarmupStatus();
+            if (
+              payload &&
+              payload.warm &&
+              (payload.voice_required === false || payload.voice_ready === true)
+            ) return payload;
+          }} catch (error) {{}}
+          await new Promise((resolve) => window.setTimeout(resolve, 900));
+        }}
+        return null;
+      }}
+
+      async function primeMemorialLanding() {{
+        setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
+        try {{
+          await requestMemorialWarmup("page_load");
+          await Promise.race([
+            waitForMemorialVoiceReady(12000),
+            new Promise((resolve) => window.setTimeout(resolve, 12000)),
+          ]);
+        }} catch (error) {{}}
+        setMemorialLandingReady(true, "");
+      }}
+
+      function mimeTypeForRecorder() {{
+        const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+        for (const candidate of candidates) {{
+          if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidate)) return candidate;
+        }}
+        return "";
+      }}
+
+      async function ensureInputStream() {{
+        if (activeStream) return activeStream;
+        activeStream = await navigator.mediaDevices.getUserMedia({{
+          audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }},
+          video: false,
+        }});
+        return activeStream;
+      }}
+
+      function stopSpeechPlayback() {{
+        if (speechObjectUrl) {{
+          URL.revokeObjectURL(speechObjectUrl);
+          speechObjectUrl = null;
+        }}
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        try {{
+          speechAudio.pause();
+          speechAudio.removeAttribute("src");
+          speechAudio.load();
+        }} catch (error) {{}}
+      }}
+
+      function releaseConversationAudio() {{
+        if (activeMaxTimer) {{
+          clearTimeout(activeMaxTimer);
+          activeMaxTimer = null;
+        }}
+        if (activeSilenceTimer) {{
+          clearInterval(activeSilenceTimer);
+          activeSilenceTimer = null;
+        }}
+        if (activeRecorder && activeRecorder.state !== "inactive") {{
+          try {{ activeRecorder.stop(); }} catch (error) {{}}
+        }}
+        activeRecorder = null;
+        if (activeStream) {{
+          for (const track of activeStream.getTracks()) {{
+            try {{ track.stop(); }} catch (error) {{}}
+          }}
+          activeStream = null;
+        }}
+        disarmMeter();
+      }}
+
+      function stopConversation(reason = "idle") {{
+        conversationActive = false;
+        conversationBusy = false;
+        conversationGeneration += 1;
+        if (activeRequestController) {{
+          try {{ activeRequestController.abort(); }} catch (error) {{}}
+          activeRequestController = null;
+        }}
+        stopSpeechPlayback();
+        releaseConversationAudio();
+        syncConversationButtons();
+        if (reason === "error") setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+        else setSpeechStatus("Ich bin da.", "idle", "");
+      }}
+
+      function decodeAudioPayload(payload) {{
+        const encoded = String((payload && payload.audio_base64) || "").trim();
+        if (!encoded) return null;
+        const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+        return new Blob([bytes], {{ type: String((payload && payload.audio_content_type) || "audio/wav") }});
+      }}
+
+      async function playMemorialAudio(blob, generation) {{
+        stopSpeechPlayback();
+        speechObjectUrl = URL.createObjectURL(blob);
+        speechAudio.src = speechObjectUrl;
+        speechAudio.preload = "auto";
+        setSpeechStatus("Ich bin da.", "playing", "");
+        await new Promise((resolve, reject) => {{
+          let settled = false;
+          const finish = (error = null) => {{
+            if (settled) return;
+            settled = true;
+            speechAudio.onended = null;
+            speechAudio.onerror = null;
+            if (error) reject(error);
+            else resolve();
+          }};
+          speechAudio.onended = () => finish();
+          speechAudio.onerror = () => finish(new Error("audio_playback_failed"));
+          speechAudio.play().then(() => {{
+            if (generation !== conversationGeneration) finish(new Error("playback_cancelled"));
+          }}).catch((error) => finish(error || new Error("audio_play_failed")));
+        }});
+      }}
+
+      async function captureTurnAudio(options = {{}}) {{
+        const stream = await ensureInputStream();
+        const mimeType = mimeTypeForRecorder();
+        const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
+        activeRecorder = recorder;
+        armMeter(stream);
+        const analyser = activeAnalyser;
+        const samples = analyser ? new Uint8Array(analyser.fftSize) : null;
+        const chunks = [];
+        const autoStopMs = Math.max(1600, Number(options.autoStopMs || 2200));
+        const silenceMs = Math.max(220, Number(options.silenceMs || 300));
+        const silenceThreshold = Math.max(0.006, Number(options.silenceThreshold || 0.012));
+        return await new Promise((resolve, reject) => {{
+          let settled = false;
+          let speechDetected = false;
+          let lastSpeechAt = Date.now();
+          recorder.ondataavailable = (event) => {{
+            if (event.data && event.data.size > 0) chunks.push(event.data);
+          }};
+          recorder.onerror = () => {{
+            if (settled) return;
+            settled = true;
+            reject(new Error("capture_failed"));
+          }};
+          recorder.onstop = () => {{
+            if (settled) return;
+            settled = true;
+            if (activeSilenceTimer) {{
+              clearInterval(activeSilenceTimer);
+              activeSilenceTimer = null;
+            }}
+            if (activeMaxTimer) {{
+              clearTimeout(activeMaxTimer);
+              activeMaxTimer = null;
+            }}
+            disarmMeter();
+            const blob = chunks.length ? new Blob(chunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
+            resolve(blob);
+          }};
+          recorder.start();
+          activeMaxTimer = window.setTimeout(() => {{
+            if (recorder.state === "recording") {{
+              try {{ recorder.stop(); }} catch (error) {{}}
+            }}
+          }}, autoStopMs);
+          activeSilenceTimer = window.setInterval(() => {{
+            if (!analyser || !samples) return;
+            analyser.getByteTimeDomainData(samples);
+            let sum = 0;
+            for (let index = 0; index < samples.length; index += 1) {{
+              const centered = (samples[index] - 128) / 128;
+              sum += centered * centered;
+            }}
+            const rms = Math.sqrt(sum / samples.length);
+            if (rms >= silenceThreshold) {{
+              speechDetected = true;
+              lastSpeechAt = Date.now();
+              return;
+            }}
+            if (speechDetected && (Date.now() - lastSpeechAt) >= silenceMs && recorder.state === "recording") {{
+              try {{ recorder.stop(); }} catch (error) {{}}
+            }}
+          }}, 60);
+        }});
+      }}
+
+      async function sendConversationTurn(blob) {{
+        const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/conversation-turn", {{
+          method: "POST",
+          headers: {{ "Content-Type": blob.type || "audio/webm" }},
+          body: blob,
+        }}, 90000);
+        let payload = null;
+        try {{
+          payload = await response.json();
+        }} catch (error) {{
+          payload = null;
+        }}
+        if (!response.ok) {{
+          const message = String((payload && payload.error && payload.error.message) || (payload && payload.detail) || "conversation_turn_failed");
+          throw new Error(message);
+        }}
+        return payload || {{}};
+      }}
+
+      async function runConversationTurn(generation) {{
+        if (!conversationActive || conversationBusy || generation !== conversationGeneration) return;
+        conversationBusy = true;
+        try {{
+          const captureOptions = conversationTurnCount <= 0
+            ? {{ autoStopMs: 2100, silenceMs: 260, silenceThreshold: 0.012 }}
+            : {{ autoStopMs: 2500, silenceMs: 300, silenceThreshold: 0.013 }};
+          setSpeechStatus("Sprich direkt los.", "listening", "");
+          const blob = await captureTurnAudio(captureOptions);
+          if (!conversationActive || generation !== conversationGeneration) return;
+          if (!blob || blob.size < 128) {{
+            setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+            return;
+          }}
+          setSpeechStatus("Einen Moment.", "working", "");
+          const payload = await sendConversationTurn(blob);
+          if (!conversationActive || generation !== conversationGeneration) return;
+          const audioBlob = decodeAudioPayload(payload);
+          if (!audioBlob) throw new Error("missing_memorial_audio");
+          await playMemorialAudio(audioBlob, generation);
+          if (!conversationActive || generation !== conversationGeneration) return;
+          conversationTurnCount += 1;
+          setSpeechStatus("Ich höre zu.", "idle", "");
+          window.setTimeout(() => {{
+            if (conversationActive && generation === conversationGeneration) void runConversationTurn(generation);
+          }}, 320);
+        }} catch (error) {{
+          if (conversationActive && generation === conversationGeneration) setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+        }} finally {{
+          conversationBusy = false;
+        }}
+      }}
+
+      async function startConversation() {{
+        if (!memorialLandingReady) {{
+          setSpeechStatus("Ich richte mich noch ein.", "working", "");
+          await requestMemorialWarmup("conversation_start");
+          await waitForMemorialVoiceReady(12000);
+          setMemorialLandingReady(true, "");
+        }} else {{
+          void requestMemorialWarmup("conversation_start");
+        }}
+        if (conversationActive) return;
+        conversationActive = true;
+        conversationBusy = false;
+        conversationTurnCount = 0;
+        conversationGeneration += 1;
+        syncConversationButtons();
+        await runConversationTurn(conversationGeneration);
+      }}
+
+      function toggleConversation() {{
+        if (conversationActive) {{
+          stopConversation("idle");
+          return;
+        }}
+        void startConversation();
+      }}
+
+      window.__memorialToggleConversation = () => toggleConversation();
+      window.__memorialStartConversation = () => toggleConversation();
+
+      if (retryButton) {{
+        retryButton.addEventListener("click", () => {{
+          retryButton.hidden = true;
+          void startConversation();
+        }});
+      }}
+
+      window.addEventListener("beforeinstallprompt", (event) => {{
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        if (installHint) installHint.hidden = false;
+        if (installButton) installButton.hidden = false;
+      }});
+
+      if (installButton) {{
+        installButton.addEventListener("click", async () => {{
+          if (!deferredInstallPrompt) return;
+          deferredInstallPrompt.prompt();
+          try {{ await deferredInstallPrompt.userChoice; }} catch (error) {{}}
+          deferredInstallPrompt = null;
+          installButton.hidden = true;
+          if (installHint) installHint.hidden = true;
+        }});
+      }}
+
+      window.addEventListener("beforeunload", () => {{
+        stopConversation("idle");
+      }});
+
+      if ("serviceWorker" in navigator) {{
+        window.addEventListener("load", () => {{
+          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
+        }});
+      }}
+
+      syncConversationButtons();
+      setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
+      window.setTimeout(() => {{
+        void primeMemorialLanding();
+      }}, 120);
+    </script>
+  </body>
+</html>"""
+
+
 def _memorial_html(
     payload: dict[str, object],
     *,
@@ -6106,6 +6794,14 @@ def _memorial_html(
     candidates_html = ""
     prompts_section_html = ""
     archive_html = ""
+    return _minimal_public_memorial_html(
+        slug=slug,
+        page_title=page_title,
+        subtitle=subtitle,
+        memorial_avatar_url=memorial_avatar_url,
+        pwa_short_name=_memorial_pwa_short_name(payload),
+        clickrank_html=clickrank_html,
+    )
     return f"""<!doctype html>
 <html lang="de">
   <head>

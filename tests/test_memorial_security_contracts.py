@@ -160,11 +160,12 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'id="memorial-video-call-continue-no-camera"' not in page.text
     assert 'id="memorial-video-call-avatar-video"' not in page.text
     assert "Gleich bereit" in page.text
-    assert "server_stt_cooldown" in page.text
-    assert "Ich brauche gerade einen kurzen Moment, bevor ich wieder zuhöre." in page.text
-    assert 'speaking: "working"' in page.text
-    assert "utterance.onstart = () => {" in page.text
-    assert 'setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet")' in page.text
+    assert "/memorials/manfred/conversation-turn" in page.text
+    assert "requestMemorialWarmup(\"page_load\")" in page.text
+    assert "requestMemorialWarmup(\"conversation_start\")" in page.text
+    assert "server_stt_cooldown" not in page.text
+    assert "utterance.onstart = () => {" not in page.text
+    assert 'setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet")' not in page.text
     assert "<h1>" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text
@@ -883,8 +884,9 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert "Am Handy/Desktop installieren" in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
     assert "Bitte noch einmal sprechen" in body
-    assert "overflow-wrap: anywhere;" in body
-    assert ".collapse-summary:focus-visible" in body
+    assert "/memorials/manfred/conversation-turn" in body
+    assert "overflow-wrap: anywhere;" not in body
+    assert ".hero-cta:not([disabled]):hover" in body
     assert "<h2>Archiv lesen</h2>" not in body
     assert "<h2>Stimmvergleich</h2>" not in body
 
