@@ -41,7 +41,10 @@ _UNMIXR_BASE_URL = "https://unmixr.com/api/v1"
 _VOICEWAVE_LOGIN_EMAIL_ENV = "VOICEWAVE_LOGIN_EMAIL"
 _VOICEWAVE_LOGIN_PASSWORD_ENV = "VOICEWAVE_LOGIN_PASSWORD"
 _VOICEWAVE_MEMORIAL_VOICE_LABEL_ENV = "VOICEWAVE_MEMORIAL_VOICE_LABEL"
-_VOICEWAVE_SCRIPT_PATH = Path("/docker/EA/scripts/voicewave_memorial_voice.py")
+_VOICEWAVE_SCRIPT_CANDIDATES = (
+    Path("/docker/EA/scripts/voicewave_memorial_voice.py"),
+    Path("/app/scripts/voicewave_memorial_voice.py"),
+)
 _VOICEWAVE_TIMEOUT_SECONDS = 420
 
 
@@ -100,6 +103,13 @@ def voicewave_login_password() -> str:
 
 def voicewave_memorial_voice_label() -> str:
     return str(os.environ.get(_VOICEWAVE_MEMORIAL_VOICE_LABEL_ENV) or "Manfred Hoza Memorial").strip() or "Manfred Hoza Memorial"
+
+
+def voicewave_runtime_script_path() -> Path:
+    for candidate in _VOICEWAVE_SCRIPT_CANDIDATES:
+        if candidate.is_file():
+            return candidate
+    return _VOICEWAVE_SCRIPT_CANDIDATES[0]
 
 
 def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
@@ -249,7 +259,8 @@ def _unmixr_request(
 
 
 def voicewave_synthesize_request(*, text: str, voice_label: str) -> tuple[bytes, str]:
-    if not _VOICEWAVE_SCRIPT_PATH.is_file():
+    script_path = voicewave_runtime_script_path()
+    if not script_path.is_file():
         raise HTTPException(status_code=503, detail="voicewave_runtime_script_missing")
     if not voicewave_login_email() or not voicewave_login_password():
         raise HTTPException(status_code=503, detail="voicewave_login_missing")
@@ -266,7 +277,7 @@ def voicewave_synthesize_request(*, text: str, voice_label: str) -> tuple[bytes,
         audio_path = temp_dir / "voicewave_render.wav"
         command = [
             shutil.which("python3") or "python3",
-            str(_VOICEWAVE_SCRIPT_PATH),
+            str(script_path),
             "render",
             "--voice-label",
             normalized_label,
