@@ -3546,10 +3546,10 @@ def _is_memorial_contact_question(question: str) -> bool:
 def _memorial_contact_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("bist du da", "bist du noch da")):
-        return "Ja. Ich bin da."
+        return "Ja."
     if any(token in lowered for token in ("hoerst du zu", "hörst du zu", "kannst du mich hoeren", "kannst du mich hören")):
-        return "Ja. Ich hoere zu."
-    return "Ja. Rede mit mir."
+        return "Ja."
+    return "Ja. Sprich."
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:

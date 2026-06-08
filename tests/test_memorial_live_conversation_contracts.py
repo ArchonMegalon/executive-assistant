@@ -180,8 +180,7 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["llm_fallback_used"] is False
     assert body["fallback_reason"] == "direct_contact_opening"
-    assert "Ja" in body["answer"]
-    assert "rede" in body["answer"].lower() or "sprich" in body["answer"].lower()
+    assert body["answer"] == "Ja. Sprich."
 
 
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
@@ -267,8 +266,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["llm_fallback_used"] is False
     assert body["transcript_text"] == "Hallo Manfred, kann ich jetzt mit dir reden?"
     assert body["sources"] == []
-    assert "Ja" in body["answer"]
-    assert "rede" in body["answer"].lower() or "sprich" in body["answer"].lower()
+    assert body["answer"] == "Ja. Sprich."
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
     decoded_audio = base64.b64decode(body["audio_base64"])
@@ -579,15 +577,15 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     assert seen_voicewave_calls == [
         {
-            "text": "Ja. Ich bin da.",
+            "text": "Ja.",
             "voice_label": "Manfred Hoza Memorial",
         },
         {
-            "text": "Ja. Ich hoere zu.",
+            "text": "Ja.",
             "voice_label": "Manfred Hoza Memorial",
         },
         {
-            "text": "Ja. Rede mit mir.",
+            "text": "Ja. Sprich.",
             "voice_label": "Manfred Hoza Memorial",
         },
     ]
@@ -874,7 +872,7 @@ def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
         message for message in messages if message.get("type") == "phase" and message.get("phase") == "speaking"
     )
 
-    assert answer_message["text"] == "Ja. Rede mit mir."
+    assert answer_message["text"] == "Ja. Sprich."
     assert speaking_phase["detail"] == ""
     assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
 
