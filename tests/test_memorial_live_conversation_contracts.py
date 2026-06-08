@@ -517,6 +517,65 @@ def test_memorial_conversation_turn_supports_voicewave_clone(
     ]
 
 
+def test_memorial_warmup_primes_voicewave_contact_openings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "Manfred Hoza Memorial",
+        },
+    )
+    monkeypatch.setenv("VOICEWAVE_LOGIN_EMAIL", "voicewave@example.com")
+    monkeypatch.setenv("VOICEWAVE_LOGIN_PASSWORD", "secret")
+
+    seen_voicewave_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {"transcription_status": "transcribed", "transcript_text": "Hallo Manfred", "transcriber": "unit-test"},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {"answer": "Ja, du kannst mit mir reden.", "llm_model": "unit-test"},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (b"RIFFwarmup", "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "voicewave_synthesize_request",
+        lambda **kwargs: seen_voicewave_calls.append(kwargs) or (b"RIFFvoicewave", "audio/wav"),
+    )
+
+    public_memorials._run_memorial_live_warmup(slug)
+
+    assert seen_voicewave_calls == [
+        {
+            "text": "Ja, ich bin da. Sprich die Sache einfach aus, dann ordne ich sie Schritt fuer Schritt.",
+            "voice_label": "Manfred Hoza Memorial",
+        },
+        {
+            "text": "Ja, ich hoere zu. Sag klar, worum es geht, dann antworte ich direkt darauf.",
+            "voice_label": "Manfred Hoza Memorial",
+        },
+        {
+            "text": "Ja, du kannst mit mir reden. Sag kurz, worum es geht, dann ordne ich die Sache und antworte direkt.",
+            "voice_label": "Manfred Hoza Memorial",
+        },
+    ]
+
+
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import hashlib
 from pathlib import Path
 
 import requests
@@ -49,6 +50,11 @@ _VOICEWAVE_SCRIPT_CANDIDATES = (
 _VOICEWAVE_RUNTIME_TMP_ROOT_CANDIDATES = (
     Path("/mnt/pcloud/EA/voicewave_runtime_tmp"),
     Path("/tmp/voicewave_runtime_tmp"),
+)
+_VOICEWAVE_CACHE_ROOT_CANDIDATES = (
+    Path("/data/artifacts/voicewave_tts_cache"),
+    Path("/mnt/pcloud/EA/voicewave_tts_cache"),
+    Path("/tmp/voicewave_tts_cache"),
 )
 _VOICEWAVE_TIMEOUT_SECONDS = 420
 
@@ -127,6 +133,27 @@ def voicewave_runtime_tmp_root() -> Path:
             continue
         return candidate
     return _VOICEWAVE_RUNTIME_TMP_ROOT_CANDIDATES[-1]
+
+
+def voicewave_cache_root() -> Path:
+    for candidate in _VOICEWAVE_CACHE_ROOT_CANDIDATES:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        return candidate
+    return _VOICEWAVE_CACHE_ROOT_CANDIDATES[-1]
+
+
+def _voicewave_cache_key(*, text: str, voice_label: str) -> str:
+    normalized = f"{voice_label.strip().lower()}::{text.strip()}"
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _voicewave_cache_paths(*, text: str, voice_label: str) -> tuple[Path, Path]:
+    key = _voicewave_cache_key(text=text, voice_label=voice_label)
+    root = voicewave_cache_root()
+    return root / f"{key}.wav", root / f"{key}.json"
 
 
 def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
@@ -276,17 +303,20 @@ def _unmixr_request(
 
 
 def voicewave_synthesize_request(*, text: str, voice_label: str) -> tuple[bytes, str]:
-    script_path = voicewave_runtime_script_path()
-    if not script_path.is_file():
-        raise HTTPException(status_code=503, detail="voicewave_runtime_script_missing")
-    if not voicewave_login_email() or not voicewave_login_password():
-        raise HTTPException(status_code=503, detail="voicewave_login_missing")
     normalized_text = " ".join(str(text or "").split()).strip()
     if not normalized_text:
         raise HTTPException(status_code=400, detail="voicewave_tts_text_missing")
     normalized_label = str(voice_label or "").strip() or voicewave_memorial_voice_label()
     if not normalized_label:
         raise HTTPException(status_code=409, detail="voicewave_voice_label_missing")
+    cache_audio_path, cache_meta_path = _voicewave_cache_paths(text=normalized_text, voice_label=normalized_label)
+    if cache_audio_path.is_file() and cache_audio_path.stat().st_size > 0:
+        return cache_audio_path.read_bytes(), "audio/wav"
+    script_path = voicewave_runtime_script_path()
+    if not script_path.is_file():
+        raise HTTPException(status_code=503, detail="voicewave_runtime_script_missing")
+    if not voicewave_login_email() or not voicewave_login_password():
+        raise HTTPException(status_code=503, detail="voicewave_login_missing")
     with tempfile.TemporaryDirectory(
         prefix="ea-voicewave-render-",
         dir=str(voicewave_runtime_tmp_root()),
@@ -331,7 +361,23 @@ def voicewave_synthesize_request(*, text: str, voice_label: str) -> tuple[bytes,
             raise HTTPException(status_code=502, detail=f"voicewave_tts_failed:{detail or 'render_failed'}")
         if not audio_path.is_file() or audio_path.stat().st_size <= 0:
             raise HTTPException(status_code=502, detail="voicewave_tts_no_audio")
-        return audio_path.read_bytes(), "audio/wav"
+        audio_bytes = audio_path.read_bytes()
+        try:
+            cache_audio_path.write_bytes(audio_bytes)
+            cache_meta_path.write_text(
+                json.dumps(
+                    {
+                        "voice_label": normalized_label,
+                        "text": normalized_text,
+                        "content_type": "audio/wav",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+        return audio_bytes, "audio/wav"
 
 
 def _prepare_clone_upload_path(path: Path) -> tuple[Path, bool]:

@@ -5361,6 +5361,18 @@ def _run_memorial_live_warmup(slug: str) -> None:
             tts_ms = (time.perf_counter() - phase_started) * 1000.0
         except Exception as exc:
             errors.append(f"tts:{str(exc)[:120]}")
+        if _safe_tts_plugin_id(base_config.get("tts_plugin")) == VOICEWAVE_TTS_PLUGIN_ID:
+            voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
+            if voice_label:
+                for seed_question in ("Bist du da?", "Hoerst du zu?", "Kann ich jetzt mit dir reden?"):
+                    try:
+                        voicewave_synthesize_request(
+                            text=_memorial_contact_answer_body(seed_question),
+                            voice_label=voice_label,
+                        )
+                    except Exception as exc:
+                        errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
+                        break
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
         _log_memorial_timing(
