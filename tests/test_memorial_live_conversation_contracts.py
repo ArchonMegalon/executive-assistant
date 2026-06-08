@@ -181,7 +181,7 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["llm_fallback_used"] is False
     assert body["fallback_reason"] == "direct_contact_opening"
     assert "Ja" in body["answer"]
-    assert "reden" in body["answer"].lower() or "sprich" in body["answer"].lower()
+    assert "rede" in body["answer"].lower() or "sprich" in body["answer"].lower()
 
 
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
@@ -268,7 +268,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["transcript_text"] == "Hallo Manfred, kann ich jetzt mit dir reden?"
     assert body["sources"] == []
     assert "Ja" in body["answer"]
-    assert "reden" in body["answer"].lower() or "sprich" in body["answer"].lower()
+    assert "rede" in body["answer"].lower() or "sprich" in body["answer"].lower()
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
     decoded_audio = base64.b64decode(body["audio_base64"])
@@ -276,7 +276,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["audio_content_type"] == "audio/wav"
     assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is False
-    assert seen_pad_calls == [{"silence_ms": 70, "tail_silence_ms": 180}]
+    assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
     assert any(
         "memorial_timing event=conversation_turn" in record.getMessage()
         and "requested_model=ea-gemini-flash" in record.getMessage()
@@ -579,15 +579,15 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     assert seen_voicewave_calls == [
         {
-            "text": "Ja. Ich bin da. Sag direkt, worum es geht.",
+            "text": "Ja. Ich bin da.",
             "voice_label": "Manfred Hoza Memorial",
         },
         {
-            "text": "Ja. Ich hoere zu. Sag klar, worum es geht.",
+            "text": "Ja. Ich hoere zu.",
             "voice_label": "Manfred Hoza Memorial",
         },
         {
-            "text": "Ja. Du kannst mit mir reden. Sag kurz, worum es geht.",
+            "text": "Ja. Rede mit mir.",
             "voice_label": "Manfred Hoza Memorial",
         },
     ]
@@ -874,9 +874,9 @@ def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
         message for message in messages if message.get("type") == "phase" and message.get("phase") == "speaking"
     )
 
-    assert answer_message["text"] == "Ja. Du kannst mit mir reden. Sag kurz, worum es geht."
-    assert speaking_phase["detail"] == "Ich antworte direkt"
-    assert seen_pad_calls == [{"silence_ms": 70, "tail_silence_ms": 180}]
+    assert answer_message["text"] == "Ja. Rede mit mir."
+    assert speaking_phase["detail"] == ""
+    assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
 
 
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
@@ -1101,10 +1101,10 @@ def test_memorial_voicewave_postprocess_trims_dead_tail_silence() -> None:
     filters = public_memorials._speech_postprocess_filters(public_memorials.VOICEWAVE_TTS_PLUGIN_ID)
 
     assert "silenceremove=stop_periods=-1" in filters
-    assert "stop_duration=0.06" in filters
-    assert "stop_threshold=-30dB" in filters
-    assert "stop_silence=0.015" in filters
-    assert "atempo=1.70" in filters
+    assert "stop_duration=0.04" in filters
+    assert "stop_threshold=-28dB" in filters
+    assert "stop_silence=0.01" in filters
+    assert "atempo=2.00" in filters
 
 
 def test_memorial_speech_transcribe_route_logs_timing_metadata(

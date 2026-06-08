@@ -3546,10 +3546,10 @@ def _is_memorial_contact_question(question: str) -> bool:
 def _memorial_contact_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("bist du da", "bist du noch da")):
-        return "Ja. Ich bin da. Sag direkt, worum es geht."
+        return "Ja. Ich bin da."
     if any(token in lowered for token in ("hoerst du zu", "hörst du zu", "kannst du mich hoeren", "kannst du mich hören")):
-        return "Ja. Ich hoere zu. Sag klar, worum es geht."
-    return "Ja. Du kannst mit mir reden. Sag kurz, worum es geht."
+        return "Ja. Ich hoere zu."
+    return "Ja. Rede mit mir."
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -5341,8 +5341,8 @@ def _speech_postprocess_filters(tts_plugin: str) -> str:
     if plugin_id == VOICEWAVE_TTS_PLUGIN_ID:
         return ",".join(
             [
-                "silenceremove=stop_periods=-1:stop_duration=0.06:stop_threshold=-30dB:stop_silence=0.015",
-                "atempo=1.70",
+                "silenceremove=stop_periods=-1:stop_duration=0.04:stop_threshold=-28dB:stop_silence=0.01",
+                "atempo=2.00",
                 "alimiter=limit=0.92",
             ]
         )
@@ -5600,8 +5600,8 @@ def _build_memorial_conversation_turn_payload(
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
     if direct_contact_opening:
-        lead_in_ms = 70
-        tail_silence_ms = 180
+        lead_in_ms = 40
+        tail_silence_ms = 120
     else:
         lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
         tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
@@ -8171,26 +8171,23 @@ def _memorial_html(
           speechMonitor.classList.add(monitorState);
         }}
         if (speakingOverlay) {{
-          const active = state === "speaking";
-          speakingOverlay.classList.toggle("is-active", active);
-          speakingOverlay.hidden = !active;
-          speakingOverlay.setAttribute("aria-hidden", active ? "false" : "true");
-          speakingOverlay.setAttribute("aria-label", active ? "Ich spreche gerade. Tippen zum Unterbrechen." : (state === "thinking" ? "Ich antworte gleich." : "Ich warte auf dich."));
+          speakingOverlay.classList.remove("is-active");
+          speakingOverlay.hidden = true;
+          speakingOverlay.setAttribute("aria-hidden", "true");
+          speakingOverlay.setAttribute("aria-label", "Ich warte auf dich.");
         }}
         if (speakingOverlayTitle) {{
-          speakingOverlayTitle.textContent = state === "speaking" ? "Ich spreche gerade" : (state === "thinking" ? "Ich antworte gleich" : "Ich warte");
+          speakingOverlayTitle.textContent = "";
         }}
         if (speakingOverlayDetail) {{
-          speakingOverlayDetail.textContent = state === "speaking"
-            ? (speakingOverlayPreview || "Tippen zum Stoppen")
-            : (state === "thinking" ? "Einen Moment" : (state === "listening" ? "Ich hoere dir zu" : "Sprich mit mir"));
+          speakingOverlayDetail.textContent = "";
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
           listening: "Ich hoere dir zu",
           transcribing: "",
           thinking: "",
-          speaking: "Ich spreche",
+          speaking: "",
           working: "",
           error: "Ich bin noch da"
         }})[state] || "Bereit";
@@ -8199,7 +8196,7 @@ def _memorial_html(
           listening: "Ich bin ganz bei dir",
           transcribing: "",
           thinking: "",
-          speaking: "Tippe, wenn du mich unterbrechen willst",
+          speaking: "",
           working: "",
           error: "Bitte sprich noch einmal"
         }})[state] || "";
@@ -9054,7 +9051,7 @@ def _memorial_html(
         }};
         speechAudio.onplaying = () => {{
           playbackStarted = true;
-          setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
+          setSpeechStatus("", "speaking", "");
           reportPlaybackTelemetry("playing", {{
             context: contextLabel,
             plugin: safePluginId,
@@ -9084,7 +9081,7 @@ def _memorial_html(
           failPlayback("audio_never_started", "watchdog_timeout");
         }}, 2200);
         setSpeakingOverlayPreview(normalizedText);
-        setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
+        setSpeechStatus("", "thinking", "");
         try {{
           await speechAudio.play();
         }} catch (error) {{
@@ -9097,7 +9094,7 @@ def _memorial_html(
         statusNode.textContent = "Formuliere...";
         answer.textContent = "";
         appendSpeechTurn("user", text);
-        setSpeechStatus("Ich antworte gleich.", "thinking", "Ich formuliere die Antwort");
+        setSpeechStatus("", "thinking", "");
         const selectedModel = chatModelSelect ? String(chatModelSelect.value || "").trim() : "";
         const requestPayload = {{ question: text }};
         if (selectedModel) requestPayload.llm_model = selectedModel;
@@ -10793,9 +10790,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 return
             speaking_detail = "Meine Stimme kommt"
             if _is_memorial_contact_question(transcript_text):
-                speaking_detail = "Ich antworte direkt"
+                speaking_detail = ""
             elif _is_memorial_live_interaction_question(transcript_text):
-                speaking_detail = "Ich antworte"
+                speaking_detail = ""
             if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail}):
                 return
             base_config = _load_voice_config(slug)
@@ -10819,8 +10816,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             tts_plugin_used = selected_plugin
             direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
             if direct_contact_opening:
-                lead_in_ms = 70
-                tail_silence_ms = 180
+                lead_in_ms = 40
+                tail_silence_ms = 120
             else:
                 lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
                 tail_silence_ms = 360
