@@ -8327,6 +8327,30 @@ def _memorial_html(
         }}
         return videoMeetingBootstrap;
       }}
+      function providerSessionJoinUrl(bootstrap) {{
+        const providerSession = bootstrap && typeof bootstrap.provider_session === "object" ? bootstrap.provider_session : null;
+        const conversationUrl = providerSession && typeof providerSession.conversation_url === "string"
+          ? providerSession.conversation_url.trim()
+          : "";
+        return conversationUrl;
+      }}
+      function tryOpenProviderVideoMeetingSession(bootstrap) {{
+        const joinUrl = providerSessionJoinUrl(bootstrap);
+        if (!joinUrl) return false;
+        let openedWindow = null;
+        try {{
+          openedWindow = window.open(joinUrl, "_blank", "noopener,noreferrer");
+        }} catch (error) {{
+          openedWindow = null;
+        }}
+        if (openedWindow) return true;
+        try {{
+          window.location.href = joinUrl;
+          return true;
+        }} catch (error) {{
+          return false;
+        }}
+      }}
       function recordConversationOptions() {{
         const firstTurn = conversationTurnCount <= 0;
         if (firstTurn) {{
@@ -8384,17 +8408,36 @@ def _memorial_html(
         const bootstrapDetail = String((bootstrap && bootstrap.detail) || "").trim();
         const bootstrapState = String((bootstrap && bootstrap.integration_state) || "").trim();
         const providerLabel = String((bootstrap && bootstrap.provider_label) || "").trim();
+        const joinUrl = providerSessionJoinUrl(bootstrap);
         setVideoCallAvatarState(
           "working",
-          bootstrapState === "provider_configured_contract_only"
+          bootstrapState === "provider_live_session_created"
+            ? ((providerLabel || "Live-Avatar") + " ist live. Ich öffne jetzt die Avatar-Session.")
+            : bootstrapState === "provider_live_session_ready"
+              ? ((providerLabel || "Live-Avatar") + " ist bereit. Ich öffne gleich die Avatar-Session.")
+            : bootstrapState === "provider_configured_contract_only"
             ? ((providerLabel || "Live-Avatar") + " ist vorbereitet, die Seite bleibt aber bis zur echten Session-Integration auf Portrait und Stimme fail-closed.")
             : (videoCallAvatarVideo ? "VidBoard-Avatar wird eingeblendet." : "Live-Avatar ist noch nicht freigegeben. Bis dahin bleibt die Portraitvorschau.")
         );
         setVideoCallStatus(
-          bootstrapState === "provider_configured_contract_only"
+          bootstrapState === "provider_live_session_created"
+            ? (bootstrapDetail || (providerLabel || "Live-Avatar") + " ist bereit. Die Video-Session wird jetzt geöffnet.")
+            : bootstrapState === "provider_live_session_ready"
+              ? ((providerLabel || "Live-Avatar") + " ist bereit. Die Session wird jetzt erzeugt.")
+            : bootstrapState === "provider_configured_contract_only"
             ? (bootstrapDetail || "Provider ist konfiguriert, aber die öffentliche Live-Avatar-Session ist noch nicht aktiviert. Der Video Call läuft weiter über Portrait und Stimme.")
             : (videoCallAvatarVideo ? "Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar." : "Kamera wird vorbereitet ... Der Live-Avatar ist noch nicht freigegeben, daher siehst du vorerst nur die Portraitvorschau.")
         );
+        if (bootstrapState === "provider_live_session_created" && joinUrl) {{
+          const joined = tryOpenProviderVideoMeetingSession(bootstrap);
+          if (joined) {{
+            setSpeechStatus((providerLabel || "Live-Avatar") + " ist bereit. Die Session öffnet sich jetzt.", "working", "Video Call wird geöffnet");
+            return;
+          }}
+          setVideoCallStatus("Die Avatar-Session ist bereit, aber der Browser hat das Öffnen blockiert. Bitte öffne den Video Call erneut.");
+          setSpeechStatus("Die Avatar-Session ist bereit, aber ich konnte sie hier nicht öffnen.", "error", "Bitte tippe noch einmal");
+          return;
+        }}
         const conversationPromise = ensureConversationStartedForVideoCall();
         try {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{

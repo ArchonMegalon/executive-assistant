@@ -368,6 +368,96 @@ def test_public_memorial_video_meeting_status_reports_provider_configured_contra
     assert body["next_action"] == "provider_session_runtime_not_implemented"
 
 
+def test_public_memorial_video_meeting_status_reports_tavus_live_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ALLOW_PROVIDER_SESSION", "1")
+    monkeypatch.setenv("TAVUS_API_KEY", "test-key")
+    monkeypatch.setenv("TAVUS_PERSONA_ID", "persona-123")
+    monkeypatch.setenv("TAVUS_REPLICA_ID", "replica-123")
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-video-meeting-tavus-live-ready")
+
+    status = client.get(f"/memorials/{slug}/video-meeting/status")
+    assert status.status_code == 200
+    video_meeting = status.json()["video_meeting"]
+    assert video_meeting["integration_state"] == "provider_live_session_ready"
+    assert video_meeting["provider_key"] == "tavus"
+    assert video_meeting["provider_label"] == "Tavus"
+    assert video_meeting["next_action"] == "create_provider_session"
+
+
+def test_public_memorial_video_meeting_session_creates_tavus_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", "1")
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ALLOW_PROVIDER_SESSION", "1")
+    monkeypatch.setenv("TAVUS_API_KEY", "test-key")
+    monkeypatch.setenv("TAVUS_PERSONA_ID", "persona-123")
+    monkeypatch.setenv("TAVUS_REPLICA_ID", "replica-123")
+    _patch_memorial_runtime_roots(tmp_path)
+
+    from app.services import memorial_video_meeting
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "conversation_id": "conv-123",
+                "conversation_url": "https://tavus.daily.co/conv-123",
+                "meeting_token": "token-123",
+                "status": "active",
+                "created_at": "2026-06-08T12:00:00Z",
+            }
+
+    seen: dict[str, object] = {}
+
+    def _fake_post(url, headers=None, json=None, timeout=None):
+        seen["url"] = url
+        seen["headers"] = headers
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(memorial_video_meeting.requests, "post", _fake_post)
+
+    client = _client(principal_id="exec-memorial-video-meeting-tavus-live-created")
+    session = client.post(
+        f"/memorials/{slug}/video-meeting/session",
+        json={"camera_requested": True, "personal_memory_enabled": True},
+    )
+    assert session.status_code == 200
+    body = session.json()
+    assert body["integration_state"] == "provider_live_session_created"
+    assert body["provider_key"] == "tavus"
+    assert body["provider_label"] == "Tavus"
+    assert body["next_action"] == "join_provider_session"
+    assert body["provider_session"]["conversation_url"] == "https://tavus.daily.co/conv-123"
+    assert body["provider_session"]["callback_url"].endswith(f"/memorials/{slug}/video-meeting/provider-callback")
+    assert seen["url"] == "https://tavusapi.com/v2/conversations"
+    assert seen["headers"]["x-api-key"] == "test-key"
+    assert seen["json"]["persona_id"] == "persona-123"
+    assert seen["json"]["replica_id"] == "replica-123"
+
+
 def test_public_memorial_json_includes_public_archive_registry_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
