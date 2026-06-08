@@ -1,6 +1,6 @@
 {
   "tts_plugin": "openvoice_local",
-  "voice_profile_id": "manfred-openvoice-opt-idv2-08",
+  "voice_profile_id": "manfred-openvoice-opt-04",
   "voice_label": "Manfred Hoza · optimierter OpenVoice-Klon",
   "lang": "de-AT",
   "rate": 0.92,
@@ -11,9 +11,9 @@
     "de-DE",
     "German"
   ],
-  "tts_plugin_voice_id": "manfred-openvoice-opt-idv2-08",
+  "tts_plugin_voice_id": "manfred-openvoice-opt-04",
   "tts_base_voice_variant": "high",
-  "notes": "OpenVoice-Optimierung aus spaeten YouTube-Interviewsegmenten. Gewinner manfred-openvoice-opt-idv2-08 mit Score 0.8742 mit Basisvariante high aus oSQ9FhFc4YI-01500s-28.wav.",
+  "notes": "OpenVoice-Optimierung aus spaeten YouTube-Interviewsegmenten. Nach Nachschaerfung der Kandidatenlogik gegen reportageartige Drittperson-Passagen wurde der Mixed-Referenzkandidat manfred-openvoice-opt-04 mit Basisvariante high als neuer Live-Challenger gesetzt. Referenzmix: xlrEDbQDTFA-01385s.wav + oSQ9FhFc4YI-01440s.wav.",
   "synthetic_voice_clone_of_memorial_person": true,
   "tts_mode": "openvoice_local",
   "consent_basis": "owner_consented_voice_clone",

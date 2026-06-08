@@ -177,12 +177,74 @@ def _score_transcript_self_speech(text: str) -> float:
         "sprecher",
         "kommentar",
         "untertitel",
+        "anita",
+        "mohr",
+        "anwalt",
+        "kollege",
+        "kollegen",
+        "opfer",
+        "taeter",
+        "taetern",
+        "experten",
+    }
+    narration_markers = (
+        "erzaehlt sie",
+        "erzaehlt er",
+        "sagen experten",
+        "erklaert uns",
+        "fuehlte sich",
+        "rief spaeter an",
+        "wurde aus",
+        "nicht ungewoehnlich",
+        "dort begann",
+        "der gang zur arbeit",
+        "brach sie zusammen",
+        "psychoterror",
+    )
+    direct_speech_markers = (
+        "ich bin der meinung",
+        "ich bin ein",
+        "wenn sie mich jetzt fragen",
+        "hier bin ich der meinung",
+        "ich muesste sagen",
+        "ich habe",
+        "wir haben",
+        "muesste versucht werden",
+        "vom gesetzgeber",
+        "glaubhaftmachung",
+        "gutachterliche hilfen",
+        "verfechter",
+    )
+    third_person_words = {
+        "sie",
+        "ihr",
+        "ihre",
+        "ihren",
+        "er",
+        "ihm",
+        "sein",
+        "seine",
     }
     positive_hits = sum(1 for word in words if word in positives)
     negative_hits = sum(1 for word in words if word in negatives)
+    third_person_hits = sum(1 for word in words if word in third_person_words)
+    narration_hits = sum(1 for marker in narration_markers if marker in normalized)
+    direct_hits = sum(1 for marker in direct_speech_markers if marker in normalized)
     question_penalty = 1.2 if "?" in str(text or "") else 0.0
     length_bonus = min(len(words) / 24.0, 1.0)
-    raw = (positive_hits * 1.6) + length_bonus - (negative_hits * 1.9) - question_penalty
+    first_person_ratio = positive_hits / float(max(1, len(words)))
+    third_person_ratio = third_person_hits / float(max(1, len(words)))
+    narration_penalty = narration_hits * 1.7
+    if third_person_ratio >= 0.16 and first_person_ratio < 0.08:
+        narration_penalty += 1.1
+    raw = (
+        (positive_hits * 1.6)
+        + (direct_hits * 1.3)
+        + length_bonus
+        - (negative_hits * 1.9)
+        - narration_penalty
+        - question_penalty
+    )
     return max(0.0, min(1.0, 0.5 + (raw / 6.0)))
 
 

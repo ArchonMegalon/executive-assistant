@@ -39,6 +39,21 @@ def test_score_transcript_self_speech_prefers_first_person_tail() -> None:
     assert weak < 0.5
 
 
+def test_score_transcript_self_speech_penalizes_reportage_over_direct_speech() -> None:
+    import scripts.optimize_memorial_openvoice_clone as optimizer
+
+    direct = optimizer._score_transcript_self_speech(
+        "Das ist sehr schwierig. Hier bin ich der Meinung, es müsste versucht werden, dass eine Glaubhaftmachung reicht."
+    )
+    reportage = optimizer._score_transcript_self_speech(
+        "Unternehmen und ich habe da manchmal über die Stränge geschlagen. Anita Mohr hat mehrfach im Betriebsrat um eine Vermittlung gebeten."
+    )
+
+    assert direct > reportage
+    assert direct > 0.75
+    assert reportage < 0.8
+
+
 def test_candidate_sample_combinations_are_unique(tmp_path: Path) -> None:
     import scripts.optimize_memorial_openvoice_clone as optimizer
 
