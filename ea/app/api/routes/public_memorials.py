@@ -10851,11 +10851,23 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     cancelled_turn_ids: set[str] = set()
     cancelled_notice_sent: set[str] = set()
 
+    async def _safe_send_json(payload: dict[str, object]) -> bool:
+        try:
+            if websocket.client_state.name == "DISCONNECTED":
+                return False
+        except Exception:
+            return False
+        try:
+            await websocket.send_json(payload)
+            return True
+        except (RuntimeError, WebSocketDisconnect):
+            return False
+
     async def _send_cancelled(turn_id: str) -> None:
         if not turn_id or turn_id in cancelled_notice_sent:
             return
         cancelled_notice_sent.add(turn_id)
-        await websocket.send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
+        await _safe_send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
 
     async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
         total_started = time.perf_counter()
@@ -10865,13 +10877,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
-            await websocket.send_json(
+            if not await _safe_send_json(
                 {
                     "type": "transcript",
                     "turn_id": turn_id,
                     "text": transcript_text,
                 }
-            )
+            ):
+                return
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
@@ -10880,7 +10893,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 phase_detail = "Ich antworte direkt"
             elif _is_memorial_ooda_question(transcript_text):
                 phase_detail = "Komplizierte Frage. Ich ordne erst die Sache"
-            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail})
+            if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail}):
+                return
             selected_model = _resolve_memorial_realtime_chat_model(payload, private_profile)
             llm_started = time.perf_counter()
             try:
@@ -10925,7 +10939,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             )
             compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
             answer_payload["answer"] = compact_answer
-            await websocket.send_json(
+            if not await _safe_send_json(
                 {
                     "type": "answer",
                     "turn_id": turn_id,
@@ -10933,14 +10947,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     "sources": list(answer_payload.get("sources") or []),
                     "llm_model": _text(answer_payload.get("llm_model")),
                 }
-            )
+            ):
+                return
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
             speaking_detail = "Meine Stimme kommt"
             if _is_memorial_live_interaction_question(transcript_text):
                 speaking_detail = "Ich antworte"
-            await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail})
+            if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail}):
+                return
             base_config = _load_voice_config(slug)
             merged_config = dict(base_config)
             if current_voice_ab_variant in {"a", "b"}:
@@ -11058,7 +11074,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         return
                     start = index * chunk_size
                     end = start + chunk_size
-                    await websocket.send_json(
+                    if not await _safe_send_json(
                         {
                             "type": "audio_chunk",
                             "turn_id": turn_id,
@@ -11067,17 +11083,19 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             "total_parts": total_parts,
                             "audio_base64": audio_base64[start:end],
                         }
-                    )
+                    ):
+                        return
                     await asyncio.sleep(0)
-                await websocket.send_json(
+                if not await _safe_send_json(
                     {
                         "type": "audio_complete",
                         "turn_id": turn_id,
                         "content_type": audio_content_type,
                         "total_parts": total_parts,
                     }
-                )
-            await websocket.send_json({"type": "turn_complete", "turn_id": turn_id})
+                ):
+                    return
+            await _safe_send_json({"type": "turn_complete", "turn_id": turn_id})
             _log_memorial_timing(
                 "realtime_transcript_turn",
                 slug=slug,
@@ -11101,7 +11119,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 detail=_text(exc.detail, "realtime_failed"),
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
-            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
         except Exception as exc:
             detail = str(exc)[:180] or "realtime_failed"
             _log_memorial_timing(
@@ -11111,7 +11129,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 detail=detail,
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
-            await websocket.send_json({"type": "error", "turn_id": turn_id, "message": detail})
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": detail})
 
     async def _process_turn(turn_id: str, audio_payload: bytes, content_type: str) -> None:
         total_started = time.perf_counter()
