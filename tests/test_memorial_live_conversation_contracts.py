@@ -848,6 +848,14 @@ def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcript
     assert "if (!looksDirected && !(conversationIdleMisses >= 1 && normalized.length >= 8 && words.length >= 2)) return false;" in source
 
 
+def test_memorial_live_page_source_uses_browser_voice_when_realtime_server_audio_is_missing() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert 'browserSpeechFallbackConfig("Browser Fallback")' in source
+    assert 'void speakText(' in source
+    assert '}} else if (conversationActive) {{' in source
+
+
 def test_memorial_speech_transcribe_route_logs_timing_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -882,6 +890,14 @@ def test_memorial_speech_transcribe_route_logs_timing_metadata(
         and "status=transcribed" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' in source
+    assert 'piper_fast_synthesize_request(' in source
+    assert 'text="Ich bin da."' in source
 
 
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:

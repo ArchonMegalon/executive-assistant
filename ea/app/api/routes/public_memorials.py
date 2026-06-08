@@ -5317,46 +5317,14 @@ def _run_memorial_live_warmup(slug: str) -> None:
             errors.append(f"chat:{str(exc)[:120]}")
         try:
             base_config = _load_voice_config(slug)
-            tts_options = _tts_plugin_options(
-                payload=base_config,
-                voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+            selected_plugin = PIPER_FAST_TTS_PLUGIN_ID
+            phase_started = time.perf_counter()
+            piper_fast_synthesize_request(
+                text="Ich bin da.",
+                lang=_text(base_config.get("lang"), "de-AT"),
+                base_voice_variant=_effective_tts_base_voice_variant(base_config),
             )
-            selected_plugin, selected_option = _resolve_server_tts_plugin(payload=base_config, options=tts_options)
-            if bool(selected_option.get("tts_plugin_enabled")):
-                phase_started = time.perf_counter()
-                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-                    piper_fast_synthesize_request(
-                        text="Ich bin da.",
-                        lang=_text(base_config.get("lang"), "de-AT"),
-                        base_voice_variant=_effective_tts_base_voice_variant(base_config),
-                    )
-                elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-                    voice_id = _text(
-                        base_config.get("tts_plugin_voice_id"),
-                        _text(selected_option.get("tts_plugin_voice_id"), ""),
-                    )
-                    if voice_id:
-                        unmixr_synthesize_request(
-                            text="Ich bin da.",
-                            voice_id=voice_id,
-                            lang=_text(base_config.get("lang"), "de"),
-                            speaking_rate=_text(base_config.get("unmixr_speaking_rate"), ""),
-                            speaking_pitch=_text(base_config.get("unmixr_speaking_pitch"), ""),
-                            speaking_volume=_text(base_config.get("unmixr_speaking_volume"), ""),
-                        )
-                elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-                    voice_id = _text(
-                        base_config.get("tts_plugin_voice_id"),
-                        _text(selected_option.get("tts_plugin_voice_id"), ""),
-                    )
-                    if voice_id:
-                        openvoice_synthesize_request_with_variant(
-                            text="Ich bin da.",
-                            voice_id=voice_id,
-                            lang=_text(base_config.get("lang"), "de-AT"),
-                            base_voice_variant=_effective_tts_base_voice_variant(base_config),
-                        )
-                tts_ms = (time.perf_counter() - phase_started) * 1000.0
+            tts_ms = (time.perf_counter() - phase_started) * 1000.0
         except Exception as exc:
             errors.append(f"tts:{str(exc)[:120]}")
     finally:
@@ -9601,9 +9569,17 @@ def _memorial_html(
               browserSpeechFallbackConfig("Browser Fallback"),
             );
           }} else if (conversationActive) {{
-            conversationTurnCount += 1;
-            setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
-            setTimeout(recordConversationTurn, 1200);
+            void speakText(
+              assistantText,
+              () => {{
+                if (!conversationActive) return;
+                conversationTurnCount += 1;
+                setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
+                setTimeout(recordConversationTurn, 1200);
+              }},
+              browserSpeechFallbackConfig("Browser Fallback"),
+              "",
+            );
           }}
         }} catch (error) {{
           conversationActive = false;
