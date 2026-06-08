@@ -434,6 +434,89 @@ def test_memorial_conversation_turn_keeps_configured_voice_even_while_warmup_is_
     assert scheduled == []
 
 
+def test_memorial_conversation_turn_supports_voicewave_clone(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "Manfred Hoza Memorial",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-08T18:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("VOICEWAVE_LOGIN_EMAIL", "voicewave@example.com")
+    monkeypatch.setenv("VOICEWAVE_LOGIN_PASSWORD", "secret")
+
+    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred, bitte antworte.")
+    output_audio = _generated_wav_bytes(textish_seed="Ich bin da.")
+    seen_voicewave_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Hallo Manfred, bitte antworte.",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="Ich bin da. Sprich direkt mit mir.",
+            provider_key="unit-test-model",
+            model="unit-test-model",
+        ),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "voicewave_synthesize_request",
+        lambda **kwargs: seen_voicewave_calls.append(kwargs) or (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_prefer_fast_tts_for_conversation_turn",
+        lambda warmup_slug: (False, ""),
+    )
+
+    client = _client(principal_id="exec-memorial-live-voicewave-turn")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tts_plugin"] == public_memorials.VOICEWAVE_TTS_PLUGIN_ID
+    assert body["audio_content_type"] == "audio/wav"
+    assert seen_voicewave_calls == [
+        {
+            "text": body["answer"],
+            "voice_label": "Manfred Hoza Memorial",
+        }
+    ]
+
+
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
