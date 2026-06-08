@@ -185,6 +185,9 @@ def test_public_memorial_video_call_can_render_real_avatar_video_asset(
             "person_name": "Manfred Hoza",
             "audio_clips": [],
             "video_call_avatar": {
+                "provider_key": "vidboard",
+                "provider_proof_verdict": "VERIFIED_PROVIDER",
+                "public_ready": True,
                 "asset_relpath": "video/manfred-avatar.mp4",
                 "poster_relpath": "video/manfred-avatar-poster.png",
                 "provider_label": "VidBoard Avatar bereit",
@@ -211,6 +214,50 @@ def test_public_memorial_video_call_can_render_real_avatar_video_asset(
 
     asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
     assert asset.status_code == 200
+
+
+def test_public_memorial_video_call_blocks_unverified_avatar_asset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    bundle_dir = _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "video_call_avatar": {
+                "provider_key": "vidboard",
+                "provider_proof_verdict": "READY_VIA_FALLBACK",
+                "public_ready": False,
+                "asset_relpath": "video/manfred-avatar.mp4",
+                "poster_relpath": "video/manfred-avatar-poster.png",
+                "provider_label": "VidBoard in Prüfung",
+                "title": "Manfred Hoza als Avatar",
+                "detail": "Nicht freigegeben.",
+            },
+        },
+    )
+    video_dir = bundle_dir / "video"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    (video_dir / "manfred-avatar.mp4").write_bytes(b"mp4")
+    (video_dir / "manfred-avatar-poster.png").write_bytes(b"\x89PNG\r\n\x1a\nposter")
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-video-avatar-blocked")
+
+    page = client.get(f"/memorials/{slug}")
+    assert page.status_code == 200
+    assert 'id="memorial-video-call-avatar-video"' not in page.text
+    assert "liegt vor, ist aber noch nicht freigegeben" in page.text
+
+    asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
+    assert asset.status_code == 404
 
 
 def test_public_memorial_json_includes_public_archive_registry_only(

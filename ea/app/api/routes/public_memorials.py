@@ -2076,12 +2076,11 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         rel = _text(doc.get("asset_relpath"), "")
         if rel:
             allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
-    video_call_avatar = payload.get("video_call_avatar")
-    if isinstance(video_call_avatar, dict):
-        for key in ("asset_relpath", "poster_relpath"):
-            rel = _text(video_call_avatar.get(key), "")
-            if rel:
-                allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
+    video_call_avatar = _memorial_video_call_avatar(payload, slug)
+    for key in ("asset_relpath", "poster_relpath"):
+        rel = _text(video_call_avatar.get(key), "")
+        if rel:
+            allowed_relpaths.add(PurePosixPath(rel).as_posix().lstrip("/"))
     relative_path = candidate.relative_to(bundle_dir).as_posix().lstrip("/")
     if relative_path not in allowed_relpaths:
         raise HTTPException(status_code=404, detail="memorial_file_not_found")
@@ -2094,6 +2093,8 @@ def _memorial_video_call_avatar(payload: dict[str, object], slug: str) -> dict[s
     result: dict[str, object] = {
         "enabled": False,
         "kind": "portrait",
+        "asset_relpath": "",
+        "poster_relpath": "",
         "provider_label": "VidBoard noch nicht live",
         "asset_url": "",
         "poster_url": "",
@@ -2107,15 +2108,24 @@ def _memorial_video_call_avatar(payload: dict[str, object], slug: str) -> dict[s
     provider_label = _text(raw.get("provider_label"), "VidBoard")
     title = _text(raw.get("title"), person_name)
     detail = _text(raw.get("detail"), "Avatar-Video wird vorbereitet.")
-    if asset_relpath:
+    proof_verdict = _text(raw.get("provider_proof_verdict"), "").upper()
+    public_ready = bool(raw.get("public_ready") is True)
+    provider_key = _text(raw.get("provider_key"), "").lower()
+    if asset_relpath and proof_verdict == "VERIFIED_PROVIDER" and public_ready and provider_key:
         result["enabled"] = True
         result["kind"] = "video"
+        result["asset_relpath"] = asset_relpath
+        result["poster_relpath"] = poster_relpath
         result["asset_url"] = f"/memorials/files/{html.escape(slug)}/{html.escape(asset_relpath)}"
         if poster_relpath:
             result["poster_url"] = f"/memorials/files/{html.escape(slug)}/{html.escape(poster_relpath)}"
         result["provider_label"] = provider_label
         result["title"] = title
         result["detail"] = detail
+    elif asset_relpath:
+        result["provider_label"] = provider_label or "VidBoard in Pruefung"
+        result["title"] = title
+        result["detail"] = "Der eigentliche VidBoard-Avatar liegt vor, ist aber noch nicht freigegeben. Bis dahin zeigen wir nur die Portraitvorschau."
     return result
 
 
