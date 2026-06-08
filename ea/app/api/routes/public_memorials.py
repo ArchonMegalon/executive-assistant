@@ -8697,12 +8697,14 @@ def _memorial_html(
         if (!normalized) return false;
         const words = normalized.split(/\\s+/).filter(Boolean);
         const isFirstConversationTurn = conversationTurnCount <= 0;
+        const lowered = normalizeConversationCompareText(normalized);
+        const looksGreeting = /(^| )(hallo|hi|hey|servus|gruess gott|gruesz gott|grüß gott|manfred)( |$)/.test(lowered);
         if (looksImmediateLivePrompt(normalized)) return true;
-        if (isFirstConversationTurn && normalized.length >= 8 && words.length >= 2) return true;
-        if (conversationIdleMisses >= 1 && normalized.length >= 10 && words.length >= 2) return true;
+        if (isFirstConversationTurn && ((normalized.length >= 6 && words.length >= 2) || looksGreeting)) return true;
+        if (conversationIdleMisses >= 1 && ((normalized.length >= 6 && words.length >= 2) || looksGreeting)) return true;
+        if (conversationIdleMisses >= 2 && normalized.length >= 4) return true;
         if (normalized.length < 12 || words.length < 3) return false;
         if (lastAnswerText && conversationEchoScore(normalized, lastAnswerText) >= 0.72) return false;
-        const lowered = normalizeConversationCompareText(normalized);
         const starters = new Set([
           "was", "wie", "warum", "wieso", "weshalb", "wer", "wo", "wann", "welche", "welcher", "welches",
           "soll", "sollte", "kann", "koennte", "darf", "hast", "bist", "glaubst", "weisst", "weißt",
@@ -8718,7 +8720,7 @@ def _memorial_html(
           lowered.startsWith("ich moechte ") ||
           lowered.startsWith("ich möchte ") ||
           lowered.startsWith("ich will ");
-        if (!looksDirected) return false;
+        if (!looksDirected && !(conversationIdleMisses >= 1 && normalized.length >= 8 && words.length >= 2)) return false;
         return true;
       }}
       function looksImmediateLivePrompt(transcript) {{

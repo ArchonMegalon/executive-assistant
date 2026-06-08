@@ -838,6 +838,15 @@ def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
     assert "Ich habe dich. Einen Moment ..." not in source
 
 
+def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcripts() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "const looksGreeting =" in source
+    assert "normalized.length >= 6 && words.length >= 2" in source
+    assert "conversationIdleMisses >= 2 && normalized.length >= 4" in source
+    assert "if (!looksDirected && !(conversationIdleMisses >= 1 && normalized.length >= 8 && words.length >= 2)) return false;" in source
+
+
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import public_memorials
 
@@ -898,9 +907,9 @@ def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_t
     assert "Math.max(220, Number(options.silenceMs || 850))" in source
 
 
-def test_memorial_live_page_source_keeps_video_call_running_without_camera() -> None:
+def test_memorial_live_page_source_stays_voice_only_without_legacy_video_call_ui() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
-    assert "continueVideoCallWithoutCamera()" in source
-    assert "Kamera ist optional. Manfred bleibt im Video Call ueber Stimme und Avatar." in source
-    assert "Video Call laeuft auch ohne Kamera weiter." in source
+    assert "continueVideoCallWithoutCamera()" not in source
+    assert 'id="memorial-video-call-preview"' not in source
+    assert 'id="memorial-video-call-avatar-video"' not in source
