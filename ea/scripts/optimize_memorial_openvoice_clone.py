@@ -68,6 +68,19 @@ def _optimization_dir(*, slug: str) -> Path:
     return _voice_profile_dir(slug=slug) / "optimization"
 
 
+def _preview_dir(*, slug: str) -> Path:
+    return _optimization_dir(slug=slug) / "previews"
+
+
+def _candidate_cache_path(*, slug: str) -> Path:
+    return _optimization_dir(slug=slug) / "candidate_cache.json"
+
+
+def _write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+
+
 def _ffprobe_duration_seconds(path: Path) -> float:
     completed = subprocess.run(
         [
@@ -196,6 +209,14 @@ def _list_source_audio_paths(*, slug: str) -> list[Path]:
     if not voice_profile_dir.is_dir():
         return []
     disallowed_roots = {"curated", "generated_candidates", "loupe", "optimization"}
+    derived_markers = (
+        "bestof",
+        "top3",
+        "challenger",
+        "openvoice-opt",
+        "-cand-",
+        "-00000s",
+    )
     audio_paths: list[Path] = []
     for path in sorted(voice_profile_dir.rglob("*")):
         if not path.is_file():
@@ -203,6 +224,8 @@ def _list_source_audio_paths(*, slug: str) -> list[Path]:
         if any(part in disallowed_roots for part in path.relative_to(voice_profile_dir).parts[:-1]):
             continue
         if path.suffix.lower() not in {".mp3", ".wav", ".m4a", ".mp4", ".aac", ".webm", ".ogg"}:
+            continue
+        if any(marker in path.name.lower() for marker in derived_markers):
             continue
         audio_paths.append(path)
     return audio_paths
@@ -234,6 +257,8 @@ def _collect_tail_candidates(
 ) -> list[dict[str, object]]:
     work_dir = _optimization_dir(slug=slug) / "candidates"
     work_dir.mkdir(parents=True, exist_ok=True)
+    cache = _load_candidate_cache(slug=slug)
+    cache_changed = False
     ranked: list[dict[str, object]] = []
     for source_path in _list_source_audio_paths(slug=slug):
         duration_seconds = _ffprobe_duration_seconds(source_path)
@@ -251,25 +276,36 @@ def _collect_tail_candidates(
                 duration_seconds=segment_seconds,
                 out_path=segment_path,
             )
+            cache_key = f"{source_path.name}:{start_seconds:.3f}:{segment_seconds:.3f}"
+            cached = cache.get(cache_key) or {}
+            if (
+                str(cached.get("segment_path") or "") == str(segment_path)
+                and str(cached.get("transcript_text") or "").strip()
+            ):
+                ranked.append(dict(cached))
+                continue
             payload = segment_path.read_bytes()
             transcript = _transcribe_audio_bytes(payload, content_type="audio/wav", slug=slug, base_url=base_url)
             transcript_text = str(transcript.get("transcript_text") or "").strip()
             transcript_score = _score_transcript_self_speech(transcript_text)
             tail_bias = 1.0 if duration_seconds <= 0 else min(1.0, start_seconds / max(duration_seconds, 1.0))
             total_score = (transcript_score * 0.82) + (tail_bias * 0.18)
-            ranked.append(
-                {
-                    "source_path": str(source_path),
-                    "segment_path": str(segment_path),
-                    "start_seconds": start_seconds,
-                    "duration_seconds": segment_seconds,
-                    "transcript_text": transcript_text,
-                    "transcript_score": round(transcript_score, 4),
-                    "tail_bias": round(tail_bias, 4),
-                    "score": round(total_score, 4),
-                }
-            )
+            row = {
+                "source_path": str(source_path),
+                "segment_path": str(segment_path),
+                "start_seconds": start_seconds,
+                "duration_seconds": segment_seconds,
+                "transcript_text": transcript_text,
+                "transcript_score": round(transcript_score, 4),
+                "tail_bias": round(tail_bias, 4),
+                "score": round(total_score, 4),
+            }
+            ranked.append(row)
+            cache[cache_key] = dict(row)
+            cache_changed = True
     ranked.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    if cache_changed:
+        _save_candidate_cache(slug=slug, cache=cache)
     return ranked[: max(1, int(max_candidates))]
 
 
@@ -380,6 +416,7 @@ def _evaluate_clone(
     base_voice_variant: str,
     slug: str,
     base_url: str,
+    iteration_index: int,
 ) -> dict[str, object]:
     reference_metrics = [_wav_metrics_from_path(path) for path in sample_paths if path.is_file()]
     if not reference_metrics:
@@ -390,6 +427,13 @@ def _evaluate_clone(
     }
     prompt_results: list[dict[str, object]] = []
     total_score = 0.0
+    iteration_preview_dir = _preview_dir(slug=slug) / f"iteration-{iteration_index:02d}-{voice_id}"
+    iteration_preview_dir.mkdir(parents=True, exist_ok=True)
+    copied_samples: list[str] = []
+    for sample_index, sample_path in enumerate(sample_paths, start=1):
+        sample_copy = iteration_preview_dir / f"reference-sample-{sample_index:02d}{sample_path.suffix or '.wav'}"
+        _write_bytes(sample_copy, sample_path.read_bytes())
+        copied_samples.append(str(sample_copy))
     for prompt in prompts:
         audio_bytes, content_type = openvoice_synthesize_request_with_variant(
             text=prompt,
@@ -397,6 +441,10 @@ def _evaluate_clone(
             lang="de-AT",
             base_voice_variant=base_voice_variant,
         )
+        extension = mimetypes.guess_extension(str(content_type or "audio/wav").split(";", 1)[0].strip().lower()) or ".wav"
+        prompt_slug = _normalize_text(prompt).replace(" ", "-")[:48] or "sample"
+        preview_path = iteration_preview_dir / f"{prompt_slug}{extension}"
+        _write_bytes(preview_path, audio_bytes)
         transcription = _transcribe_audio_bytes(audio_bytes, content_type=content_type, slug=slug, base_url=base_url)
         transcript_text = str(transcription.get("transcript_text") or "").strip()
         roundtrip_score = _text_similarity(prompt, transcript_text)
@@ -410,6 +458,7 @@ def _evaluate_clone(
                 "roundtrip_score": round(roundtrip_score, 4),
                 "feature_score": round(feature_score, 4),
                 "score": round(prompt_score, 4),
+                "preview_path": str(preview_path),
             }
         )
     aggregate_score = total_score / float(len(prompt_results) or 1)
@@ -418,6 +467,8 @@ def _evaluate_clone(
         "score": round(aggregate_score, 4),
         "prompts": prompt_results,
         "reference_metrics": {key: round(value, 4) for key, value in average_reference.items()},
+        "preview_dir": str(iteration_preview_dir),
+        "reference_sample_paths": copied_samples,
     }
 
 
@@ -434,6 +485,52 @@ def _load_existing_voice_config(path: Path) -> dict[str, object]:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _load_candidate_cache(*, slug: str) -> dict[str, dict[str, object]]:
+    path = _candidate_cache_path(slug=slug)
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {str(key): dict(value) for key, value in payload.items() if isinstance(key, str) and isinstance(value, dict)}
+
+
+def _save_candidate_cache(*, slug: str, cache: dict[str, dict[str, object]]) -> Path:
+    path = _candidate_cache_path(slug=slug)
+    _write_json(path, cache)
+    return path
+
+
+def _write_preview_index(*, slug: str, iterations: list[dict[str, object]], best_voice_id: str) -> Path:
+    path = _preview_dir(slug=slug) / "README.md"
+    lines = [
+        f"# {slug} OpenVoice Optimization Previews",
+        "",
+        f"Winner: `{best_voice_id}`",
+        "",
+    ]
+    for iteration in iterations:
+        lines.append(f"## Iteration {iteration['iteration']} · `{iteration['voice_id']}` · score {iteration['score']}")
+        lines.append("")
+        for sample_path in iteration.get("sample_paths", []):
+            lines.append(f"- Reference sample: `{sample_path}`")
+        evaluation = iteration.get("evaluation") or {}
+        for prompt_row in evaluation.get("prompts", []):
+            lines.append(
+                "- Preview: "
+                f"`{prompt_row.get('preview_path', '')}` "
+                f"(roundtrip {prompt_row.get('roundtrip_score')}, feature {prompt_row.get('feature_score')})"
+            )
+            lines.append(f"  transcript: {prompt_row.get('transcript_text', '')}")
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    return path
 
 
 def _write_voice_config(
@@ -512,6 +609,7 @@ def optimize_openvoice_clone(
             base_voice_variant=base_voice_variant,
             slug=slug,
             base_url=base_url,
+            iteration_index=iteration_index,
         )
         selected_candidates = [
             item for item in candidates if Path(str(item.get("segment_path") or "")) in set(sample_paths)
@@ -555,6 +653,12 @@ def optimize_openvoice_clone(
             base_voice_variant=base_voice_variant,
         )
         report["applied_config_path"] = str(config_path)
+    preview_index_path = _write_preview_index(
+        slug=slug,
+        iterations=iterations,
+        best_voice_id=str(best_iteration["voice_id"]),
+    )
+    report["preview_index_path"] = str(preview_index_path)
     report_path = _optimization_dir(slug=slug) / "openvoice_optimization_report.json"
     _write_json(report_path, report)
     report["report_path"] = str(report_path)

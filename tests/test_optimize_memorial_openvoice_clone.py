@@ -54,6 +54,75 @@ def test_candidate_sample_combinations_are_unique(tmp_path: Path) -> None:
     assert len({tuple(str(path) for path in combo) for combo in combinations}) == len(combinations)
 
 
+def test_list_source_audio_paths_skips_derived_voice_artifacts(monkeypatch, tmp_path: Path) -> None:
+    import scripts.optimize_memorial_openvoice_clone as optimizer
+
+    slug = "manfred"
+    profile_dir = tmp_path / slug / "voice_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "xlrEDbQDTFA.mp3").write_bytes(b"raw")
+    (profile_dir / "manfredbestof-openvoice-00000s.wav").write_bytes(b"derived")
+    (profile_dir / "unmixr-challenger-youtube-v5.wav").write_bytes(b"derived")
+    (profile_dir / "top3-balanced.wav").write_bytes(b"derived")
+    monkeypatch.setattr(optimizer, "_voice_profile_dir", lambda *, slug: profile_dir)
+
+    paths = optimizer._list_source_audio_paths(slug=slug)
+
+    assert [path.name for path in paths] == ["xlrEDbQDTFA.mp3"]
+
+
+def test_collect_tail_candidates_reuses_cached_transcripts(monkeypatch, tmp_path: Path) -> None:
+    import scripts.optimize_memorial_openvoice_clone as optimizer
+
+    slug = "manfred"
+    private_root = tmp_path / "private"
+    profile_dir = private_root / slug / "voice_profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+
+    source_path = profile_dir / "source.mp3"
+    source_path.write_bytes(b"fake")
+    segment_payload = _make_wav_bytes(frequency=250)
+
+    monkeypatch.setattr(optimizer, "_list_source_audio_paths", lambda *, slug: [source_path])
+    monkeypatch.setattr(optimizer, "_ffprobe_duration_seconds", lambda path: 120.0)
+    monkeypatch.setattr(optimizer, "_tail_start_points", lambda **kwargs: [100.0])
+
+    def _fake_extract_segment_to_wav(*, source, start_seconds, duration_seconds, out_path):
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(segment_payload)
+
+    transcribe_calls = {"count": 0}
+
+    def _fake_transcribe_audio_bytes(payload: bytes, *, content_type: str, slug: str, base_url: str):
+        transcribe_calls["count"] += 1
+        return {"transcript_text": "Ich habe das selbst erlebt."}
+
+    monkeypatch.setattr(optimizer, "_extract_segment_to_wav", _fake_extract_segment_to_wav)
+    monkeypatch.setattr(optimizer, "_transcribe_audio_bytes", _fake_transcribe_audio_bytes)
+
+    first = optimizer._collect_tail_candidates(
+        slug=slug,
+        segment_seconds=20.0,
+        tail_window_seconds=30.0,
+        step_seconds=10.0,
+        max_candidates=3,
+        base_url="http://127.0.0.1:8090",
+    )
+    second = optimizer._collect_tail_candidates(
+        slug=slug,
+        segment_seconds=20.0,
+        tail_window_seconds=30.0,
+        step_seconds=10.0,
+        max_candidates=3,
+        base_url="http://127.0.0.1:8090",
+    )
+
+    assert first[0]["transcript_text"] == "Ich habe das selbst erlebt."
+    assert second[0]["transcript_text"] == "Ich habe das selbst erlebt."
+    assert transcribe_calls["count"] == 1
+
+
 def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path: Path) -> None:
     import scripts.optimize_memorial_openvoice_clone as optimizer
 
@@ -97,13 +166,20 @@ def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path
         base_voice_variant: str,
         slug: str,
         base_url: str,
+        iteration_index: int,
     ):
         score = 0.46 if voice_id.endswith("01") else 0.93
+        preview_dir = private_root / slug / "voice_profile" / "optimization" / "previews" / f"iteration-{iteration_index:02d}-{voice_id}"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        preview_path = preview_dir / "preview.wav"
+        preview_path.write_bytes(_make_wav_bytes(frequency=260))
         return {
             "voice_id": voice_id,
             "score": score,
-            "prompts": [{"prompt": prompts[0], "score": score}],
+            "prompts": [{"prompt": prompts[0], "score": score, "preview_path": str(preview_path), "roundtrip_score": score, "feature_score": score, "transcript_text": prompts[0]}],
             "reference_metrics": {"duration_seconds": 0.7, "mean_rms": 1000.0, "speech_ratio": 0.9, "zero_crossing_rate": 0.03},
+            "preview_dir": str(preview_dir),
+            "reference_sample_paths": [str(candidate_a)],
         }
 
     monkeypatch.setattr(optimizer, "_collect_tail_candidates", _fake_collect_tail_candidates)
@@ -134,3 +210,7 @@ def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path
     assert payload["synthetic_voice_clone_of_memorial_person"] is True
     assert "OpenVoice-Optimierung" in payload["notes"]
     assert Path(str(report["report_path"])).is_file()
+    assert Path(str(report["preview_index_path"])).is_file()
+    preview_index = Path(str(report["preview_index_path"])).read_text(encoding="utf-8")
+    assert "manfred-openvoice-opt-02" in preview_index
+    assert "preview.wav" in preview_index
