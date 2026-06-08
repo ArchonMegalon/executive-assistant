@@ -157,10 +157,12 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'id="memorial-video-call-avatar-stage"' in page.text
     assert 'id="memorial-video-call-avatar-face"' in page.text
     assert 'id="memorial-video-call-continue-no-camera"' in page.text
+    assert f"/memorials/{slug}/video-meeting/session" in page.text
+    assert f"/memorials/{slug}/video-meeting/status" in page.text
     assert 'alt="Manfred Hoza"' in page.text
     assert "Manfred Hennig" not in page.text
     assert "VidBoard noch nicht live" in page.text
-    assert "Der eigentliche VidBoard-Avatar ist noch nicht freigegeben" in page.text
+    assert "Live-Avatar ist noch nicht freigegeben" in page.text
     assert "Kamera ist optional" in page.text
     assert "Gleich bereit" in page.text
     assert "server_stt_cooldown" in page.text
@@ -282,6 +284,88 @@ def test_public_memorial_video_call_blocks_unverified_avatar_asset(
         "asset_url": "",
         "poster_url": "",
     }
+
+
+def test_public_memorial_video_meeting_status_and_session_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.delenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", raising=False)
+    monkeypatch.delenv("TAVUS_API_KEY", raising=False)
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-video-meeting-fallback")
+
+    status = client.get(f"/memorials/{slug}/video-meeting/status")
+    assert status.status_code == 200
+    assert status.json()["video_meeting"] == {
+        "enabled": False,
+        "integration_state": "fallback_only",
+        "provider_key": "",
+        "provider_label": "",
+        "title": "Video Call mit Manfred Hoza",
+        "detail": "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme.",
+        "camera_optional": True,
+        "microphone_required": True,
+        "fallback_mode": "portrait_voice",
+        "session_endpoint": f"/memorials/{slug}/video-meeting/session",
+        "status_endpoint": f"/memorials/{slug}/video-meeting/status",
+        "recommended_provider": "tavus",
+        "secondary_provider": "did",
+        "next_action": "fallback_to_portrait_voice",
+    }
+
+    session = client.post(
+        f"/memorials/{slug}/video-meeting/session",
+        json={"camera_requested": True, "personal_memory_enabled": False},
+    )
+    assert session.status_code == 200
+    body = session.json()
+    assert body["integration_state"] == "fallback_only"
+    assert body["provider_key"] == ""
+    assert body["fallback_mode"] == "portrait_voice"
+    assert body["next_action"] == "fallback_to_portrait_voice"
+    assert body["client"] == {"camera_requested": True, "personal_memory_enabled": False}
+    assert body["session_id"].startswith("memorial-video-meeting:")
+
+
+def test_public_memorial_video_meeting_status_reports_provider_configured_contract_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", "1")
+    monkeypatch.setenv("TAVUS_API_KEY", "test-key")
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-video-meeting-tavus-contract")
+
+    status = client.get(f"/memorials/{slug}/video-meeting/status")
+    assert status.status_code == 200
+    video_meeting = status.json()["video_meeting"]
+    assert video_meeting["integration_state"] == "provider_configured_contract_only"
+    assert video_meeting["provider_key"] == "tavus"
+    assert video_meeting["provider_label"] == "Tavus"
+    assert video_meeting["next_action"] == "provider_session_runtime_not_implemented"
+
+    session = client.post(f"/memorials/{slug}/video-meeting/session", json={"camera_requested": False})
+    assert session.status_code == 202
+    body = session.json()
+    assert body["integration_state"] == "provider_configured_contract_only"
+    assert body["provider_key"] == "tavus"
+    assert body["provider_label"] == "Tavus"
+    assert body["next_action"] == "provider_session_runtime_not_implemented"
 
 
 def test_public_memorial_json_includes_public_archive_registry_only(

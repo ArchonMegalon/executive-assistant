@@ -100,6 +100,7 @@ _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 220
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 8.0
+_MEMORIAL_VIDEO_MEETING_SUPPORTED_PROVIDERS = ("tavus", "did")
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
     "speech_transcribe": (24, 60),
@@ -639,7 +640,64 @@ def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
         "asset_url": _text(public_avatar.get("asset_url"), "") if bool(public_avatar.get("enabled")) else "",
         "poster_url": _text(public_avatar.get("poster_url"), "") if bool(public_avatar.get("enabled")) else "",
     }
+    public_payload["video_meeting"] = _public_memorial_video_meeting_payload(payload, slug)
     return public_payload
+
+
+def _video_meeting_provider_label(provider_key: str) -> str:
+    normalized = _text(provider_key, "").lower()
+    if normalized == "tavus":
+        return "Tavus"
+    if normalized == "did":
+        return "D-ID"
+    return ""
+
+
+def _memorial_video_meeting_provider_config() -> tuple[str, bool]:
+    provider_key = _text(os.getenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER"), "").lower()
+    if provider_key not in _MEMORIAL_VIDEO_MEETING_SUPPORTED_PROVIDERS:
+        return "", False
+    enabled = str(os.getenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
+    required_env = {
+        "tavus": "TAVUS_API_KEY",
+        "did": "D_ID_API_KEY",
+    }.get(provider_key, "")
+    if not enabled or not required_env:
+        return provider_key, False
+    return provider_key, bool(_text(os.getenv(required_env), ""))
+
+
+def _public_memorial_video_meeting_payload(payload: dict[str, object], slug: str) -> dict[str, object]:
+    person_name = _text(payload.get("person_name"), "Manfred")
+    provider_key, provider_configured = _memorial_video_meeting_provider_config()
+    provider_label = _video_meeting_provider_label(provider_key)
+    if provider_configured and provider_key:
+        integration_state = "provider_configured_contract_only"
+        detail = (
+            f"{provider_label} ist fuer den serverseitigen Session-Bootstrap konfiguriert. "
+            "Die öffentliche Seite bleibt bis zur echten Live-Integration weiter auf Portrait und Stimme fail-closed."
+        )
+        next_action = "provider_session_runtime_not_implemented"
+    else:
+        integration_state = "fallback_only"
+        detail = "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme."
+        next_action = "fallback_to_portrait_voice"
+    return {
+        "enabled": False,
+        "integration_state": integration_state,
+        "provider_key": provider_key if provider_configured else "",
+        "provider_label": provider_label if provider_configured else "",
+        "title": f"Video Call mit {person_name}",
+        "detail": detail,
+        "camera_optional": True,
+        "microphone_required": True,
+        "fallback_mode": "portrait_voice",
+        "session_endpoint": f"/memorials/{html.escape(slug)}/video-meeting/session",
+        "status_endpoint": f"/memorials/{html.escape(slug)}/video-meeting/status",
+        "recommended_provider": "tavus",
+        "secondary_provider": "did",
+        "next_action": next_action,
+    }
 
 
 def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
@@ -7566,6 +7624,8 @@ def _memorial_html(
       const videoCallAvatarVideo = document.getElementById("memorial-video-call-avatar-video");
       const videoCallAvatarTitle = document.getElementById("memorial-video-call-avatar-title");
       const videoCallAvatarDetail = document.getElementById("memorial-video-call-avatar-detail");
+      const videoMeetingSessionEndpoint = "/memorials/{html.escape(slug)}/video-meeting/session";
+      const videoMeetingStatusEndpoint = "/memorials/{html.escape(slug)}/video-meeting/status";
       let lastAnswerText = "";
       let activeRecognition = null;
       let activeRecorder = null;
@@ -7604,6 +7664,7 @@ def _memorial_html(
       let activeRealtimeTurnId = "";
       let realtimeTurnFallbackTimer = null;
       let memorialWarmupPromise = null;
+      let videoMeetingBootstrap = null;
       let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
       let memorialVoiceConfig = {{
@@ -8298,6 +8359,30 @@ def _memorial_html(
         }}).catch(() => null);
         return memorialWarmupPromise;
       }}
+      async function fetchVideoMeetingBootstrap(cameraRequested = false) {{
+        try {{
+          const response = await fetchWithTimeout(videoMeetingSessionEndpoint, {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+              camera_requested: Boolean(cameraRequested),
+              personal_memory_enabled: personalMemoryEnabled()
+            }}),
+          }}, 20000);
+          if (!response.ok) throw new Error("video_meeting_session_failed");
+          videoMeetingBootstrap = await response.json();
+        }} catch (error) {{
+          videoMeetingBootstrap = {{
+            integration_state: "fallback_only",
+            provider_key: "",
+            provider_label: "",
+            fallback_mode: "portrait_voice",
+            detail: "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme.",
+            next_action: "fallback_to_portrait_voice",
+          }};
+        }}
+        return videoMeetingBootstrap;
+      }}
       function recordConversationOptions() {{
         const firstTurn = conversationTurnCount <= 0;
         if (firstTurn) {{
@@ -8349,10 +8434,23 @@ def _memorial_html(
           setSpeechStatus("Ich richte den Video Call kurz ein.", "working", "Einen kleinen Moment");
           await primeMemorialLanding();
         }}
+        const bootstrap = await fetchVideoMeetingBootstrap(true);
         if (videoCallPreview) videoCallPreview.hidden = false;
         syncVideoCallAvatarPlayback();
-        setVideoCallAvatarState("working", videoCallAvatarVideo ? "VidBoard-Avatar wird eingeblendet." : "VidBoard-Avatar ist noch nicht live. Bis dahin bleibt die Portraitvorschau.");
-        setVideoCallStatus(videoCallAvatarVideo ? "Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar." : "Kamera wird vorbereitet ... Der eigentliche VidBoard-Avatar ist noch nicht freigegeben, daher siehst du vorerst nur die Portraitvorschau.");
+        const bootstrapDetail = String((bootstrap && bootstrap.detail) || "").trim();
+        const bootstrapState = String((bootstrap && bootstrap.integration_state) || "").trim();
+        const providerLabel = String((bootstrap && bootstrap.provider_label) || "").trim();
+        setVideoCallAvatarState(
+          "working",
+          bootstrapState === "provider_configured_contract_only"
+            ? ((providerLabel || "Live-Avatar") + " ist vorbereitet, die Seite bleibt aber bis zur echten Session-Integration auf Portrait und Stimme fail-closed.")
+            : (videoCallAvatarVideo ? "VidBoard-Avatar wird eingeblendet." : "Live-Avatar ist noch nicht freigegeben. Bis dahin bleibt die Portraitvorschau.")
+        );
+        setVideoCallStatus(
+          bootstrapState === "provider_configured_contract_only"
+            ? (bootstrapDetail || "Provider ist konfiguriert, aber die öffentliche Live-Avatar-Session ist noch nicht aktiviert. Der Video Call läuft weiter über Portrait und Stimme.")
+            : (videoCallAvatarVideo ? "Kamera wird vorbereitet ... Wenn du nicht freigibst, laeuft der Video Call trotzdem ueber Stimme und Avatar." : "Kamera wird vorbereitet ... Der Live-Avatar ist noch nicht freigegeben, daher siehst du vorerst nur die Portraitvorschau.")
+        );
         const conversationPromise = ensureConversationStartedForVideoCall();
         try {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
@@ -10105,6 +10203,53 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.get("/memorials/{slug}/video-meeting/status")
+def public_memorial_video_meeting_status(slug: str) -> JSONResponse:
+    payload = _load_memorial(slug)
+    return JSONResponse(
+        {
+            "slug": _safe_slug(slug),
+            "video_meeting": _public_memorial_video_meeting_payload(payload, slug),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/memorials/{slug}/video-meeting/session")
+async def public_memorial_video_meeting_session(slug: str, request: Request) -> JSONResponse:
+    payload = _load_memorial(slug)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    video_meeting = _public_memorial_video_meeting_payload(payload, slug)
+    provider_key = _text(video_meeting.get("provider_key"), "")
+    integration_state = _text(video_meeting.get("integration_state"), "fallback_only")
+    next_action = _text(video_meeting.get("next_action"), "fallback_to_portrait_voice")
+    person_name = _text(payload.get("person_name"), "Manfred")
+    response_payload = {
+        "slug": _safe_slug(slug),
+        "session_id": f"memorial-video-meeting:{uuid.uuid4()}",
+        "title": f"Video Call mit {person_name}",
+        "integration_state": integration_state,
+        "provider_key": provider_key,
+        "provider_label": _text(video_meeting.get("provider_label"), ""),
+        "camera_optional": bool(video_meeting.get("camera_optional") is True),
+        "microphone_required": bool(video_meeting.get("microphone_required") is True),
+        "fallback_mode": _text(video_meeting.get("fallback_mode"), "portrait_voice"),
+        "detail": _text(video_meeting.get("detail"), ""),
+        "next_action": next_action,
+        "client": {
+            "camera_requested": bool(body.get("camera_requested") is True),
+            "personal_memory_enabled": bool(body.get("personal_memory_enabled") is True),
+        },
+    }
+    status_code = 202 if integration_state == "provider_configured_contract_only" else 200
+    return JSONResponse(response_payload, headers={"Cache-Control": "no-store"}, status_code=status_code)
 
 
 @router.post("/memorials/{slug}/playback-telemetry")
