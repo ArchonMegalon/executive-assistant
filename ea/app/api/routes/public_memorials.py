@@ -8254,7 +8254,7 @@ def _memorial_html(
             listening: "listening",
             transcribing: "transcribing",
             thinking: "thinking",
-            speaking: "speaking",
+            speaking: "working",
           }}[phase] || "working";
           setSpeechStatus(detail || "Ich bin bei dir.", mapped, detail || "Ich bleibe bei dir");
           return;
@@ -8997,7 +8997,7 @@ def _memorial_html(
           answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           appendSpeechTurn("assistant", lastAnswerText);
           statusNode.textContent = "";
-          if (options.continueConversation) setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
+          if (options.continueConversation) setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet");
           else setSpeechStatus("Antwort erhalten.", "idle", "Bereit zum Vorlesen oder Weiterfragen");
           void speakText(lastAnswerText, options.continueConversation ? () => {{
             if (conversationActive) setTimeout(recordConversationTurn, 450);
@@ -9050,6 +9050,9 @@ def _memorial_html(
               return hints.some((hint) => hint && (name.includes(hint) || lang.includes(hint)));
             }});
             if (matchedVoice) utterance.voice = matchedVoice;
+            utterance.onstart = () => {{
+              setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
+            }};
             utterance.onend = () => {{
               setSpeechStatus("Sprachausgabe bereit.", "idle", "Bereit für die nächste Runde");
               if (onDone) onDone();
@@ -9059,7 +9062,7 @@ def _memorial_html(
               if (onDone) onDone();
             }};
             setSpeakingOverlayPreview(text);
-            setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
+            setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet");
             synth.speak(utterance);
           }} catch (error) {{
             setSpeechStatus("Browser-Sprachausgabe fehlgeschlagen: " + String(error.message || error), "error", "Browser-TTS");

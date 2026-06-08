@@ -162,6 +162,9 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert "Gleich bereit" in page.text
     assert "server_stt_cooldown" in page.text
     assert "Ich brauche gerade einen kurzen Moment, bevor ich wieder zuhöre." in page.text
+    assert 'speaking: "working"' in page.text
+    assert "utterance.onstart = () => {" in page.text
+    assert 'setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet")' in page.text
     assert "<h1>" not in page.text
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text
