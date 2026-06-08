@@ -64,3 +64,24 @@ def test_showtime_warns_when_json_semantic_status_warn(tmp_path: Path) -> None:
 
     assert result.effective_status == "warn"
     assert result.semantic_detail["warn_codes"] == ["difficult_memory_guardrail_unclear"]
+
+
+def test_showtime_adds_avatar_gate_when_optional_exit_gates_enabled(tmp_path: Path) -> None:
+    import scripts.memorial_showtime as showtime
+
+    args = argparse.Namespace(
+        slug="manfred",
+        base_url="https://example.test",
+        questions="",
+        skip_tts=False,
+        skip_chat=False,
+        skip_unit_contracts=False,
+        skip_snapshot=False,
+        skip_exit_gates=True,
+        optional_exit_gates=True,
+    )
+
+    steps = showtime.build_steps(args, tmp_path)
+    names = [step.name for step in steps]
+
+    assert "avatar_video_call_status" in names

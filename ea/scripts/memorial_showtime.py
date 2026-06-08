@@ -297,6 +297,26 @@ def build_steps(args: argparse.Namespace, output_dir: Path) -> list[ShowtimeStep
             )
         )
 
+        if args.optional_exit_gates:
+            steps.append(
+                ShowtimeStep(
+                    "avatar_video_call_status",
+                    [
+                        py,
+                        "scripts/verify_memorial_video_call_avatar_ready.py",
+                        "--slug",
+                        args.slug,
+                        "--base-url",
+                        base_url,
+                        "--json",
+                    ],
+                    EA_DIR,
+                    gate="warning",
+                    timeout=120,
+                    parse_json_status=True,
+                )
+            )
+
         rehearsal = [
             py,
             "scripts/memorial_demo_rehearsal.py",

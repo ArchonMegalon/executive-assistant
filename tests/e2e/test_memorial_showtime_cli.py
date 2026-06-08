@@ -270,3 +270,45 @@ def test_memorial_showtime_cli_writes_pass_report(
     assert "live_preflight" in names
     assert "live_demo_rehearsal" in names
     assert "launch_snapshot" in names
+
+
+def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
+    memorial_showtime_server: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "showtime-optional-avatar"
+    env = dict(os.environ)
+    env["EA_PUBLIC_MEMORIAL_DIR"] = str(memorial_showtime_server["public_root"])
+    env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(memorial_showtime_server["private_root"])
+    env["PYTHONPATH"] = "/docker/EA/ea"
+    env["TMPDIR"] = str(tmp_path / "tmp-optional-avatar")
+    Path(env["TMPDIR"]).mkdir(exist_ok=True)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "/docker/EA/ea/scripts/memorial_showtime.py",
+            "--slug",
+            "manfred",
+            "--base-url",
+            str(memorial_showtime_server["base_url"]),
+            "--questions",
+            "/docker/EA/examples/demo_questions.manfred.json",
+            "--output-dir",
+            str(output_dir),
+            "--skip-unit-contracts",
+            "--skip-exit-gates",
+            "--optional-exit-gates",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    payload = json.loads((output_dir / "showtime_report.json").read_text(encoding="utf-8"))
+    assert payload["status"] == "warn"
+    avatar_step = next(item for item in payload["results"] if item["name"] == "avatar_video_call_status")
+    assert avatar_step["effective_status"] == "warn"
+    assert avatar_step["semantic_detail"]["warn_codes"] == ["avatar_video_not_published"]
