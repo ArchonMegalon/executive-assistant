@@ -1,0 +1,7 @@
+services:
+  ea-api:
+    environment:
+      - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/mnt/pcloud/EA/browseract_ui_worker_shared}
+      - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/mnt/pcloud/EA/voicewave_runtime_tmp}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
