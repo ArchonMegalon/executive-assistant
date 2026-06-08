@@ -3552,6 +3552,11 @@ def _memorial_contact_answer_body(question: str) -> str:
     return "Ja. Sprich."
 
 
+def _is_memorial_direct_contact_opening_text(text: str) -> bool:
+    normalized = _normalize_tts_text(text).lower()
+    return normalized in {"ja.", "ja. sprich."}
+
+
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
     mapping = {
         "real_estate": ("grundbuch", "vertrag", "rücklage", "ruecklage", "betriebskosten", "sanierungen", "lasten"),
@@ -10696,6 +10701,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
     text = _normalize_tts_text(body.get("text"))
     if not text:
         raise HTTPException(status_code=400, detail="tts_text_missing")
+    direct_contact_opening = _is_memorial_direct_contact_opening_text(text)
     audio, content_type = _render_memorial_tts_audio(
         slug=slug,
         text=text,
@@ -10703,8 +10709,10 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         base_config=base_config,
         selected_plugin=selected_plugin,
         selected_option=selected_option,
-        lead_in_ms=180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS,
-        tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
+        lead_in_ms=40
+        if direct_contact_opening
+        else (180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS),
+        tail_silence_ms=120 if direct_contact_opening else _MEMORIAL_TTS_TAIL_SILENCE_MS,
     )
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
 

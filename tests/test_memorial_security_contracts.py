@@ -265,6 +265,56 @@ def test_public_memorial_speech_synthesize_supports_voicewave_clone(
     assert seen == {"text": "Ich bin da.", "voice_label": "Manfred Hoza Memorial"}
 
 
+def test_public_memorial_speech_synthesize_uses_contact_pads_for_direct_opening(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
+    _write_private_voice(
+        private_root,
+        slug,
+        {
+            "tts_plugin": "voicewave_clone",
+            "tts_plugin_voice_id": "Manfred Hoza Memorial",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-08T16:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    monkeypatch.setenv("VOICEWAVE_LOGIN_EMAIL", "voicewave@example.com")
+    monkeypatch.setenv("VOICEWAVE_LOGIN_PASSWORD", "secret")
+    _patch_memorial_runtime_roots(tmp_path)
+
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: seen.update(kwargs) or (b"voicewave-audio", "audio/wav"),
+    )
+
+    client = _client(principal_id="exec-memorial-voicewave-contact-pads")
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ja. Sprich."})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert seen["lead_in_ms"] == 40
+    assert seen["tail_silence_ms"] == 120
+
+
 def test_public_memorial_video_call_can_render_real_avatar_video_asset(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
