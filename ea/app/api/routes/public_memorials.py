@@ -5338,22 +5338,29 @@ def _render_memorial_tts_audio(
 
 def _speech_postprocess_filters(tts_plugin: str) -> str:
     plugin_id = str(tts_plugin or "").strip().lower()
-    if plugin_id != UNMIXR_TTS_PLUGIN_ID:
-        return ""
-    return ",".join(
-        [
-            "highpass=f=55",
-            "equalizer=f=165:t=q:w=1.1:g=1.8",
-            "equalizer=f=520:t=q:w=1.0:g=0.8",
-            "equalizer=f=2350:t=q:w=1.1:g=-1.6",
-            "equalizer=f=3600:t=q:w=1.0:g=-2.8",
-            "equalizer=f=5200:t=q:w=1.0:g=-2.0",
-            "lowpass=f=6200",
-            "afftdn=nf=-22",
-            "acompressor=threshold=-20dB:ratio=1.8:attack=16:release=135:makeup=1.0",
-            "alimiter=limit=0.90",
-        ]
-    )
+    if plugin_id == VOICEWAVE_TTS_PLUGIN_ID:
+        return ",".join(
+            [
+                "silenceremove=stop_periods=-1:stop_duration=0.22:stop_threshold=-42dB",
+                "alimiter=limit=0.92",
+            ]
+        )
+    if plugin_id == UNMIXR_TTS_PLUGIN_ID:
+        return ",".join(
+            [
+                "highpass=f=55",
+                "equalizer=f=165:t=q:w=1.1:g=1.8",
+                "equalizer=f=520:t=q:w=1.0:g=0.8",
+                "equalizer=f=2350:t=q:w=1.1:g=-1.6",
+                "equalizer=f=3600:t=q:w=1.0:g=-2.8",
+                "equalizer=f=5200:t=q:w=1.0:g=-2.0",
+                "lowpass=f=6200",
+                "afftdn=nf=-22",
+                "acompressor=threshold=-20dB:ratio=1.8:attack=16:release=135:makeup=1.0",
+                "alimiter=limit=0.90",
+            ]
+        )
+    return ""
 
 
 def _memorial_warmup_probe_wav_bytes(*, textish_seed: str = "Hallo Manfred", duration_seconds: float = 0.22) -> bytes:

@@ -1095,6 +1095,16 @@ def test_memorial_live_page_source_does_not_fallback_to_browser_voice_when_realt
     assert '}} else if (conversationActive) {{' in source
 
 
+def test_memorial_voicewave_postprocess_trims_dead_tail_silence() -> None:
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters(public_memorials.VOICEWAVE_TTS_PLUGIN_ID)
+
+    assert "silenceremove=stop_periods=-1" in filters
+    assert "stop_duration=0.22" in filters
+    assert "stop_threshold=-42dB" in filters
+
+
 def test_memorial_speech_transcribe_route_logs_timing_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
