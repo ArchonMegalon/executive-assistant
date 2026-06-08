@@ -303,7 +303,7 @@ async function main() {
     const button = page.locator('button[aria-label*="Export audio as WAV" i], button[aria-label*="Export audio as MP3" i]').first();
     if (!(await button.count())) throw new Error('voicewave_export_button_missing');
     const download = await Promise.all([
-      page.waitForEvent('download', { timeout: 30000 }),
+      page.waitForEvent('download', { timeout: 120000 }),
       button.click({ force: true }),
     ]).then((rows) => rows[0]);
     result.downloadSuggestedFilename = String(download.suggestedFilename ? download.suggestedFilename() : '').trim();
