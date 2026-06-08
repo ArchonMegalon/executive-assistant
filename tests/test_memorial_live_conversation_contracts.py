@@ -585,21 +585,21 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     assert seen_render_calls == [
         {
-            "text": "Ja.",
-            "slug": slug,
-            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
-        },
-        {
-            "text": "Ja.",
-            "slug": slug,
-            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
-        },
-        {
             "text": "Ja. Sprich.",
+            "slug": slug,
+            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
+        },
+        {
+            "text": "Ja.",
+            "slug": slug,
+            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
+        },
+        {
+            "text": "Ja.",
             "slug": slug,
             "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
             "lead_in_ms": 40,
@@ -1213,6 +1213,37 @@ def test_memorial_warmup_snapshot_marks_recent_errors_as_degraded(monkeypatch: p
     assert snapshot["status"] == "degraded_recent"
     assert snapshot["warm"] is False
     assert snapshot["errors"] == ["speech:failed"]
+
+
+def test_memorial_warmup_snapshot_tracks_voicewave_contact_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    now = 1_234_567.0
+    monkeypatch.setattr(public_memorials.time, "time", lambda: now)
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_LIVE_WARMUP_STATE",
+        {
+            "manfred": {
+                "inflight": False,
+                "started_at": now - 30.0,
+                "completed_at": now - 8.0,
+                "errors": [],
+                "voicewave_contact_required": True,
+                "voicewave_contact_inflight": True,
+                "voicewave_contact_completed_at": 0.0,
+                "voicewave_contact_errors": [],
+            }
+        },
+    )
+
+    snapshot = public_memorials._memorial_live_warmup_snapshot("manfred")
+
+    assert snapshot["status"] == "warming_voice"
+    assert snapshot["warm"] is True
+    assert snapshot["voice_required"] is True
+    assert snapshot["voice_inflight"] is True
+    assert snapshot["voice_ready"] is False
 
 
 def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_turn_thresholds() -> None:

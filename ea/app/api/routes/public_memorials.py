@@ -5389,10 +5389,23 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
     completed_at = float(current.get("completed_at") or 0.0)
     inflight = bool(current.get("inflight"))
     errors = list(current.get("errors") or [])
+    voice_completed_at = float(current.get("voicewave_contact_completed_at") or 0.0)
+    voice_inflight = bool(current.get("voicewave_contact_inflight"))
+    voice_errors = list(current.get("voicewave_contact_errors") or [])
+    voice_required = bool(current.get("voicewave_contact_required"))
+    voice_ready = bool(
+        voice_completed_at
+        and not voice_errors
+        and (now - voice_completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS
+    )
     warm = bool(completed_at and not errors and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS)
     status = "cold"
     if inflight:
         status = "warming"
+    elif warm and voice_required and voice_inflight:
+        status = "warming_voice"
+    elif warm and voice_required and not voice_ready:
+        status = "voice_cold"
     elif completed_at and errors and (now - completed_at) < _MEMORIAL_LIVE_WARMUP_TTL_SECONDS:
         status = "degraded_recent"
     elif warm:
@@ -5404,6 +5417,11 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
         "completed_at": completed_at or 0.0,
         "started_at": float(current.get("started_at") or 0.0),
         "errors": errors,
+        "voice_ready": voice_ready if voice_required else True,
+        "voice_inflight": voice_inflight,
+        "voice_completed_at": voice_completed_at or 0.0,
+        "voice_errors": voice_errors,
+        "voice_required": voice_required,
     }
 
 
@@ -5430,6 +5448,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
         current["inflight"] = True
         current["started_at"] = started_at
         current["errors"] = []
+        current["voicewave_contact_required"] = False
         _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
     try:
         payload = _load_memorial(slug)
@@ -5475,6 +5494,13 @@ def _run_memorial_live_warmup(slug: str) -> None:
         if _safe_tts_plugin_id(base_config.get("tts_plugin")) == VOICEWAVE_TTS_PLUGIN_ID:
             voice_label = _text(base_config.get("tts_plugin_voice_id"), voicewave_memorial_voice_label())
             if voice_label:
+                with _MEMORIAL_LIVE_WARMUP_LOCK:
+                    current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+                    current["voicewave_contact_required"] = True
+                    current["voicewave_contact_inflight"] = True
+                    current["voicewave_contact_completed_at"] = 0.0
+                    current["voicewave_contact_errors"] = []
+                    _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
                 _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
@@ -5501,6 +5527,12 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
     errors: list[str] = []
     started_clock = time.perf_counter()
     try:
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            current["voicewave_contact_required"] = True
+            current["voicewave_contact_inflight"] = True
+            current["voicewave_contact_errors"] = []
+            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
         base_config = _load_voice_config(slug)
         merged_config = dict(base_config)
         tts_options = _tts_plugin_options(
@@ -5510,7 +5542,13 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != VOICEWAVE_TTS_PLUGIN_ID or not bool(selected_option.get("tts_plugin_enabled")):
             return
-        for seed_question in ("Bist du da?", "Hoerst du zu?", "Kann ich jetzt mit dir reden?"):
+        seed_questions = (
+            "Kann ich jetzt mit dir reden?",
+            "Bist du da?",
+            "Hoerst du zu?",
+        )
+        first_ready_marked = False
+        for seed_question in seed_questions:
             try:
                 _render_memorial_tts_audio(
                     slug=slug,
@@ -5522,6 +5560,13 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
                     lead_in_ms=40,
                     tail_silence_ms=120,
                 )
+                if not first_ready_marked:
+                    with _MEMORIAL_LIVE_WARMUP_LOCK:
+                        current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+                        current["voicewave_contact_completed_at"] = time.time()
+                        current["voicewave_contact_errors"] = []
+                        _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
+                    first_ready_marked = True
             except Exception as exc:
                 errors.append(f"voicewave_prewarm:{str(exc)[:120]}")
                 break
@@ -5533,6 +5578,13 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
             tts_plugin=VOICEWAVE_TTS_PLUGIN_ID,
             errors="|".join(errors[:6]) if errors else "-",
         )
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            current["voicewave_contact_inflight"] = False
+            if not errors and not float(current.get("voicewave_contact_completed_at") or 0.0):
+                current["voicewave_contact_completed_at"] = time.time()
+            current["voicewave_contact_errors"] = errors[:6]
+            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
 
 
 def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
@@ -8349,15 +8401,31 @@ def _memorial_html(
           }});
         return realtimePrefetchPromise;
       }}
+      async function fetchMemorialWarmupStatus() {{
+        const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/warmup-status", {{
+          method: "GET",
+          headers: {{ "Accept": "application/json" }}
+        }}, 15000);
+        return readJsonResponse(response);
+      }}
+      async function waitForMemorialVoiceReady(maxWaitMs = 12000) {{
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < maxWaitMs) {{
+          try {{
+            const payload = await fetchMemorialWarmupStatus();
+            if (payload && payload.voice_ready !== false && payload.warm) return payload;
+          }} catch (error) {{}}
+          await new Promise((resolve) => window.setTimeout(resolve, 900));
+        }}
+        return null;
+      }}
       async function primeMemorialLanding() {{
         setMemorialLandingReady(false, "Ich werde gerade bereit");
         try {{
+          await requestMemorialWarmup("page_load");
           await Promise.race([
-            Promise.all([
-              requestMemorialWarmup("page_load"),
-              new Promise((resolve) => window.setTimeout(resolve, 950)),
-            ]),
-            new Promise((resolve) => window.setTimeout(resolve, 1800)),
+            waitForMemorialVoiceReady(12000),
+            new Promise((resolve) => window.setTimeout(resolve, 12000)),
           ]);
         }} catch (error) {{}}
         setMemorialLandingReady(true, "Sprich mit mir");
