@@ -1,7 +1,7 @@
 {
-  "tts_plugin": "unmixr_clone",
-  "voice_profile_id": "tts-manfred-hoza",
-  "voice_label": "Manfred Hoza",
+  "tts_plugin": "openvoice_local",
+  "voice_profile_id": "manfred-openvoice-opt-idv2-08",
+  "voice_label": "Manfred Hoza · optimierter OpenVoice-Klon",
   "lang": "de-AT",
   "rate": 0.92,
   "pitch": 0.92,
@@ -11,15 +11,12 @@
     "de-DE",
     "German"
   ],
-  "tts_plugin_voice_id": "26858715-06e2-4bd3-a100-e0c1c1676466",
-  "tts_base_voice_variant": "balanced",
-  "unmixr_language": "en-US",
-  "unmixr_speaking_rate": "low",
-  "unmixr_speaking_pitch": "medium",
-  "unmixr_speaking_volume": "high",
-  "consent_basis": "owner_consented_voice_clone",
+  "tts_plugin_voice_id": "manfred-openvoice-opt-idv2-08",
+  "tts_base_voice_variant": "high",
+  "notes": "OpenVoice-Optimierung aus spaeten YouTube-Interviewsegmenten. Gewinner manfred-openvoice-opt-idv2-08 mit Score 0.8742 mit Basisvariante high aus oSQ9FhFc4YI-01500s-28.wav.",
   "synthetic_voice_clone_of_memorial_person": true,
-  "notes": "Aktualisiert nach aktuellem Hoertest: Challenger B 26858715-06e2-4bd3-a100-e0c1c1676466 ist nun als oeffentliche Champion-Stimme aktiv. Der fruehere Champion 558a4e6f-b80b-474d-a48b-09bd46c4f9eb bleibt als Vergleichs- und Rueckfallkandidat erhalten; weitere Challenger werden ueber die A/B-Lane neu aufgebaut.",
+  "tts_mode": "openvoice_local",
+  "consent_basis": "owner_consented_voice_clone",
   "voice_consent": {
     "status": "approved",
     "scope": [

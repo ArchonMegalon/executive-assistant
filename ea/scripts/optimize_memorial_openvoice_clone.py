@@ -14,6 +14,7 @@ import wave
 from pathlib import Path
 
 from fastapi import HTTPException
+import numpy as np
 import requests
 
 from app.api.routes.public_memorials import _memorial_transcribe_audio_blob
@@ -158,8 +159,11 @@ def _score_transcript_self_speech(text: str) -> float:
         "unsere",
     }
     negatives = {
+        "amara",
+        "community",
         "journalist",
         "journalistin",
+        "outro",
         "moderator",
         "moderatorin",
         "interviewer",
@@ -172,6 +176,7 @@ def _score_transcript_self_speech(text: str) -> float:
         "beitrag",
         "sprecher",
         "kommentar",
+        "untertitel",
     }
     positive_hits = sum(1 for word in words if word in positives)
     negative_hits = sum(1 for word in words if word in negatives)
@@ -368,16 +373,117 @@ def _wav_metrics_from_bytes(payload: bytes) -> dict[str, float]:
             zero_crossings += 1
         previous = sample
     mean_rms = sum(rms_values) / float(len(rms_values) or 1)
+    spectral_metrics = _spectral_metrics(raw=raw, sample_width=sample_width, sample_rate=sample_rate)
     return {
         "duration_seconds": duration_seconds,
         "mean_rms": mean_rms,
         "speech_ratio": 1.0 - (silent_frames / float(total_frames or 1)),
         "zero_crossing_rate": zero_crossings / float(max(1, len(raw) // max(1, sample_width))),
+        **spectral_metrics,
     }
 
 
 def _wav_metrics_from_path(path: Path) -> dict[str, float]:
     return _wav_metrics_from_bytes(path.read_bytes())
+
+
+def _pcm_float_array(*, raw: bytes, sample_width: int) -> np.ndarray:
+    if sample_width == 1:
+        data = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+        return (data - 128.0) / 128.0
+    if sample_width == 2:
+        return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if sample_width == 4:
+        return np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
+    raise RuntimeError(f"unsupported_sample_width:{sample_width}")
+
+
+def _estimate_pitch_hz(frame: np.ndarray, sample_rate: int) -> float:
+    centered = frame - float(np.mean(frame))
+    energy = float(np.sqrt(np.mean(np.square(centered))) or 0.0)
+    if energy < 0.01:
+        return 0.0
+    correlation = np.correlate(centered, centered, mode="full")[len(centered) - 1 :]
+    min_lag = max(1, int(sample_rate / 280.0))
+    max_lag = min(len(correlation) - 1, int(sample_rate / 70.0))
+    if max_lag <= min_lag:
+        return 0.0
+    search = correlation[min_lag : max_lag + 1]
+    if search.size == 0:
+        return 0.0
+    lag = int(np.argmax(search)) + min_lag
+    if lag <= 0:
+        return 0.0
+    return float(sample_rate / lag)
+
+
+def _spectral_metrics(*, raw: bytes, sample_width: int, sample_rate: int) -> dict[str, float]:
+    samples = _pcm_float_array(raw=raw, sample_width=sample_width)
+    if samples.size == 0:
+        return {
+            "pitch_hz": 0.0,
+            "spectral_centroid": 0.0,
+            "spectral_bandwidth": 0.0,
+            "spectral_rolloff": 0.0,
+            "spectral_flatness": 0.0,
+            "low_energy_ratio": 0.0,
+            "mid_energy_ratio": 0.0,
+            "high_energy_ratio": 0.0,
+        }
+    frame_size = max(256, int(sample_rate * 0.04))
+    hop_size = max(128, int(frame_size * 0.5))
+    window = np.hanning(frame_size).astype(np.float32)
+    centroid_values: list[float] = []
+    bandwidth_values: list[float] = []
+    rolloff_values: list[float] = []
+    flatness_values: list[float] = []
+    pitch_values: list[float] = []
+    low_values: list[float] = []
+    mid_values: list[float] = []
+    high_values: list[float] = []
+    freqs = np.fft.rfftfreq(frame_size, 1.0 / float(sample_rate or 1))
+    low_mask = freqs < 500.0
+    high_mask = freqs >= 2000.0
+    mid_mask = (~low_mask) & (~high_mask)
+    for start in range(0, max(1, samples.size - frame_size + 1), hop_size):
+        frame = samples[start : start + frame_size]
+        if frame.size < frame_size:
+            break
+        rms = float(np.sqrt(np.mean(np.square(frame))) or 0.0)
+        if rms < 0.01:
+            continue
+        pitch = _estimate_pitch_hz(frame, sample_rate)
+        if pitch > 0.0:
+            pitch_values.append(pitch)
+        spectrum = np.abs(np.fft.rfft(frame * window))
+        power = np.square(spectrum) + 1e-9
+        total_power = float(np.sum(power))
+        if total_power <= 0.0:
+            continue
+        centroid = float(np.sum(freqs * power) / total_power)
+        centroid_values.append(centroid)
+        bandwidth = float(np.sqrt(np.sum(np.square(freqs - centroid) * power) / total_power))
+        bandwidth_values.append(bandwidth)
+        cumsum = np.cumsum(power)
+        rolloff_idx = int(np.searchsorted(cumsum, total_power * 0.85))
+        rolloff_idx = max(0, min(rolloff_idx, len(freqs) - 1))
+        rolloff_values.append(float(freqs[rolloff_idx]))
+        flatness_values.append(float(math.exp(np.mean(np.log(power))) / (np.mean(power) + 1e-9)))
+        low_values.append(float(np.sum(power[low_mask]) / total_power))
+        mid_values.append(float(np.sum(power[mid_mask]) / total_power))
+        high_values.append(float(np.sum(power[high_mask]) / total_power))
+    def _mean(values: list[float]) -> float:
+        return float(sum(values) / float(len(values) or 1))
+    return {
+        "pitch_hz": _mean(pitch_values),
+        "spectral_centroid": _mean(centroid_values),
+        "spectral_bandwidth": _mean(bandwidth_values),
+        "spectral_rolloff": _mean(rolloff_values),
+        "spectral_flatness": _mean(flatness_values),
+        "low_energy_ratio": _mean(low_values),
+        "mid_energy_ratio": _mean(mid_values),
+        "high_energy_ratio": _mean(high_values),
+    }
 
 
 def _text_similarity(expected: str, actual: str) -> float:
@@ -396,7 +502,53 @@ def _voice_feature_similarity(reference_metrics: dict[str, float], candidate_met
     )
     speech_delta = min(1.0, abs(reference_metrics["speech_ratio"] - candidate_metrics["speech_ratio"]))
     zcr_delta = min(1.0, abs(reference_metrics["zero_crossing_rate"] - candidate_metrics["zero_crossing_rate"]) / 0.12)
-    return max(0.0, 1.0 - ((duration_delta * 0.15) + (rms_delta * 0.35) + (speech_delta * 0.25) + (zcr_delta * 0.25)))
+    pitch_delta = min(
+        1.0,
+        abs(reference_metrics.get("pitch_hz", 0.0) - candidate_metrics.get("pitch_hz", 0.0)) / 80.0,
+    )
+    centroid_delta = min(
+        1.0,
+        abs(reference_metrics.get("spectral_centroid", 0.0) - candidate_metrics.get("spectral_centroid", 0.0)) / 900.0,
+    )
+    bandwidth_delta = min(
+        1.0,
+        abs(reference_metrics.get("spectral_bandwidth", 0.0) - candidate_metrics.get("spectral_bandwidth", 0.0)) / 1200.0,
+    )
+    rolloff_delta = min(
+        1.0,
+        abs(reference_metrics.get("spectral_rolloff", 0.0) - candidate_metrics.get("spectral_rolloff", 0.0)) / 1400.0,
+    )
+    flatness_delta = min(
+        1.0,
+        abs(reference_metrics.get("spectral_flatness", 0.0) - candidate_metrics.get("spectral_flatness", 0.0)) / 0.12,
+    )
+    low_delta = min(
+        1.0,
+        abs(reference_metrics.get("low_energy_ratio", 0.0) - candidate_metrics.get("low_energy_ratio", 0.0)) / 0.25,
+    )
+    mid_delta = min(
+        1.0,
+        abs(reference_metrics.get("mid_energy_ratio", 0.0) - candidate_metrics.get("mid_energy_ratio", 0.0)) / 0.25,
+    )
+    high_delta = min(
+        1.0,
+        abs(reference_metrics.get("high_energy_ratio", 0.0) - candidate_metrics.get("high_energy_ratio", 0.0)) / 0.25,
+    )
+    total_delta = (
+        (duration_delta * 0.08)
+        + (rms_delta * 0.08)
+        + (speech_delta * 0.08)
+        + (zcr_delta * 0.08)
+        + (pitch_delta * 0.16)
+        + (centroid_delta * 0.16)
+        + (bandwidth_delta * 0.12)
+        + (rolloff_delta * 0.08)
+        + (flatness_delta * 0.08)
+        + (low_delta * 0.06)
+        + (mid_delta * 0.05)
+        + (high_delta * 0.05)
+    )
+    return max(0.0, 1.0 - total_delta)
 
 
 def _clone_openvoice_candidate(*, slug: str, voice_id: str, sample_paths: list[Path]) -> str:
@@ -412,11 +564,13 @@ def _evaluate_clone(
     *,
     voice_id: str,
     sample_paths: list[Path],
+    selected_candidates: list[dict[str, object]],
     prompts: list[str],
     base_voice_variant: str,
     slug: str,
     base_url: str,
     iteration_index: int,
+    reference_mimic_count: int,
 ) -> dict[str, object]:
     reference_metrics = [_wav_metrics_from_path(path) for path in sample_paths if path.is_file()]
     if not reference_metrics:
@@ -426,7 +580,7 @@ def _evaluate_clone(
         for key in reference_metrics[0].keys()
     }
     prompt_results: list[dict[str, object]] = []
-    total_score = 0.0
+    prompt_total_score = 0.0
     iteration_preview_dir = _preview_dir(slug=slug) / f"iteration-{iteration_index:02d}-{voice_id}"
     iteration_preview_dir.mkdir(parents=True, exist_ok=True)
     copied_samples: list[str] = []
@@ -450,7 +604,7 @@ def _evaluate_clone(
         roundtrip_score = _text_similarity(prompt, transcript_text)
         feature_score = _voice_feature_similarity(average_reference, _wav_metrics_from_bytes(audio_bytes))
         prompt_score = (roundtrip_score * 0.52) + (feature_score * 0.48)
-        total_score += prompt_score
+        prompt_total_score += prompt_score
         prompt_results.append(
             {
                 "prompt": prompt,
@@ -461,11 +615,50 @@ def _evaluate_clone(
                 "preview_path": str(preview_path),
             }
         )
-    aggregate_score = total_score / float(len(prompt_results) or 1)
+    reference_mimics: list[dict[str, object]] = []
+    mimic_total_score = 0.0
+    mimic_candidates = [
+        item
+        for item in selected_candidates
+        if str(item.get("transcript_text") or "").strip()
+        and len(str(item.get("transcript_text") or "").split()) >= 8
+    ][: max(1, int(reference_mimic_count))]
+    for mimic_index, candidate in enumerate(mimic_candidates, start=1):
+        transcript_text = str(candidate.get("transcript_text") or "").strip()
+        reference_path = Path(str(candidate.get("segment_path") or ""))
+        if not reference_path.is_file() or not transcript_text:
+            continue
+        audio_bytes, content_type = openvoice_synthesize_request_with_variant(
+            text=transcript_text,
+            voice_id=voice_id,
+            lang="de-AT",
+            base_voice_variant=base_voice_variant,
+        )
+        extension = mimetypes.guess_extension(str(content_type or "audio/wav").split(";", 1)[0].strip().lower()) or ".wav"
+        preview_path = iteration_preview_dir / f"mimic-reference-{mimic_index:02d}{extension}"
+        _write_bytes(preview_path, audio_bytes)
+        synthesized_metrics = _wav_metrics_from_bytes(audio_bytes)
+        reference_metrics = _wav_metrics_from_path(reference_path)
+        acoustic_similarity = _voice_feature_similarity(reference_metrics, synthesized_metrics)
+        mimic_total_score += acoustic_similarity
+        reference_mimics.append(
+            {
+                "reference_path": str(reference_path),
+                "transcript_text": transcript_text,
+                "score": round(acoustic_similarity, 4),
+                "preview_path": str(preview_path),
+            }
+        )
+    prompt_average = prompt_total_score / float(len(prompt_results) or 1)
+    mimic_average = mimic_total_score / float(len(reference_mimics) or 1) if reference_mimics else 0.0
+    aggregate_score = (mimic_average * 0.68) + (prompt_average * 0.32 if prompt_results else 0.0)
     return {
         "voice_id": voice_id,
         "score": round(aggregate_score, 4),
+        "prompt_average_score": round(prompt_average, 4),
+        "mimic_average_score": round(mimic_average, 4),
         "prompts": prompt_results,
+        "reference_mimics": reference_mimics,
         "reference_metrics": {key: round(value, 4) for key, value in average_reference.items()},
         "preview_dir": str(iteration_preview_dir),
         "reference_sample_paths": copied_samples,
@@ -561,7 +754,7 @@ def _write_voice_config(
             "notes": (
                 "OpenVoice-Optimierung aus spaeten YouTube-Interviewsegmenten. "
                 f"Gewinner {best_voice_id} mit Score {best_iteration.get('score')} "
-                f"aus {sample_note}."
+                f"mit Basisvariante {base_voice_variant} aus {sample_note}."
             ),
         }
     )
@@ -579,10 +772,11 @@ def optimize_openvoice_clone(
     tail_window_seconds: float,
     step_seconds: float,
     accept_threshold: float,
-    base_voice_variant: str,
+    base_voice_variants: list[str],
     apply_best: bool,
     prompts: list[str],
     base_url: str,
+    reference_mimic_count: int,
 ) -> dict[str, object]:
     candidates = _collect_tail_candidates(
         slug=slug,
@@ -599,38 +793,53 @@ def optimize_openvoice_clone(
         raise RuntimeError("voice_candidate_combinations_missing")
     iterations: list[dict[str, object]] = []
     best_iteration: dict[str, object] | None = None
-    for iteration_index, sample_paths in enumerate(combinations[: max_iterations], start=1):
-        voice_id = f"{slug}-openvoice-opt-{iteration_index:02d}"
-        cloned_voice_id = _clone_openvoice_candidate(slug=slug, voice_id=voice_id, sample_paths=sample_paths)
-        evaluation = _evaluate_clone(
-            voice_id=cloned_voice_id,
-            sample_paths=sample_paths,
-            prompts=prompts,
-            base_voice_variant=base_voice_variant,
-            slug=slug,
-            base_url=base_url,
-            iteration_index=iteration_index,
-        )
+    iteration_index = 0
+    normalized_variants = [str(item).strip() for item in base_voice_variants if str(item).strip()]
+    if not normalized_variants:
+        normalized_variants = ["balanced"]
+    for sample_paths in combinations:
         selected_candidates = [
             item for item in candidates if Path(str(item.get("segment_path") or "")) in set(sample_paths)
         ]
-        iteration_payload = {
-            "iteration": iteration_index,
-            "voice_id": cloned_voice_id,
-            "score": round(
-                (float(evaluation.get("score") or 0.0) * 0.75)
-                + (sum(float(item.get("transcript_score") or 0.0) for item in selected_candidates) / float(len(selected_candidates) or 1) * 0.25),
-                4,
-            ),
-            "raw_evaluation_score": evaluation.get("score"),
-            "sample_paths": [str(path) for path in sample_paths],
-            "selected_candidates": selected_candidates,
-            "evaluation": evaluation,
-        }
-        iterations.append(iteration_payload)
-        if best_iteration is None or float(iteration_payload["score"]) > float(best_iteration["score"]):
-            best_iteration = iteration_payload
-        if float(iteration_payload["score"]) >= accept_threshold:
+        for base_voice_variant in normalized_variants:
+            iteration_index += 1
+            if iteration_index > max_iterations:
+                break
+            voice_id = f"{slug}-openvoice-opt-{iteration_index:02d}"
+            cloned_voice_id = _clone_openvoice_candidate(slug=slug, voice_id=voice_id, sample_paths=sample_paths)
+            evaluation = _evaluate_clone(
+                voice_id=cloned_voice_id,
+                sample_paths=sample_paths,
+                selected_candidates=selected_candidates,
+                prompts=prompts,
+                base_voice_variant=base_voice_variant,
+                slug=slug,
+                base_url=base_url,
+                iteration_index=iteration_index,
+                reference_mimic_count=reference_mimic_count,
+            )
+            iteration_payload = {
+                "iteration": iteration_index,
+                "voice_id": cloned_voice_id,
+                "base_voice_variant": base_voice_variant,
+                "score": round(
+                    (float(evaluation.get("score") or 0.0) * 0.8)
+                    + (sum(float(item.get("transcript_score") or 0.0) for item in selected_candidates) / float(len(selected_candidates) or 1) * 0.2),
+                    4,
+                ),
+                "raw_evaluation_score": evaluation.get("score"),
+                "sample_paths": [str(path) for path in sample_paths],
+                "selected_candidates": selected_candidates,
+                "evaluation": evaluation,
+            }
+            iterations.append(iteration_payload)
+            if best_iteration is None or float(iteration_payload["score"]) > float(best_iteration["score"]):
+                best_iteration = iteration_payload
+            if float(iteration_payload["score"]) >= accept_threshold:
+                break
+        if iteration_index >= max_iterations:
+            break
+        if best_iteration is not None and float(best_iteration["score"]) >= accept_threshold:
             break
     if best_iteration is None:
         raise RuntimeError("voice_optimization_no_winner")
@@ -650,7 +859,7 @@ def optimize_openvoice_clone(
             best_voice_id=str(best_iteration["voice_id"]),
             best_iteration=best_iteration,
             selected_candidates=list(best_iteration["selected_candidates"]),
-            base_voice_variant=base_voice_variant,
+            base_voice_variant=str(best_iteration.get("base_voice_variant") or normalized_variants[0]),
         )
         report["applied_config_path"] = str(config_path)
     preview_index_path = _write_preview_index(
@@ -675,12 +884,18 @@ def main() -> int:
     parser.add_argument("--tail-window-seconds", type=float, default=240.0)
     parser.add_argument("--step-seconds", type=float, default=18.0)
     parser.add_argument("--accept-threshold", type=float, default=0.74)
-    parser.add_argument("--base-voice-variant", default="balanced")
+    parser.add_argument("--base-voice-variant", default="balanced,high")
     parser.add_argument("--base-url", default=os.environ.get("EA_MEMORIAL_BASE_URL", "http://127.0.0.1:8090"))
+    parser.add_argument("--reference-mimic-count", type=int, default=2)
     parser.add_argument("--no-apply", action="store_true")
     parser.add_argument("--prompt", action="append", dest="prompts")
     args = parser.parse_args()
     prompts = [item.strip() for item in (args.prompts or DEFAULT_PROMPTS) if str(item).strip()]
+    base_voice_variants = [
+        item.strip()
+        for item in str(args.base_voice_variant or "balanced").split(",")
+        if item.strip()
+    ]
     try:
         report = optimize_openvoice_clone(
             slug=args.slug,
@@ -691,10 +906,11 @@ def main() -> int:
             tail_window_seconds=max(30.0, args.tail_window_seconds),
             step_seconds=max(6.0, args.step_seconds),
             accept_threshold=max(0.1, min(0.99, args.accept_threshold)),
-            base_voice_variant=str(args.base_voice_variant or "balanced").strip() or "balanced",
+            base_voice_variants=base_voice_variants,
             apply_best=not args.no_apply,
             prompts=prompts,
             base_url=str(args.base_url or "").strip(),
+            reference_mimic_count=max(1, int(args.reference_mimic_count or 1)),
         )
     except HTTPException as exc:
         raise SystemExit(str(exc.detail))

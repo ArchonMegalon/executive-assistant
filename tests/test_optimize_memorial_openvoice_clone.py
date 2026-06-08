@@ -123,6 +123,22 @@ def test_collect_tail_candidates_reuses_cached_transcripts(monkeypatch, tmp_path
     assert transcribe_calls["count"] == 1
 
 
+def test_voice_feature_similarity_prefers_same_signal() -> None:
+    import scripts.optimize_memorial_openvoice_clone as optimizer
+
+    same = optimizer._voice_feature_similarity(
+        optimizer._wav_metrics_from_bytes(_make_wav_bytes(frequency=240)),
+        optimizer._wav_metrics_from_bytes(_make_wav_bytes(frequency=240)),
+    )
+    different = optimizer._voice_feature_similarity(
+        optimizer._wav_metrics_from_bytes(_make_wav_bytes(frequency=240)),
+        optimizer._wav_metrics_from_bytes(_make_wav_bytes(frequency=480)),
+    )
+
+    assert same > different
+    assert same > 0.9
+
+
 def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path: Path) -> None:
     import scripts.optimize_memorial_openvoice_clone as optimizer
 
@@ -162,11 +178,13 @@ def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path
         *,
         voice_id: str,
         sample_paths: list[Path],
+        selected_candidates: list[dict[str, object]],
         prompts: list[str],
         base_voice_variant: str,
         slug: str,
         base_url: str,
         iteration_index: int,
+        reference_mimic_count: int,
     ):
         score = 0.46 if voice_id.endswith("01") else 0.93
         preview_dir = private_root / slug / "voice_profile" / "optimization" / "previews" / f"iteration-{iteration_index:02d}-{voice_id}"
@@ -176,7 +194,10 @@ def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path
         return {
             "voice_id": voice_id,
             "score": score,
+            "prompt_average_score": score,
+            "mimic_average_score": score,
             "prompts": [{"prompt": prompts[0], "score": score, "preview_path": str(preview_path), "roundtrip_score": score, "feature_score": score, "transcript_text": prompts[0]}],
+            "reference_mimics": [],
             "reference_metrics": {"duration_seconds": 0.7, "mean_rms": 1000.0, "speech_ratio": 0.9, "zero_crossing_rate": 0.03},
             "preview_dir": str(preview_dir),
             "reference_sample_paths": [str(candidate_a)],
@@ -195,10 +216,11 @@ def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path
         tail_window_seconds=240.0,
         step_seconds=18.0,
         accept_threshold=0.8,
-        base_voice_variant="balanced",
+        base_voice_variants=["balanced"],
         apply_best=True,
         prompts=["Ich bin da."],
         base_url="http://127.0.0.1:8090",
+        reference_mimic_count=2,
     )
 
     assert report["best_iteration"]["voice_id"] == "manfred-openvoice-opt-02"
@@ -207,6 +229,7 @@ def test_optimize_openvoice_clone_writes_best_voice_config(monkeypatch, tmp_path
     payload = json.loads(config_path.read_text(encoding="utf-8"))
     assert payload["tts_plugin"] == "openvoice_local"
     assert payload["tts_plugin_voice_id"] == "manfred-openvoice-opt-02"
+    assert payload["tts_base_voice_variant"] == "balanced"
     assert payload["synthetic_voice_clone_of_memorial_person"] is True
     assert "OpenVoice-Optimierung" in payload["notes"]
     assert Path(str(report["report_path"])).is_file()
