@@ -307,7 +307,7 @@ def test_public_memorial_speech_synthesize_uses_contact_pads_for_direct_opening(
     )
 
     client = _client(principal_id="exec-memorial-voicewave-contact-pads")
-    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ja. Sprich."})
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ja."})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")

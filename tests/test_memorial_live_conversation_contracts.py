@@ -180,7 +180,7 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["llm_fallback_used"] is False
     assert body["fallback_reason"] == "direct_contact_opening"
-    assert body["answer"] == "Ja. Sprich."
+    assert body["answer"] == "Ja."
 
 
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
@@ -266,7 +266,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["llm_fallback_used"] is False
     assert body["transcript_text"] == "Hallo Manfred, kann ich jetzt mit dir reden?"
     assert body["sources"] == []
-    assert body["answer"] == "Ja. Sprich."
+    assert body["answer"] == "Ja."
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
     decoded_audio = base64.b64decode(body["audio_base64"])
@@ -585,7 +585,7 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     assert seen_render_calls == [
         {
-            "text": "Ja. Sprich.",
+            "text": "Ja.",
             "slug": slug,
             "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
             "lead_in_ms": 40,
@@ -889,7 +889,7 @@ def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
         message for message in messages if message.get("type") == "phase" and message.get("phase") == "speaking"
     )
 
-    assert answer_message["text"] == "Ja. Sprich."
+    assert answer_message["text"] == "Ja."
     assert speaking_phase["detail"] == ""
     assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
 

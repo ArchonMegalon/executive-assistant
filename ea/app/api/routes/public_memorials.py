@@ -3544,17 +3544,12 @@ def _is_memorial_contact_question(question: str) -> bool:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    lowered = _text(question, "").lower()
-    if any(token in lowered for token in ("bist du da", "bist du noch da")):
-        return "Ja."
-    if any(token in lowered for token in ("hoerst du zu", "hörst du zu", "kannst du mich hoeren", "kannst du mich hören")):
-        return "Ja."
-    return "Ja. Sprich."
+    return "Ja."
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     normalized = _normalize_tts_text(text).lower()
-    return normalized in {"ja.", "ja. sprich."}
+    return normalized == "ja."
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
