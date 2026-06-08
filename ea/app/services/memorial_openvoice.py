@@ -41,9 +41,14 @@ _UNMIXR_BASE_URL = "https://unmixr.com/api/v1"
 _VOICEWAVE_LOGIN_EMAIL_ENV = "VOICEWAVE_LOGIN_EMAIL"
 _VOICEWAVE_LOGIN_PASSWORD_ENV = "VOICEWAVE_LOGIN_PASSWORD"
 _VOICEWAVE_MEMORIAL_VOICE_LABEL_ENV = "VOICEWAVE_MEMORIAL_VOICE_LABEL"
+_VOICEWAVE_RUNTIME_TMP_ROOT_ENV = "VOICEWAVE_RUNTIME_TMP_ROOT"
 _VOICEWAVE_SCRIPT_CANDIDATES = (
     Path("/docker/EA/scripts/voicewave_memorial_voice.py"),
     Path("/app/scripts/voicewave_memorial_voice.py"),
+)
+_VOICEWAVE_RUNTIME_TMP_ROOT_CANDIDATES = (
+    Path("/mnt/pcloud/EA/voicewave_runtime_tmp"),
+    Path("/tmp/voicewave_runtime_tmp"),
 )
 _VOICEWAVE_TIMEOUT_SECONDS = 420
 
@@ -110,6 +115,18 @@ def voicewave_runtime_script_path() -> Path:
         if candidate.is_file():
             return candidate
     return _VOICEWAVE_SCRIPT_CANDIDATES[0]
+
+
+def voicewave_runtime_tmp_root() -> Path:
+    configured = str(os.environ.get(_VOICEWAVE_RUNTIME_TMP_ROOT_ENV) or "").strip()
+    candidates = ((Path(configured).expanduser(),) if configured else ()) + _VOICEWAVE_RUNTIME_TMP_ROOT_CANDIDATES
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        return candidate
+    return _VOICEWAVE_RUNTIME_TMP_ROOT_CANDIDATES[-1]
 
 
 def openvoice_plugin_option(*, configured_voice_id: str, voice_profile_ready: bool) -> dict[str, object]:
@@ -270,7 +287,10 @@ def voicewave_synthesize_request(*, text: str, voice_label: str) -> tuple[bytes,
     normalized_label = str(voice_label or "").strip() or voicewave_memorial_voice_label()
     if not normalized_label:
         raise HTTPException(status_code=409, detail="voicewave_voice_label_missing")
-    with tempfile.TemporaryDirectory(prefix="ea-voicewave-render-") as temp_dir_raw:
+    with tempfile.TemporaryDirectory(
+        prefix="ea-voicewave-render-",
+        dir=str(voicewave_runtime_tmp_root()),
+    ) as temp_dir_raw:
         temp_dir = Path(temp_dir_raw)
         output_path = temp_dir / "voicewave_render.generated.json"
         screenshot_path = temp_dir / "voicewave_render.png"
