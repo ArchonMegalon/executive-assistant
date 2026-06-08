@@ -8403,8 +8403,9 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert "Weitere gefundene Kandidaten" not in page.text
     assert "Was ist wirklich belegt?" not in page.text
     assert "Archiv lesen" not in page.text
-    assert "Sprich mit der Erinnerung" in page.text
-    assert "Tippen, sprechen, kurz warten, einfach weiterreden." in page.text
+    assert "Gespräch beginnen" in page.text
+    assert "Am Handy/Desktop installieren" in page.text
+    assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in page.text
     assert "voice clone" not in page.text.lower()
     assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
 

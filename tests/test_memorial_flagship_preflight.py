@@ -111,8 +111,9 @@ def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
         "https://example.test/memorials/manfred.json": (200, json.dumps({"slug": "manfred", "person_name": "Manfred"})),
         "https://example.test/memorials/manfred": (
             200,
-            "<html><body>Tippen, sprechen, kurz warten, einfach weiterreden."
-            "<button id=\"memorial-conversation\">Sprich mit der Erinnerung</button>"
+            "<html><body>Gespräch beginnen"
+            "Am Handy/Desktop installieren"
+            "<button id=\"memorial-conversation\">Gespräch beginnen</button>"
             "<button id=\"memorial-retry-button\">Bitte noch einmal sprechen</button></body></html>",
         ),
         "https://example.test/memorials/manfred/voice-config": (

@@ -109,15 +109,28 @@ def request(
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
     timeout: int = 20,
+    retries: int = 0,
 ) -> tuple[int, dict[str, str], bytes]:
-    req = urllib.request.Request(url, method=method, data=body, headers=_headers(headers))
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return int(response.status), {k.lower(): v for k, v in response.headers.items()}, response.read()
-    except urllib.error.HTTPError as exc:
-        return int(exc.code), {k.lower(): v for k, v in exc.headers.items()}, exc.read()
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"request_failed:{type(exc).__name__}:{exc}") from exc
+    attempts = max(0, int(retries)) + 1
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        req = urllib.request.Request(url, method=method, data=body, headers=_headers(headers))
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return int(response.status), {k.lower(): v for k, v in response.headers.items()}, response.read()
+        except urllib.error.HTTPError as exc:
+            return int(exc.code), {k.lower(): v for k, v in exc.headers.items()}, exc.read()
+        except TimeoutError as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                break
+        except urllib.error.URLError as exc:
+            last_error = exc
+            if attempt + 1 >= attempts:
+                break
+    if last_error is not None:
+        raise RuntimeError(f"request_failed:{type(last_error).__name__}:{last_error}") from last_error
+    raise RuntimeError("request_failed:unknown")
 
 
 def json_request(url: str, payload: dict[str, Any], *, timeout: int = 30) -> tuple[int, dict[str, Any]]:

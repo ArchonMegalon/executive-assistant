@@ -39,7 +39,10 @@ ALLOWED_PUBLIC_ASSET_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
 }
 REQUIRED_PUBLIC_CONSENT_SCOPES = {"synthesize", "conversation_turn", "realtime"}
-EXPECTED_INTERACTION_HINT = "Tippen, sprechen, kurz warten, einfach weiterreden."
+REQUIRED_PUBLIC_PAGE_MARKERS = {
+    "Gespräch beginnen",
+    "Am Handy/Desktop installieren",
+}
 FORBIDDEN_PUBLIC_PAGE_MARKERS = {
     "Originalaufnahmen",
     "Belegte Erinnerungen",
@@ -300,10 +303,16 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
     if status != 200:
         report.add("fail", "live_public_page_unavailable", "Live public memorial page is unavailable.", http_status=status)
     else:
-        if EXPECTED_INTERACTION_HINT not in body:
-            report.add("fail", "live_public_page_missing_interaction_hint", "Live public memorial page is missing the minimal conversation hint.")
+        missing_markers = sorted(marker for marker in REQUIRED_PUBLIC_PAGE_MARKERS if marker not in body)
+        if missing_markers:
+            report.add(
+                "fail",
+                "live_public_page_missing_required_copy",
+                "Live public memorial page is missing required minimal landing copy.",
+                markers=missing_markers,
+            )
         else:
-            report.add("pass", "live_public_page_has_interaction_hint", "Live public memorial page exposes the minimal conversation hint.")
+            report.add("pass", "live_public_page_has_required_copy", "Live public memorial page exposes the current minimal landing copy.")
         present_forbidden = sorted(marker for marker in FORBIDDEN_PUBLIC_PAGE_MARKERS if marker in body)
         if present_forbidden:
             report.add("fail", "live_public_page_not_minimal", "Live public memorial page still exposes removed public sections.", markers=present_forbidden)
