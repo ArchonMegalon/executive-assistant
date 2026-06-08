@@ -1026,6 +1026,11 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
             "started_at": 123.0,
             "completed_at": 145.0,
             "errors": [],
+            "voice_ready": True,
+            "voice_inflight": False,
+            "voice_completed_at": 145.0,
+            "voice_errors": [],
+            "voice_required": True,
         },
     )
 
@@ -1041,6 +1046,11 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
         "started_at": 123.0,
         "completed_at": 145.0,
         "errors": [],
+        "voice_ready": True,
+        "voice_inflight": False,
+        "voice_completed_at": 145.0,
+        "voice_errors": [],
+        "voice_required": True,
         "ttl_seconds": 600,
     }
 
@@ -1250,6 +1260,7 @@ def test_memorial_live_page_source_prewarms_realtime_and_uses_aggressive_first_t
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
     assert 'void primeRealtimeSocket("page_ready");' in source
+    assert "(payload.voice_required === false || payload.voice_ready === true)" in source
     assert "autoStopMs: 1750" in source
     assert "silenceMs: 280" in source
     assert "silenceThreshold: 0.012" in source

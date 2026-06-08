@@ -8413,7 +8413,11 @@ def _memorial_html(
         while (Date.now() - startedAt < maxWaitMs) {{
           try {{
             const payload = await fetchMemorialWarmupStatus();
-            if (payload && payload.voice_ready !== false && payload.warm) return payload;
+            if (
+              payload &&
+              payload.warm &&
+              (payload.voice_required === false || payload.voice_ready === true)
+            ) return payload;
           }} catch (error) {{}}
           await new Promise((resolve) => window.setTimeout(resolve, 900));
         }}
@@ -10144,6 +10148,11 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
             "started_at": float(snapshot["started_at"]),
             "completed_at": float(snapshot["completed_at"]),
             "errors": list(snapshot["errors"]),
+            "voice_ready": bool(snapshot["voice_ready"]),
+            "voice_inflight": bool(snapshot["voice_inflight"]),
+            "voice_completed_at": float(snapshot["voice_completed_at"]),
+            "voice_errors": list(snapshot["voice_errors"]),
+            "voice_required": bool(snapshot["voice_required"]),
             "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS,
         },
         headers={"Cache-Control": "no-store"},
