@@ -1101,10 +1101,10 @@ def test_memorial_voicewave_postprocess_trims_dead_tail_silence() -> None:
     filters = public_memorials._speech_postprocess_filters(public_memorials.VOICEWAVE_TTS_PLUGIN_ID)
 
     assert "silenceremove=stop_periods=-1" in filters
-    assert "stop_duration=0.10" in filters
-    assert "stop_threshold=-33dB" in filters
-    assert "stop_silence=0.02" in filters
-    assert "atempo=1.40" in filters
+    assert "stop_duration=0.06" in filters
+    assert "stop_threshold=-30dB" in filters
+    assert "stop_silence=0.015" in filters
+    assert "atempo=1.70" in filters
 
 
 def test_memorial_speech_transcribe_route_logs_timing_metadata(
