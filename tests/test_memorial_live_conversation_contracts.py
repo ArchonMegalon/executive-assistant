@@ -593,6 +593,59 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
     ]
 
 
+def test_memorial_speech_synthesize_reuses_final_render_cache(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    cache_root = tmp_path / "tts-cache"
+    synth_calls = {"count": 0}
+    pad_calls = {"count": 0}
+
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_TTS_RENDER_CACHE_ROOT", cache_root)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: synth_calls.__setitem__("count", synth_calls["count"] + 1) or (b"RIFFraw", "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: pad_calls.__setitem__("count", pad_calls["count"] + 1) or (b"RIFFcached", "audio/wav"),
+    )
+
+    client = _client(principal_id="exec-memorial-tts-cache")
+    payload = {"text": "Ja. Du kannst mit mir reden. Sag kurz, worum es geht."}
+
+    first = client.post(f"/memorials/{slug}/speech-synthesize", json=payload)
+    second = client.post(f"/memorials/{slug}/speech-synthesize", json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.content == b"RIFFcached"
+    assert second.content == b"RIFFcached"
+    assert synth_calls["count"] == 1
+    assert pad_calls["count"] == 1
+
+
 def test_memorial_chat_strips_llm_meta_self_reference_from_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

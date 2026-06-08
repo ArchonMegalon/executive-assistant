@@ -96,6 +96,7 @@ _PERSONAL_MEMORY_ROOT = Path("/data/artifacts/memorial_user_memory")
 _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
 _VIDEO_MEETING_RUNTIME_ROOT = Path("/data/artifacts/memorial_video_meeting")
+_MEMORIAL_TTS_RENDER_CACHE_ROOT = Path("/data/artifacts/memorial_tts_render_cache")
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
 _MEMORIAL_PWA_VERSION = "20260606b"
@@ -5233,6 +5234,108 @@ def _pad_speech_audio_lead_in(
         return output_path.read_bytes(), output_content_type
 
 
+def _memorial_tts_render_cache_root() -> Path:
+    try:
+        _MEMORIAL_TTS_RENDER_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return _MEMORIAL_TTS_RENDER_CACHE_ROOT
+
+
+def _memorial_tts_render_cache_paths(*, cache_payload: dict[str, object]) -> tuple[Path, Path]:
+    cache_key = hashlib.sha256(
+        json.dumps(cache_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    root = _memorial_tts_render_cache_root()
+    return root / f"{cache_key}.wav", root / f"{cache_key}.json"
+
+
+def _render_memorial_tts_audio(
+    *,
+    slug: str,
+    text: str,
+    merged_config: dict[str, object],
+    base_config: dict[str, object],
+    selected_plugin: str,
+    selected_option: dict[str, object],
+    lead_in_ms: int,
+    tail_silence_ms: int,
+) -> tuple[bytes, str]:
+    normalized_text = _normalize_tts_text(text)
+    if not normalized_text:
+        raise HTTPException(status_code=400, detail="tts_text_missing")
+    voice_ref = _text(
+        merged_config.get("tts_plugin_voice_id"),
+        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
+    )
+    extra_filters = _speech_postprocess_filters(selected_plugin)
+    cache_payload = {
+        "slug": slug,
+        "plugin": selected_plugin,
+        "voice_ref": voice_ref,
+        "text": normalized_text,
+        "lang": _text(merged_config.get("lang"), "de-AT"),
+        "base_voice_variant": _effective_tts_base_voice_variant(merged_config),
+        "speaking_rate": _text(merged_config.get("unmixr_speaking_rate"), ""),
+        "speaking_pitch": _text(merged_config.get("unmixr_speaking_pitch"), ""),
+        "speaking_volume": _text(merged_config.get("unmixr_speaking_volume"), ""),
+        "lead_in_ms": int(max(0, lead_in_ms)),
+        "tail_silence_ms": int(max(0, tail_silence_ms)),
+        "extra_filters": extra_filters,
+    }
+    cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
+    if cache_audio_path.is_file() and cache_audio_path.stat().st_size > 0:
+        return cache_audio_path.read_bytes(), "audio/wav"
+    if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+        audio, content_type = piper_fast_synthesize_request(
+            text=normalized_text,
+            lang=_text(merged_config.get("lang"), "de-AT"),
+            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        )
+    elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+        if not voice_ref:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, content_type = unmixr_synthesize_request(
+            text=normalized_text,
+            voice_id=voice_ref,
+            lang=_text(merged_config.get("lang"), "de"),
+            speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
+            speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
+            speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+        )
+    elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+        if not voice_ref:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, content_type = voicewave_synthesize_request(
+            text=normalized_text,
+            voice_label=voice_ref,
+        )
+    elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+        if not voice_ref:
+            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+        audio, content_type = openvoice_synthesize_request_with_variant(
+            text=normalized_text,
+            voice_id=voice_ref,
+            lang=_text(merged_config.get("lang"), "de-AT"),
+            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        )
+    else:
+        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+    audio, content_type = _pad_speech_audio_lead_in(
+        payload=audio,
+        content_type=content_type,
+        silence_ms=lead_in_ms,
+        tail_silence_ms=tail_silence_ms,
+        extra_filters=extra_filters,
+    )
+    try:
+        cache_audio_path.write_bytes(audio)
+        cache_meta_path.write_text(json.dumps(cache_payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    except OSError:
+        pass
+    return audio, content_type
+
+
 def _speech_postprocess_filters(tts_plugin: str) -> str:
     plugin_id = str(tts_plugin or "").strip().lower()
     if plugin_id != UNMIXR_TTS_PLUGIN_ID:
@@ -5487,58 +5590,6 @@ def _build_memorial_conversation_turn_payload(
         raise HTTPException(status_code=502, detail="memorial_answer_missing")
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
-    if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-        tts_started = time.perf_counter()
-        audio, audio_content_type = piper_fast_synthesize_request(
-            text=answer_text,
-            lang=_text(merged_config.get("lang"), "de-AT"),
-            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-        )
-    elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-        voice_id = _text(
-            merged_config.get("tts_plugin_voice_id"),
-            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-        )
-        if not voice_id:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        tts_started = time.perf_counter()
-        audio, audio_content_type = unmixr_synthesize_request(
-            text=answer_text,
-            voice_id=voice_id,
-            lang=_text(merged_config.get("lang"), "de"),
-            speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
-            speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
-            speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
-        )
-    elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
-        voice_label = _text(
-            merged_config.get("tts_plugin_voice_id"),
-            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-        )
-        if not voice_label:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        tts_started = time.perf_counter()
-        audio, audio_content_type = voicewave_synthesize_request(
-            text=answer_text,
-            voice_label=voice_label,
-        )
-    elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-        voice_id = _text(
-            merged_config.get("tts_plugin_voice_id"),
-            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-        )
-        if not voice_id:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        tts_started = time.perf_counter()
-        audio, audio_content_type = openvoice_synthesize_request_with_variant(
-            text=answer_text,
-            voice_id=voice_id,
-            lang=_text(merged_config.get("lang"), "de-AT"),
-            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-        )
-    else:
-        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
-    tts_ms = (time.perf_counter() - tts_started) * 1000.0
     direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
     if direct_contact_opening:
         lead_in_ms = 70
@@ -5546,15 +5597,19 @@ def _build_memorial_conversation_turn_payload(
     else:
         lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
         tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
-    pad_started = time.perf_counter()
-    audio, audio_content_type = _pad_speech_audio_lead_in(
-        payload=audio,
-        content_type=audio_content_type,
-        silence_ms=lead_in_ms,
+    tts_started = time.perf_counter()
+    audio, audio_content_type = _render_memorial_tts_audio(
+        slug=slug,
+        text=answer_text,
+        merged_config=merged_config,
+        base_config=base_config,
+        selected_plugin=selected_plugin,
+        selected_option=selected_option,
+        lead_in_ms=lead_in_ms,
         tail_silence_ms=tail_silence_ms,
-        extra_filters=_speech_postprocess_filters(selected_plugin),
     )
-    pad_ms = (time.perf_counter() - pad_started) * 1000.0
+    tts_ms = (time.perf_counter() - tts_started) * 1000.0
+    pad_ms = 0.0
     response_payload = dict(answer_payload)
     response_payload["transcript_text"] = transcript_text
     response_payload["audio_content_type"] = audio_content_type
@@ -10544,60 +10599,15 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
     text = _normalize_tts_text(body.get("text"))
     if not text:
         raise HTTPException(status_code=400, detail="tts_text_missing")
-    if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-        audio, content_type = piper_fast_synthesize_request(
-            text=text,
-            lang=_text(merged_config.get("lang"), "de-AT"),
-            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-        )
-    elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-        voice_id = _text(
-            merged_config.get("tts_plugin_voice_id"),
-            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-        )
-        if not voice_id:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        audio, content_type = unmixr_synthesize_request(
-            text=text,
-            voice_id=voice_id,
-            lang=_text(merged_config.get("lang"), "de"),
-            speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
-            speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
-            speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
-        )
-    elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
-        voice_label = _text(
-            merged_config.get("tts_plugin_voice_id"),
-            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-        )
-        if not voice_label:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        audio, content_type = voicewave_synthesize_request(
-            text=text,
-            voice_label=voice_label,
-        )
-    elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-        voice_id = _text(
-            merged_config.get("tts_plugin_voice_id"),
-            _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-        )
-        if not voice_id:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        audio, content_type = openvoice_synthesize_request_with_variant(
-            text=text,
-            voice_id=voice_id,
-            lang=_text(merged_config.get("lang"), "de-AT"),
-            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-        )
-    else:
-        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
-    lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
-    audio, content_type = _pad_speech_audio_lead_in(
-        payload=audio,
-        content_type=content_type,
-        silence_ms=lead_in_ms,
+    audio, content_type = _render_memorial_tts_audio(
+        slug=slug,
+        text=text,
+        merged_config=merged_config,
+        base_config=base_config,
+        selected_plugin=selected_plugin,
+        selected_option=selected_option,
+        lead_in_ms=180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS,
         tail_silence_ms=_MEMORIAL_TTS_TAIL_SILENCE_MS,
-        extra_filters=_speech_postprocess_filters(selected_plugin),
     )
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
 
@@ -10799,72 +10809,6 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 return
             tts_started = time.perf_counter()
             tts_plugin_used = selected_plugin
-            try:
-                if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-                    audio, audio_content_type = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            piper_fast_synthesize_request,
-                            text=answer_text,
-                            lang=_text(merged_config.get("lang"), "de-AT"),
-                            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-                        ),
-                        timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
-                    )
-                elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-                    voice_id = _text(
-                        merged_config.get("tts_plugin_voice_id"),
-                        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-                    )
-                    if not voice_id:
-                        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-                    audio, audio_content_type = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            unmixr_synthesize_request,
-                            text=answer_text,
-                            voice_id=voice_id,
-                            lang=_text(merged_config.get("lang"), "de"),
-                        ),
-                        timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
-                    )
-                elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
-                    voice_label = _text(
-                        merged_config.get("tts_plugin_voice_id"),
-                        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-                    )
-                    if not voice_label:
-                        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-                    audio, audio_content_type = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            voicewave_synthesize_request,
-                            text=answer_text,
-                            voice_label=voice_label,
-                        ),
-                        timeout=max(_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS, 45.0),
-                    )
-                elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-                    voice_id = _text(
-                        merged_config.get("tts_plugin_voice_id"),
-                        _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
-                    )
-                    if not voice_id:
-                        raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-                    audio, audio_content_type = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            openvoice_synthesize_request_with_variant,
-                            text=answer_text,
-                            voice_id=voice_id,
-                            lang=_text(merged_config.get("lang"), "de-AT"),
-                            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-                        ),
-                        timeout=_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
-                    )
-                else:
-                    raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
-            except asyncio.TimeoutError:
-                raise HTTPException(status_code=504, detail="tts_timeout")
-            except Exception:
-                raise HTTPException(status_code=502, detail="tts_plugin_failed")
-            tts_ms = (time.perf_counter() - tts_started) * 1000.0
             direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
             if direct_contact_opening:
                 lead_in_ms = 70
@@ -10872,16 +10816,29 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             else:
                 lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
                 tail_silence_ms = 360
-            pad_started = time.perf_counter()
-            audio, audio_content_type = await asyncio.to_thread(
-                _pad_speech_audio_lead_in,
-                payload=audio,
-                content_type=audio_content_type,
-                silence_ms=lead_in_ms,
-                tail_silence_ms=tail_silence_ms,
-                extra_filters=_speech_postprocess_filters(tts_plugin_used),
-            )
-            pad_ms = (time.perf_counter() - pad_started) * 1000.0
+            try:
+                audio, audio_content_type = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _render_memorial_tts_audio,
+                        slug=slug,
+                        text=answer_text,
+                        merged_config=merged_config,
+                        base_config=base_config,
+                        selected_plugin=selected_plugin,
+                        selected_option=selected_option,
+                        lead_in_ms=lead_in_ms,
+                        tail_silence_ms=tail_silence_ms,
+                    ),
+                    timeout=max(_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS, 45.0)
+                    if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID
+                    else _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail="tts_timeout")
+            except Exception:
+                raise HTTPException(status_code=502, detail="tts_plugin_failed")
+            tts_ms = (time.perf_counter() - tts_started) * 1000.0
+            pad_ms = 0.0
             audio_base64 = base64.b64encode(audio).decode("ascii")
             if audio_base64:
                 chunk_size = 96_000
