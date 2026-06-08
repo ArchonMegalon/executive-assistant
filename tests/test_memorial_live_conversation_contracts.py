@@ -710,7 +710,7 @@ def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
     monkeypatch.setattr(
         public_memorials,
         "_pad_speech_audio_lead_in",
-        lambda *, payload, content_type, silence_ms, extra_filters: (payload, content_type),
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
     )
 
     client = _client(principal_id="exec-memorial-live-realtime-timeout-fallback")
@@ -730,7 +730,7 @@ def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
         for _ in range(8):
             message = websocket.receive_json()
             messages.append(message)
-            if message.get("type") == "turn_complete":
+            if message.get("type") in {"turn_complete", "error"}:
                 break
 
     message_types = [message.get("type") for message in messages]
@@ -752,6 +752,78 @@ def test_memorial_realtime_text_turn_does_not_fallback_to_piper_when_configured_
     assert 'raise HTTPException(status_code=504, detail="tts_timeout")' in source
     assert 'raise HTTPException(status_code=502, detail="tts_plugin_failed")' in source
     assert "Realtime conversation optimizes for immediate audible response over premium voice quality." not in source
+
+
+def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja. Du kannst mit mir reden.")
+    seen_pad_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: seen_pad_calls.append(
+            {
+                "silence_ms": silence_ms,
+                "tail_silence_ms": tail_silence_ms,
+            }
+        ) or (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-realtime-contact")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_contact_1",
+                "text": "Hallo Manfred, kannst du jetzt mit mir reden?",
+                "personal_memory_enabled": False,
+            }
+        )
+        messages = []
+        for _ in range(8):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"}:
+                break
+
+    answer_message = next(message for message in messages if message.get("type") == "answer")
+    speaking_phase = next(
+        message for message in messages if message.get("type") == "phase" and message.get("phase") == "speaking"
+    )
+
+    assert answer_message["text"] == "Ja. Du kannst mit mir reden. Sag kurz, worum es geht."
+    assert speaking_phase["detail"] == "Ich antworte direkt"
+    assert seen_pad_calls == [{"silence_ms": 70, "tail_silence_ms": 180}]
 
 
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:

@@ -10708,7 +10708,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await _send_cancelled(turn_id)
                 return
             phase_detail = "Ich antworte gleich"
-            if _is_memorial_live_interaction_question(transcript_text):
+            if _is_memorial_contact_question(transcript_text):
+                phase_detail = "Ich antworte direkt"
+            elif _is_memorial_live_interaction_question(transcript_text):
                 phase_detail = "Ich antworte direkt"
             elif _is_memorial_ooda_question(transcript_text):
                 phase_detail = "Komplizierte Frage. Ich ordne erst die Sache"
@@ -10772,7 +10774,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await _send_cancelled(turn_id)
                 return
             speaking_detail = "Meine Stimme kommt"
-            if _is_memorial_live_interaction_question(transcript_text):
+            if _is_memorial_contact_question(transcript_text):
+                speaking_detail = "Ich antworte direkt"
+            elif _is_memorial_live_interaction_question(transcript_text):
                 speaking_detail = "Ich antworte"
             if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail}):
                 return
@@ -10861,13 +10865,20 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             except Exception:
                 raise HTTPException(status_code=502, detail="tts_plugin_failed")
             tts_ms = (time.perf_counter() - tts_started) * 1000.0
-            lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
+            direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
+            if direct_contact_opening:
+                lead_in_ms = 70
+                tail_silence_ms = 180
+            else:
+                lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
+                tail_silence_ms = 360
             pad_started = time.perf_counter()
             audio, audio_content_type = await asyncio.to_thread(
                 _pad_speech_audio_lead_in,
                 payload=audio,
                 content_type=audio_content_type,
                 silence_ms=lead_in_ms,
+                tail_silence_ms=tail_silence_ms,
                 extra_filters=_speech_postprocess_filters(tts_plugin_used),
             )
             pad_ms = (time.perf_counter() - pad_started) * 1000.0
