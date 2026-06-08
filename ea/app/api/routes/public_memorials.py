@@ -62,6 +62,7 @@ from app.services.memorial_memory import (
 )
 from app.services.memorial_archive_registry import archive_slug_root, load_json as load_archive_json
 from app.services.memorial_archive_registry import public_registry_path, public_registry_payload
+from app.services.memorial_video_meeting import create_video_meeting_session, public_video_meeting_payload
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
 
@@ -100,7 +101,6 @@ _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 220
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 8.0
-_MEMORIAL_VIDEO_MEETING_SUPPORTED_PROVIDERS = ("tavus", "did")
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
     "speech_transcribe": (24, 60),
@@ -640,64 +640,8 @@ def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
         "asset_url": _text(public_avatar.get("asset_url"), "") if bool(public_avatar.get("enabled")) else "",
         "poster_url": _text(public_avatar.get("poster_url"), "") if bool(public_avatar.get("enabled")) else "",
     }
-    public_payload["video_meeting"] = _public_memorial_video_meeting_payload(payload, slug)
+    public_payload["video_meeting"] = public_video_meeting_payload(slug=slug, person_name=_text(payload.get("person_name"), "Manfred"))
     return public_payload
-
-
-def _video_meeting_provider_label(provider_key: str) -> str:
-    normalized = _text(provider_key, "").lower()
-    if normalized == "tavus":
-        return "Tavus"
-    if normalized == "did":
-        return "D-ID"
-    return ""
-
-
-def _memorial_video_meeting_provider_config() -> tuple[str, bool]:
-    provider_key = _text(os.getenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER"), "").lower()
-    if provider_key not in _MEMORIAL_VIDEO_MEETING_SUPPORTED_PROVIDERS:
-        return "", False
-    enabled = str(os.getenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}
-    required_env = {
-        "tavus": "TAVUS_API_KEY",
-        "did": "D_ID_API_KEY",
-    }.get(provider_key, "")
-    if not enabled or not required_env:
-        return provider_key, False
-    return provider_key, bool(_text(os.getenv(required_env), ""))
-
-
-def _public_memorial_video_meeting_payload(payload: dict[str, object], slug: str) -> dict[str, object]:
-    person_name = _text(payload.get("person_name"), "Manfred")
-    provider_key, provider_configured = _memorial_video_meeting_provider_config()
-    provider_label = _video_meeting_provider_label(provider_key)
-    if provider_configured and provider_key:
-        integration_state = "provider_configured_contract_only"
-        detail = (
-            f"{provider_label} ist fuer den serverseitigen Session-Bootstrap konfiguriert. "
-            "Die öffentliche Seite bleibt bis zur echten Live-Integration weiter auf Portrait und Stimme fail-closed."
-        )
-        next_action = "provider_session_runtime_not_implemented"
-    else:
-        integration_state = "fallback_only"
-        detail = "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme."
-        next_action = "fallback_to_portrait_voice"
-    return {
-        "enabled": False,
-        "integration_state": integration_state,
-        "provider_key": provider_key if provider_configured else "",
-        "provider_label": provider_label if provider_configured else "",
-        "title": f"Video Call mit {person_name}",
-        "detail": detail,
-        "camera_optional": True,
-        "microphone_required": True,
-        "fallback_mode": "portrait_voice",
-        "session_endpoint": f"/memorials/{html.escape(slug)}/video-meeting/session",
-        "status_endpoint": f"/memorials/{html.escape(slug)}/video-meeting/status",
-        "recommended_provider": "tavus",
-        "secondary_provider": "did",
-        "next_action": next_action,
-    }
 
 
 def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
@@ -10211,7 +10155,10 @@ def public_memorial_video_meeting_status(slug: str) -> JSONResponse:
     return JSONResponse(
         {
             "slug": _safe_slug(slug),
-            "video_meeting": _public_memorial_video_meeting_payload(payload, slug),
+            "video_meeting": public_video_meeting_payload(
+                slug=slug,
+                person_name=_text(payload.get("person_name"), "Manfred"),
+            ),
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -10226,28 +10173,16 @@ async def public_memorial_video_meeting_session(slug: str, request: Request) -> 
         body = {}
     if not isinstance(body, dict):
         body = {}
-    video_meeting = _public_memorial_video_meeting_payload(payload, slug)
-    provider_key = _text(video_meeting.get("provider_key"), "")
-    integration_state = _text(video_meeting.get("integration_state"), "fallback_only")
-    next_action = _text(video_meeting.get("next_action"), "fallback_to_portrait_voice")
     person_name = _text(payload.get("person_name"), "Manfred")
-    response_payload = {
-        "slug": _safe_slug(slug),
-        "session_id": f"memorial-video-meeting:{uuid.uuid4()}",
-        "title": f"Video Call mit {person_name}",
-        "integration_state": integration_state,
-        "provider_key": provider_key,
-        "provider_label": _text(video_meeting.get("provider_label"), ""),
-        "camera_optional": bool(video_meeting.get("camera_optional") is True),
-        "microphone_required": bool(video_meeting.get("microphone_required") is True),
-        "fallback_mode": _text(video_meeting.get("fallback_mode"), "portrait_voice"),
-        "detail": _text(video_meeting.get("detail"), ""),
-        "next_action": next_action,
-        "client": {
-            "camera_requested": bool(body.get("camera_requested") is True),
-            "personal_memory_enabled": bool(body.get("personal_memory_enabled") is True),
-        },
-    }
+    response_payload = create_video_meeting_session(
+        slug=_safe_slug(slug),
+        person_name=person_name,
+        camera_requested=bool(body.get("camera_requested") is True),
+        personal_memory_enabled=bool(body.get("personal_memory_enabled") is True),
+        request_host=str(request.base_url).rstrip("/"),
+    )
+    response_payload["session_id"] = f"memorial-video-meeting:{uuid.uuid4()}"
+    integration_state = _text(response_payload.get("integration_state"), "fallback_only")
     status_code = 202 if integration_state == "provider_configured_contract_only" else 200
     return JSONResponse(response_payload, headers={"Cache-Control": "no-store"}, status_code=status_code)
 
