@@ -828,6 +828,16 @@ def test_memorial_browser_playback_guardrails_are_shipped() -> None:
     assert "Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme." in source
 
 
+def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert 'transcribingText: "Einen Moment ..."' in source
+    assert 'setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");' in source
+    assert 'setTimeout(recordConversationTurn, 1200);' in source
+    assert "Ich habe dich sofort. Einen Moment ..." not in source
+    assert "Ich habe dich. Einen Moment ..." not in source
+
+
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import public_memorials
 

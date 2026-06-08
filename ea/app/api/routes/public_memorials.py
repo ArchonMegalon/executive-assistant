@@ -7517,6 +7517,9 @@ def _memorial_html(
       let serverTranscriptFailureCount = 0;
       let speechPlaybackWatchdogTimer = null;
       let speechState = "idle";
+      let speechStatusLastMessage = "";
+      let speechStatusLastDetail = "";
+      let speechStatusLastAt = 0;
       let speechMeterLive = false;
       let speakingOverlayPreview = "";
       let realtimeSocket = null;
@@ -8020,7 +8023,29 @@ def _memorial_html(
         autostartOptin.checked = memorialAutostartEnabled();
       }}
       function setSpeechStatus(message, state = "idle", detail = "") {{
+        const normalizedMessage = String(message || "").trim();
+        const normalizedDetail = String(detail || "").trim();
+        const now = Date.now();
+        const chatterState = state === "listening" || state === "working" || state === "thinking" || state === "transcribing";
+        if (
+          normalizedMessage === speechStatusLastMessage &&
+          normalizedDetail === speechStatusLastDetail &&
+          state === speechState
+        ) {{
+          return;
+        }}
+        if (
+          chatterState &&
+          state === speechState &&
+          normalizedDetail === speechStatusLastDetail &&
+          now - speechStatusLastAt < 900
+        ) {{
+          return;
+        }}
         speechState = state;
+        speechStatusLastMessage = normalizedMessage;
+        speechStatusLastDetail = normalizedDetail;
+        speechStatusLastAt = now;
         if (retryButton) {{
           retryButton.hidden = state !== "error";
           retryButton.disabled = state === "working" || state === "thinking" || state === "speaking" || state === "transcribing";
@@ -8033,7 +8058,7 @@ def _memorial_html(
           if (state === "error") speechNote.classList.add("is-error");
           const nodes = Array.from(speechNote.childNodes);
           const textNode = nodes.find((node) => node.nodeType === Node.TEXT_NODE);
-          if (textNode) textNode.textContent = message + " ";
+          if (textNode) textNode.textContent = normalizedMessage + " ";
         }}
         if (speechMonitor) {{
           speechMonitor.classList.remove("is-idle", "is-listening", "is-working", "is-speaking", "is-error");
@@ -8072,7 +8097,7 @@ def _memorial_html(
           working: "Einen Moment",
           error: "Ich bin noch da"
         }})[state] || "Bereit";
-        if (speechDetail) speechDetail.textContent = detail || ({{
+        if (speechDetail) speechDetail.textContent = normalizedDetail || ({{
           idle: "Sprich mit mir",
           listening: "Ich bin ganz bei dir",
           transcribing: "Ich bleibe bei deinen Worten",
@@ -8201,7 +8226,7 @@ def _memorial_html(
             silenceMs: 280,
             silenceThreshold: 0.012,
             listeningText: "Sprich direkt los.",
-            transcribingText: "Ich habe dich sofort. Einen Moment ..."
+            transcribingText: "Einen Moment ..."
           }};
         }}
         return {{
@@ -8209,7 +8234,7 @@ def _memorial_html(
           silenceMs: 360,
           silenceThreshold: 0.014,
           listeningText: "Sprich einfach los.",
-          transcribingText: "Ich habe dich. Einen Moment ..."
+          transcribingText: "Einen Moment ..."
         }};
       }}
       function primeRealtimeSocket(reason = "page_ready") {{
@@ -8992,7 +9017,7 @@ def _memorial_html(
           }}
           stopSpeechPlayback();
           if (!finish("played", "ended_after_" + String(elapsedMs))) return;
-          setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
+          setSpeechStatus("Ich bin da.", "idle", "Sprich, wenn du magst");
           if (onDone) onDone();
         }};
         speechAudio.onerror = () => {{
@@ -9591,8 +9616,8 @@ def _memorial_html(
         if (!conversationActive || !normalized || conversationTurnInFlight) return;
         if (!shouldSendConversationTranscript(normalized)) {{
           conversationIdleMisses += 1;
-          const waitMs = conversationIdleMisses >= 2 ? 900 : 450;
-          setSpeechStatus("Noch kein klarer Turn.", "listening", "Sprich direkt weiter");
+          const waitMs = conversationIdleMisses >= 2 ? 1400 : 900;
+          setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
           setTimeout(recordConversationTurn, waitMs);
           return;
         }}
@@ -9617,8 +9642,8 @@ def _memorial_html(
                 disarmConversationBargeIn();
                 if (!conversationActive) return;
                 conversationTurnCount += 1;
-                setSpeechStatus("Weiter.", "listening", "Nächste Frage");
-                setTimeout(recordConversationTurn, 450);
+                setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
+                setTimeout(recordConversationTurn, 1200);
               }},
               "realtime_turn",
               "Realtime Audio",
@@ -9627,8 +9652,8 @@ def _memorial_html(
             );
           }} else if (conversationActive) {{
             conversationTurnCount += 1;
-            setSpeechStatus("Weiter.", "listening", "Nächste Frage");
-            setTimeout(recordConversationTurn, 450);
+            setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
+            setTimeout(recordConversationTurn, 1200);
           }}
         }} catch (error) {{
           conversationActive = false;
@@ -9647,8 +9672,8 @@ def _memorial_html(
           if (!conversationActive) return;
           if (!transcript) {{
             conversationIdleMisses += 1;
-            const waitMs = conversationIdleMisses >= 2 ? 900 : 450;
-            setSpeechStatus("Noch nichts Brauchbares erkannt.", "listening", "Sprich direkt weiter");
+            const waitMs = conversationIdleMisses >= 2 ? 1600 : 1000;
+            setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
             setTimeout(recordConversationTurn, waitMs);
             return;
           }}
