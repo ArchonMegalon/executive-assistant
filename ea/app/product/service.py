@@ -6690,8 +6690,18 @@ def _pocket_onemin_api_keys() -> tuple[str, ...]:
         fallback_numbers.append(int(match.group(1)))
     names = ["ONEMIN_AI_API_KEY", *(f"ONEMIN_AI_API_KEY_FALLBACK_{number}" for number in sorted(fallback_numbers))]
     values: list[str] = []
+    try:
+        upstream_names = tuple(responses_upstream._onemin_secret_env_names())  # type: ignore[attr-defined]
+    except Exception:
+        upstream_names = tuple()
+    if upstream_names:
+        names = list(dict.fromkeys([*upstream_names, *names]))
     for name in names:
-        value = str(os.environ.get(name) or "").strip()
+        value = ""
+        try:
+            value = str(responses_upstream._onemin_secret_value(name) or "").strip()  # type: ignore[attr-defined]
+        except Exception:
+            value = str(os.environ.get(name) or "").strip()
         if value:
             values.append(value)
     return tuple(values)

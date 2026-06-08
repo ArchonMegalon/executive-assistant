@@ -8781,6 +8781,64 @@ def test_public_memorial_speech_transcribe_retries_with_enhanced_wav_after_empty
     assert uploads[1]["payload"] == b"enhanced-wav"
 
 
+def test_public_memorial_speech_transcribe_reads_onemin_keys_from_manifest_slots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    slug = "manfred"
+    bundle_dir = tmp_path / "public" / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "memorial.json").write_text(
+        json.dumps({"slug": slug, "person_name": "Manfred Hoza"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(tmp_path / "public"))
+
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        product_service.responses_upstream,  # type: ignore[attr-defined]
+        "_onemin_secret_env_names",
+        lambda: ("ONEMIN_AI_API_KEY", "ONEMIN_AI_API_KEY_FALLBACK_1"),
+    )
+    monkeypatch.setattr(
+        product_service.responses_upstream,  # type: ignore[attr-defined]
+        "_onemin_secret_value",
+        lambda name: {"ONEMIN_AI_API_KEY": "key-primary", "ONEMIN_AI_API_KEY_FALLBACK_1": "key-fallback"}.get(name, ""),
+    )
+    seen_keys: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: seen_keys.append(kwargs["api_key"]) or {"fileContent": {"path": "asset/audio.wav"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Was war ihm bei Familie wichtig?"}
+                }
+            }
+        },
+    )
+    client = _client(principal_id="exec-public-memorial-speech-manifest-keys")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=b"fake-wav-audio",
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["transcript_text"] == "Was war ihm bei Familie wichtig?"
+    assert seen_keys == ["key-primary"]
+
+
 def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_audio_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
