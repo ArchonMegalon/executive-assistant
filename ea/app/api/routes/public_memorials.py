@@ -4839,6 +4839,23 @@ def _memorial_chat_answer(
         fallback["llm_request_model"] = requested_model
         fallback["llm_fallback_used"] = False
         return fallback
+    if _is_memorial_contact_question(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_contact_answer_body(normalized_question),
+            "sources": [],
+            "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "direct_contact_opening",
+        }
     if _is_memorial_live_interaction_question(normalized_question):
         requested_model = requested_model or DEFAULT_PUBLIC_MODEL
     elif "schach" in normalized_question.lower():

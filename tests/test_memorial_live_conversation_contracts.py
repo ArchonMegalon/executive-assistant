@@ -101,7 +101,6 @@ def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
 @pytest.mark.parametrize(
     ("question", "expected_fragment"),
     [
-        ("Hallo Manfred, kann ich jetzt mit dir reden?", "Ja"),
         ("Wie klingt deine Stimme jetzt?", "Stimme"),
         ("Ich möchte mit dir Schach spielen. Ich beginne mit e2 auf e4. Was ist dein Zug?", "e5"),
         ("Sag jetzt direkt etwas zu mir.", "direkt"),
@@ -151,6 +150,38 @@ def test_memorial_chat_live_openings_route_to_model_without_memory_fallback(
     assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
     assert "Erinnerungsgedaechtnis:" not in evidence_block
     assert "Eigene archivierte Erinnerungen" not in evidence_block
+
+
+def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-contact-opening")
+
+    started = time.perf_counter()
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Hallo Manfred, kann ich jetzt mit dir reden?"})
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 200
+    body = response.json()
+    assert elapsed < 1.5
+    assert called["generate_text"] == 0
+    assert body["sources"] == []
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["llm_fallback_used"] is False
+    assert body["fallback_reason"] == "direct_contact_opening"
+    assert "Ja" in body["answer"]
+    assert "reden" in body["answer"].lower() or "sprich" in body["answer"].lower()
 
 
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
@@ -229,22 +260,22 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["llm_fallback_used"] is False
     assert body["transcript_text"] == "Hallo Manfred, kann ich jetzt mit dir reden?"
     assert body["sources"] == []
-    assert "Ja, ich bin da." in body["answer"]
+    assert "Ja" in body["answer"]
+    assert "reden" in body["answer"].lower() or "sprich" in body["answer"].lower()
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["fallback_reason"] == "direct_contact_opening"
     decoded_audio = base64.b64decode(body["audio_base64"])
     assert decoded_audio.startswith(b"RIFF")
     assert body["audio_content_type"] == "audio/wav"
     assert body["tts_plugin"] == public_memorials.PIPER_FAST_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is False
-    assert seen_messages
     assert any(
         "memorial_timing event=conversation_turn" in record.getMessage()
         and "requested_model=ea-gemini-flash" in record.getMessage()
+        and "effective_model=memorial_guardrail" in record.getMessage()
         and f"tts_plugin={public_memorials.PIPER_FAST_TTS_PLUGIN_ID}" in record.getMessage()
         for record in caplog.records
     )
-    evidence_block = seen_messages[-1][1]["content"]
-    assert "Antwortmodus: gegenwaertige Live-Interaktion." in evidence_block
-    assert "Erinnerungsgedaechtnis:" not in evidence_block
 
 
 def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_explicit_model_catalog(
@@ -314,9 +345,11 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
 
     assert response.status_code == 200
     body = response.json()
-    assert seen_requested_models == [GEMINI_VORTEX_PUBLIC_MODEL]
+    assert seen_requested_models == []
     assert body["llm_request_model"] == GEMINI_VORTEX_PUBLIC_MODEL
     assert body["llm_fallback_used"] is False
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["fallback_reason"] == "direct_contact_opening"
 
 
 def test_memorial_conversation_turn_prefers_fast_tts_while_warmup_is_cold(
