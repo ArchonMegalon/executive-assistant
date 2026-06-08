@@ -5341,7 +5341,8 @@ def _speech_postprocess_filters(tts_plugin: str) -> str:
     if plugin_id == VOICEWAVE_TTS_PLUGIN_ID:
         return ",".join(
             [
-                "silenceremove=stop_periods=-1:stop_duration=0.22:stop_threshold=-42dB",
+                "silenceremove=stop_periods=-1:stop_duration=0.10:stop_threshold=-33dB:stop_silence=0.02",
+                "atempo=1.40",
                 "alimiter=limit=0.92",
             ]
         )
