@@ -7515,6 +7515,7 @@ def _memorial_html(
       let activeServerTranscriptPromise = null;
       let serverTranscriptCooldownUntil = 0;
       let serverTranscriptFailureCount = 0;
+      let speechPlaybackWatchdogTimer = null;
       let speechState = "idle";
       let speechMeterLive = false;
       let speakingOverlayPreview = "";
@@ -8792,11 +8793,18 @@ def _memorial_html(
         return false;
       }}
       function stopSpeechPlayback() {{
+        if (speechPlaybackWatchdogTimer) {{
+          clearTimeout(speechPlaybackWatchdogTimer);
+          speechPlaybackWatchdogTimer = null;
+        }}
         speakingOverlayPreview = "";
         if (speechAudio) {{
           try {{
             speechAudio.pause();
           }} catch (error) {{}}
+          speechAudio.onloadedmetadata = null;
+          speechAudio.oncanplay = null;
+          speechAudio.onpause = null;
           speechAudio.onended = null;
           speechAudio.onerror = null;
         }}
@@ -8852,6 +8860,154 @@ def _memorial_html(
             throw new Error(preview || "ungueltige Serverantwort");
           }}
           throw error;
+        }}
+      }}
+      function browserSpeechFallbackConfig(label = "Browser Fallback") {{
+        return {{
+          tts_plugin: "browser_speech_synthesis",
+          tts_plugin_voice_id: "",
+          tts_plugin_label: label,
+          tts_plugin_enabled: true,
+          voice_ab_variant: "",
+        }};
+      }}
+      function reportPlaybackTelemetry(eventName, details = {{}}) {{
+        try {{
+          const payload = Object.assign({{
+            event: String(eventName || "").trim() || "unknown",
+            context: String(details.context || "").trim(),
+            reason: String(details.reason || "").trim(),
+            detail: String(details.detail || "").trim(),
+            plugin: String(details.plugin || "").trim(),
+            fallback_plugin: String(details.fallback_plugin || "").trim(),
+            playback_started: Boolean(details.playback_started),
+            elapsed_ms: Number(details.elapsed_ms || 0),
+            expected_ms: Number(details.expected_ms || 0),
+            audio_bytes: Number(details.audio_bytes || 0),
+            text: String(details.text || "").slice(0, 280),
+          }});
+          void fetch("/memorials/{html.escape(slug)}/playback-telemetry", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify(payload),
+            keepalive: true,
+          }}).catch(() => null);
+        }} catch (error) {{}}
+      }}
+      async function playSpeechBlobWithFallback(blob, text, onDone = null, contextLabel = "speech", pluginLabel = "Memorial Audio", pluginId = "", fallbackConfig = null) {{
+        if (!speechAudio) {{
+          if (onDone) onDone();
+          return;
+        }}
+        const normalizedText = normalizeTranscriptText(text || "");
+        const bytes = blob && typeof blob.size === "number" ? blob.size : 0;
+        const startedAt = Date.now();
+        let playbackStarted = false;
+        let playbackSettled = false;
+        let metadataDurationMs = 0;
+        const expectedMinMs = Math.max(1400, Math.min(9000, normalizedText.length * 28));
+        const safePluginLabel = String(pluginLabel || "Memorial Audio");
+        const safePluginId = String(pluginId || "");
+        stopSpeechPlayback();
+        const finish = (status, detail = "") => {{
+          if (playbackSettled) return false;
+          playbackSettled = true;
+          if (speechPlaybackWatchdogTimer) {{
+            clearTimeout(speechPlaybackWatchdogTimer);
+            speechPlaybackWatchdogTimer = null;
+          }}
+          if (status === "played") {{
+            reportPlaybackTelemetry("played", {{
+              context: contextLabel,
+              plugin: safePluginId,
+              detail,
+              playback_started: playbackStarted,
+              elapsed_ms: Date.now() - startedAt,
+              expected_ms: metadataDurationMs || expectedMinMs,
+              audio_bytes: bytes,
+              text: normalizedText,
+            }});
+          }}
+          return true;
+        }};
+        const fallbackToBrowser = (reason, detail = "") => {{
+          if (!finish("fallback", detail)) return;
+          reportPlaybackTelemetry("fallback", {{
+            context: contextLabel,
+            reason,
+            detail,
+            plugin: safePluginId,
+            fallback_plugin: "browser_speech_synthesis",
+            playback_started: playbackStarted,
+            elapsed_ms: Date.now() - startedAt,
+            expected_ms: metadataDurationMs || expectedMinMs,
+            audio_bytes: bytes,
+            text: normalizedText,
+          }});
+          stopSpeechPlayback();
+          if (fallbackConfig && String(fallbackConfig.tts_plugin || "") !== "browser_speech_synthesis") {{
+            setSpeechStatus("Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme.", "working", "Ich bleibe bei dir");
+            void speakText(normalizedText, onDone, browserSpeechFallbackConfig("Browser Fallback"), "");
+            return;
+          }}
+          setSpeechStatus("Sprachausgabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
+          if (onDone) onDone();
+        }};
+        speechObjectUrl = URL.createObjectURL(blob);
+        speechAudio.src = speechObjectUrl;
+        speechAudio.onloadedmetadata = () => {{
+          const duration = Number(speechAudio.duration || 0);
+          if (Number.isFinite(duration) && duration > 0) metadataDurationMs = duration * 1000.0;
+        }};
+        speechAudio.oncanplay = () => {{
+          if (!playbackStarted) {{
+            reportPlaybackTelemetry("canplay", {{
+              context: contextLabel,
+              plugin: safePluginId,
+              elapsed_ms: Date.now() - startedAt,
+              expected_ms: metadataDurationMs || expectedMinMs,
+              audio_bytes: bytes,
+              text: normalizedText,
+            }});
+          }}
+        }};
+        speechAudio.onplaying = () => {{
+          playbackStarted = true;
+          setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
+          reportPlaybackTelemetry("playing", {{
+            context: contextLabel,
+            plugin: safePluginId,
+            elapsed_ms: Date.now() - startedAt,
+            expected_ms: metadataDurationMs || expectedMinMs,
+            audio_bytes: bytes,
+            text: normalizedText,
+          }});
+        }};
+        speechAudio.onended = () => {{
+          const elapsedMs = Date.now() - startedAt;
+          const minimumAudibleMs = Math.max(1500, Math.min(7000, (metadataDurationMs || expectedMinMs) * 0.45));
+          if (!playbackStarted || elapsedMs < minimumAudibleMs) {{
+            fallbackToBrowser("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
+            return;
+          }}
+          stopSpeechPlayback();
+          if (!finish("played", "ended_after_" + String(elapsedMs))) return;
+          setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
+          if (onDone) onDone();
+        }};
+        speechAudio.onerror = () => {{
+          fallbackToBrowser("audio_error", "media_error");
+        }};
+        speechPlaybackWatchdogTimer = setTimeout(() => {{
+          if (playbackStarted || playbackSettled) return;
+          fallbackToBrowser("audio_never_started", "watchdog_timeout");
+        }}, 2200);
+        setSpeakingOverlayPreview(normalizedText);
+        setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
+        try {{
+          await speechAudio.play();
+        }} catch (error) {{
+          fallbackToBrowser("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
         }}
       }}
       async function askMemorialChat(value, options = {{}}) {{
@@ -8974,24 +9130,15 @@ def _memorial_html(
           if (!blob || !blob.size) {{
             throw new Error("speech_synthesis_empty_audio");
           }}
-          speechObjectUrl = URL.createObjectURL(blob);
-          speechAudio.src = speechObjectUrl;
-          speechAudio.onplaying = () => {{
-            setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
-          }};
-          speechAudio.onended = () => {{
-            stopSpeechPlayback();
-            setSpeechStatus("Sprachausgabe beendet.", "idle", "Bereit für die nächste Runde");
-            if (onDone) onDone();
-          }};
-          speechAudio.onerror = () => {{
-            setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
-            stopSpeechPlayback();
-            if (onDone) onDone();
-          }};
-          setSpeakingOverlayPreview(text);
-          setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
-          await speechAudio.play();
+          await playSpeechBlobWithFallback(
+            blob,
+            text,
+            onDone,
+            "speech_synthesize",
+            String(pluginConfig.tts_plugin_label || pluginConfig.tts_plugin || "TTS Plugin"),
+            String(pluginConfig.tts_plugin || ""),
+            pluginConfig,
+          );
         }} catch (error) {{
           if (speechAudio) speechAudio.src = "";
           if (speechObjectUrl) {{
@@ -9033,24 +9180,15 @@ def _memorial_html(
           }}
           const blob = await response.blob();
           if (!blob || !blob.size) throw new Error("speech_synthesis_empty_audio");
-          speechObjectUrl = URL.createObjectURL(blob);
-          speechAudio.src = speechObjectUrl;
-          speechAudio.onplaying = () => {{
-            setSpeechStatus(selectedVoiceVariant === "b" ? "Ich spreche mit Stimme B." : "Ich spreche mit Stimme A.", "speaking", "Ich antworte");
-          }};
-          speechAudio.onended = () => {{
-            stopSpeechPlayback();
-            setSpeechStatus("Stimmvergleich bereit.", "idle", "Bereit.");
-            if (onDone) onDone();
-          }};
-          speechAudio.onerror = () => {{
-            stopSpeechPlayback();
-            setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
-            if (onDone) onDone();
-          }};
-          setSpeakingOverlayPreview(text);
-          setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
-          await speechAudio.play();
+          await playSpeechBlobWithFallback(
+            blob,
+            text,
+            onDone,
+            selectedVoiceVariant === "b" ? "voice_ab_b" : "voice_ab_a",
+            selectedVoiceVariant === "b" ? "Stimme B" : "Stimme A",
+            "voice_ab_preview",
+            null,
+          );
         }} catch (error) {{
           stopSpeechPlayback();
           setSpeechStatus("Stimmvorschau fehlgeschlagen: " + String(error.message || error), "error", "Vorschau fehlgeschlagen");
@@ -9472,28 +9610,21 @@ def _memorial_html(
             const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
             const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
             stopSpeechPlayback();
-            speechObjectUrl = URL.createObjectURL(blob);
-            speechAudio.src = speechObjectUrl;
-            speechAudio.onplaying = () => {{
-              setSpeechStatus("Ich spreche jetzt.", "speaking", "Ich antworte");
-            }};
-            speechAudio.onended = () => {{
-              stopSpeechPlayback();
-              disarmConversationBargeIn();
-              if (!conversationActive) return;
-              conversationTurnCount += 1;
-              setSpeechStatus("Weiter.", "listening", "Nächste Frage");
-              setTimeout(recordConversationTurn, 450);
-            }};
-            speechAudio.onerror = () => {{
-              disarmConversationBargeIn();
-              setSpeechStatus("Wiedergabe fehlgeschlagen.", "error", "Audio konnte nicht abgespielt werden");
-              stopSpeechPlayback();
-              if (conversationActive) setTimeout(recordConversationTurn, 600);
-            }};
-            setSpeakingOverlayPreview(assistantText);
-            setSpeechStatus("Ich antworte gleich.", "thinking", "Meine Stimme wird vorbereitet");
-            await speechAudio.play();
+            await playSpeechBlobWithFallback(
+              blob,
+              assistantText,
+              () => {{
+                disarmConversationBargeIn();
+                if (!conversationActive) return;
+                conversationTurnCount += 1;
+                setSpeechStatus("Weiter.", "listening", "Nächste Frage");
+                setTimeout(recordConversationTurn, 450);
+              }},
+              "realtime_turn",
+              "Realtime Audio",
+              "realtime_stream",
+              browserSpeechFallbackConfig("Browser Fallback"),
+            );
           }} else if (conversationActive) {{
             conversationTurnCount += 1;
             setSpeechStatus("Weiter.", "listening", "Nächste Frage");
@@ -9868,6 +9999,33 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.post("/memorials/{slug}/playback-telemetry")
+async def public_memorial_playback_telemetry(slug: str, request: Request) -> JSONResponse:
+    _load_memorial(slug)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    _log_memorial_timing(
+        "client_playback",
+        slug=slug,
+        event_name=_text(body.get("event"), "unknown"),
+        context=_text(body.get("context"), ""),
+        reason=_text(body.get("reason"), ""),
+        detail=_text(body.get("detail"), ""),
+        plugin=_text(body.get("plugin"), ""),
+        fallback_plugin=_text(body.get("fallback_plugin"), ""),
+        playback_started=bool(body.get("playback_started")),
+        elapsed_ms=round(float(body.get("elapsed_ms") or 0.0), 1),
+        expected_ms=round(float(body.get("expected_ms") or 0.0), 1),
+        audio_bytes=int(body.get("audio_bytes") or 0),
+        text_chars=len(_text(body.get("text"), "")),
+    )
+    return JSONResponse({"status": "accepted"}, headers={"Cache-Control": "no-store"}, status_code=202)
 
 
 @router.get("/memorials/{slug}/archive/{publication_slug}")

@@ -791,6 +791,43 @@ def test_memorial_warmup_status_route_reports_snapshot_state(
     }
 
 
+def test_memorial_playback_telemetry_route_accepts_client_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    client = _client(principal_id="exec-memorial-playback-telemetry")
+
+    response = client.post(
+        f"/memorials/{slug}/playback-telemetry",
+        json={
+            "event": "fallback",
+            "context": "realtime_turn",
+            "reason": "audio_never_started",
+            "plugin": "realtime_stream",
+            "fallback_plugin": "browser_speech_synthesis",
+            "playback_started": False,
+            "elapsed_ms": 2210.4,
+            "expected_ms": 5310.0,
+            "audio_bytes": 587054,
+            "text": "Hallo Manfred, sprich bitte ganz kurz direkt mit mir.",
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted"}
+
+
+def test_memorial_browser_playback_guardrails_are_shipped() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "audio_never_started" in source
+    assert "audio_ended_too_soon" in source
+    assert "/memorials/{html.escape(slug)}/playback-telemetry" in source
+    assert 'browser_speech_synthesis' in source
+    assert "Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme." in source
+
+
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import public_memorials
 
