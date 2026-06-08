@@ -113,3 +113,13 @@ def test_write_json_persists_payload(tmp_path: Path) -> None:
 
     loaded = json.loads(path.read_text(encoding="utf-8"))
     assert loaded == payload
+
+
+def test_first_writable_dir_returns_first_creatable_path(tmp_path: Path) -> None:
+    module = _load_script()
+    target = tmp_path / "voicewave"
+
+    resolved = module._first_writable_dir((target,))
+
+    assert resolved == target
+    assert target.is_dir()

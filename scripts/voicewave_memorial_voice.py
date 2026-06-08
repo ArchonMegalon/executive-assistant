@@ -16,8 +16,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path("/docker/fleet/state/chummer6/voicewave_provider")
-SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser()
+_OUTPUT_ROOT_CANDIDATES = (
+    Path("/docker/fleet/state/chummer6/voicewave_provider"),
+    Path("/data/artifacts/voicewave_provider"),
+    Path("/tmp/voicewave_provider"),
+)
+_SHARED_TEMP_ROOT_CANDIDATES = (
+    Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser(),
+    Path("/tmp/browseract_ui_worker_shared"),
+)
 DEFAULT_VOICE_LABEL = "Manfred Hoza Memorial"
 DEFAULT_REFERENCE_AUDIO = (
     ROOT
@@ -56,6 +63,20 @@ def _env_value(name: str) -> str:
             if key.strip() == name:
                 return value.strip()
     return ""
+
+
+def _first_writable_dir(candidates: tuple[Path, ...]) -> Path:
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        return candidate
+    raise SystemExit("voicewave_runtime_storage_unavailable")
+
+
+OUTPUT_ROOT = _first_writable_dir(_OUTPUT_ROOT_CANDIDATES)
+SHARED_TEMP_ROOT = _first_writable_dir(_SHARED_TEMP_ROOT_CANDIDATES)
 
 
 def _login_email(value: str) -> str:
