@@ -629,6 +629,16 @@ def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
         }
     else:
         public_payload["conversation_style"] = {}
+    public_avatar = _memorial_video_call_avatar(payload, slug) if slug else _memorial_video_call_avatar(payload, "")
+    public_payload["video_call_avatar"] = {
+        "enabled": bool(public_avatar.get("enabled")),
+        "kind": _text(public_avatar.get("kind"), "portrait"),
+        "provider_label": _text(public_avatar.get("provider_label"), "VidBoard noch nicht live"),
+        "title": _text(public_avatar.get("title"), _text(payload.get("person_name"), "Manfred")),
+        "detail": _text(public_avatar.get("detail"), "Der Video-Avatar ist noch nicht freigegeben."),
+        "asset_url": _text(public_avatar.get("asset_url"), "") if bool(public_avatar.get("enabled")) else "",
+        "poster_url": _text(public_avatar.get("poster_url"), "") if bool(public_avatar.get("enabled")) else "",
+    }
     return public_payload
 
 

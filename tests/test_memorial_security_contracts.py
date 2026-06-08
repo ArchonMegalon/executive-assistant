@@ -215,6 +215,18 @@ def test_public_memorial_video_call_can_render_real_avatar_video_asset(
     asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
     assert asset.status_code == 200
 
+    payload = client.get(f"/memorials/{slug}.json")
+    assert payload.status_code == 200
+    assert payload.json()["video_call_avatar"] == {
+        "enabled": True,
+        "kind": "video",
+        "provider_label": "VidBoard Avatar bereit",
+        "title": "Manfred Hoza als Avatar",
+        "detail": "VidBoard-Clip ist für den Video Call eingebunden.",
+        "asset_url": f"/memorials/files/{slug}/video/manfred-avatar.mp4",
+        "poster_url": f"/memorials/files/{slug}/video/manfred-avatar-poster.png",
+    }
+
 
 def test_public_memorial_video_call_blocks_unverified_avatar_asset(
     monkeypatch: pytest.MonkeyPatch,
@@ -258,6 +270,18 @@ def test_public_memorial_video_call_blocks_unverified_avatar_asset(
 
     asset = client.get(f"/memorials/files/{slug}/video/manfred-avatar.mp4")
     assert asset.status_code == 404
+
+    payload = client.get(f"/memorials/{slug}.json")
+    assert payload.status_code == 200
+    assert payload.json()["video_call_avatar"] == {
+        "enabled": False,
+        "kind": "portrait",
+        "provider_label": "VidBoard in Prüfung",
+        "title": "Manfred Hoza als Avatar",
+        "detail": "Der eigentliche VidBoard-Avatar liegt vor, ist aber noch nicht freigegeben. Bis dahin zeigen wir nur die Portraitvorschau.",
+        "asset_url": "",
+        "poster_url": "",
+    }
 
 
 def test_public_memorial_json_includes_public_archive_registry_only(
