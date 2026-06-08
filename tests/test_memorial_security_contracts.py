@@ -887,6 +887,9 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert "/memorials/manfred/conversation-turn" in body
     assert "overflow-wrap: anywhere;" not in body
     assert ".hero-cta:not([disabled]):hover" in body
+    assert "min-height: 100dvh;" in body
+    assert "position: fixed;" in body
+    assert "overflow: hidden;" in body
     assert "<h2>Archiv lesen</h2>" not in body
     assert "<h2>Stimmvergleich</h2>" not in body
 

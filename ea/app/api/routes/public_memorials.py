@@ -5896,18 +5896,28 @@ def _minimal_public_memorial_html(
         --shadow: 0 18px 36px rgba(56, 45, 36, 0.1);
       }}
       * {{ box-sizing: border-box; }}
-      html {{ -webkit-text-size-adjust: 100%; }}
+      html {{
+        -webkit-text-size-adjust: 100%;
+        min-height: 100dvh;
+        overflow: hidden;
+      }}
       body {{
         margin: 0;
-        min-height: 100vh;
+        min-height: 100dvh;
         background:
           radial-gradient(circle at top, rgba(255,255,255,.42), rgba(255,255,255,0) 30%),
           linear-gradient(180deg, #d7e0e5 0%, #f7f2e8 22%, #f7f2e8 100%);
         color: var(--ink);
         font: 16px/1.6 Georgia, "Times New Roman", serif;
+        overflow: hidden;
       }}
       .wrap {{ width: min(100vw - 28px, 720px); margin: 0 auto; }}
-      header {{ min-height: 100vh; display: grid; align-items: center; }}
+      header {{
+        min-height: 100dvh;
+        min-height: 100svh;
+        display: grid;
+        align-items: center;
+      }}
       .hero {{ padding: 0; display: grid; gap: 18px; justify-items: center; text-align: center; }}
       .hero-copy {{ display: grid; gap: 14px; justify-items: center; }}
       .hero-actions {{ display: grid; gap: 14px; justify-items: center; }}
@@ -5943,7 +5953,14 @@ def _minimal_public_memorial_html(
         text-decoration: underline;
         padding: 0 0 0 4px;
       }}
-      main {{ margin-top: -104px; padding: 0 0 54px; }}
+      main {{
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+        margin-top: 0;
+        padding: 0;
+      }}
       .chat {{
         border: 1px solid var(--line);
         border-radius: 22px;
@@ -6022,7 +6039,7 @@ def _minimal_public_memorial_html(
       }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
-        main {{ margin-top: -120px; padding-bottom: 36px; }}
+        main {{ bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }}
         .hero-cta {{ width: 100%; min-width: 0; }}
       }}
     </style>
