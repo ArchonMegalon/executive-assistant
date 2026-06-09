@@ -94,3 +94,63 @@ def test_prosody_combos_exhaustive_covers_full_grid() -> None:
     assert len(combos) == 27
     assert {"speaking_rate": "low", "speaking_pitch": "low", "speaking_volume": "low"} in combos
     assert {"speaking_rate": "high", "speaking_pitch": "high", "speaking_volume": "high"} in combos
+
+
+def test_compare_unmixr_clones_supports_resume_and_max_rows(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+
+    optimization_dir = tmp_path / "optimization"
+    candidates_dir = optimization_dir / "candidates"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    (candidates_dir / "oSQ9FhFc4YI-01440s-28.wav").write_bytes(b"ref")
+    monkeypatch.setattr(module, "_optimization_root", lambda *, slug: optimization_dir)
+    monkeypatch.setattr(module._OPTIMIZER, "_wav_metrics_from_bytes", lambda payload: {"payload_size": len(payload)})
+    monkeypatch.setattr(module._OPTIMIZER, "_voice_feature_similarity", lambda ref, cand: 0.7 if cand["payload_size"] == 20 else 0.6)
+    monkeypatch.setattr(module, "_convert_audio_to_wav", lambda *, payload, content_type: payload)
+    monkeypatch.setattr(module, "_wav_duration_seconds", lambda payload: 1.0 if len(payload) == 20 else 2.0)
+    monkeypatch.setattr(module._OPTIMIZER, "_transcribe_audio_bytes", lambda payload, *, content_type, slug, base_url: {"text": "Ja. Ich bin da."})
+    monkeypatch.setattr(
+        module,
+        "unmixr_synthesize_request",
+        lambda *, text, voice_id, lang, speaking_rate=None, speaking_pitch=None, speaking_volume=None: (
+            b"x" * (20 if str(speaking_rate) == "medium" else 10),
+            "audio/wav",
+        ),
+    )
+
+    output_path = tmp_path / "report.json"
+    combos = [
+        {"speaking_rate": "low", "speaking_pitch": "low", "speaking_volume": "high"},
+        {"speaking_rate": "medium", "speaking_pitch": "low", "speaking_volume": "high"},
+    ]
+
+    first = module.compare_unmixr_clones(
+        slug="manfred",
+        base_url="http://127.0.0.1:8090",
+        voice_ids=["voice-a"],
+        prompts=["Ja. Ich bin da."],
+        combos=combos,
+        output_path=output_path,
+        resume=False,
+        max_rows=1,
+    )
+
+    assert first["complete"] is False
+    assert first["completed_rows"] == 1
+    checkpoint = json.loads(output_path.read_text(encoding="utf-8"))
+    assert checkpoint["completed_rows"] == 1
+
+    second = module.compare_unmixr_clones(
+        slug="manfred",
+        base_url="http://127.0.0.1:8090",
+        voice_ids=["voice-a"],
+        prompts=["Ja. Ich bin da."],
+        combos=combos,
+        output_path=output_path,
+        resume=True,
+        max_rows=0,
+    )
+
+    assert second["complete"] is True
+    assert second["completed_rows"] == 2
+    assert second["winner"]["speaking_rate"] == "medium"

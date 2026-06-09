@@ -183,12 +183,96 @@ def compare_unmixr_clones(
     voice_ids: list[str],
     prompts: list[str],
     combos: list[dict[str, str]],
+    output_path: Path | None = None,
+    resume: bool = False,
+    max_rows: int = 0,
 ) -> dict[str, object]:
     reference_metrics = _OPTIMIZER._wav_metrics_from_bytes(_reference_path(slug=slug).read_bytes())
     rows: list[dict[str, object]] = []
     winner: dict[str, object] | None = None
+    seen_keys: set[tuple[str, str, str, str]] = set()
+
+    def _row_key(row: dict[str, object]) -> tuple[str, str, str, str]:
+        return (
+            str(row.get("voice_id") or "").strip(),
+            str(row.get("speaking_rate") or "").strip(),
+            str(row.get("speaking_pitch") or "").strip(),
+            str(row.get("speaking_volume") or "").strip(),
+        )
+
+    def _write_checkpoint() -> None:
+        if output_path is None:
+            return
+        payload = {
+            "slug": slug,
+            "base_url": base_url,
+            "reference_path": str(_reference_path(slug=slug)),
+            "rows": rows,
+            "winner": winner,
+            "recommended_config": {
+                "tts_plugin": "unmixr_clone",
+                "tts_plugin_voice_id": str((winner or {}).get("voice_id") or "").strip(),
+                "voice_profile_id": str((winner or {}).get("voice_id") or "").strip(),
+                "voice_label": "Manfred Hoza · Unmixr-Klon",
+                "tts_base_voice_variant": "unmixr",
+                "unmixr_speaking_rate": str((winner or {}).get("speaking_rate") or "").strip(),
+                "unmixr_speaking_pitch": str((winner or {}).get("speaking_pitch") or "").strip(),
+                "unmixr_speaking_volume": str((winner or {}).get("speaking_volume") or "").strip(),
+            },
+            "completed_rows": len(rows),
+            "requested_rows": len(voice_ids) * len(combos),
+            "complete": len(rows) >= (len(voice_ids) * len(combos)),
+        }
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    if resume and output_path is not None and output_path.is_file():
+        try:
+            existing = json.loads(output_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+        existing_rows = existing.get("rows") if isinstance(existing, dict) else []
+        for row in existing_rows if isinstance(existing_rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            rows.append(row)
+            seen_keys.add(_row_key(row))
+            if winner is None or float(row.get("average_score") or 0.0) > float(winner.get("average_score") or 0.0):
+                winner = row
+
+    rows_evaluated = 0
     for voice_id in voice_ids:
         for combo in combos:
+            row_identity = (
+                str(voice_id or "").strip(),
+                str(combo.get("speaking_rate") or "").strip(),
+                str(combo.get("speaking_pitch") or "").strip(),
+                str(combo.get("speaking_volume") or "").strip(),
+            )
+            if row_identity in seen_keys:
+                continue
+            if max_rows > 0 and rows_evaluated >= max_rows:
+                _write_checkpoint()
+                return {
+                    "slug": slug,
+                    "base_url": base_url,
+                    "reference_path": str(_reference_path(slug=slug)),
+                    "rows": rows,
+                    "winner": winner,
+                    "recommended_config": {
+                        "tts_plugin": "unmixr_clone",
+                        "tts_plugin_voice_id": str((winner or {}).get("voice_id") or "").strip(),
+                        "voice_profile_id": str((winner or {}).get("voice_id") or "").strip(),
+                        "voice_label": "Manfred Hoza · Unmixr-Klon",
+                        "tts_base_voice_variant": "unmixr",
+                        "unmixr_speaking_rate": str((winner or {}).get("speaking_rate") or "").strip(),
+                        "unmixr_speaking_pitch": str((winner or {}).get("speaking_pitch") or "").strip(),
+                        "unmixr_speaking_volume": str((winner or {}).get("speaking_volume") or "").strip(),
+                    },
+                    "completed_rows": len(rows),
+                    "requested_rows": len(voice_ids) * len(combos),
+                    "complete": False,
+                }
             prompt_rows = [
                 _evaluate_candidate_prompt(
                     slug=slug,
@@ -214,8 +298,11 @@ def compare_unmixr_clones(
                 "prompts": prompt_rows,
             }
             rows.append(row)
+            seen_keys.add(_row_key(row))
+            rows_evaluated += 1
             if winner is None or float(row["average_score"]) > float(winner["average_score"]):
                 winner = row
+            _write_checkpoint()
     if winner is None:
         raise RuntimeError("no_unmixr_candidates_evaluated")
     return {
@@ -224,6 +311,9 @@ def compare_unmixr_clones(
         "reference_path": str(_reference_path(slug=slug)),
         "rows": rows,
         "winner": winner,
+        "completed_rows": len(rows),
+        "requested_rows": len(voice_ids) * len(combos),
+        "complete": True,
         "recommended_config": {
             "tts_plugin": "unmixr_clone",
             "tts_plugin_voice_id": str(winner.get("voice_id") or "").strip(),
@@ -244,6 +334,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--voice-id", action="append", default=[])
     parser.add_argument("--prompt", action="append", default=[])
     parser.add_argument("--exhaustive-prosody", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--max-rows", type=int, default=0)
     parser.add_argument("--output", default="")
     return parser
 
@@ -255,14 +347,17 @@ def main() -> int:
     base_url = str(args.base_url or "http://127.0.0.1:8090").strip() or "http://127.0.0.1:8090"
     voice_ids = [str(item).strip() for item in list(args.voice_id or []) if str(item).strip()] or _existing_candidates(slug=slug)
     prompts = [str(item).strip() for item in list(args.prompt or []) if str(item).strip()] or list(DEFAULT_PROMPTS)
+    output = str(args.output or "").strip()
     report = compare_unmixr_clones(
         slug=slug,
         base_url=base_url,
         voice_ids=voice_ids,
         prompts=prompts,
         combos=_prosody_combos(exhaustive=bool(args.exhaustive_prosody)),
+        output_path=Path(output) if output else None,
+        resume=bool(args.resume),
+        max_rows=max(0, int(args.max_rows or 0)),
     )
-    output = str(args.output or "").strip()
     if output:
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
