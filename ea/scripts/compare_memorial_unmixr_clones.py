@@ -28,6 +28,7 @@ DEFAULT_COMBOS = [
 ]
 _PROSODY_LEVELS = ("low", "medium", "high")
 DEFAULT_POSTPROCESS_PROFILES = [""]
+DEFAULT_SHORTLIST_TOP_K = 3
 
 
 def _load_optimizer_module():
@@ -97,6 +98,21 @@ def _postprocess_profiles(*, configured: list[str] | None = None) -> list[str]:
         if item not in deduped:
             deduped.append(item)
     return deduped
+
+
+def _candidate_identity(
+    *,
+    voice_id: str,
+    combo: dict[str, str],
+    postprocess_profile: str,
+) -> tuple[str, str, str, str, str]:
+    return (
+        str(voice_id or "").strip(),
+        str(combo.get("speaking_rate") or "").strip(),
+        str(combo.get("speaking_pitch") or "").strip(),
+        str(combo.get("speaking_volume") or "").strip(),
+        str(postprocess_profile or "").strip(),
+    )
 
 
 def _convert_audio_to_wav(*, payload: bytes, content_type: str) -> bytes:
@@ -416,6 +432,123 @@ def compare_unmixr_clones(
     }
 
 
+def compare_unmixr_clones_two_stage(
+    *,
+    slug: str,
+    base_url: str,
+    voice_ids: list[str],
+    prompts: list[str],
+    combos: list[dict[str, str]],
+    postprocess_profiles: list[str] | None = None,
+    shortlist_top_k: int = DEFAULT_SHORTLIST_TOP_K,
+    feature_output_path: Path | None = None,
+    final_output_path: Path | None = None,
+    prompt_timeout_seconds: float = 90.0,
+    lead_in_ms: int = 0,
+    tail_silence_ms: int = 0,
+) -> dict[str, object]:
+    shortlisted_count = max(1, int(shortlist_top_k or DEFAULT_SHORTLIST_TOP_K))
+    feature_report = compare_unmixr_clones(
+        slug=slug,
+        base_url=base_url,
+        voice_ids=voice_ids,
+        prompts=prompts,
+        combos=combos,
+        postprocess_profiles=postprocess_profiles,
+        output_path=feature_output_path,
+        resume=False,
+        max_rows=0,
+        prompt_timeout_seconds=prompt_timeout_seconds,
+        feature_only=True,
+        lead_in_ms=lead_in_ms,
+        tail_silence_ms=tail_silence_ms,
+    )
+    feature_rows = sorted(
+        [row for row in list(feature_report.get("rows") or []) if isinstance(row, dict)],
+        key=lambda row: float(row.get("average_score") or 0.0),
+        reverse=True,
+    )
+    shortlisted_rows = feature_rows[:shortlisted_count]
+    if not shortlisted_rows:
+        raise RuntimeError("no_unmixr_shortlist_candidates")
+    shortlisted_identities = {
+        _candidate_identity(
+            voice_id=str(row.get("voice_id") or "").strip(),
+            combo={
+                "speaking_rate": str(row.get("speaking_rate") or "").strip(),
+                "speaking_pitch": str(row.get("speaking_pitch") or "").strip(),
+                "speaking_volume": str(row.get("speaking_volume") or "").strip(),
+            },
+            postprocess_profile=str(row.get("tts_postprocess_profile") or "").strip(),
+        )
+        for row in shortlisted_rows
+    }
+    reranked_rows = sorted(
+        [
+            row for row in list(
+                compare_unmixr_clones(
+                    slug=slug,
+                    base_url=base_url,
+                    voice_ids=voice_ids,
+                    prompts=prompts,
+                    combos=combos,
+                    postprocess_profiles=postprocess_profiles,
+                    output_path=None,
+                    resume=False,
+                    max_rows=0,
+                    prompt_timeout_seconds=prompt_timeout_seconds,
+                    feature_only=False,
+                    lead_in_ms=lead_in_ms,
+                    tail_silence_ms=tail_silence_ms,
+                ).get("rows") or []
+            )
+            if isinstance(row, dict)
+            and _candidate_identity(
+                voice_id=str(row.get("voice_id") or "").strip(),
+                combo={
+                    "speaking_rate": str(row.get("speaking_rate") or "").strip(),
+                    "speaking_pitch": str(row.get("speaking_pitch") or "").strip(),
+                    "speaking_volume": str(row.get("speaking_volume") or "").strip(),
+                },
+                postprocess_profile=str(row.get("tts_postprocess_profile") or "").strip(),
+            ) in shortlisted_identities
+        ],
+        key=lambda row: float(row.get("average_score") or 0.0),
+        reverse=True,
+    )
+    if not reranked_rows:
+        raise RuntimeError("no_unmixr_reranked_candidates")
+    winner = reranked_rows[0]
+    report = {
+        "slug": slug,
+        "base_url": base_url,
+        "reference_path": str(_reference_path(slug=slug)),
+        "strategy": "two_stage",
+        "shortlist_top_k": shortlisted_count,
+        "feature_shortlist_rows": shortlisted_rows,
+        "rows": reranked_rows,
+        "winner": winner,
+        "completed_rows": len(reranked_rows),
+        "requested_rows": len(reranked_rows),
+        "complete": True,
+        "recommended_config": {
+            "tts_plugin": "unmixr_clone",
+            "tts_plugin_voice_id": str(winner.get("voice_id") or "").strip(),
+            "voice_profile_id": str(winner.get("voice_id") or "").strip(),
+            "voice_label": "Manfred Hoza · Unmixr-Klon",
+            "tts_base_voice_variant": "unmixr",
+            "unmixr_speaking_rate": str(winner.get("speaking_rate") or "").strip(),
+            "unmixr_speaking_pitch": str(winner.get("speaking_pitch") or "").strip(),
+            "unmixr_speaking_volume": str(winner.get("speaking_volume") or "").strip(),
+            "tts_postprocess_profile": str(winner.get("tts_postprocess_profile") or "").strip(),
+        },
+    }
+    if final_output_path is not None:
+        final_output_path.parent.mkdir(parents=True, exist_ok=True)
+        final_output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return report
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Compare existing Unmixr memorial clones and recommend the best live config.")
     parser.add_argument("--slug", default="manfred")
@@ -425,6 +558,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--postprocess-profile", action="append", default=[])
     parser.add_argument("--exhaustive-prosody", action="store_true")
     parser.add_argument("--feature-only", action="store_true")
+    parser.add_argument("--two-stage", action="store_true")
+    parser.add_argument("--shortlist-top-k", type=int, default=DEFAULT_SHORTLIST_TOP_K)
     parser.add_argument("--lead-in-ms", type=int, default=0)
     parser.add_argument("--tail-silence-ms", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
@@ -442,21 +577,43 @@ def main() -> int:
     voice_ids = [str(item).strip() for item in list(args.voice_id or []) if str(item).strip()] or _existing_candidates(slug=slug)
     prompts = [str(item).strip() for item in list(args.prompt or []) if str(item).strip()] or list(DEFAULT_PROMPTS)
     output = str(args.output or "").strip()
-    report = compare_unmixr_clones(
-        slug=slug,
-        base_url=base_url,
-        voice_ids=voice_ids,
-        prompts=prompts,
-        combos=_prosody_combos(exhaustive=bool(args.exhaustive_prosody)),
-        postprocess_profiles=_postprocess_profiles(configured=list(args.postprocess_profile or [])),
-        output_path=Path(output) if output else None,
-        resume=bool(args.resume),
-        max_rows=max(0, int(args.max_rows or 0)),
-        prompt_timeout_seconds=max(1.0, float(args.prompt_timeout_seconds or 90.0)),
-        feature_only=bool(args.feature_only),
-        lead_in_ms=max(0, int(args.lead_in_ms or 0)),
-        tail_silence_ms=max(0, int(args.tail_silence_ms or 0)),
-    )
+    combos = _prosody_combos(exhaustive=bool(args.exhaustive_prosody))
+    profiles = _postprocess_profiles(configured=list(args.postprocess_profile or []))
+    if bool(args.two_stage):
+        feature_output_path = None
+        if output:
+            requested = Path(output)
+            feature_output_path = requested.with_name(f"{requested.stem}.feature{requested.suffix or '.json'}")
+        report = compare_unmixr_clones_two_stage(
+            slug=slug,
+            base_url=base_url,
+            voice_ids=voice_ids,
+            prompts=prompts,
+            combos=combos,
+            postprocess_profiles=profiles,
+            shortlist_top_k=max(1, int(args.shortlist_top_k or DEFAULT_SHORTLIST_TOP_K)),
+            feature_output_path=feature_output_path,
+            final_output_path=Path(output) if output else None,
+            prompt_timeout_seconds=max(1.0, float(args.prompt_timeout_seconds or 90.0)),
+            lead_in_ms=max(0, int(args.lead_in_ms or 0)),
+            tail_silence_ms=max(0, int(args.tail_silence_ms or 0)),
+        )
+    else:
+        report = compare_unmixr_clones(
+            slug=slug,
+            base_url=base_url,
+            voice_ids=voice_ids,
+            prompts=prompts,
+            combos=combos,
+            postprocess_profiles=profiles,
+            output_path=Path(output) if output else None,
+            resume=bool(args.resume),
+            max_rows=max(0, int(args.max_rows or 0)),
+            prompt_timeout_seconds=max(1.0, float(args.prompt_timeout_seconds or 90.0)),
+            feature_only=bool(args.feature_only),
+            lead_in_ms=max(0, int(args.lead_in_ms or 0)),
+            tail_silence_ms=max(0, int(args.tail_silence_ms or 0)),
+        )
     if output:
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)

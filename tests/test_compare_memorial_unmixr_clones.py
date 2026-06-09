@@ -243,3 +243,95 @@ def test_compare_unmixr_clones_feature_only_supports_postprocess_profile(monkeyp
     assert report["winner"]["tts_postprocess_profile"] == "unmixr_raw_preserve"
     assert report["recommended_config"]["tts_postprocess_profile"] == "unmixr_raw_preserve"
     assert report["requested_rows"] == 2
+
+
+def test_compare_unmixr_clones_two_stage_reranks_shortlist(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+
+    feature_report = {
+        "rows": [
+            {
+                "voice_id": "voice-a",
+                "speaking_rate": "medium",
+                "speaking_pitch": "medium",
+                "speaking_volume": "medium",
+                "tts_postprocess_profile": "unmixr_raw_preserve",
+                "average_score": 0.91,
+            },
+            {
+                "voice_id": "voice-a",
+                "speaking_rate": "medium",
+                "speaking_pitch": "medium",
+                "speaking_volume": "low",
+                "tts_postprocess_profile": "unmixr_natural_minimal",
+                "average_score": 0.88,
+            },
+            {
+                "voice_id": "voice-b",
+                "speaking_rate": "low",
+                "speaking_pitch": "medium",
+                "speaking_volume": "low",
+                "tts_postprocess_profile": "unmixr_natural_soft",
+                "average_score": 0.70,
+            },
+        ]
+    }
+    rerank_report = {
+        "rows": [
+            {
+                "voice_id": "voice-a",
+                "speaking_rate": "medium",
+                "speaking_pitch": "medium",
+                "speaking_volume": "medium",
+                "tts_postprocess_profile": "unmixr_raw_preserve",
+                "average_score": 0.61,
+            },
+            {
+                "voice_id": "voice-a",
+                "speaking_rate": "medium",
+                "speaking_pitch": "medium",
+                "speaking_volume": "low",
+                "tts_postprocess_profile": "unmixr_natural_minimal",
+                "average_score": 0.84,
+            },
+            {
+                "voice_id": "voice-b",
+                "speaking_rate": "low",
+                "speaking_pitch": "medium",
+                "speaking_volume": "low",
+                "tts_postprocess_profile": "unmixr_natural_soft",
+                "average_score": 0.77,
+            },
+        ]
+    }
+
+    calls: list[dict[str, object]] = []
+
+    def _fake_compare(**kwargs):
+        calls.append(kwargs)
+        if kwargs.get("feature_only"):
+            return feature_report
+        return rerank_report
+
+    monkeypatch.setattr(module, "compare_unmixr_clones", _fake_compare)
+    monkeypatch.setattr(module, "_reference_path", lambda *, slug: tmp_path / "reference.wav")
+    (tmp_path / "reference.wav").write_bytes(b"ref")
+
+    report = module.compare_unmixr_clones_two_stage(
+        slug="manfred",
+        base_url="http://127.0.0.1:8090",
+        voice_ids=["voice-a", "voice-b"],
+        prompts=["Ja. Ich bin da."],
+        combos=[{"speaking_rate": "medium", "speaking_pitch": "medium", "speaking_volume": "medium"}],
+        postprocess_profiles=["unmixr_raw_preserve", "unmixr_natural_minimal", "unmixr_natural_soft"],
+        shortlist_top_k=2,
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["feature_only"] is True
+    assert calls[1]["feature_only"] is False
+    assert report["strategy"] == "two_stage"
+    assert report["shortlist_top_k"] == 2
+    assert len(report["feature_shortlist_rows"]) == 2
+    assert report["winner"]["tts_postprocess_profile"] == "unmixr_natural_minimal"
+    assert report["recommended_config"]["tts_postprocess_profile"] == "unmixr_natural_minimal"
