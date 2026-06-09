@@ -64,6 +64,31 @@ def _write_live_volume_voice_config(*, slug: str, payload: dict[str, object]) ->
     return {"status": "updated"}
 
 
+def _restart_ea_api() -> dict[str, object]:
+    completed = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            "/docker/EA/docker-compose.yml",
+            "up",
+            "-d",
+            "--build",
+            "--force-recreate",
+            "ea-api",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return {
+            "status": "failed",
+            "detail": (completed.stderr or completed.stdout or "").strip()[:300],
+        }
+    return {"status": "restarted"}
+
+
 def run_refresh(
     *,
     slug: str,
@@ -105,22 +130,30 @@ def run_refresh(
     new_voice_id = str((attempt or {}).get("voice_id") or "").strip()
     current_config = _load_json(_voice_config_path(slug))
     current_voice_id = str(current_config.get("tts_plugin_voice_id") or "").strip()
-    compare_report = _COMPARE.compare_unmixr_clones(
+    previous_config = dict(current_config)
+    compare_report = _COMPARE.compare_unmixr_clones_two_stage(
         slug=slug,
         base_url=base_url,
         voice_ids=[current_voice_id, new_voice_id],
         prompts=list(_COMPARE.DEFAULT_PROMPTS),
         combos=_COMPARE._prosody_combos(exhaustive=False),
-        output_path=compare_output_path,
-        resume=False,
-        max_rows=0,
+        postprocess_profiles=["unmixr_raw_preserve", "unmixr_natural_minimal", "unmixr_natural_soft"],
+        shortlist_top_k=3,
+        feature_output_path=compare_output_path.with_name(f"{compare_output_path.stem}.feature{compare_output_path.suffix or '.json'}"),
+        final_output_path=compare_output_path,
         prompt_timeout_seconds=20.0,
+        lead_in_ms=0,
+        tail_silence_ms=0,
     )
     compare_output_path.parent.mkdir(parents=True, exist_ok=True)
     compare_output_path.write_text(json.dumps(compare_report, ensure_ascii=False, indent=2), encoding="utf-8")
     result["compare_path"] = compare_output_path.as_posix()
     result["winner"] = compare_report.get("winner") or {}
     result["applied"] = False
+    if isinstance(compare_report.get("blocked"), dict):
+        result["status"] = "blocked"
+        result["blocked"] = compare_report.get("blocked") or {}
+        return result
 
     winner_voice_id = str((compare_report.get("winner") or {}).get("voice_id") or "").strip()
     if apply_if_better and winner_voice_id == new_voice_id:
@@ -132,6 +165,7 @@ def run_refresh(
         )
         _write_voice_config(_voice_config_path(slug), current_config)
         result["live_volume_write"] = _write_live_volume_voice_config(slug=slug, payload=current_config)
+        result["ea_api_restart"] = _restart_ea_api()
         result["applied"] = True
         validation_report = _VALIDATE.validate_memorial_voice_loop(
             slug=slug,
@@ -144,6 +178,14 @@ def run_refresh(
         validation_output_path.write_text(json.dumps(validation_report.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         result["validation_path"] = validation_output_path.as_posix()
         result["validation_status"] = validation_report.status
+        if str(validation_report.status or "").strip().lower() != "pass":
+            _write_voice_config(_voice_config_path(slug), previous_config)
+            result["rollback_live_volume_write"] = _write_live_volume_voice_config(slug=slug, payload=previous_config)
+            result["rollback_ea_api_restart"] = _restart_ea_api()
+            result["applied"] = False
+            result["rolled_back"] = True
+            result["status"] = "blocked"
+            return result
     result["status"] = "ok"
     return result
 
