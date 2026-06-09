@@ -6084,13 +6084,16 @@ def _minimal_public_memorial_html(
       let deferredInstallPrompt = null;
       let memorialWarmupPromise = null;
       let memorialLandingReady = false;
+      let conversationSessionActive = false;
       let recordingActive = false;
       let requestInFlight = false;
       let activeGeneration = 0;
+      const memorialChatEndpoint = "/memorials/{html.escape(slug)}/chat";
       let activeRecorder = null;
       let activeStream = null;
       let activeChunks = [];
       let activeRecordStopTimer = null;
+      let activeLevelTimer = null;
       let activeFetchController = null;
       let activeRecordingPromise = null;
       let speechObjectUrl = null;
@@ -6120,7 +6123,10 @@ def _minimal_public_memorial_html(
         let label = "Gleich bereit …";
         let disabled = true;
         if (recordingActive) {{
-          label = "Aufnahme beenden";
+          label = "Gespräch stoppen";
+          disabled = false;
+        }} else if (conversationSessionActive) {{
+          label = "Gespräch stoppen";
           disabled = false;
         }} else if (requestInFlight) {{
           label = "Einen Moment …";
@@ -6132,7 +6138,7 @@ def _minimal_public_memorial_html(
         conversationButton.textContent = label;
         conversationButton.disabled = disabled;
         conversationButton.setAttribute("aria-disabled", disabled ? "true" : "false");
-        conversationButton.setAttribute("aria-pressed", recordingActive ? "true" : "false");
+        conversationButton.setAttribute("aria-pressed", conversationSessionActive ? "true" : "false");
         conversationButton.classList.toggle("is-readying", disabled && !recordingActive && !requestInFlight);
         if (heroActions) heroActions.classList.toggle("is-readying", disabled && !recordingActive && !requestInFlight);
       }}
@@ -6238,6 +6244,10 @@ def _minimal_public_memorial_html(
           clearTimeout(activeRecordStopTimer);
           activeRecordStopTimer = null;
         }}
+        if (activeLevelTimer) {{
+          clearInterval(activeLevelTimer);
+          activeLevelTimer = null;
+        }}
         if (activeRecorder) {{
           try {{
             if (activeRecorder.state !== "inactive") activeRecorder.stop();
@@ -6259,6 +6269,10 @@ def _minimal_public_memorial_html(
           clearTimeout(activeRecordStopTimer);
           activeRecordStopTimer = null;
         }}
+        if (activeLevelTimer) {{
+          clearInterval(activeLevelTimer);
+          activeLevelTimer = null;
+        }}
         activeRecorder = null;
         activeChunks = [];
         activeRecordingPromise = null;
@@ -6267,6 +6281,7 @@ def _minimal_public_memorial_html(
 
       function abortActiveTurn() {{
         activeGeneration += 1;
+        conversationSessionActive = false;
         recordingActive = false;
         requestInFlight = false;
         if (activeFetchController) {{
@@ -6310,7 +6325,7 @@ def _minimal_public_memorial_html(
         }});
       }}
 
-      async function beginManualRecording(generation) {{
+      async function beginConversationRecording(generation) {{
         const stream = await ensureInputStream();
         const mimeType = pickRecorderMimeType();
         const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
@@ -6339,6 +6354,36 @@ def _minimal_public_memorial_html(
             if (generation !== activeGeneration) return;
             stopRecorder();
           }}, 12000);
+          try {{
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (AudioCtx) {{
+              const audioContext = new AudioCtx();
+              const source = audioContext.createMediaStreamSource(stream);
+              const analyser = audioContext.createAnalyser();
+              analyser.fftSize = 2048;
+              source.connect(analyser);
+              const samples = new Float32Array(analyser.fftSize);
+              const startedAt = Date.now();
+              let speechSeen = false;
+              let lastLoudAt = startedAt;
+              activeLevelTimer = window.setInterval(() => {{
+                if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
+                analyser.getFloatTimeDomainData(samples);
+                let sum = 0;
+                for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
+                const rms = Math.sqrt(sum / samples.length);
+                const now = Date.now();
+                if (rms >= 0.012) {{
+                  speechSeen = true;
+                  lastLoudAt = now;
+                }}
+                if (speechSeen && now - lastLoudAt >= 700) {{
+                  stopRecorder();
+                  try {{ audioContext.close(); }} catch (error) {{}}
+                }}
+              }}, 120);
+            }}
+          }} catch (error) {{}}
         }});
       }}
 
@@ -6362,6 +6407,23 @@ def _minimal_public_memorial_html(
         return payload || {{}};
       }}
 
+      function armConversationTurnProcessing(generation) {{
+        const promise = activeRecordingPromise;
+        if (!promise) return;
+        promise.then(() => {{
+          if (generation !== activeGeneration) return;
+          if (!conversationSessionActive || requestInFlight) return;
+          void finishConversationTurn(promise);
+        }}).catch(() => {{
+          if (generation !== activeGeneration) return;
+          conversationSessionActive = false;
+          recordingActive = false;
+          requestInFlight = false;
+          syncConversationButton();
+          setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+        }});
+      }}
+
       async function ensureLandingReadyForConversation() {{
         if (!memorialLandingReady) {{
           setSpeechStatus("Ich richte mich noch ein.", "working", "");
@@ -6373,18 +6435,21 @@ def _minimal_public_memorial_html(
         }}
       }}
 
-      async function startConversation() {{
-        if (recordingActive || requestInFlight) return;
+      async function startConversationSession() {{
+        if (conversationSessionActive || recordingActive || requestInFlight) return;
         await ensureLandingReadyForConversation();
         stopSpeechPlayback();
         activeGeneration += 1;
         const generation = activeGeneration;
+        conversationSessionActive = true;
         recordingActive = true;
         syncConversationButton();
-        setSpeechStatus("Sprich jetzt. Wenn du fertig bist, tippe noch einmal.", "listening", "");
+        setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
         try {{
-          activeRecordingPromise = beginManualRecording(generation);
+          activeRecordingPromise = beginConversationRecording(generation);
+          armConversationTurnProcessing(generation);
         }} catch (error) {{
+          conversationSessionActive = false;
           recordingActive = false;
           activeRecordingPromise = null;
           syncConversationButton();
@@ -6392,10 +6457,10 @@ def _minimal_public_memorial_html(
         }}
       }}
 
-      async function finishConversationRecording() {{
+      async function finishConversationTurn(recordingPromiseOverride = null) {{
         if (!recordingActive) return;
         const generation = activeGeneration;
-        const recordingPromise = activeRecordingPromise;
+        const recordingPromise = recordingPromiseOverride || activeRecordingPromise;
         recordingActive = false;
         requestInFlight = true;
         syncConversationButton();
@@ -6411,24 +6476,38 @@ def _minimal_public_memorial_html(
           if (!audioBlob) throw new Error("missing_memorial_audio");
           await playMemorialAudio(audioBlob, generation);
           if (generation !== activeGeneration) return;
+          if (conversationSessionActive) {{
+            recordingActive = true;
+            requestInFlight = false;
+            syncConversationButton();
+            setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
+            activeRecordingPromise = beginConversationRecording(generation);
+            armConversationTurnProcessing(generation);
+            return;
+          }}
           setSpeechStatus("Ich bin da.", "idle", "");
         }} catch (error) {{
-          if (generation === activeGeneration) setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+          if (generation === activeGeneration) {{
+            conversationSessionActive = false;
+            setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+          }}
         }} finally {{
           if (generation === activeGeneration) {{
             requestInFlight = false;
+            if (!conversationSessionActive) recordingActive = false;
             syncConversationButton();
           }}
         }}
       }}
 
       function toggleConversation() {{
-        if (recordingActive) {{
-          void finishConversationRecording();
+        if (conversationSessionActive) {{
+          abortActiveTurn();
+          setSpeechStatus("Ich bin da.", "idle", "");
           return;
         }}
         if (requestInFlight) return;
-        void startConversation();
+        void startConversationSession();
       }}
 
       window.__memorialToggleConversation = () => toggleConversation();

@@ -222,6 +222,7 @@ def _install_fake_audio_runtime(context) -> None:
             }
             start() {
               this.state = "recording";
+              setTimeout(() => this.stop(), 40);
             }
             stop() {
               if (this.state === "inactive") return;
@@ -316,11 +317,10 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             page.wait_for_function(
                 """() => {
                   const button = document.getElementById("memorial-conversation");
-                  return Boolean(button && button.textContent && button.textContent.includes("Aufnahme beenden"));
+                  return Boolean(button && button.textContent && button.textContent.includes("Gespräch stoppen"));
                 }""",
                 timeout=3000,
             )
-            page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
         page.wait_for_function(
             """() => {
               const audio = document.getElementById("memorial-speech-audio");
@@ -328,6 +328,7 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             }""",
             timeout=7000,
         )
+        page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
         page.wait_for_function(
             """() => {
               const button = document.getElementById("memorial-conversation");
