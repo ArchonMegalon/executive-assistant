@@ -1565,6 +1565,22 @@ def test_memorial_unmixr_soft_postprocess_profile_is_available() -> None:
     assert "afftdn" not in filters
 
 
+def test_memorial_unmixr_minimal_postprocess_profile_is_available() -> None:
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters_for_config(
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        {"tts_postprocess_profile": "unmixr_natural_minimal"},
+    )
+
+    assert "highpass=f=40" in filters
+    assert "equalizer=f=190" in filters
+    assert "lowpass=f=7600" in filters
+    assert "alimiter=limit=0.97" in filters
+    assert "acompressor" not in filters
+    assert "afftdn" not in filters
+
+
 def test_memorial_speech_transcribe_route_logs_timing_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
