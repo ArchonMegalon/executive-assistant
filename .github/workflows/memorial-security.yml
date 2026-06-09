@@ -1,12 +1,15 @@
-name: Memorial Security Contracts
+name: Memorial Launch Gates
 
 on:
   push:
     branches: ["main"]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  memorial-security-contracts:
+  memorial-contracts:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -20,8 +23,33 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r ea/requirements.txt pytest httpx
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest httpx
 
-      - name: Run Memorial Security Regression Contracts
+      - name: Run Memorial Contract Gates
         run: |
           PYTHONPATH=.:ea pytest -q tests/test_memorial_security_contracts.py
+          PYTHONPATH=.:ea pytest -q tests/test_memorial_live_conversation_contracts.py
+          PYTHONPATH=.:ea pytest -q tests/test_memorial_flagship_preflight.py
+          PYTHONPATH=.:ea pytest -q tests/test_validate_memorial_voice_loop.py
+          PYTHONPATH=.:ea pytest -q tests/test_memorial_showtime_contracts.py
+
+  memorial-browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest httpx
+          python -m playwright install --with-deps chromium
+
+      - name: Run Memorial Browser E2E
+        run: |
+          PYTHONPATH=.:ea pytest -q tests/e2e/test_memorial_minimal_browser.py
