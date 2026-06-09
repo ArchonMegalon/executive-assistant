@@ -66,6 +66,11 @@ def test_attempt_clone_writes_report(monkeypatch, tmp_path: Path) -> None:
             "html_path": str(html),
         },
     )
+    monkeypatch.setattr(
+        module,
+        "_probe_unmixr_runtime",
+        lambda **kwargs: [{"voice_id": "profile-123", "runtime_ready": False, "message": "Internal Server Error"}],
+    )
 
     result = module.attempt_clone(
         login_email="user@example.com",
@@ -84,3 +89,4 @@ def test_attempt_clone_writes_report(monkeypatch, tmp_path: Path) -> None:
     assert payload["api_hits"][0]["status"] == 200
     assert payload["discovered_voice_ids"] == ["voice-123"]
     assert payload["discovered_profile_ids"] == ["profile-123"]
+    assert payload["runtime_probes"][0]["runtime_ready"] is False

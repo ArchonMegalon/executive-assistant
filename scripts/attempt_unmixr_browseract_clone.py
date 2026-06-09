@@ -13,6 +13,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILES = (ROOT / "ea" / ".env", ROOT / ".env")
@@ -94,6 +96,57 @@ def _summarize(body_text: str) -> dict[str, object]:
         "no_voice_clones_found": "No voice clones found." in str(body_text or ""),
         "limit_banner_present": "reached the limit" in str(body_text or "").lower(),
     }
+
+
+def _probe_unmixr_runtime(*, voice_ids: list[str], text: str = "Ja. Ich bin da.") -> list[dict[str, object]]:
+    api_key = _env_value("UNMIXR_API_KEY")
+    if not api_key:
+        return []
+    probes: list[dict[str, object]] = []
+    headers = {"Authorization": f"Bearer {api_key}"}
+    for voice_id in [str(item or "").strip() for item in voice_ids if str(item or "").strip()]:
+        payload = {
+            "text": text,
+            "voice_id": voice_id,
+            "language": "de",
+            "response_type": "url",
+            "speaking_rate": "medium",
+            "speaking_pitch": "medium",
+            "speaking_volume": "low",
+        }
+        record: dict[str, object] = {"voice_id": voice_id}
+        try:
+            response = requests.post(
+                "https://unmixr.com/api/v1/short-tts/",
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+            record["status_code"] = int(response.status_code)
+            try:
+                body = response.json()
+            except Exception:
+                body = {}
+            if isinstance(body, dict):
+                record["success"] = bool(body.get("success"))
+                record["provider_code"] = body.get("code")
+                record["message"] = str(body.get("message") or body.get("detail") or body.get("error") or "").strip()
+                audio_url = str(body.get("audio_url") or "").strip()
+                if audio_url:
+                    record["audio_url"] = audio_url
+                    record["runtime_ready"] = True
+                else:
+                    record["runtime_ready"] = False
+            else:
+                record["success"] = False
+                record["runtime_ready"] = False
+                record["message"] = str(response.text or "").strip()[:500]
+        except requests.RequestException as exc:
+            record["success"] = False
+            record["runtime_ready"] = False
+            record["message"] = f"{type(exc).__name__}"
+        probes.append(record)
+    return probes
 
 
 def _node_script() -> str:
@@ -474,6 +527,7 @@ def attempt_clone(
         "api_hits": list(worker.get("api_hits") or []),
         "discovered_voice_ids": list(worker.get("discovered_voice_ids") or []),
         "discovered_profile_ids": list(worker.get("discovered_profile_ids") or []),
+        "runtime_probes": _probe_unmixr_runtime(voice_ids=list(worker.get("discovered_profile_ids") or [])),
         "body_excerpt": str(worker.get("body_text") or "").strip()[:8000],
         "screenshot_path": str((run_dir / "workspace.png").resolve()) if (run_dir / "workspace.png").is_file() else str(worker.get("screenshot_path") or "").strip(),
         "html_path": str((run_dir / "workspace.html").resolve()) if (run_dir / "workspace.html").is_file() else str(worker.get("html_path") or "").strip(),
