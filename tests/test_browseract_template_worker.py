@@ -40,6 +40,30 @@ class BrowserActTemplateWorkerTests(unittest.TestCase):
 
         self.assertEqual(module._failure_code_from_error_text(detail), "auth_request_failed")
 
+    def test_failure_code_maps_google_secure_browser_rejection_to_unsupported_browser(self) -> None:
+        module = _load_module()
+
+        detail = (
+            "template_worker_failed:['Error: google_auth:unsupported_browser'] Couldn’t sign you in. "
+            "This browser or app may not be secure."
+        )
+
+        self.assertEqual(module._failure_code_from_error_text(detail), "unsupported_browser")
+
+    def test_auth_handoff_state_maps_google_rejected_page_to_unsupported_browser(self) -> None:
+        module = _load_module()
+
+        state = module._auth_handoff_state(
+            {
+                "url": "https://accounts.google.com/v3/signin/rejected",
+                "title": "Sign in - Google Accounts",
+                "bodyText": "Couldn’t sign you in. This browser or app may not be secure.",
+            }
+        )
+
+        self.assertEqual(state["state"], "unsupported_browser")
+        self.assertEqual(state["provider"], "google")
+
     def test_worker_script_fails_fast_on_onemin_auth_request_failure(self) -> None:
         module = _load_module()
         script = module._template_node_script()
@@ -50,6 +74,8 @@ class BrowserActTemplateWorkerTests(unittest.TestCase):
         self.assertIn("async function throwIfAuthUiFailed()", script)
         self.assertIn("auth_request_failed", script)
         self.assertIn("invalid_credentials", script)
+        self.assertIn("unsupported_browser", script)
+        self.assertIn("this browser or app may not be secure", script)
         self.assertIn("url.includes('api.1min.ai/auth/')", script)
         self.assertIn("text.includes('api.1min.ai/auth/login')", script)
         self.assertIn("auth_failure_text_markers", script)

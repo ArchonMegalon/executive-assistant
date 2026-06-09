@@ -1,0 +1,104 @@
+{
+  "workflow_name": "Poppy AI Login Surface Reader",
+  "description": "Open the public Poppy AI login surface and extract the visible authentication posture, especially Google-first or ticket-only lanes, for operator review.",
+  "publish": true,
+  "mcp_ready": false,
+  "inputs": [],
+  "nodes": [
+    {
+      "id": "open_login",
+      "type": "visit_page",
+      "label": "Open Login",
+      "config": {
+        "url": "https://app.getpoppy.ai/login"
+      }
+    },
+    {
+      "id": "wait_shell",
+      "type": "wait",
+      "label": "Wait Login Shell",
+      "config": {
+        "selector": "main, [role='main'], body",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "extract_heading",
+      "type": "extract",
+      "label": "Extract Heading",
+      "config": {
+        "selector": "h1, h2, [data-testid='sign-in-title']",
+        "field_name": "login_heading",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "extract_google_cta",
+      "type": "extract",
+      "label": "Extract Google CTA",
+      "config": {
+        "selector": "button, a",
+        "field_name": "auth_cta_text",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "extract_shell",
+      "type": "extract",
+      "label": "Extract Login Shell",
+      "config": {
+        "selector": "main, [role='main'], body",
+        "field_name": "login_shell_text",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "output_result",
+      "type": "output",
+      "label": "Output Login Shell",
+      "config": {
+        "field_name": "login_shell_text"
+      }
+    }
+  ],
+  "edges": [
+    [
+      "open_login",
+      "wait_shell"
+    ],
+    [
+      "wait_shell",
+      "extract_heading"
+    ],
+    [
+      "extract_heading",
+      "extract_google_cta"
+    ],
+    [
+      "extract_google_cta",
+      "extract_shell"
+    ],
+    [
+      "extract_shell",
+      "output_result"
+    ]
+  ],
+  "meta": {
+    "slug": "poppy_ai_login_surface_reader",
+    "output_dir": "/docker/fleet/state/browseract_bootstrap",
+    "status": "pending_browseract_seed",
+    "workflow_kind": "page_extract",
+    "auth_flow": "google_or_ticket_only_probe",
+    "runtime_input_name": "page_url",
+    "tool_url": "https://app.getpoppy.ai/login",
+    "authorized_credential_queries": [
+      "getpoppy.ai",
+      "app.getpoppy.ai"
+    ],
+    "notes": [
+      "This is an auth-posture probe, not a completed workspace reader.",
+      "Poppy AI currently exposes Clerk Google and ticket factors with no password factor.",
+      "A direct live Google probe now shows the automated lane is rejected with `This browser or app may not be secure`."
+    ]
+  }
+}

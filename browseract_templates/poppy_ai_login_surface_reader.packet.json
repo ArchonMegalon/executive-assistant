@@ -1,0 +1,115 @@
+{
+  "workflow_name": "Poppy AI Login Surface Reader",
+  "description": "Open the public Poppy AI login surface and extract the visible authentication posture, especially Google-first or ticket-only lanes, for operator review.",
+  "publish": true,
+  "mcp_ready": false,
+  "meta": {
+    "slug": "poppy_ai_login_surface_reader",
+    "output_dir": "/docker/fleet/state/browseract_bootstrap",
+    "status": "pending_browseract_seed",
+    "workflow_kind": "page_extract",
+    "auth_flow": "google_or_ticket_only_probe",
+    "runtime_input_name": "page_url",
+    "tool_url": "https://app.getpoppy.ai/login",
+    "authorized_credential_queries": [
+      "getpoppy.ai",
+      "app.getpoppy.ai"
+    ],
+    "notes": [
+      "This is an auth-posture probe, not a completed workspace reader.",
+      "Poppy AI currently exposes Clerk Google and ticket factors with no password factor."
+    ]
+  },
+  "instructions": [
+    "Open BrowserAct dashboard and start a new workflow.",
+    "Set workflow name and description from the packet metadata, then declare the runtime input parameters on the Start node.",
+    "Add nodes in listed order, then configure each node from its config payload.",
+    "Wire edges exactly as listed.",
+    "Save draft, publish workflow, then enable MCP later only if explicitly requested."
+  ],
+  "inputs": [],
+  "nodes": [
+    {
+      "id": "open_login",
+      "label": "Open Login",
+      "type": "visit_page",
+      "config": {
+        "url": "https://app.getpoppy.ai/login"
+      }
+    },
+    {
+      "id": "wait_shell",
+      "label": "Wait Login Shell",
+      "type": "wait",
+      "config": {
+        "selector": "main, [role='main'], body",
+        "timeout_ms": 45000
+      }
+    },
+    {
+      "id": "extract_heading",
+      "label": "Extract Heading",
+      "type": "extract",
+      "config": {
+        "selector": "h1, h2, [data-testid='sign-in-title']",
+        "field_name": "login_heading",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "extract_google_cta",
+      "label": "Extract Google CTA",
+      "type": "extract",
+      "config": {
+        "selector": "button, a",
+        "field_name": "auth_cta_text",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "extract_shell",
+      "label": "Extract Login Shell",
+      "type": "extract",
+      "config": {
+        "selector": "main, [role='main'], body",
+        "field_name": "login_shell_text",
+        "mode": "text"
+      }
+    },
+    {
+      "id": "output_result",
+      "label": "Output Login Shell",
+      "type": "output",
+      "config": {
+        "field_name": "login_shell_text"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_01",
+      "source": "open_login",
+      "target": "wait_shell"
+    },
+    {
+      "id": "edge_02",
+      "source": "wait_shell",
+      "target": "extract_heading"
+    },
+    {
+      "id": "edge_03",
+      "source": "extract_heading",
+      "target": "extract_google_cta"
+    },
+    {
+      "id": "edge_04",
+      "source": "extract_google_cta",
+      "target": "extract_shell"
+    },
+    {
+      "id": "edge_05",
+      "source": "extract_shell",
+      "target": "output_result"
+    }
+  ]
+}

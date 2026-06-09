@@ -647,6 +647,16 @@ async function main() {
       await maybeClick("#identifierNext button, button:has-text('Next')", `${label}:email_next`, config);
       await page.waitForTimeout(1800);
       await trace(`${label}-after-email-next`);
+      const rejectionBody = normalizeText(await extractText('body'));
+      const rejectionUrl = String(page.url() || '').toLowerCase();
+      if (
+        rejectionUrl.includes('/signin/rejected')
+        || rejectionBody.includes('this browser or app may not be secure')
+        || rejectionBody.includes('couldn’t sign you in')
+        || rejectionBody.includes("couldn't sign you in")
+      ) {
+        throw new Error(`${label}:unsupported_browser`);
+      }
     }
 
     if (!onGoogle()) return true;
@@ -671,6 +681,17 @@ async function main() {
       if (!onGoogle()) break;
       await maybeClick(selector, `${label}:consent`, { optional: true, wait_timeout_ms: 1200 });
       await page.waitForTimeout(1500);
+    }
+
+    const finalBody = normalizeText(await extractText('body'));
+    const finalUrl = String(page.url() || '').toLowerCase();
+    if (
+      finalUrl.includes('/signin/rejected')
+      || finalBody.includes('this browser or app may not be secure')
+      || finalBody.includes('couldn’t sign you in')
+      || finalBody.includes("couldn't sign you in")
+    ) {
+      throw new Error(`${label}:unsupported_browser`);
     }
 
     if (!onGoogle()) return true;
@@ -1095,6 +1116,13 @@ def _auth_handoff_state(browser_output: dict[str, object]) -> dict[str, str]:
     title = str(browser_output.get("title") or "").strip().lower()
     body = str(browser_output.get("bodyText") or "").strip().lower()
     joined = "\n".join([url, title, body])
+    if "accounts.google.com" in url and (
+        "/signin/rejected" in url
+        or "this browser or app may not be secure" in joined
+        or "couldn't sign you in" in joined
+        or "couldn’t sign you in" in joined
+    ):
+        return {"state": "unsupported_browser", "provider": "google"}
     if "accounts.google.com" in url and any(
         phrase in joined
         for phrase in (
@@ -1121,6 +1149,8 @@ def _failure_code_from_error_text(detail: object) -> str:
     lowered = str(detail or "").strip().lower()
     if not lowered:
         return ""
+    if "unsupported_browser" in lowered or "this browser or app may not be secure" in lowered:
+        return "unsupported_browser"
     if "invalid_credentials" in lowered or "email or password you entered is incorrect" in lowered:
         return "invalid_credentials"
     if "auth_request_failed" in lowered or "api.1min.ai/auth/login" in lowered:
