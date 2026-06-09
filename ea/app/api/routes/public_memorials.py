@@ -6271,17 +6271,7 @@ def _build_memorial_rescue_contact_turn_payload(
         "Ordne mir erst Ort, Zeit und den konkreten Stand. "
         "Dann antworte ich dir nuechtern darauf."
     )
-    audio, audio_content_type = _render_memorial_tts_audio(
-        slug=slug,
-        text=answer_text,
-        merged_config=merged_config,
-        base_config=base_config,
-        selected_plugin=selected_plugin,
-        selected_option=selected_option,
-        lead_in_ms=40,
-        tail_silence_ms=120,
-    )
-    return {
+    result = {
         "person_name": _text(payload.get("person_name"), "Manfred"),
         "mode": "memorial_first_person_memory_chat",
         "question": "",
@@ -6298,12 +6288,30 @@ def _build_memorial_rescue_contact_turn_payload(
         "fallback_reason": "rescue_ooda_loop",
         "turn_rescue_reason": rescue_reason,
         "transcript_text": "",
-        "audio_content_type": audio_content_type,
-        "audio_base64": base64.b64encode(audio).decode("ascii"),
+        "audio_content_type": "",
+        "audio_base64": "",
         "tts_plugin": selected_plugin,
         "tts_fast_path": False,
         "personal_memory": _personal_memory_public_status(slug=slug, context=personal_memory_context or {}),
     }
+    try:
+        audio, audio_content_type = _render_memorial_tts_audio(
+            slug=slug,
+            text=answer_text,
+            merged_config=merged_config,
+            base_config=base_config,
+            selected_plugin=selected_plugin,
+            selected_option=selected_option,
+            lead_in_ms=40,
+            tail_silence_ms=120,
+        )
+        result["audio_content_type"] = audio_content_type
+        result["audio_base64"] = base64.b64encode(audio).decode("ascii")
+        result["audio_unavailable"] = False
+    except HTTPException as exc:
+        result["audio_unavailable"] = True
+        result["tts_error"] = _text(exc.detail, "tts_unavailable")
+    return result
 
 
 def _build_memorial_conversation_turn_payload(
@@ -7112,9 +7120,12 @@ def _minimal_public_memorial_html(
           const payload = await sendConversationTurn(blob, generation);
           if (generation !== activeGeneration) return;
           const audioBlob = decodeAudioPayload(payload);
-          if (!audioBlob) throw new Error("missing_memorial_audio");
-          await playMemorialAudio(audioBlob, generation);
-          if (generation !== activeGeneration) return;
+          if (audioBlob) {{
+            await playMemorialAudio(audioBlob, generation);
+            if (generation !== activeGeneration) return;
+          }} else if (!String((payload && payload.answer) || "").trim()) {{
+            throw new Error("missing_memorial_audio");
+          }}
           if (conversationSessionActive) {{
             recordingActive = true;
             requestInFlight = false;

@@ -787,6 +787,55 @@ def test_memorial_conversation_turn_rescues_throttled_transcription_with_ooda_re
     assert seen_openvoice_calls
 
 
+def test_memorial_conversation_turn_rescue_survives_tts_failure_without_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unmixr-test-key")
+
+    def _raise_empty(**kwargs):
+        raise public_memorials.HTTPException(status_code=400, detail="speech_transcription_empty")
+
+    def _raise_tts(**kwargs):
+        raise public_memorials.HTTPException(status_code=502, detail="Request was throttled. Expected available in 1900 seconds.:429")
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _raise_empty)
+    monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", _raise_tts)
+
+    client = _client(principal_id="exec-memorial-live-rescue-no-audio")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=_generated_wav_bytes(textish_seed="Hallo?"),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "rescue_ooda_loop"
+    assert body["audio_unavailable"] is True
+    assert body["audio_base64"] == ""
+    assert "ort" in body["answer"].lower()
+
+
 def test_memorial_conversation_turn_supports_voicewave_clone(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
