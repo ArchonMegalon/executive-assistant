@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 
+EA_ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = Path("/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai")
 RECEIPT_PATH = OUT_DIR / "POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
 SCREENSHOT_DIR = OUT_DIR / "live_browser_proof"
@@ -14,8 +16,35 @@ PLAYWRIGHT_WORKDIR = Path("/docker/chummercomplete/chummer.run-services")
 CHROMIUM_PATH = Path("/home/tibor/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome")
 LOGIN_URL = "https://app.getpoppy.ai/login"
 TARGET_URL = "https://app.getpoppy.ai/onboarding/call"
-LOGIN_EMAIL = "the.girscheles@gmail.com"
-LOGIN_PASSWORD = "rangersofB5"
+
+
+def _load_local_env() -> dict[str, str]:
+    env_path = EA_ROOT / ".env"
+    values: dict[str, str] = {}
+    if not env_path.exists():
+        return values
+    for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+LOCAL_ENV = _load_local_env()
+
+
+def _env_value(*names: str) -> str:
+    for name in names:
+        value = str(os.environ.get(name) or LOCAL_ENV.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+LOGIN_EMAIL = _env_value("POPPY_LOGIN_EMAIL", "BROWSERACT_USERNAME")
+LOGIN_PASSWORD = _env_value("POPPY_LOGIN_PASSWORD", "BROWSERACT_PASSWORD")
 
 
 def _utc_now() -> str:
@@ -23,6 +52,10 @@ def _utc_now() -> str:
 
 
 def _run_playwright_probe() -> dict[str, object]:
+    if not LOGIN_EMAIL:
+        raise RuntimeError("poppy_login_email_missing")
+    if not LOGIN_PASSWORD:
+        raise RuntimeError("poppy_login_password_missing")
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     node_script = r"""
 const { chromium } = require('playwright');

@@ -170,7 +170,7 @@ def main() -> int:
         method="POST",
         payload={
             "strategy": "password",
-            "identifier": env_value("BROWSERACT_USERNAME") or "the.girscheles@gmail.com",
+            "identifier": env_value("POPPY_LOGIN_EMAIL", "BROWSERACT_USERNAME"),
             "password": env_value("BROWSERACT_PASSWORD") or "",
         },
     )

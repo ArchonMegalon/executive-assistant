@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 
+EA_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = Path("/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai/POPPY_AI_BROWSERACT_PUBLISH_PROBE.generated.json")
 WORKFLOW_SPEC = Path("/docker/EA/browseract_templates/poppy_ai_login_surface_reader.workflow.json")
 AUTH_URL = "https://ab-gw.browseract.com/api/security/token"
@@ -15,9 +17,36 @@ PASSWORD_TICKET_URL = "https://ab-gw.browseract.com/api/security/ticket/password
 WORKFLOW_CREATE_URL = "https://ab-gw.browseract.com/api/workflow"
 WORKFLOW_GET_URL = "https://ab-gw.browseract.com/api/workflow?id={workflow_id}"
 WORKFLOW_PUBLISH_URL = "https://ab-gw.browseract.com/api/workflow/publish"
-EMAIL = "the.girscheles@gmail.com"
-PASSWORD = "rangersofB5"
-COMPANY_ID = "82138966616386155"
+
+
+def _load_local_env() -> dict[str, str]:
+    env_path = EA_ROOT / ".env"
+    values: dict[str, str] = {}
+    if not env_path.exists():
+        return values
+    for raw in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+LOCAL_ENV = _load_local_env()
+
+
+def _env_value(*names: str) -> str:
+    for name in names:
+        value = str(os.environ.get(name) or LOCAL_ENV.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+EMAIL = _env_value("BROWSERACT_USERNAME", "POPPY_LOGIN_EMAIL")
+PASSWORD = _env_value("BROWSERACT_PASSWORD", "POPPY_LOGIN_PASSWORD")
+COMPANY_ID = _env_value("BROWSERACT_COMPANY_ID") or "82138966616386155"
 
 
 def utc_now() -> str:
@@ -51,6 +80,10 @@ def request_json(url: str, *, method: str = "GET", payload: dict[str, object] | 
 
 def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    if not EMAIL:
+        raise SystemExit("browseract_username_missing")
+    if not PASSWORD:
+        raise SystemExit("browseract_password_missing")
     workflow_spec = json.loads(WORKFLOW_SPEC.read_text(encoding="utf-8"))
 
     ticket_status, ticket_body = request_json(
