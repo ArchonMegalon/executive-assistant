@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -121,6 +122,9 @@ async function main() {
     saved_voices_text: '',
     remaining_text: '',
     clone_names: [],
+    api_hits: [],
+    discovered_voice_ids: [],
+    discovered_profile_ids: [],
     clone_visible: false,
     clone_submit_clicked: false,
     clone_created: false,
@@ -130,6 +134,38 @@ async function main() {
 
   async function wait(ms) {
     await page.waitForTimeout(Number(ms || 1000));
+  }
+
+  function collectIdsFromText(raw, voiceLabel) {
+    const text = String(raw || '');
+    const ids = [];
+    const profileIds = [];
+    const voiceRegexes = [
+      /"voice_id"\s*:\s*"([0-9a-f-]{36})"/ig,
+      /"id"\s*:\s*"([0-9a-f-]{36})"/ig,
+      /\/voice\/([0-9a-f-]{36})\//ig,
+    ];
+    const profileRegexes = [
+      /\/voiceprofile\/([0-9a-f-]{36})-/ig,
+      /"profile_id"\s*:\s*"([0-9a-f-]{36})"/ig,
+      /"voice_cloning_profile_id"\s*:\s*"([0-9a-f-]{36})"/ig,
+    ];
+    for (const pattern of voiceRegexes) {
+      for (const match of text.matchAll(pattern)) {
+        const value = String(match[1] || '').trim();
+        if (value && !ids.includes(value)) ids.push(value);
+      }
+    }
+    for (const pattern of profileRegexes) {
+      for (const match of text.matchAll(pattern)) {
+        const value = String(match[1] || '').trim();
+        if (value && !profileIds.includes(value)) profileIds.push(value);
+      }
+    }
+    if (voiceLabel && text.toLowerCase().includes(String(voiceLabel).toLowerCase())) {
+      result.discovered_voice_ids = Array.from(new Set([...(result.discovered_voice_ids || []), ...ids])).slice(0, 20);
+      result.discovered_profile_ids = Array.from(new Set([...(result.discovered_profile_ids || []), ...profileIds])).slice(0, 20);
+    }
   }
 
   async function collectBody() {
@@ -225,6 +261,22 @@ async function main() {
   }
 
   try {
+    page.on('response', async (response) => {
+      try {
+        const url = String(response.url() || '');
+        const lower = url.toLowerCase();
+        if (!(lower.includes('/api/') || lower.includes('/voice') || lower.includes('/clone'))) return;
+        const contentType = String(response.headers()['content-type'] || '');
+        if (!contentType.includes('application/json')) return;
+        const bodyText = await response.text().catch(() => '');
+        result.api_hits.push({
+          url,
+          status: Number(response.status() || 0),
+          body_excerpt: String(bodyText || '').slice(0, 2000),
+        });
+        collectIdsFromText(bodyText, packet.voice_label || '');
+      } catch (error) {}
+    });
     await maybeLogin();
     await acceptDisclaimerMaybe();
     await wait(1500);
@@ -251,6 +303,7 @@ async function main() {
     result.clone_names = await collectCloneNames();
     result.clone_visible = result.clone_names.some((name) => String(name || '').toLowerCase() === String(packet.voice_label || '').toLowerCase());
     result.clone_created = result.clone_visible;
+    collectIdsFromText(result.body_text, packet.voice_label || '');
     const bodyLower = result.body_text.toLowerCase();
     if (bodyLower.includes('reached the limit')) {
       result.ui_limit_blocked = true;
@@ -320,6 +373,14 @@ def _run_playwright(packet: dict[str, object], *, temp_dir: Path, timeout_second
         "-i",
         "-v",
         f"{temp_dir}:{temp_dir}",
+        "-e",
+        f"UNMIXR_PACKET_PATH={packet_path}",
+        "-e",
+        f"UNMIXR_RESULT_PATH={result_path}",
+        "-e",
+        f"UNMIXR_SCREENSHOT_PATH={screenshot_path}",
+        "-e",
+        f"UNMIXR_HTML_PATH={html_path}",
         PLAYWRIGHT_IMAGE,
         "node",
         "-",
@@ -368,16 +429,26 @@ def attempt_clone(
     run_slug = f"{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}-{_slugify(voice_label)}"
     run_dir = output_dir / run_slug
     run_dir.mkdir(parents=True, exist_ok=True)
-    packet = {
-        "login_email": login_email,
-        "login_password": login_password,
-        "reference_audio_path": str(reference_audio_path),
-        "voice_label": voice_label,
-        "description": description,
-    }
     with tempfile.TemporaryDirectory(prefix="unmixr-browseract-clone-") as temp_dir_raw:
         temp_dir = Path(temp_dir_raw)
+        staged_audio_path = temp_dir / reference_audio_path.name
+        shutil.copy2(reference_audio_path, staged_audio_path)
+        packet = {
+            "login_email": login_email,
+            "login_password": login_password,
+            "reference_audio_path": str(staged_audio_path),
+            "voice_label": voice_label,
+            "description": description,
+        }
         worker = _run_playwright(packet, temp_dir=temp_dir, timeout_seconds=timeout_seconds)
+        temp_screenshot_path = Path(str(worker.get("screenshot_path") or "")).expanduser()
+        temp_html_path = Path(str(worker.get("html_path") or "")).expanduser()
+        persisted_screenshot_path = run_dir / "workspace.png"
+        persisted_html_path = run_dir / "workspace.html"
+        if temp_screenshot_path.is_file():
+            shutil.copy2(temp_screenshot_path, persisted_screenshot_path)
+        if temp_html_path.is_file():
+            shutil.copy2(temp_html_path, persisted_html_path)
     summary = {
         "captured_at": _utc_now(),
         "provider_key": "unmixr",
@@ -400,9 +471,12 @@ def attempt_clone(
         "saved_voices_text": str(worker.get("saved_voices_text") or "").strip(),
         "warnings": list(worker.get("warnings") or []),
         "errors": list(worker.get("errors") or []),
+        "api_hits": list(worker.get("api_hits") or []),
+        "discovered_voice_ids": list(worker.get("discovered_voice_ids") or []),
+        "discovered_profile_ids": list(worker.get("discovered_profile_ids") or []),
         "body_excerpt": str(worker.get("body_text") or "").strip()[:8000],
-        "screenshot_path": str(worker.get("screenshot_path") or "").strip(),
-        "html_path": str(worker.get("html_path") or "").strip(),
+        "screenshot_path": str((run_dir / "workspace.png").resolve()) if (run_dir / "workspace.png").is_file() else str(worker.get("screenshot_path") or "").strip(),
+        "html_path": str((run_dir / "workspace.html").resolve()) if (run_dir / "workspace.html").is_file() else str(worker.get("html_path") or "").strip(),
         "slot_summary": _summarize(str(worker.get("body_text") or "")),
     }
     output_path = run_dir / "report.json"

@@ -58,6 +58,9 @@ def test_attempt_clone_writes_report(monkeypatch, tmp_path: Path) -> None:
             "saved_voices_text": "0",
             "warnings": [],
             "errors": [],
+            "api_hits": [{"url": "https://unmixr.com/api/voice-cloning-profile/", "status": 200, "body_excerpt": "{\"count\":1}"}],
+            "discovered_voice_ids": ["voice-123"],
+            "discovered_profile_ids": ["profile-123"],
             "body_text": "Monthly profiles\n0 / 4\nRemaining\n4\nSaved voices\n0\nNo voice clones found.\n",
             "screenshot_path": str(screenshot),
             "html_path": str(html),
@@ -78,3 +81,6 @@ def test_attempt_clone_writes_report(monkeypatch, tmp_path: Path) -> None:
     assert payload["ui_limit_blocked"] is True
     assert payload["slot_summary"]["remaining"] == 4
     assert payload["reference_audio_size_bytes"] == 5
+    assert payload["api_hits"][0]["status"] == 200
+    assert payload["discovered_voice_ids"] == ["voice-123"]
+    assert payload["discovered_profile_ids"] == ["profile-123"]
