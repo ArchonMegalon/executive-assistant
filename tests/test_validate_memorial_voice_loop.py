@@ -57,6 +57,11 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
         if url.endswith("/chat"):
+            if payload.get("question") == "Welches Wetter haben wir heute?":
+                return 200, {
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "fallback_reason": "present_world_guardrail",
+                }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
         raise AssertionError(url)
 
@@ -100,6 +105,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
     assert report.artifacts["direct_tts_audio"].endswith("manfred-direct-tts.wav")
     assert report.artifacts["conversation_turn_audio"].endswith("manfred-conversation-turn-answer.wav")
     assert any(item.code == "direct_tts_similarity_ok" for item in report.checks)
+    assert any(item.code == "present_world_route_ok" for item in report.checks)
     assert any(item.code == "conversation_turn_audio_similarity_ok" for item in report.checks)
 
 
@@ -108,7 +114,18 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
 
     wav_bytes = _generated_wav(b"0123")
 
-    monkeypatch.setattr(validator, "_post_json", lambda *args, **kwargs: (200, {"answer": "Ich antworte dir direkt."}))
+    def fake_post_json(*args, **kwargs):
+        payload = kwargs.get("payload")
+        if payload is None and len(args) >= 2:
+            payload = args[1]
+        if isinstance(payload, dict) and payload.get("question") == "Welches Wetter haben wir heute?":
+            return 200, {
+                "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                "fallback_reason": "present_world_guardrail",
+            }
+        return 200, {"answer": "Ich antworte dir direkt."}
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
     monkeypatch.setattr(validator, "_post_json_binary_response", lambda *args, **kwargs: (200, wav_bytes, "audio/wav"))
 
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
@@ -134,3 +151,44 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
 
     assert report.status == "fail"
     assert any(item.code == "direct_tts_transcript_empty" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    wav_bytes = _generated_wav(b"Ja. Ich bin da.")
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if payload.get("question") == "Welches Wetter haben wir heute?":
+            return 200, {
+                "answer": "Das Schach soll in der Familie bleiben.",
+                "fallback_reason": "memorial_anchor_memory_guardrail",
+            }
+        return 200, {"answer": "Ja."}
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_json_binary_response", lambda *args, **kwargs: (200, wav_bytes, "audio/wav"))
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Ja.",
+                "audio_base64": base64.b64encode(wav_bytes).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        return 200, {"transcript_text": "Ja.", "transcriber": "stub"}
+
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Ja. Ich bin da.",
+        conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+    )
+
+    assert report.status == "fail"
+    assert any(item.code == "present_world_wrong_route" for item in report.checks)

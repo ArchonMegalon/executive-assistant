@@ -201,6 +201,7 @@ def validate_memorial_voice_loop(
     output_dir: Path,
     direct_text: str,
     conversation_question: str,
+    present_world_question: str = "Welches Wetter haben wir heute?",
 ) -> ValidationReport:
     normalized_base_url = _normalize_base_url(base_url)
     report = ValidationReport(slug=slug, base_url=normalized_base_url, output_dir=str(output_dir))
@@ -258,6 +259,68 @@ def validate_memorial_voice_loop(
         report.add("fail", "chat_reference_empty", "Reference chat answer came back empty.")
         return report
     report.metrics["reference_answer_chars"] = len(reference_answer)
+    if any(token in _normalize_compare_text(reference_answer) for token in ("schach", "familie", "familien")):
+        report.add(
+            "fail",
+            "chat_reference_domain_drift",
+            "Reference chat answer drifted into the wrong domain.",
+            question=conversation_question,
+            answer=reference_answer,
+        )
+        return report
+
+    present_status, present_payload = _post_json(
+        f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/chat",
+        {"question": present_world_question},
+    )
+    if present_status != 200:
+        report.add(
+            "fail",
+            "present_world_reference_failed",
+            "Present-world reference answer could not be generated.",
+            status_code=present_status,
+            payload=present_payload,
+        )
+        return report
+    present_answer = str(present_payload.get("answer") or "")
+    present_reason = str(present_payload.get("fallback_reason") or "")
+    report.metrics["present_world_answer_chars"] = len(present_answer)
+    if present_reason != "present_world_guardrail":
+        report.add(
+            "fail",
+            "present_world_wrong_route",
+            "Present-world question did not route through the dedicated guardrail.",
+            question=present_world_question,
+            fallback_reason=present_reason,
+            answer=present_answer,
+        )
+        return report
+    normalized_present_answer = _normalize_compare_text(present_answer)
+    if "wetter" not in normalized_present_answer:
+        report.add(
+            "fail",
+            "present_world_missing_topic",
+            "Present-world answer did not stay on the asked topic.",
+            question=present_world_question,
+            answer=present_answer,
+        )
+        return report
+    if any(token in normalized_present_answer for token in ("schach", "familie", "familien")):
+        report.add(
+            "fail",
+            "present_world_domain_drift",
+            "Present-world answer drifted into memorial archive content.",
+            question=present_world_question,
+            answer=present_answer,
+        )
+        return report
+    report.add(
+        "pass",
+        "present_world_route_ok",
+        "Present-world question stayed on the dedicated direct-answer route.",
+        question=present_world_question,
+        fallback_reason=present_reason,
+    )
 
     prompt_status, prompt_audio, prompt_content_type = _post_json_binary_response(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-synthesize",
@@ -337,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--direct-text", default="Ja. Ich bin da.")
     parser.add_argument("--conversation-question", default="Hallo Manfred, kannst du direkt mit mir reden?")
+    parser.add_argument("--present-world-question", default="Welches Wetter haben wir heute?")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", default="")
     parser.add_argument("--json-output", default="")
@@ -350,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=output_dir,
         direct_text=args.direct_text,
         conversation_question=args.conversation_question,
+        present_world_question=args.present_world_question,
     )
     payload = json.dumps(report.as_dict(), ensure_ascii=False, indent=2)
     markdown = "\n".join(
