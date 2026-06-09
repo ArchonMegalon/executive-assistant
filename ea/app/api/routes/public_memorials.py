@@ -3399,12 +3399,24 @@ def _is_memorial_present_world_question(question: str) -> bool:
 def _memorial_present_world_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("wetter", "regnet", "regen", "sonnig", "sonne", "temperatur", "grad", "draussen", "draußen")):
-        return "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter."
+        return (
+            "Beim Wetter wuerde ich es schlicht ordnen: zuerst Ort und Zeitfenster, dann Regen, Temperatur und Wind. "
+            "Ich sehe das aktuelle Wetter hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann ordnen wir es nuechtern."
+        )
     if any(token in lowered for token in ("uhrzeit", "wie spaet", "wie spät", "wieviel uhr", "wie viel uhr")):
-        return "Die aktuelle Uhrzeit sehe ich hier nicht direkt. Schau kurz auf die Uhr, dann machen wir weiter."
+        return (
+            "Bei der Uhrzeit zaehlt nur der klare Stand. Ich sehe sie hier nicht direkt. "
+            "Schau kurz auf die Uhr, dann ordnen wir den naechsten Schritt."
+        )
     if any(token in lowered for token in ("welcher tag", "welches datum", "welchen tag haben wir")):
-        return "Den heutigen Tag oder das Datum sehe ich hier nicht direkt. Sag es mir kurz, dann ordnen wir es gemeinsam."
-    return "Das Aktuelle vor dir sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf."
+        return (
+            "Beim Datum wuerde ich erst den Stand festhalten und dann die Bedeutung klaeren. "
+            "Den heutigen Tag sehe ich hier nicht direkt. Sag ihn mir kurz, dann ordnen wir es gemeinsam."
+        )
+    return (
+        "Beim Aktuellen wuerde ich erst den Stand sauber festhalten und dann urteilen. "
+        "Ich sehe die Lage hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf."
+    )
 
 
 def _memorial_present_world_search_cache_path(*, question: str) -> Path:
@@ -5346,23 +5358,6 @@ def _memorial_chat_answer(
         fallback["llm_request_model"] = requested_model
         fallback["llm_fallback_used"] = False
         return fallback
-    if _is_memorial_contact_question(normalized_question):
-        return {
-            "person_name": person_name,
-            "mode": "memorial_first_person_memory_chat",
-            "question": normalized_question,
-            "answer": _memorial_contact_answer_body(normalized_question),
-            "sources": [],
-            "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
-            "personal_memory_used": False,
-            "difficult_memory_mode": bool(difficult_memory_mode),
-            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
-            "llm_model": "memorial_guardrail",
-            "llm_provider": "memorial_guardrail",
-            "llm_request_model": requested_model,
-            "llm_fallback_used": False,
-            "fallback_reason": "direct_contact_opening",
-        }
     if _is_memorial_present_world_question(normalized_question):
         search_answer = _memorial_present_world_search_answer(
             normalized_question,
@@ -5387,6 +5382,23 @@ def _memorial_chat_answer(
             "llm_request_model": requested_model,
             "llm_fallback_used": False,
             "fallback_reason": "present_world_guardrail",
+        }
+    if _is_memorial_contact_question(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_contact_answer_body(normalized_question),
+            "sources": [],
+            "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "direct_contact_opening",
         }
     if _is_memorial_live_interaction_question(normalized_question):
         requested_model = requested_model or DEFAULT_PUBLIC_MODEL

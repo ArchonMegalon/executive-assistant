@@ -211,6 +211,7 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "present_world_guardrail"
     assert "wetter" in body["answer"].lower()
+    assert "ort" in body["answer"].lower()
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -504,6 +505,7 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["sources"] == []
     assert "wetter" in body["answer"].lower()
+    assert "ort" in body["answer"].lower()
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
