@@ -26,6 +26,7 @@ def test_showtime_builds_live_steps(tmp_path: Path) -> None:
     assert "filesystem_preflight" in names
     assert "live_preflight" in names
     assert "live_demo_rehearsal" in names
+    assert "voice_roundtrip_validation" in names
     assert "launch_snapshot" in names
     assert "full_exit_gates" not in names
 

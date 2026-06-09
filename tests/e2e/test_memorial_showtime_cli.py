@@ -194,6 +194,23 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         "piper_fast_synthesize_request",
         lambda **kwargs: (_generated_wav_bytes(seed=str(kwargs.get("text") or "audio")), "audio/wav"),
     )
+    def _fake_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
+        raw = bytes(payload or b"")
+        if b"Hallo Manfred" in raw:
+            text = "Hallo Manfred, kannst du direkt mit mir reden?"
+        elif b"Ich antworte dir direkt und bleibe bei der Sache." in raw:
+            text = "Ich antworte dir direkt und bleibe bei der Sache."
+        elif b"Ja. Ich bin da." in raw:
+            text = "Ja. Ich bin da."
+        else:
+            text = "Ich antworte dir direkt und bleibe bei der Sache."
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": text,
+            "transcriber": "fixture_stub",
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe_audio_blob)
     monkeypatch.setattr(
         public_memorials,
         "_pad_speech_audio_lead_in",
@@ -257,11 +274,13 @@ def test_memorial_showtime_cli_writes_pass_report(
     report_md = output_dir / "showtime_report.md"
     snapshot = output_dir / "manfred_launch_snapshot.json"
     tts_audio = output_dir / "manfred-demo-tts.wav"
+    voice_loop = output_dir / "voice_loop_report.json"
 
     assert report_json.is_file()
     assert report_md.is_file()
     assert snapshot.is_file()
     assert tts_audio.is_file()
+    assert voice_loop.is_file()
 
     payload = json.loads(report_json.read_text(encoding="utf-8"))
     assert payload["status"] == "pass"
@@ -269,6 +288,7 @@ def test_memorial_showtime_cli_writes_pass_report(
     assert "filesystem_preflight" in names
     assert "live_preflight" in names
     assert "live_demo_rehearsal" in names
+    assert "voice_roundtrip_validation" in names
     assert "launch_snapshot" in names
 
 

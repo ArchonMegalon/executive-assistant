@@ -344,6 +344,31 @@ def build_steps(args: argparse.Namespace, output_dir: Path) -> list[ShowtimeStep
             )
         )
 
+        voice_loop_output = output_dir / "voice_loop_report.json"
+        steps.append(
+            ShowtimeStep(
+                "voice_roundtrip_validation",
+                [
+                    py,
+                    "scripts/validate_memorial_voice_loop.py",
+                    "--slug",
+                    args.slug,
+                    "--base-url",
+                    base_url,
+                    "--output-dir",
+                    str(output_dir / "voice_loop"),
+                    "--json",
+                    "--output",
+                    str(voice_loop_output),
+                ],
+                EA_DIR,
+                gate="required",
+                timeout=360,
+                parse_json_status=True,
+                output_path_arg=str(voice_loop_output),
+            )
+        )
+
         if not args.skip_snapshot:
             snapshot_output = output_dir / f"{args.slug}_launch_snapshot.json"
             snapshot = [
