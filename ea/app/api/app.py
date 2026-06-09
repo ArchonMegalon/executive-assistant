@@ -66,6 +66,7 @@ def _include_authenticated_routes(
     onboarding_router: APIRouter,
     images_router: APIRouter,
     google_oauth_router: APIRouter,
+    providers_router: APIRouter,
     product_api_delivery_router: APIRouter,
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
@@ -75,6 +76,7 @@ def _include_authenticated_routes(
     app.include_router(onboarding_router, dependencies=auth_dependency)
     app.include_router(images_router, dependencies=auth_dependency)
     app.include_router(google_oauth_router)
+    app.include_router(providers_router, dependencies=auth_dependency)
     app.include_router(product_api_delivery_router, dependencies=auth_dependency)
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
@@ -94,7 +96,6 @@ def _include_legacy_authenticated_routes(
     delivery_router: APIRouter,
     connectors_router: APIRouter,
     policy_router: APIRouter,
-    providers_router: APIRouter,
     ltd_runtime_router: APIRouter,
     plans_router: APIRouter,
     rewrite_router: APIRouter,
@@ -111,7 +112,6 @@ def _include_legacy_authenticated_routes(
     app.include_router(delivery_router, dependencies=auth_dependency)
     app.include_router(connectors_router, dependencies=auth_dependency)
     app.include_router(policy_router, dependencies=auth_dependency)
-    app.include_router(providers_router, dependencies=auth_dependency)
     app.include_router(ltd_runtime_router, dependencies=auth_dependency)
     app.include_router(plans_router, dependencies=auth_dependency)
     app.include_router(rewrite_router, dependencies=auth_dependency)
@@ -187,6 +187,7 @@ def create_app() -> FastAPI:
         onboarding_router=onboarding_router,
         images_router=images_router,
         google_oauth_router=google_oauth_router,
+        providers_router=providers_router,
         product_api_delivery_router=product_api_delivery_router,
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
@@ -207,7 +208,6 @@ def create_app() -> FastAPI:
             delivery_router=delivery_router,
             connectors_router=connectors_router,
             policy_router=policy_router,
-            providers_router=providers_router,
             ltd_runtime_router=ltd_runtime_router,
             plans_router=plans_router,
             rewrite_router=rewrite_router,

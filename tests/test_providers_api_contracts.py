@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ["EA_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
     if operator:
@@ -584,7 +585,7 @@ def test_onboarding_routes_persist_workspace_and_honest_channel_state(monkeypatc
     assert status_body["channels"]["google"]["status"] == "ready_to_connect"
     assert status_body["channels"]["telegram"]["status"] == "guided_manual"
     assert status_body["channels"]["whatsapp"]["status"] == "export_planned"
-    assert status_body["next_step"] == "Complete Google Core consent to unlock the first real connected channel."
+    assert status_body["next_step"] == "Complete Google Core to finish Google account linking."
     assert status_body["storage_posture"]["source_of_truth"] == "EA Postgres"
     assert status_body["delivery_preferences"]["morning_memo"]["recipient_email"] == "briefs@example.com"
     assert status_body["brief_preview"]["first_brief"] == status_body["brief_preview"]["first_brief_preview"]
@@ -754,6 +755,7 @@ def test_telegram_ingest_accepts_telegram_secret_header_when_configured(monkeypa
 
 def test_telegram_ingest_secret_header_bypasses_global_api_token_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.setenv("EA_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
     monkeypatch.setenv("EA_API_TOKEN", "test-token")
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -8488,7 +8490,7 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "narcissistic" not in page.text.lower()
     assert "adhd" not in page.text.lower()
     assert "/memorials/manfred/chat" in page.text
-    assert "/memorials/manfred/speech-transcribe" in page.text
+    assert "/memorials/manfred/conversation-turn" in page.text
     assert "memorial-conversation" in page.text
     assert "memorial-retry-button" in page.text
     assert 'id="memorial-speech-listen"' not in page.text
@@ -8496,19 +8498,22 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert 'id="memorial-speech-speak"' not in page.text
     assert 'id="memorial-voice-config-form"' not in page.text
     assert 'id="memorial-voice-ab-wrap"' not in page.text
-    assert "SpeechRecognition" in page.text
     assert "MediaRecorder" in page.text
-    assert "SpeechSynthesisUtterance" in page.text
+    assert "SpeechRecognition" not in page.text
+    assert "SpeechSynthesisUtterance" not in page.text
+    assert "beginConversationRecording" in page.text
+    assert "sendConversationTurn" in page.text
+    assert "fetchWithTimeout(\"/memorials/manfred/conversation-turn\"" in page.text
     assert "Tibor freigegebene synthetische Stimme" not in page.text
     assert "Mikrofonzugriff braucht HTTPS" not in page.text
-    assert "Das Mikrofon braucht eine geschuetzte Verbindung." in page.text
-    assert "not-allowed" in page.text
-    assert "no-speech" in page.text
-    assert "speechHadError" in page.text
-    assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." in page.text
-    assert "readJsonResponse" in page.text
+    assert "Das Mikrofon braucht eine geschuetzte Verbindung." not in page.text
+    assert "not-allowed" not in page.text
+    assert "no-speech" not in page.text
+    assert "speechHadError" not in page.text
+    assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." not in page.text
+    assert "readJsonResponse" not in page.text
     assert "Ich bin da." in page.text
-    assert "recorder.start(250)" in page.text
+    assert "recorder.start()" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text
 

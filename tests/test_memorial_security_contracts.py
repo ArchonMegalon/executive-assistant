@@ -47,6 +47,8 @@ def _patch_memorial_runtime_roots(tmp_path: Path) -> None:
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
     public_memorials._VIDEO_MEETING_RUNTIME_ROOT = artifacts_root / "memorial_video_meeting"
+    public_memorials._MEMORIAL_TTS_RENDER_CACHE_ROOT = artifacts_root / "memorial_tts_render_cache"
+    public_memorials._MEMORIAL_PRESENT_WORLD_CACHE_ROOT = artifacts_root / "memorial_present_world_cache"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = tmp_path / "public_registry"
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"

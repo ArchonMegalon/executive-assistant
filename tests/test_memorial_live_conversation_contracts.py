@@ -52,6 +52,9 @@ def _patch_memorial_runtime_roots(tmp_path: Path) -> None:
     artifacts_root = tmp_path / "artifacts"
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
+    public_memorials._VIDEO_MEETING_RUNTIME_ROOT = artifacts_root / "memorial_video_meeting"
+    public_memorials._MEMORIAL_TTS_RENDER_CACHE_ROOT = artifacts_root / "memorial_tts_render_cache"
+    public_memorials._MEMORIAL_PRESENT_WORLD_CACHE_ROOT = artifacts_root / "memorial_present_world_cache"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = tmp_path / "public_registry"
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
@@ -823,6 +826,91 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
             "text": "Ja.",
             "slug": slug,
             "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
+        },
+    ]
+
+
+def test_memorial_warmup_primes_unmixr_contact_openings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    class _ImmediateThread:
+        def __init__(self, *, target, args=(), kwargs=None, daemon=None, name=None):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self) -> None:
+            self._target(*self._args, **self._kwargs)
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unmixr-test-key")
+
+    seen_render_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {"transcription_status": "transcribed", "transcript_text": "Hallo Manfred", "transcriber": "unit-test"},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {"answer": "Ja, du kannst mit mir reden.", "llm_model": "unit-test"},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (b"RIFFwarmup", "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: seen_render_calls.append(
+            {
+                "text": kwargs["text"],
+                "slug": kwargs["slug"],
+                "selected_plugin": kwargs["selected_plugin"],
+                "lead_in_ms": kwargs["lead_in_ms"],
+                "tail_silence_ms": kwargs["tail_silence_ms"],
+            }
+        ) or (b"RIFFunmixr", "audio/wav"),
+    )
+    monkeypatch.setattr(public_memorials.threading, "Thread", _ImmediateThread)
+
+    public_memorials._run_memorial_live_warmup(slug)
+
+    assert seen_render_calls == [
+        {
+            "text": "Ja.",
+            "slug": slug,
+            "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
+        },
+        {
+            "text": "Ja.",
+            "slug": slug,
+            "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "lead_in_ms": 40,
+            "tail_silence_ms": 120,
+        },
+        {
+            "text": "Ja.",
+            "slug": slug,
+            "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
             "lead_in_ms": 40,
             "tail_silence_ms": 120,
         },

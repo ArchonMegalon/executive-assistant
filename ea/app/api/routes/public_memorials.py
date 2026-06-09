@@ -92,12 +92,7 @@ _TTS_PLUGIN_DEFAULT_ID = OPENVOICE_TTS_PLUGIN_ID
 _LEGACY_ELEVENLABS_TTS_PLUGIN_ID = "elevenlabs_memorial_voice_clone"
 _TTS_MAX_CLONE_FILES = 3
 _TTS_MAX_TEXT_LEN = 3000
-_PERSONAL_MEMORY_ROOT = Path("/data/artifacts/memorial_user_memory")
 _PERSONAL_MEMORY_MAX_ITEMS = 24
-_VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
-_VIDEO_MEETING_RUNTIME_ROOT = Path("/data/artifacts/memorial_video_meeting")
-_MEMORIAL_TTS_RENDER_CACHE_ROOT = Path("/data/artifacts/memorial_tts_render_cache")
-_MEMORIAL_PRESENT_WORLD_CACHE_ROOT = Path("/data/artifacts/memorial_present_world_cache")
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
 _MEMORIAL_PWA_VERSION = "20260609a"
@@ -132,7 +127,6 @@ _VOICE_AB_DIMENSION_DEFS: tuple[dict[str, str], ...] = (
     {"id": "artifact_control", "label": "Blech/Hall", "description": "Wie gut Blech, Hall und stoerende Artefakte kontrolliert sind."},
 )
 _VOICE_AB_DIMENSION_KEYS = tuple(item["id"] for item in _VOICE_AB_DIMENSION_DEFS)
-_PUBLIC_MEMORIAL_RATE_DB = Path("/data/artifacts/memorial_rate_limits.sqlite3")
 _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
 _MEMORIAL_LIVE_WARMUP_STATE: dict[str, dict[str, object]] = {}
@@ -173,6 +167,35 @@ _ALLOWED_PUBLIC_ASSET_SUFFIXES = {
     ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm", ".mp4",
     ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
 }
+
+
+def _public_memorial_artifact_root() -> Path:
+    configured = str(os.getenv("EA_PUBLIC_MEMORIAL_ARTIFACT_DIR") or "").strip()
+    candidates: list[Path] = []
+    if configured:
+        candidates.append(Path(configured).expanduser())
+    candidates.append(Path("/data/artifacts"))
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".ea_public_memorial_write_probe"
+            probe.write_bytes(b"ok")
+            probe.unlink(missing_ok=True)
+            return candidate
+        except OSError:
+            continue
+    fallback = Path(tempfile.gettempdir()) / "ea_public_memorial_artifacts"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+_PUBLIC_MEMORIAL_ARTIFACT_ROOT = _public_memorial_artifact_root()
+_PERSONAL_MEMORY_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_user_memory"
+_VOICE_AB_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_voice_ab"
+_VIDEO_MEETING_RUNTIME_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_video_meeting"
+_MEMORIAL_TTS_RENDER_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_tts_render_cache"
+_MEMORIAL_PRESENT_WORLD_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_present_world_cache"
+_PUBLIC_MEMORIAL_RATE_DB = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_rate_limits.sqlite3"
 
 
 def _memorial_dir_candidates() -> list[Path]:
@@ -6009,6 +6032,8 @@ def _run_memorial_live_warmup(slug: str) -> None:
                     current["voicewave_contact_errors"] = []
                     _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
                 _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
+        elif _safe_tts_plugin_id(base_config.get("tts_plugin")) in {UNMIXR_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+            _schedule_memorial_server_voice_contact_prewarm(slug)
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
         _log_memorial_timing(
@@ -6094,6 +6119,49 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
             _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
 
 
+def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
+    errors: list[str] = []
+    started_clock = time.perf_counter()
+    selected_plugin = ""
+    try:
+        base_config = _load_voice_config(slug)
+        merged_config = dict(base_config)
+        tts_options = _tts_plugin_options(
+            payload=merged_config,
+            voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+        )
+        selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
+        if selected_plugin not in {UNMIXR_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+            return
+        if not bool(selected_option.get("tts_plugin_enabled")):
+            return
+        for seed_question in (
+            "Kann ich jetzt mit dir reden?",
+            "Bist du da?",
+            "Hoerst du zu?",
+        ):
+            _render_memorial_tts_audio(
+                slug=slug,
+                text=_memorial_contact_answer_body(seed_question),
+                merged_config=merged_config,
+                base_config=base_config,
+                selected_plugin=selected_plugin,
+                selected_option=selected_option,
+                lead_in_ms=40,
+                tail_silence_ms=120,
+            )
+    except Exception as exc:
+        errors.append(f"server_voice_prewarm:{str(exc)[:120]}")
+    finally:
+        _log_memorial_timing(
+            "server_voice_contact_prewarm",
+            slug=slug,
+            total_ms=(time.perf_counter() - started_clock) * 1000.0,
+            tts_plugin=selected_plugin,
+            errors="|".join(errors[:6]) if errors else "-",
+        )
+
+
 def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
     if not str(voice_label or "").strip():
         return
@@ -6102,6 +6170,16 @@ def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) ->
         args=(slug, voice_label),
         daemon=True,
         name=f"memorial-voicewave-prewarm-{slug}",
+    )
+    worker.start()
+
+
+def _schedule_memorial_server_voice_contact_prewarm(slug: str) -> None:
+    worker = threading.Thread(
+        target=_run_memorial_server_voice_contact_prewarm,
+        args=(slug,),
+        daemon=True,
+        name=f"memorial-server-voice-prewarm-{slug}",
     )
     worker.start()
 
