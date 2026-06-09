@@ -6201,6 +6201,76 @@ def _prefer_fast_tts_for_conversation_turn(slug: str) -> tuple[bool, str]:
     return False, ""
 
 
+def _memorial_should_rescue_failed_voice_turn(detail: object) -> bool:
+    text = _text(detail, "").strip().lower()
+    if not text:
+        return False
+    if text == "speech_transcription_empty":
+        return True
+    return any(
+        token in text
+        for token in (
+            "request was throttled",
+            "speech_transcription_failed",
+            "speech_transcriber_unavailable",
+            "no_speech",
+        )
+    )
+
+
+def _build_memorial_rescue_contact_turn_payload(
+    *,
+    slug: str,
+    personal_memory_context: dict[str, object] | None,
+    difficult_memory_mode: bool,
+    rescue_reason: str,
+) -> dict[str, object]:
+    payload = _load_memorial(slug)
+    base_config = _load_voice_config(slug)
+    merged_config = dict(base_config)
+    tts_options = _tts_plugin_options(
+        payload=merged_config,
+        voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+    )
+    selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
+    if not bool(selected_option.get("tts_plugin_enabled")):
+        raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
+    answer_text = _memorial_contact_answer_body("Kann ich jetzt mit dir reden?")
+    audio, audio_content_type = _render_memorial_tts_audio(
+        slug=slug,
+        text=answer_text,
+        merged_config=merged_config,
+        base_config=base_config,
+        selected_plugin=selected_plugin,
+        selected_option=selected_option,
+        lead_in_ms=40,
+        tail_silence_ms=120,
+    )
+    return {
+        "person_name": _text(payload.get("person_name"), "Manfred"),
+        "mode": "memorial_first_person_memory_chat",
+        "question": "",
+        "answer": answer_text,
+        "sources": [],
+        "private_context_used": False,
+        "personal_memory_used": False,
+        "difficult_memory_mode": bool(difficult_memory_mode),
+        "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+        "llm_model": "memorial_guardrail",
+        "llm_provider": "memorial_guardrail",
+        "llm_request_model": GEMINI_VORTEX_PUBLIC_MODEL,
+        "llm_fallback_used": False,
+        "fallback_reason": "direct_contact_opening",
+        "turn_rescue_reason": rescue_reason,
+        "transcript_text": "",
+        "audio_content_type": audio_content_type,
+        "audio_base64": base64.b64encode(audio).decode("ascii"),
+        "tts_plugin": selected_plugin,
+        "tts_fast_path": False,
+        "personal_memory": _personal_memory_public_status(slug=slug, context=personal_memory_context or {}),
+    }
+
+
 def _build_memorial_conversation_turn_payload(
     *,
     slug: str,
@@ -12026,6 +12096,23 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
         response_payload["personal_memory"] = _personal_memory_public_status(slug=slug, context=personal_memory_context)
         return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
     except HTTPException as exc:
+        if _memorial_should_rescue_failed_voice_turn(exc.detail):
+            response_payload = _build_memorial_rescue_contact_turn_payload(
+                slug=slug,
+                personal_memory_context=personal_memory_context,
+                difficult_memory_mode=difficult_memory_mode,
+                rescue_reason=_text(exc.detail, "conversation_turn_rescue"),
+            )
+            _log_memorial_timing(
+                "conversation_turn_rescue",
+                slug=slug,
+                content_type=content_type,
+                audio_bytes=len(audio_payload),
+                detail=_text(exc.detail, "conversation_turn_rescue"),
+                total_ms=(time.perf_counter() - total_started) * 1000.0,
+                tts_plugin=_text(response_payload.get("tts_plugin")),
+            )
+            return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
         _log_memorial_timing(
             "conversation_turn_error",
             slug=slug,

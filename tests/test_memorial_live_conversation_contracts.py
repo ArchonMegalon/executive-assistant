@@ -663,6 +663,126 @@ def test_memorial_conversation_turn_keeps_configured_voice_even_while_warmup_is_
     assert scheduled == []
 
 
+def test_memorial_conversation_turn_rescues_transcription_failure_with_contact_reply(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unmixr-test-key")
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.")
+    seen_unmixr_calls: list[dict[str, object]] = []
+
+    def _raise_empty(**kwargs):
+        raise public_memorials.HTTPException(status_code=400, detail="speech_transcription_empty")
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _raise_empty)
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: seen_unmixr_calls.append(kwargs) or (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-rescue-turn")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=_generated_wav_bytes(textish_seed="Hallo?"),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "Ja."
+    assert body["fallback_reason"] == "direct_contact_opening"
+    assert body["turn_rescue_reason"] == "speech_transcription_empty"
+    assert body["tts_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID
+    assert seen_unmixr_calls
+
+
+def test_memorial_conversation_turn_rescues_throttled_transcription_with_contact_reply(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.")
+    seen_openvoice_calls: list[dict[str, object]] = []
+
+    def _raise_throttled(**kwargs):
+        raise public_memorials.HTTPException(
+            status_code=502,
+            detail="Request was throttled. Expected available in 3007 seconds.:429",
+        )
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _raise_throttled)
+    monkeypatch.setattr(
+        public_memorials,
+        "openvoice_synthesize_request_with_variant",
+        lambda **kwargs: seen_openvoice_calls.append(kwargs) or (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-rescue-throttle")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=_generated_wav_bytes(textish_seed="Hallo?"),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "Ja."
+    assert body["fallback_reason"] == "direct_contact_opening"
+    assert "Request was throttled" in body["turn_rescue_reason"]
+    assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
+    assert seen_openvoice_calls
+
+
 def test_memorial_conversation_turn_supports_voicewave_clone(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
