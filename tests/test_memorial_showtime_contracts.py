@@ -18,6 +18,8 @@ def test_showtime_builds_live_steps(tmp_path: Path) -> None:
         skip_snapshot=False,
         skip_exit_gates=True,
         optional_exit_gates=False,
+        avatar_required=False,
+        avatar_optional=False,
     )
 
     steps = showtime.build_steps(args, tmp_path)
@@ -80,9 +82,33 @@ def test_showtime_adds_avatar_gate_when_optional_exit_gates_enabled(tmp_path: Pa
         skip_snapshot=False,
         skip_exit_gates=True,
         optional_exit_gates=True,
+        avatar_required=False,
+        avatar_optional=True,
     )
 
     steps = showtime.build_steps(args, tmp_path)
     names = [step.name for step in steps]
 
     assert "avatar_video_call_status" in names
+
+
+def test_showtime_marks_avatar_gate_required_when_requested(tmp_path: Path) -> None:
+    import scripts.memorial_showtime as showtime
+
+    args = argparse.Namespace(
+        slug="manfred",
+        base_url="https://example.test",
+        questions="",
+        skip_tts=False,
+        skip_chat=False,
+        skip_unit_contracts=False,
+        skip_snapshot=False,
+        skip_exit_gates=True,
+        optional_exit_gates=False,
+        avatar_required=True,
+        avatar_optional=False,
+    )
+
+    steps = showtime.build_steps(args, tmp_path)
+    avatar_step = next(step for step in steps if step.name == "avatar_video_call_status")
+    assert avatar_step.gate == "required"

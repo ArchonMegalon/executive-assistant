@@ -297,7 +297,7 @@ def build_steps(args: argparse.Namespace, output_dir: Path) -> list[ShowtimeStep
             )
         )
 
-        if args.optional_exit_gates:
+        if args.avatar_required or args.avatar_optional:
             steps.append(
                 ShowtimeStep(
                     "avatar_video_call_status",
@@ -311,7 +311,7 @@ def build_steps(args: argparse.Namespace, output_dir: Path) -> list[ShowtimeStep
                         "--json",
                     ],
                     EA_DIR,
-                    gate="warning",
+                    gate="required" if args.avatar_required else "warning",
                     timeout=120,
                     parse_json_status=True,
                 )
@@ -440,8 +440,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-snapshot", action="store_true")
     parser.add_argument("--skip-exit-gates", action="store_true")
     parser.add_argument("--optional-exit-gates", action="store_true", help="Treat root exit-gate runner failure as warning rather than hard fail.")
+    parser.add_argument("--launch-mode", action="store_true")
+    parser.add_argument("--avatar-required", action="store_true")
+    parser.add_argument("--avatar-optional", action="store_true")
     parser.add_argument("--stop-on-fail", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.avatar_required and args.avatar_optional:
+        parser.error("--avatar-required and --avatar-optional are mutually exclusive")
+    if args.launch_mode:
+        if not str(args.base_url or "").strip():
+            parser.error("--launch-mode requires --base-url")
+        if args.skip_tts or args.skip_chat or args.skip_unit_contracts or args.skip_snapshot or args.skip_exit_gates:
+            parser.error("--launch-mode forbids skip flags")
+        if args.optional_exit_gates:
+            parser.error("--launch-mode forbids --optional-exit-gates")
+        if not args.avatar_required and not args.avatar_optional:
+            parser.error("--launch-mode requires explicit avatar gate mode via --avatar-required or --avatar-optional")
 
     output_dir = Path(args.output_dir).resolve() if args.output_dir else default_output_dir(args.slug).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

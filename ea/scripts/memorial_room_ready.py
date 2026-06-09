@@ -272,6 +272,9 @@ def main() -> int:
     parser.add_argument("--skip-avatar-video-check", action="store_true")
     parser.add_argument("--skip-exit-gates", action="store_true")
     parser.add_argument("--optional-exit-gates", action="store_true")
+    parser.add_argument("--launch-mode", action="store_true")
+    parser.add_argument("--avatar-required", action="store_true")
+    parser.add_argument("--avatar-optional", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -305,6 +308,12 @@ def main() -> int:
             showtime_command.append("--skip-exit-gates")
         if args.optional_exit_gates:
             showtime_command.append("--optional-exit-gates")
+        if args.launch_mode:
+            showtime_command.append("--launch-mode")
+        if args.avatar_required:
+            showtime_command.append("--avatar-required")
+        if args.avatar_optional:
+            showtime_command.append("--avatar-optional")
         showtime_result = run(
             "showtime",
             showtime_command,

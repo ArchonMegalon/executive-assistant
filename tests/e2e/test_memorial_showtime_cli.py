@@ -332,3 +332,28 @@ def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
     avatar_step = next(item for item in payload["results"] if item["name"] == "avatar_video_call_status")
     assert avatar_step["effective_status"] == "warn"
     assert avatar_step["semantic_detail"]["warn_codes"] == ["avatar_video_not_published"]
+
+
+def test_memorial_showtime_cli_launch_mode_rejects_skip_flags(tmp_path: Path) -> None:
+    output_dir = tmp_path / "showtime-launch-invalid"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "/docker/EA/ea/scripts/memorial_showtime.py",
+            "--slug",
+            "manfred",
+            "--base-url",
+            "https://example.test",
+            "--output-dir",
+            str(output_dir),
+            "--launch-mode",
+            "--avatar-optional",
+            "--skip-tts",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--launch-mode forbids skip flags" in (result.stderr or "")

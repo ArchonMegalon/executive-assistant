@@ -32,13 +32,18 @@ fi
 python3 scripts/memorial_flagship_preflight.py "${preflight_args[@]}"
 
 if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
+  avatar_mode="--avatar-optional"
+  if [[ "${MEMORIAL_FLAGSHIP_AVATAR_REQUIRED:-0}" == "1" ]]; then
+    avatar_mode="--avatar-required"
+  fi
   python3 scripts/memorial_room_ready.py \
     --slug manfred \
     --base-url "$MEMORIAL_FLAGSHIP_BASE_URL" \
     --questions ../examples/demo_questions.manfred.json \
     --output-dir "$TMPDIR/manfred_room_ready_exit_gate" \
-    --skip-exit-gates \
-    --optional-exit-gates
+    --launch-mode \
+    "$avatar_mode" \
+    --skip-exit-gates
 
   python3 - <<'PY'
 import json

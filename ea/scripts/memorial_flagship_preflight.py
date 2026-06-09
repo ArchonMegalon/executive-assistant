@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -120,6 +121,14 @@ def public_memorial_root() -> Path:
     )
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def private_profile_root() -> Path:
     return _configured_or_existing_path(
         ("EA_PRIVATE_MEMORIAL_PROFILE_DIR",),
@@ -181,6 +190,9 @@ def _check_avatar_bundle(memorial: dict[str, Any], *, bundle: Path, report: Repo
     poster_relpath = _relpath(str(avatar.get("poster_relpath") or ""))
     provider_key = str(avatar.get("provider_key") or "").strip().lower()
     proof_verdict = str(avatar.get("provider_proof_verdict") or "").strip().upper()
+    asset_sha256 = str(avatar.get("asset_sha256") or "").strip().lower()
+    poster_sha256 = str(avatar.get("poster_sha256") or "").strip().lower()
+    consent = avatar.get("avatar_consent") if isinstance(avatar.get("avatar_consent"), dict) else {}
     if enabled:
         missing = []
         if not provider_key:
@@ -189,9 +201,27 @@ def _check_avatar_bundle(memorial: dict[str, Any], *, bundle: Path, report: Repo
             missing.append("provider_proof_verdict")
         if not asset_relpath:
             missing.append("asset_relpath")
+        if not asset_sha256:
+            missing.append("asset_sha256")
+        if not consent:
+            missing.append("avatar_consent")
         if missing:
             report.add("fail", "avatar_manifest_incomplete", "Enabled avatar manifest is missing required fields.", fields=missing)
             return
+        consent_status = str(consent.get("status") or "").strip().lower()
+        consent_revoked = bool(consent.get("revoked") is True)
+        consent_scope = {str(item or "").strip() for item in list(consent.get("scope") or [])}
+        if consent_status != "approved" or consent_revoked or not {"public_video_call", "avatar_playback"} <= consent_scope:
+            report.add(
+                "fail",
+                "avatar_consent_invalid",
+                "Enabled avatar is missing approved public likeness consent.",
+                status=consent_status,
+                revoked=consent_revoked,
+                scope=sorted(consent_scope),
+            )
+            return
+        report.add("pass", "avatar_consent_ok", "Enabled avatar has explicit public likeness consent.")
         asset_path = bundle / asset_relpath
         asset_suffix = asset_path.suffix.lower()
         if asset_suffix not in ALLOWED_AVATAR_VIDEO_SUFFIXES:
@@ -200,6 +230,10 @@ def _check_avatar_bundle(memorial: dict[str, Any], *, bundle: Path, report: Repo
             report.add("fail", "avatar_video_asset_missing", "Enabled avatar video asset is missing from disk.", relpath=asset_relpath)
         else:
             report.add("pass", "avatar_video_asset_present", "Enabled avatar video asset exists on disk.", relpath=asset_relpath)
+            if asset_sha256 and sha256_file(asset_path) != asset_sha256:
+                report.add("fail", "avatar_video_hash_mismatch", "Enabled avatar video hash no longer matches the published manifest.", relpath=asset_relpath)
+            else:
+                report.add("pass", "avatar_video_hash_ok", "Enabled avatar video hash matches the published manifest.", relpath=asset_relpath)
         if poster_relpath:
             poster_path = bundle / poster_relpath
             poster_suffix = poster_path.suffix.lower()
@@ -209,6 +243,11 @@ def _check_avatar_bundle(memorial: dict[str, Any], *, bundle: Path, report: Repo
                 report.add("fail", "avatar_poster_missing", "Enabled avatar poster asset is missing from disk.", relpath=poster_relpath)
             else:
                 report.add("pass", "avatar_poster_present", "Enabled avatar poster asset exists on disk.", relpath=poster_relpath)
+                if poster_sha256:
+                    if sha256_file(poster_path) != poster_sha256:
+                        report.add("fail", "avatar_poster_hash_mismatch", "Enabled avatar poster hash no longer matches the published manifest.", relpath=poster_relpath)
+                    else:
+                        report.add("pass", "avatar_poster_hash_ok", "Enabled avatar poster hash matches the published manifest.", relpath=poster_relpath)
         else:
             report.add("warn", "avatar_poster_not_declared", "Enabled avatar has no poster asset declared.")
         report.add("pass", "avatar_manifest_verified", "Enabled avatar manifest is tied to a verified provider verdict.", provider_key=provider_key)

@@ -1263,6 +1263,33 @@ def test_memorial_warmup_route_schedules_background_prewarm(
     assert seen == [slug]
 
 
+def test_memorial_warmup_route_enforces_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    seen: list[str] = []
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_enforce_public_memorial_rate_limit",
+        lambda bucket, **kwargs: seen.append(bucket),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_schedule_memorial_live_warmup",
+        lambda warmup_slug: {"status": "queued", "scheduled": True, "ttl_seconds": 600},
+    )
+
+    client = _client(principal_id="exec-memorial-warmup-rate")
+    response = client.post(f"/memorials/{slug}/warmup", json={"reason": "page_load"})
+
+    assert response.status_code == 202
+    assert seen == ["warmup"]
+
+
 def test_memorial_warmup_status_route_reports_snapshot_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1336,6 +1363,41 @@ def test_memorial_playback_telemetry_route_accepts_client_signal(
     assert response.json() == {"status": "accepted"}
 
 
+def test_memorial_playback_telemetry_route_enforces_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    seen: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_enforce_public_memorial_rate_limit",
+        lambda bucket, **kwargs: seen.append(bucket),
+    )
+
+    client = _client(principal_id="exec-memorial-playback-telemetry-rate")
+    response = client.post(f"/memorials/{slug}/playback-telemetry", json={"event": "fallback"})
+
+    assert response.status_code == 202
+    assert seen == ["playback_telemetry"]
+
+
+def test_memorial_voice_clone_route_is_disabled_without_operator_surface_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    monkeypatch.delenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", raising=False)
+    client = _client(principal_id="exec-memorial-clone-disabled")
+
+    response = client.post(f"/memorials/{slug}/voice-clone", json={"voice_label": "Test"})
+
+    assert response.status_code == 404
+    assert "memorial_operator_surface_disabled" in response.text
+
+
 def test_memorial_browser_playback_guardrails_are_shipped() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
@@ -1344,6 +1406,15 @@ def test_memorial_browser_playback_guardrails_are_shipped() -> None:
     assert "/memorials/{html.escape(slug)}/playback-telemetry" in source
     assert "Manfreds Stimme konnte gerade nicht sauber starten." in source
     assert "Audio war gerade unzuverlaessig. Ich wechsle auf Browser-Stimme." not in source
+
+
+def test_memorial_realtime_public_error_codes_are_stable() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._stable_public_realtime_error(RuntimeError("tts timeout on provider")) == "provider_timeout"
+    assert public_memorials._stable_public_realtime_error(RuntimeError("speech transcriber unavailable")) == "speech_transcription_failed"
+    assert public_memorials._stable_public_realtime_error(RuntimeError("audio synth failed")) == "tts_unavailable"
+    assert public_memorials._stable_public_realtime_error(RuntimeError("unexpected socket drift")) == "realtime_failed"
 
 
 def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:

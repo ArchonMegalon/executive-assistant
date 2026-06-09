@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 
@@ -128,6 +129,16 @@ def test_preflight_passes_verified_avatar_bundle(monkeypatch, tmp_path) -> None:
                     "public_ready": True,
                     "asset_relpath": "video/avatar.mp4",
                     "poster_relpath": "video/avatar-poster.png",
+                    "asset_sha256": hashlib.sha256(b"mp4").hexdigest(),
+                    "poster_sha256": hashlib.sha256(b"\x89PNG\r\n\x1a\nposter").hexdigest(),
+                    "avatar_consent": {
+                        "status": "approved",
+                        "scope": ["public_video_call", "avatar_playback"],
+                        "authorized_by": "family-owner",
+                        "authorized_at": "2026-06-09T00:00:00Z",
+                        "source_assets_reviewed": True,
+                        "revoked": False,
+                    },
                 },
             }
         ),
@@ -141,6 +152,56 @@ def test_preflight_passes_verified_avatar_bundle(monkeypatch, tmp_path) -> None:
 
     assert any(item.code == "avatar_video_asset_present" and item.status == "pass" for item in report.findings)
     assert any(item.code == "avatar_manifest_verified" and item.status == "pass" for item in report.findings)
+    assert any(item.code == "avatar_video_hash_ok" and item.status == "pass" for item in report.findings)
+    assert any(item.code == "avatar_consent_ok" and item.status == "pass" for item in report.findings)
+
+
+def test_preflight_fails_enabled_avatar_hash_mismatch(monkeypatch, tmp_path) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    (bundle / "video").mkdir(parents=True)
+    (bundle / "video" / "avatar.mp4").write_bytes(b"mp4-changed")
+    (bundle / "video" / "avatar-poster.png").write_bytes(b"\x89PNG\r\n\x1a\nposter")
+    (bundle / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": "manfred",
+                "audio_clips": [],
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                },
+                "video_call_avatar": {
+                    "provider_key": "vidboard",
+                    "provider_proof_verdict": "VERIFIED_PROVIDER",
+                    "public_ready": True,
+                    "asset_relpath": "video/avatar.mp4",
+                    "poster_relpath": "video/avatar-poster.png",
+                    "asset_sha256": hashlib.sha256(b"mp4").hexdigest(),
+                    "poster_sha256": hashlib.sha256(b"\x89PNG\r\n\x1a\nposter").hexdigest(),
+                    "avatar_consent": {
+                        "status": "approved",
+                        "scope": ["public_video_call", "avatar_playback"],
+                        "authorized_by": "family-owner",
+                        "authorized_at": "2026-06-09T00:00:00Z",
+                        "source_assets_reviewed": True,
+                        "revoked": False,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "public_registry_path", lambda slug, generated=False: tmp_path / "missing.json")
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(item.code == "avatar_video_hash_mismatch" and item.status == "fail" for item in report.findings)
 
 
 def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:

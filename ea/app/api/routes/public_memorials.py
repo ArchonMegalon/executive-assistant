@@ -118,6 +118,8 @@ _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "conversation_turn": (8, 60),
     "realtime_connect": (6, 60),
     "realtime_turn": (16, 60),
+    "warmup": (3, 60),
+    "playback_telemetry": (30, 60),
     "voice_ab_rate": (10, 60),
 }
 _VOICE_AB_DIMENSION_DEFS: tuple[dict[str, str], ...] = (
@@ -2675,6 +2677,15 @@ def _voice_config_path(slug: str) -> Path:
     return (_private_profile_dir() / safe / "tts_voice.json").resolve()
 
 
+def _public_memorial_operator_surfaces_enabled() -> bool:
+    return str(os.getenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _video_meeting_callback_path(slug: str) -> Path:
     safe = _safe_slug(slug)
     return (_VIDEO_MEETING_RUNTIME_ROOT / safe / "provider_callback.latest.json").resolve()
@@ -2700,6 +2711,19 @@ def _public_memorial_error_response(status_code: int, detail: str) -> JSONRespon
             },
         },
     )
+
+
+def _stable_public_realtime_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return _text(exc.detail, "realtime_failed")
+    detail = _text(exc, "").lower()
+    if "timeout" in detail:
+        return "provider_timeout"
+    if "transcrib" in detail or "speech" in detail:
+        return "speech_transcription_failed"
+    if "tts" in detail or "synth" in detail or "audio" in detail:
+        return "tts_unavailable"
+    return "realtime_failed"
 
 
 def _safe_voice_name_hints(value: object) -> list[str]:
@@ -10905,6 +10929,7 @@ def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
 @router.post("/memorials/{slug}/warmup")
 async def public_memorial_warmup(slug: str, request: Request) -> JSONResponse:
     _load_memorial(slug)
+    _enforce_public_memorial_rate_limit("warmup", request=request)
     result = _schedule_memorial_live_warmup(slug)
     return JSONResponse(
         {
@@ -11013,6 +11038,7 @@ async def public_memorial_video_meeting_provider_callback(slug: str, request: Re
 @router.post("/memorials/{slug}/playback-telemetry")
 async def public_memorial_playback_telemetry(slug: str, request: Request) -> JSONResponse:
     _load_memorial(slug)
+    _enforce_public_memorial_rate_limit("playback_telemetry", request=request)
     try:
         body = await request.json()
     except Exception:
@@ -11802,12 +11828,13 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             )
             await _safe_send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
         except Exception as exc:
-            detail = str(exc)[:180] or "realtime_failed"
+            detail = _stable_public_realtime_error(exc)
             _log_memorial_timing(
                 "realtime_transcript_turn_error",
                 slug=slug,
                 turn_id=turn_id,
                 detail=detail,
+                raw_detail=str(exc)[:4000],
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
             await _safe_send_json({"type": "error", "turn_id": turn_id, "message": detail})
@@ -11849,12 +11876,13 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": _text(exc.detail, "realtime_failed")})
         except Exception as exc:
-            detail = str(exc)[:180] or "realtime_failed"
+            detail = _stable_public_realtime_error(exc)
             _log_memorial_timing(
                 "realtime_audio_turn_error",
                 slug=slug,
                 turn_id=turn_id,
                 detail=detail,
+                raw_detail=str(exc)[:4000],
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
             await websocket.send_json({"type": "error", "turn_id": turn_id, "message": detail})
@@ -11967,7 +11995,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             pass
     except Exception as exc:
         try:
-            await websocket.send_json({"type": "error", "message": str(exc)[:180] or "realtime_failed"})
+            await websocket.send_json({"type": "error", "message": _stable_public_realtime_error(exc)})
         except Exception:
             pass
     finally:
@@ -11979,6 +12007,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
 
 @router.post("/memorials/{slug}/voice-clone")
 async def public_memorial_voice_clone(slug: str, request: Request) -> JSONResponse:
+    if not _public_memorial_operator_surfaces_enabled():
+        raise HTTPException(status_code=404, detail="memorial_operator_surface_disabled")
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     _require_voice_consent(_payload_with_slug(slug, memorial), "clone")
