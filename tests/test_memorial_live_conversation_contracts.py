@@ -1221,6 +1221,16 @@ def test_memorial_local_fast_fallback_keeps_requested_model_metadata(
     slug = _setup_memorial(monkeypatch, tmp_path)
     from app.api.routes import public_memorials
 
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="In meiner Jugend war ich frueh auf Ordnung und Eigenstaendigkeit ausgerichtet.",
+            provider_key="unit-test-model",
+            model="memorial-local-fast",
+        ),
+    )
+
     answer = public_memorials._memorial_chat_answer(
         {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
         "Erzaehl mir etwas ueber deine Jugend.",
@@ -1230,9 +1240,31 @@ def test_memorial_local_fast_fallback_keeps_requested_model_metadata(
     )
 
     assert answer["llm_model"] == "memorial-local-fast"
-    assert answer["llm_provider"] == "memorial_guardrail"
+    assert answer["llm_provider"] == "unit-test-model"
     assert answer["llm_request_model"] == "memorial-local-fast"
-    assert answer["llm_fallback_used"] is True
+    assert answer["llm_fallback_used"] is False
+    assert "Jugend" in answer["answer"] or "jugend" in answer["answer"].lower()
+
+
+def test_memorial_generic_fallback_answer_does_not_default_to_schach_und_familie() -> None:
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_chat_fallback_answer(
+        {"slug": "manfred", "person_name": "Manfred Hoza", "audio_clips": []},
+        "Was meinst du damit genau?",
+        {},
+        slug="manfred",
+        memory_runtime=None,
+        personal_memory_context=None,
+        llm_model="memorial-local-fast",
+        fallback_reason="upstream_unavailable:test",
+        difficult_memory_mode=False,
+    )
+
+    lowered = answer["answer"].lower()
+    assert "belegt ist hier vor allem" not in lowered
+    assert "schach" not in lowered
+    assert "familie" not in lowered
 
 
 def test_memorial_warmup_route_schedules_background_prewarm(

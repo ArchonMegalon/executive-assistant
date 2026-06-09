@@ -4463,11 +4463,16 @@ def _memorial_chat_fallback_answer(
             "Was belegt ist, steht in den Quellen und in der Originalstimme."
         )
     else:
-        fact_line = primary_memory_line or (facts[0] if facts else "Die Seite enthaelt Originalstimme, Quellen und vorsichtig markierte Erinnerungen.")
-        body = (
-            f"Belegt ist hier vor allem Folgendes: {fact_line} "
-            "Wenn du die Frage enger stellst, kann ich daraus auch enger antworten. Alles andere bleibt meines Erachtens zu ungenau."
-        )
+        if primary_memory_line:
+            body = (
+                f"Ich wuerde es so fassen: {primary_memory_line} "
+                "Wenn du den Punkt enger ziehst, antworte ich dir auch enger darauf."
+            )
+        else:
+            body = (
+                "Sag mir den konkreten Punkt noch etwas enger. "
+                "Dann antworte ich dir direkt darauf und nicht allgemein drum herum."
+            )
     response = {
         "person_name": person_name,
         "mode": "memorial_first_person_memory_chat",
@@ -5037,26 +5042,6 @@ def _memorial_chat_answer(
             personal_memory_context=personal_memory_context,
             llm_model=requested_model,
             fallback_reason="memorial_anchor_memory_guardrail",
-            difficult_memory_mode=difficult_memory_mode,
-        )
-        fallback["llm_model"] = requested_model
-        fallback["llm_provider"] = "memorial_guardrail"
-        fallback["llm_request_model"] = requested_model
-        fallback["llm_fallback_used"] = True
-        return fallback
-    if requested_model == "memorial-local-fast" and not _is_memorial_live_interaction_question(normalized_question):
-        fallback_reason = "local_memorial_fast_path"
-        if _is_memorial_ooda_question(normalized_question):
-            fallback_reason = "memorial_ooda_local_fast_path"
-        fallback = _memorial_chat_fallback_answer(
-            payload,
-            normalized_question,
-            private_profile,
-            slug=slug or _text(payload.get("slug"), ""),
-            memory_runtime=memory_runtime,
-            personal_memory_context=personal_memory_context,
-            llm_model=requested_model,
-            fallback_reason=fallback_reason,
             difficult_memory_mode=difficult_memory_mode,
         )
         fallback["llm_model"] = requested_model
