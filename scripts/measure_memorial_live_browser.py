@@ -112,7 +112,7 @@ def _fake_media_init_script(audio_base64: str) -> str:
   const audioBase64 = {json.dumps(audio_base64)};
   const decodeBase64 = (value) => Uint8Array.from(atob(String(value || "")), (char) => char.charCodeAt(0));
   const wavBytes = decodeBase64(audioBase64);
-  const wavBlob = new Blob([wavBytes], {{ type: "audio/wav" }});
+  const wavBlob = new Blob([wavBytes], {{ type: "audio/webm" }});
 
   class FakeTrack {{
     stop() {{}}
@@ -127,7 +127,7 @@ def _fake_media_init_script(audio_base64: str) -> str:
   class FakeMediaRecorder {{
     constructor(stream, options = {{}}) {{
       this.stream = stream;
-      this.mimeType = "audio/wav";
+      this.mimeType = "audio/webm";
       this.state = "inactive";
       this.ondataavailable = null;
       this.onstart = null;
@@ -138,7 +138,8 @@ def _fake_media_init_script(audio_base64: str) -> str:
       this.state = "recording";
       setTimeout(() => {{
         if (this.onstart) this.onstart();
-      }}, 0);
+        this.stop();
+      }}, 40);
     }}
     stop() {{
       if (this.state !== "recording") return;
@@ -161,6 +162,14 @@ def _fake_media_init_script(audio_base64: str) -> str:
     Object.defineProperty(navigator, "mediaDevices", {{ configurable: true, value: {{}} }});
   }}
   navigator.mediaDevices.getUserMedia = async () => new FakeStream();
+  HTMLMediaElement.prototype.play = function play() {{
+    return new Promise((resolve) => {{
+      setTimeout(() => {{
+        this.dispatchEvent(new Event("ended"));
+        resolve();
+      }}, 40);
+    }});
+  }};
 }})();
 """
 
@@ -234,38 +243,36 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
             phase_text = ""
             detail_text = ""
             try:
-                if stub_transcribe:
-                    turn_result = page.evaluate(
-                        """async (promptText) => {
-                          const payload = await window.sendRealtimeTurn({ text: String(promptText || "") });
-                          const answer = String(payload && payload.answer ? payload.answer : "");
-                          const answerNode = document.getElementById("memorial-chat-answer");
-                          if (answerNode) answerNode.textContent = answer;
-                          return {
-                            answer,
-                            phase: (document.getElementById("memorial-speech-phase") || {}).textContent || "",
-                            detail: (document.getElementById("memorial-speech-detail") || {}).textContent || ""
-                          };
-                        }""",
-                        prompt_text,
-                    )
-                    answer_text = str(turn_result.get("answer") or "")
-                    phase_text = str(turn_result.get("phase") or "")
-                    detail_text = str(turn_result.get("detail") or "")
-                else:
-                    page.click("#memorial-conversation")
-                    page.wait_for_function(
-                        """
-                        () => {
-                          const answer = document.getElementById("memorial-chat-answer");
-                          return Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
-                        }
-                        """,
-                        timeout=30000,
-                    )
-                    answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
-                    phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
-                    detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
+                with page.expect_response(
+                    lambda response: response.url.endswith(f"/memorials/{slug}/conversation-turn") and response.status == 200,
+                    timeout=35000,
+                ):
+                    page.click("#memorial-conversation", timeout=5000)
+                page.wait_for_function(
+                    """
+                    () => {
+                      const answer = document.getElementById("memorial-chat-answer");
+                      const audio = document.getElementById("memorial-speech-audio");
+                      const answerReady = Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
+                      const audioReady = Boolean(audio && audio.getAttribute("src") && audio.getAttribute("src").startsWith("blob:"));
+                      return answerReady || audioReady;
+                    }
+                    """,
+                    timeout=35000,
+                )
+                answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
+                phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
+                detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
+                page.click("#memorial-conversation", timeout=5000)
+                page.wait_for_function(
+                    """
+                    () => {
+                      const button = document.getElementById("memorial-conversation");
+                      return Boolean(button && button.textContent && button.textContent.includes("Gespräch beginnen"));
+                    }
+                    """,
+                    timeout=10000,
+                )
             except Exception as exc:
                 turn_error = str(exc)
                 try:

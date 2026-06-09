@@ -90,6 +90,7 @@ services:
       - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
       - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
       - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
+      - EA_HEALTHCHECK_MEMORIAL_SLUG=${EA_HEALTHCHECK_MEMORIAL_SLUG:-manfred}
       - EA_PUBLIC_MEMORIAL_RATE_BACKEND=${EA_PUBLIC_MEMORIAL_RATE_BACKEND:-redis}
       - EA_PUBLIC_MEMORIAL_REDIS_URL=${EA_PUBLIC_MEMORIAL_REDIS_URL:-redis://ea-redis:6379/0}
       - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
