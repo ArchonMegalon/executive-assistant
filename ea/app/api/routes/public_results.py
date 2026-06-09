@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_rybbit import rybbit_head_snippet
 from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 
 
@@ -113,6 +114,7 @@ def _result_html(payload: dict[str, object], *, hostname: str = "") -> str:
     asset_relpath = _maybe_text(payload.get("asset_relpath"))
     asset_href = f"/results/files/{html.escape(slug)}/{html.escape(asset_relpath)}" if slug and asset_relpath else ""
     clickrank_html = clickrank_head_snippet(hostname)
+    rybbit_html = rybbit_head_snippet(hostname)
     hosted_url = _maybe_text(payload.get("hosted_url")) or _maybe_text(payload.get("public_url"))
     vendor_public_url = _maybe_text(payload.get("crezlo_public_url"))
     source_links = [
@@ -145,6 +147,7 @@ def _result_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title}</title>
     {clickrank_html}
+    {rybbit_html}
     <style>
       :root {{
         --bg: #f2efe7;

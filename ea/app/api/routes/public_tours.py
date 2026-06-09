@@ -25,6 +25,7 @@ from app.container import AppContainer
 from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
+from app.services.public_rybbit import rybbit_head_snippet
 
 router = APIRouter(tags=["public-tours"])
 
@@ -2740,6 +2741,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname)}
+    {rybbit_head_snippet(hostname)}
     <style>
       :root {{
         --bg: #f5f2ec;
@@ -3371,6 +3373,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname)}
+    {rybbit_head_snippet(hostname)}
     <style>
       html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111; color: #f8f4eb; font-family: Inter, Arial, sans-serif; }}
       .topbar {{ position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }}
@@ -3536,6 +3539,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         else ""
     )
     clickrank_html = clickrank_head_snippet(hostname)
+    rybbit_html = rybbit_head_snippet(hostname)
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -3543,6 +3547,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_html}
+    {rybbit_html}
     <style>
       :root {{
         --bg: #f3eee3;
@@ -4070,9 +4075,9 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "img-src 'self' data: https:; "
             "media-src 'self' https:; "
             "frame-src 'self' https:; "
-            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai; "
+            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io; "
             "style-src 'self' 'unsafe-inline'; "
-            "connect-src 'self'"
+            "connect-src 'self' https://app.rybbit.io"
         ),
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
