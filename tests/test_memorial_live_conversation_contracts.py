@@ -183,6 +183,35 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["answer"] == "Ja."
 
 
+def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-present-world-chat")
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Welches Wetter haben wir heute?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert called["generate_text"] == 0
+    assert body["sources"] == []
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["fallback_reason"] == "present_world_guardrail"
+    assert "wetter" in body["answer"].lower()
+    assert "famil" not in body["answer"].lower()
+    assert "schach" not in body["answer"].lower()
+
+
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -356,6 +385,73 @@ def test_memorial_conversation_turn_canonicalizes_short_contact_openings(
     assert body["fallback_reason"] == "direct_contact_opening"
     assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
     assert body["answer"] == "Ja."
+
+
+def test_memorial_conversation_turn_current_weather_short_circuits_to_present_world_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    input_audio = _generated_wav_bytes(textish_seed="Welches Wetter haben wir heute?")
+    output_audio = _generated_wav_bytes(textish_seed="Das aktuelle Wetter sehe ich hier nicht direkt.")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Welches Wetter haben wir heute?",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "openvoice_synthesize_request_with_variant",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-present-world-turn")
+
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert called["generate_text"] == 0
+    assert body["fallback_reason"] == "present_world_guardrail"
+    assert body["sources"] == []
+    assert "wetter" in body["answer"].lower()
+    assert "famil" not in body["answer"].lower()
+    assert "schach" not in body["answer"].lower()
 
 
 def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_explicit_model_catalog(

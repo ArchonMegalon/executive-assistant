@@ -2938,7 +2938,7 @@ def _memorial_chat_source_labels(
     private_profile: dict[str, object] | None = None,
     has_imported_mail: bool = False,
 ) -> list[str]:
-    if _is_memorial_live_interaction_question(question):
+    if _is_memorial_live_interaction_question(question) or _is_memorial_present_world_question(question):
         return []
     external_sources = _list_of_dicts(payload.get("external_sources"))
     preferred_audio = [
@@ -3258,6 +3258,57 @@ def _is_memorial_live_interaction_question(question: str) -> bool:
     if any(token in lowered for token in ("spielen", "spiel", "rede", "sprich")) and any(token in lowered for token in ("mit dir", "gegen dich", "mit mir")):
         return True
     return bool(re.search(r"\b[a-h][1-8]\b", lowered))
+
+
+def _is_memorial_present_world_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    weather_terms = (
+        "wetter",
+        "regnet",
+        "regen",
+        "sonnig",
+        "sonne",
+        "temperatur",
+        "grad",
+        "warm heute",
+        "kalt heute",
+        "wie ist es draussen",
+        "wie ist es draußen",
+        "wie schaut es draussen aus",
+        "wie schaut es draußen aus",
+    )
+    time_terms = (
+        "uhrzeit",
+        "wie spaet",
+        "wie spät",
+        "welcher tag",
+        "welches datum",
+        "welchen tag haben wir",
+        "wieviel uhr",
+        "wie viel uhr",
+    )
+    current_terms = (
+        "nachrichten heute",
+        "aktuelle nachrichten",
+        "was ist heute los",
+        "was passiert heute",
+        "aktuelles",
+        "news heute",
+    )
+    return any(token in lowered for token in (*weather_terms, *time_terms, *current_terms))
+
+
+def _memorial_present_world_answer_body(question: str) -> str:
+    lowered = _text(question, "").lower()
+    if any(token in lowered for token in ("wetter", "regnet", "regen", "sonnig", "sonne", "temperatur", "grad", "draussen", "draußen")):
+        return "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter."
+    if any(token in lowered for token in ("uhrzeit", "wie spaet", "wie spät", "wieviel uhr", "wie viel uhr")):
+        return "Die aktuelle Uhrzeit sehe ich hier nicht direkt. Schau kurz auf die Uhr, dann machen wir weiter."
+    if any(token in lowered for token in ("welcher tag", "welches datum", "welchen tag haben wir")):
+        return "Den heutigen Tag oder das Datum sehe ich hier nicht direkt. Sag es mir kurz, dann ordnen wir es gemeinsam."
+    return "Das Aktuelle vor dir sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf."
 
 
 def _memorial_should_include_mail_memory(question: str) -> bool:
@@ -4227,6 +4278,8 @@ def _memorial_chat_fallback_answer(
         body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif _is_memorial_contact_question(normalized_question):
         body = _memorial_contact_answer_body(normalized_question)
+    elif _is_memorial_present_world_question(normalized_question):
+        body = _memorial_present_world_answer_body(normalized_question)
     elif _is_memorial_family_mail_question(normalized_question):
         body = _memorial_family_mail_answer_body(normalized_question)
     elif _is_memorial_colleague_mail_question(normalized_question):
@@ -4506,17 +4559,18 @@ def _build_memorial_chat_messages(
     person_name = _text(payload.get("person_name"), "Manfred")
     relationship = _text(payload.get("relationship"), "")
     live_interaction = _is_memorial_live_interaction_question(normalized_question)
+    present_world = _is_memorial_present_world_question(normalized_question)
     has_imported_mail = memorial_has_imported_mail(
         memory_runtime,
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
     )
-    facts = [] if live_interaction else _compact_public_facts(payload)
+    facts = [] if live_interaction or present_world else _compact_public_facts(payload)
     private_notes = _list_of_dicts(private_profile.get("family_context_notes"))
     transcript_signal_report = dict(private_profile.get("transcript_signal_report") or {})
     character_notes = [str(item).strip() for item in (payload.get("character_notes") or []) if str(item).strip()]
     conversation_style = dict(payload.get("conversation_style") or {})
     context_bits = [f"Person: {person_name}"]
-    if relationship and not live_interaction:
+    if relationship and not live_interaction and not present_world:
         context_bits.append(f"Beziehung: {relationship}")
     if facts:
         context_bits.append("Quellen aus Archiv: " + " | ".join(facts))
@@ -4542,7 +4596,7 @@ def _build_memorial_chat_messages(
         interpretation = _text(top.get("interpretation"))
         if interpretation:
             transcript_bits.append(interpretation)
-    if transcript_bits and not live_interaction:
+    if transcript_bits and not live_interaction and not present_world:
         context_bits.append("Transkript-Signale (kurz): " + " | ".join(transcript_bits[:3]))
     source_labels = _memorial_chat_source_labels(
         payload,
@@ -4552,7 +4606,7 @@ def _build_memorial_chat_messages(
     )
     if source_labels:
         context_bits.append("Externe Quellen: " + "; ".join(source_labels))
-    if character_notes and not live_interaction:
+    if character_notes and not live_interaction and not present_world:
         context_bits.append("Charakterhinweise: " + " | ".join(character_notes[:6]))
     style_bits: list[str] = []
     for key in ("reasoning_frame", "conflict_style", "social_tone"):
@@ -4562,7 +4616,7 @@ def _build_memorial_chat_messages(
     avoid_items = [str(item).strip() for item in (conversation_style.get("should_avoid") or []) if str(item).strip()]
     if avoid_items:
         style_bits.append("avoid=" + " | ".join(avoid_items[:5]))
-    if style_bits and not live_interaction:
+    if style_bits and not live_interaction and not present_world:
         context_bits.append("Gesprächsstil: " + "; ".join(style_bits))
     memory_lines = _memorial_memory_context_lines(
         slug=slug or _text(payload.get("slug"), ""),
@@ -4576,13 +4630,13 @@ def _build_memorial_chat_messages(
         principal_id=memorial_memory_principal_id(slug or _text(payload.get("slug"), ""), payload),
     )
     memory_axis_context = _memorial_memory_axis_context(memory_lines)
-    if memory_axis_context["style"] and not live_interaction:
+    if memory_axis_context["style"] and not live_interaction and not present_world:
         context_bits.append("Stilgedaechtnis: " + " | ".join(memory_axis_context["style"][:3]))
-    if memory_axis_context["episodic"] and not live_interaction:
+    if memory_axis_context["episodic"] and not live_interaction and not present_world:
         context_bits.append("Erinnerungsgedaechtnis: " + " | ".join(memory_axis_context["episodic"][:3]))
-    if memory_axis_context["legal"] and not live_interaction:
+    if memory_axis_context["legal"] and not live_interaction and not present_world:
         context_bits.append("Grundsatzgedaechtnis: " + " | ".join(memory_axis_context["legal"][:3]))
-    if (not live_interaction) and memory_axis_context["general"] and not (memory_axis_context["style"] or memory_axis_context["episodic"] or memory_axis_context["legal"]):
+    if (not live_interaction) and (not present_world) and memory_axis_context["general"] and not (memory_axis_context["style"] or memory_axis_context["episodic"] or memory_axis_context["legal"]):
         label = "Eigene archivierte Erinnerungen und Mails" if has_imported_mail else "Eigene archivierte Erinnerungen"
         context_bits.append(label + ": " + " | ".join(memory_axis_context["general"][:4]))
     if not has_imported_mail and any(token in normalized_question.lower() for token in ("mail", "email", "e-mail", "schreibstil", "schriftlich")):
@@ -4590,7 +4644,7 @@ def _build_memorial_chat_messages(
             "Wichtiger Provenienzhinweis: Es liegen derzeit keine importierten Originalmails vor. "
             "Aussagen zum Schreibstil duerfen sich nur auf Memorial-Profil, Interviews, oeffentliche Quellen und Familienkontext stuetzen."
         )
-    memory_axis_instruction = "" if live_interaction else _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
+    memory_axis_instruction = "" if live_interaction or present_world else _memorial_memory_axis_instruction(normalized_question, memory_axis_context)
     if memory_axis_instruction:
         context_bits.append("Antwortfokus: " + memory_axis_instruction)
     if live_interaction:
@@ -4600,6 +4654,13 @@ def _build_memorial_chat_messages(
             "Wenn der Nutzer ein Spiel oder eine laufende Aktivitaet beginnt, setze genau dort fort. "
             "Bei Schach: lies den letzten Zug sauber, bewerte die Stellung knapp und antworte mit einem legalen plausiblen Zug in knapper Notation oder mit einer kurzen Rueckfrage, falls der Zug unklar ist. "
             "Keine Archivvorlesung, keine Familienerinnerung, keine Mailzusammenfassung, keine rueckblickende Einleitung."
+        )
+    if present_world:
+        context_bits.append(
+            "Antwortmodus: gegenwaertige Aussenlage ohne Live-Daten. "
+            "Wenn nach Wetter, Uhrzeit, Datum, Nachrichten oder anderem aktuellen Weltzustand gefragt wird und keine Echtzeitdaten vorliegen, "
+            "sage das klar und knapp in direkter Ich-Perspektive. "
+            "Keine Archivvorlesung, keine Familienerinnerung, kein Schach und keine biografische Ausweichbewegung."
         )
     personal_lines = _personal_memory_context_lines(
         slug=slug or _text(payload.get("slug"), ""),
@@ -4689,7 +4750,7 @@ def _memorial_memory_context_lines(
     normalized_slug = _text(slug or payload.get("slug"), "")
     if memory_runtime is None or not normalized_slug:
         return []
-    if _is_memorial_live_interaction_question(question):
+    if _is_memorial_live_interaction_question(question) or _is_memorial_present_world_question(question):
         return []
     _ensure_memorial_memory_seeded(
         slug=normalized_slug,
@@ -4922,6 +4983,23 @@ def _memorial_chat_answer(
             "llm_request_model": requested_model,
             "llm_fallback_used": False,
             "fallback_reason": "direct_contact_opening",
+        }
+    if _is_memorial_present_world_question(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_present_world_answer_body(normalized_question),
+            "sources": [],
+            "private_context_used": False,
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "present_world_guardrail",
         }
     if _is_memorial_live_interaction_question(normalized_question):
         requested_model = requested_model or DEFAULT_PUBLIC_MODEL
