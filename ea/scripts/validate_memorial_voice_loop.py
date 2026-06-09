@@ -285,13 +285,22 @@ def validate_memorial_voice_loop(
     present_answer = str(present_payload.get("answer") or "")
     present_reason = str(present_payload.get("fallback_reason") or "")
     report.metrics["present_world_answer_chars"] = len(present_answer)
-    if present_reason != "present_world_guardrail":
+    if present_reason not in {"present_world_guardrail", "present_world_search"}:
         report.add(
             "fail",
             "present_world_wrong_route",
-            "Present-world question did not route through the dedicated guardrail.",
+            "Present-world question did not route through the dedicated current-world handling.",
             question=present_world_question,
             fallback_reason=present_reason,
+            answer=present_answer,
+        )
+        return report
+    if present_reason == "present_world_search" and not list(present_payload.get("sources") or []):
+        report.add(
+            "fail",
+            "present_world_search_missing_sources",
+            "Present-world search route returned without source labels.",
+            question=present_world_question,
             answer=present_answer,
         )
         return report

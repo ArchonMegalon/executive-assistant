@@ -212,6 +212,57 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert "schach" not in body["answer"].lower()
 
 
+def test_memorial_chat_current_weather_uses_present_world_search_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    monkeypatch.setenv("EA_MEMORIAL_ENABLE_WEB_SEARCH", "1")
+    monkeypatch.setenv("EA_MEMORIAL_WEB_SEARCH_PROVIDER", "custom")
+    from app.api.routes import public_memorials
+
+    seen = {"generate_text": 0}
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_present_world_search_request",
+        lambda question: {
+            "provider": "custom",
+            "query": question,
+            "results": [
+                {
+                    "title": "Wetter Wien heute",
+                    "url": "https://weather.example/wien",
+                    "snippet": "In Wien sind heute 24 Grad und leicht bewölkt.",
+                }
+            ],
+        },
+    )
+
+    def _fake_generate_text(*, messages, requested_model, max_output_tokens):
+        seen["generate_text"] += 1
+        return SimpleNamespace(
+            text="Das sehe ich nicht aus mir heraus. Ich habe aber gerade aktuelle Quellen dazu gefunden. Stand jetzt sind es in Wien etwa 24 Grad und leicht bewoelkt.",
+            provider_key="unit-test-search",
+            model="unit-test-search-model",
+        )
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-present-world-search")
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Welches Wetter haben wir heute in Wien?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert seen["generate_text"] == 1
+    assert body["fallback_reason"] == "present_world_search"
+    assert body["llm_provider"] == "unit-test-search"
+    assert "aktuelle quellen" in body["answer"].lower()
+    assert body["sources"]
+    assert "famil" not in body["answer"].lower()
+    assert "schach" not in body["answer"].lower()
+
+
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1477,16 +1528,41 @@ def test_memorial_live_page_source_does_not_fallback_to_browser_voice_when_realt
     assert '}} else if (conversationActive) {{' in source
 
 
+def test_memorial_live_page_source_primes_audio_output_before_playback() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "async function primeMemorialAudioOutput(durationMs = 900)" in source
+    assert "gain.gain.value = 0.0008;" in source
+    assert "await primeMemorialAudioOutput(350);" in source
+    assert "void primeMemorialAudioOutput(1200);" in source
+    assert "void primeMemorialAudioOutput(900);" in source
+
+
 def test_memorial_voicewave_postprocess_trims_dead_tail_silence() -> None:
     from app.api.routes import public_memorials
 
-    filters = public_memorials._speech_postprocess_filters(public_memorials.VOICEWAVE_TTS_PLUGIN_ID)
+    filters = public_memorials._speech_postprocess_filters_for_config(public_memorials.VOICEWAVE_TTS_PLUGIN_ID)
 
     assert "silenceremove=stop_periods=-1" in filters
     assert "stop_duration=0.02" in filters
     assert "stop_threshold=-24dB" in filters
     assert "stop_silence=0.005" in filters
     assert "atempo=2.50" in filters
+
+
+def test_memorial_unmixr_soft_postprocess_profile_is_available() -> None:
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters_for_config(
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        {"tts_postprocess_profile": "unmixr_natural_soft"},
+    )
+
+    assert "highpass=f=45" in filters
+    assert "lowpass=f=7000" in filters
+    assert "alimiter=limit=0.94" in filters
+    assert "acompressor" not in filters
+    assert "afftdn" not in filters
 
 
 def test_memorial_speech_transcribe_route_logs_timing_metadata(

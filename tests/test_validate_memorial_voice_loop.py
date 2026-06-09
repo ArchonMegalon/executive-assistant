@@ -109,6 +109,59 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
     assert any(item.code == "conversation_turn_audio_similarity_ok" for item in report.checks)
 
 
+def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Ja. Ich bin da. ")
+    answer_wav = _generated_wav(b"Ich ordne dir das aus aktuellen Quellen ein. ")
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if url.endswith("/chat"):
+            if payload.get("question") == "Welches Wetter haben wir heute?":
+                return 200, {
+                    "answer": "Das sehe ich nicht aus mir heraus. Ich habe aber gerade aktuelle Quellen zum Wetter dazu gefunden. Stand jetzt sind es etwa 24 Grad.",
+                    "fallback_reason": "present_world_search",
+                    "sources": ["Wetter Wien heute | https://weather.example/wien"],
+                }
+            return 200, {"answer": "Ich ordne dir das aus aktuellen Quellen ein."}
+        raise AssertionError(url)
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/speech-transcribe"):
+            raw = bytes(payload)
+            if b"Ja. Ich bin da." in raw:
+                return 200, {"transcript_text": "Ja. Ich bin da.", "transcriber": "stub"}
+            return 200, {"transcript_text": "Ich ordne dir das aus aktuellen Quellen ein.", "transcriber": "stub"}
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Ich ordne dir das aus aktuellen Quellen ein.",
+                "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(
+        validator,
+        "_post_json_binary_response",
+        lambda *args, **kwargs: (200, direct_wav, "audio/wav"),
+    )
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Ja. Ich bin da.",
+        conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+    )
+
+    assert report.status == "pass"
+    assert any(item.code == "present_world_route_ok" for item in report.checks)
+
+
 def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 

@@ -97,6 +97,7 @@ _PERSONAL_MEMORY_MAX_ITEMS = 24
 _VOICE_AB_ROOT = Path("/data/artifacts/memorial_voice_ab")
 _VIDEO_MEETING_RUNTIME_ROOT = Path("/data/artifacts/memorial_video_meeting")
 _MEMORIAL_TTS_RENDER_CACHE_ROOT = Path("/data/artifacts/memorial_tts_render_cache")
+_MEMORIAL_PRESENT_WORLD_CACHE_ROOT = Path("/data/artifacts/memorial_present_world_cache")
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
 _MEMORIAL_PWA_VERSION = "20260609a"
@@ -104,10 +105,10 @@ _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
 _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
-_MEMORIAL_TTS_LEAD_IN_MS = 320
-_MEMORIAL_TTS_TAIL_SILENCE_MS = 620
-_MEMORIAL_FAST_TTS_LEAD_IN_MS = 90
-_MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 220
+_MEMORIAL_TTS_LEAD_IN_MS = 420
+_MEMORIAL_TTS_TAIL_SILENCE_MS = 700
+_MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
+_MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 8.0
@@ -2619,6 +2620,7 @@ def _load_voice_config(slug: str) -> dict[str, object]:
         "voice_name_hints": ["de-AT", "de-DE", "German"],
         "tts_plugin_voice_id": unmixr_memorial_voice_id() or openvoice_memorial_voice_id(),
         "tts_base_voice_variant": "high",
+        "tts_postprocess_profile": "",
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
         "synthetic_voice_clone_of_memorial_person": False,
@@ -2651,6 +2653,7 @@ def _load_voice_config(slug: str) -> dict[str, object]:
                         if str(item).strip()
                     ][:8],
                     "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), _text(default_config.get("tts_base_voice_variant"), "high")) or "high",
+                    "tts_postprocess_profile": _text(payload.get("tts_postprocess_profile"), ""),
                     "consent_basis": _text(payload.get("consent_basis"), str(default_config["consent_basis"])),
                     "notes": _text(payload.get("notes"), str(default_config["notes"])),
                     "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else dict(default_config.get("voice_consent") or {}),
@@ -2684,6 +2687,46 @@ def _public_memorial_operator_surfaces_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def _memorial_web_search_enabled() -> bool:
+    return str(os.getenv("EA_MEMORIAL_ENABLE_WEB_SEARCH") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _memorial_web_search_provider() -> str:
+    return str(os.getenv("EA_MEMORIAL_WEB_SEARCH_PROVIDER") or "").strip().lower() or "custom"
+
+
+def _memorial_web_search_max_results() -> int:
+    raw = str(os.getenv("EA_MEMORIAL_WEB_SEARCH_MAX_RESULTS") or "").strip()
+    try:
+        value = int(raw) if raw else 5
+    except ValueError:
+        value = 5
+    return max(1, min(value, 8))
+
+
+def _memorial_web_search_timeout_seconds() -> float:
+    raw = str(os.getenv("EA_MEMORIAL_WEB_SEARCH_TIMEOUT_SECONDS") or "").strip()
+    try:
+        value = float(raw) if raw else 6.0
+    except ValueError:
+        value = 6.0
+    return max(1.0, min(value, 20.0))
+
+
+def _memorial_web_search_cache_ttl_seconds() -> int:
+    raw = str(os.getenv("EA_MEMORIAL_WEB_SEARCH_CACHE_TTL_SECONDS") or "").strip()
+    try:
+        value = int(raw) if raw else 900
+    except ValueError:
+        value = 900
+    return max(30, min(value, 86_400))
 
 
 def _video_meeting_callback_path(slug: str) -> Path:
@@ -2786,6 +2829,7 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "tts_plugin": _TTS_PLUGIN_DEFAULT_ID,
         "tts_plugin_voice_id": unmixr_memorial_voice_id() or openvoice_memorial_voice_id(),
         "tts_base_voice_variant": "high",
+        "tts_postprocess_profile": "",
         "consent_basis": "generic_or_owner_consented_voice",
         "notes": "Voice-Plugins fuer die Memorial-Interaktion.",
     }
@@ -2802,6 +2846,7 @@ def _normalize_voice_config_payload(payload: dict[str, object]) -> dict[str, obj
         "volume": _float_between(payload.get("volume") if isinstance(payload, dict) else None, fallback=1.0, minimum=0.0, maximum=1.0),
         "voice_name_hints": _normalize_voice_name_hints_csv(payload.get("voice_name_hints") if isinstance(payload, dict) else None),
         "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant") if isinstance(payload, dict) else None, str(default_config["tts_base_voice_variant"])) or "high",
+        "tts_postprocess_profile": _text(payload.get("tts_postprocess_profile") if isinstance(payload, dict) else None, ""),
         "consent_basis": _text(payload.get("consent_basis") if isinstance(payload, dict) else None, str(default_config["consent_basis"])),
         "notes": _text(payload.get("notes") if isinstance(payload, dict) else None, str(default_config["notes"])),
         "voice_consent": dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {},
@@ -2869,12 +2914,16 @@ def _save_voice_config_payload(slug: str, payload: dict[str, object]) -> None:
         "volume": existing_config.get("volume"),
         "voice_name_hints": list(existing_config.get("voice_name_hints") or []),
         "tts_base_voice_variant": existing_config.get("tts_base_voice_variant"),
+        "tts_postprocess_profile": existing_config.get("tts_postprocess_profile"),
         "consent_basis": existing_config.get("consent_basis"),
         "notes": existing_config.get("notes"),
         "voice_consent": dict(existing_config.get("voice_consent") or {}),
     }
     merged_payload.update(dict(payload or {}))
-    stored = _voice_config_to_public_payload(_normalize_voice_config_payload(merged_payload), slug=slug)
+    normalized_config = _normalize_voice_config_payload(merged_payload)
+    stored = _voice_config_to_public_payload(normalized_config, slug=slug)
+    if _text(normalized_config.get("tts_postprocess_profile"), ""):
+        stored["tts_postprocess_profile"] = _text(normalized_config.get("tts_postprocess_profile"), "")
     tts_options = _tts_plugin_options(payload=stored, voice_profile_ready=bool(_public_voice_profile_summary(slug=slug).get("voice_profile_ready")))
     selected_plugin, selected_option = _resolve_tts_plugin(payload=stored, options=tts_options)
     selected_plugin = selected_plugin or _TTS_PLUGIN_DEFAULT_ID
@@ -3333,6 +3382,284 @@ def _memorial_present_world_answer_body(question: str) -> str:
     if any(token in lowered for token in ("welcher tag", "welches datum", "welchen tag haben wir")):
         return "Den heutigen Tag oder das Datum sehe ich hier nicht direkt. Sag es mir kurz, dann ordnen wir es gemeinsam."
     return "Das Aktuelle vor dir sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf."
+
+
+def _memorial_present_world_search_cache_path(*, question: str) -> Path:
+    normalized = " ".join(_text(question, "").lower().split())
+    cache_key = hashlib.sha256(
+        json.dumps(
+            {
+                "provider": _memorial_web_search_provider(),
+                "question": normalized,
+                "max_results": _memorial_web_search_max_results(),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    return (_MEMORIAL_PRESENT_WORLD_CACHE_ROOT / f"{cache_key}.json").resolve()
+
+
+def _memorial_present_world_cache_load(*, question: str) -> dict[str, object] | None:
+    path = _memorial_present_world_search_cache_path(question=question)
+    try:
+        if not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        created_at = float(payload.get("created_at") or 0.0)
+        if created_at <= 0.0:
+            return None
+        if (time.time() - created_at) > float(_memorial_web_search_cache_ttl_seconds()):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def _memorial_present_world_cache_save(*, question: str, payload: dict[str, object]) -> None:
+    path = _memorial_present_world_search_cache_path(question=question)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _memorial_present_world_result_rows(raw: object) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        title = _text(item.get("title"), "")
+        url = _text(item.get("url"), "")
+        snippet = _text(item.get("snippet") or item.get("description") or item.get("content"), "")
+        if not (title and url):
+            continue
+        rows.append(
+            {
+                "title": title[:180],
+                "url": url[:800],
+                "snippet": snippet[:600],
+            }
+        )
+    return rows[: _memorial_web_search_max_results()]
+
+
+def _memorial_present_world_search_request(question: str) -> dict[str, object]:
+    provider = _memorial_web_search_provider()
+    timeout = _memorial_web_search_timeout_seconds()
+    max_results = _memorial_web_search_max_results()
+    query = " ".join(_text(question, "").split())
+    if not query:
+        return {"provider": provider, "query": "", "results": []}
+    cached = _memorial_present_world_cache_load(question=query)
+    if cached is not None:
+        return cached
+
+    result_rows: list[dict[str, str]] = []
+    request_meta: dict[str, object] = {"provider": provider, "query": query, "results": []}
+    api_key = str(os.getenv("EA_MEMORIAL_WEB_SEARCH_API_KEY") or "").strip()
+
+    try:
+        if provider == "brave":
+            if not api_key:
+                raise RuntimeError("memorial_web_search_api_key_missing")
+            response = requests.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": max_results},
+                headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            rows = []
+            for item in ((payload.get("web") or {}).get("results") or []):
+                if not isinstance(item, dict):
+                    continue
+                rows.append(
+                    {
+                        "title": _text(item.get("title"), ""),
+                        "url": _text(item.get("url"), ""),
+                        "snippet": _text(item.get("description"), ""),
+                    }
+                )
+            result_rows = _memorial_present_world_result_rows(rows)
+        elif provider == "tavily":
+            if not api_key:
+                raise RuntimeError("memorial_web_search_api_key_missing")
+            response = requests.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "max_results": max_results,
+                    "include_answer": False,
+                    "search_depth": "basic",
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            result_rows = _memorial_present_world_result_rows(payload.get("results"))
+        elif provider == "serper":
+            if not api_key:
+                raise RuntimeError("memorial_web_search_api_key_missing")
+            response = requests.post(
+                "https://google.serper.dev/search",
+                json={"q": query, "num": max_results, "gl": "at", "hl": "de"},
+                headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            rows = []
+            for item in payload.get("organic") or []:
+                if not isinstance(item, dict):
+                    continue
+                rows.append(
+                    {
+                        "title": _text(item.get("title"), ""),
+                        "url": _text(item.get("link"), ""),
+                        "snippet": _text(item.get("snippet"), ""),
+                    }
+                )
+            result_rows = _memorial_present_world_result_rows(rows)
+        elif provider == "kagi":
+            if not api_key:
+                raise RuntimeError("memorial_web_search_api_key_missing")
+            response = requests.get(
+                "https://kagi.com/api/v0/search",
+                params={"q": query, "limit": max_results},
+                headers={"Authorization": f"Bot {api_key}", "Accept": "application/json"},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            result_rows = _memorial_present_world_result_rows((payload.get("data") or {}).get("results"))
+        else:
+            custom_url = str(os.getenv("EA_MEMORIAL_WEB_SEARCH_CUSTOM_URL") or "").strip()
+            if not custom_url:
+                raise RuntimeError("memorial_web_search_custom_url_missing")
+            method = str(os.getenv("EA_MEMORIAL_WEB_SEARCH_CUSTOM_METHOD") or "POST").strip().upper()
+            headers = {"Accept": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            if method == "GET":
+                response = requests.get(
+                    custom_url,
+                    params={"q": query, "limit": max_results},
+                    headers=headers,
+                    timeout=timeout,
+                )
+            else:
+                headers["Content-Type"] = "application/json"
+                response = requests.post(
+                    custom_url,
+                    json={"q": query, "limit": max_results},
+                    headers=headers,
+                    timeout=timeout,
+                )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+            result_rows = _memorial_present_world_result_rows(
+                payload.get("results") if isinstance(payload, dict) else None
+            )
+    except Exception as exc:
+        logger.warning("memorial_present_world_search_failed provider=%s detail=%s", provider, _text(exc, "")[:240])
+        result_rows = []
+
+    request_meta = {
+        "provider": provider,
+        "query": query,
+        "created_at": time.time(),
+        "results": result_rows,
+    }
+    if result_rows:
+        try:
+            _memorial_present_world_cache_save(question=query, payload=request_meta)
+        except Exception:
+            pass
+    return request_meta
+
+
+def _memorial_present_world_search_answer(question: str, *, requested_model: str) -> dict[str, object] | None:
+    if not _memorial_web_search_enabled():
+        return None
+    search_payload = _memorial_present_world_search_request(question)
+    rows = _memorial_present_world_result_rows(search_payload.get("results"))
+    if not rows:
+        return None
+    source_labels = [
+        " | ".join(part for part in (row.get("title"), row.get("url")) if part)[:220]
+        for row in rows
+    ]
+    search_context = "\n".join(
+        f"- {row.get('title')}: {row.get('snippet')} ({row.get('url')})"
+        for row in rows
+    )
+    model_text = ""
+    llm_provider = "memorial_present_world_search"
+    llm_model = requested_model or GEMINI_VORTEX_PUBLIC_MODEL
+    try:
+        result = generate_text(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Du formulierst Antworten fuer ein Memorial im Ich-Stil, aber ehrlich. "
+                        "Du darfst niemals so tun, als saehe die Person selbst das aktuelle Wetter, die Uhrzeit oder heutige Nachrichten. "
+                        "Wenn aktuelle Quellen vorliegen, sage klar, dass diese Informationen gerade recherchiert wurden. "
+                        "Antworte knapp auf Deutsch in 2 bis 4 Saetzen. "
+                        "Keine Archivdrift, kein Schach, keine Familienanekdote, keine Behauptung von Live-Sicht."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Frage: {question}\n\n"
+                        f"Aktuelle recherchierte Quellen:\n{search_context}\n\n"
+                        "Formuliere eine knappe Antwort im Stil: "
+                        "'Das sehe ich nicht aus mir heraus. Ich habe aber gerade aktuelle Quellen dazu gefunden. ...'"
+                    ),
+                },
+            ],
+            requested_model=llm_model,
+            max_output_tokens=220,
+        )
+        model_text = _compact_memorial_spoken_answer(_text(getattr(result, "text", ""), ""))
+        llm_provider = _text(getattr(result, "provider_key", ""), "memorial_present_world_search") or "memorial_present_world_search"
+        llm_model = _text(getattr(result, "model", ""), llm_model) or llm_model
+    except Exception as exc:
+        logger.warning("memorial_present_world_search_generation_failed detail=%s", _text(exc, "")[:240])
+    if not model_text:
+        snippet = _text(rows[0].get("snippet"), "")
+        if snippet:
+            model_text = (
+                "Das sehe ich nicht aus mir heraus. "
+                "Ich habe aber gerade aktuelle Quellen dazu gefunden. "
+                f"Stand jetzt wirkt es so: {snippet}"
+            )
+        else:
+            model_text = (
+                "Das sehe ich nicht aus mir heraus. "
+                "Ich habe aber gerade aktuelle Quellen dazu gefunden und kann sie fuer dich einordnen."
+            )
+    return {
+        "person_name": "Manfred Hoza",
+        "mode": "memorial_first_person_memory_chat",
+        "question": " ".join(_text(question, "").split()),
+        "answer": model_text,
+        "sources": source_labels,
+        "current_sources": rows,
+        "private_context_used": False,
+        "personal_memory_used": False,
+        "difficult_memory_mode": False,
+        "safety_note": "Erinnerungsmodus in Ich-Form mit aktueller Recherche: keine Behauptung, dass die verstorbene Person selbst Live-Daten sieht.",
+        "llm_model": llm_model,
+        "llm_provider": llm_provider,
+        "llm_request_model": requested_model,
+        "llm_fallback_used": False,
+        "fallback_reason": "present_world_search",
+    }
 
 
 def _memorial_should_include_mail_memory(question: str) -> bool:
@@ -5014,6 +5341,14 @@ def _memorial_chat_answer(
             "fallback_reason": "direct_contact_opening",
         }
     if _is_memorial_present_world_question(normalized_question):
+        search_answer = _memorial_present_world_search_answer(
+            normalized_question,
+            requested_model=requested_model,
+        )
+        if search_answer is not None:
+            search_answer["person_name"] = person_name
+            search_answer["difficult_memory_mode"] = bool(difficult_memory_mode)
+            return search_answer
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
@@ -5404,7 +5739,7 @@ def _render_memorial_tts_audio(
         merged_config.get("tts_plugin_voice_id"),
         _text(selected_option.get("tts_plugin_voice_id"), str(base_config.get("tts_plugin_voice_id"))),
     )
-    extra_filters = _speech_postprocess_filters(selected_plugin)
+    extra_filters = _speech_postprocess_filters_for_config(selected_plugin, merged_config)
     cache_payload = {
         "slug": slug,
         "plugin": selected_plugin,
@@ -5472,8 +5807,21 @@ def _render_memorial_tts_audio(
     return audio, content_type
 
 
-def _speech_postprocess_filters(tts_plugin: str) -> str:
+def _speech_postprocess_profile_for_config(tts_plugin: str, payload: dict[str, object] | None = None) -> str:
     plugin_id = str(tts_plugin or "").strip().lower()
+    configured = _text((payload or {}).get("tts_postprocess_profile"), "").strip().lower()
+    if configured:
+        return configured
+    if plugin_id == UNMIXR_TTS_PLUGIN_ID:
+        return "unmixr_bright_legacy"
+    if plugin_id == VOICEWAVE_TTS_PLUGIN_ID:
+        return "voicewave_fast_compact"
+    return ""
+
+
+def _speech_postprocess_filters_for_config(tts_plugin: str, payload: dict[str, object] | None = None) -> str:
+    plugin_id = str(tts_plugin or "").strip().lower()
+    profile = _speech_postprocess_profile_for_config(tts_plugin, payload)
     if plugin_id == VOICEWAVE_TTS_PLUGIN_ID:
         return ",".join(
             [
@@ -5483,6 +5831,17 @@ def _speech_postprocess_filters(tts_plugin: str) -> str:
             ]
         )
     if plugin_id == UNMIXR_TTS_PLUGIN_ID:
+        if profile in {"unmixr_natural_soft", "natural_soft"}:
+            return ",".join(
+                [
+                    "highpass=f=45",
+                    "equalizer=f=170:t=q:w=1.0:g=0.8",
+                    "equalizer=f=480:t=q:w=0.9:g=0.4",
+                    "equalizer=f=2600:t=q:w=1.0:g=-0.8",
+                    "lowpass=f=7000",
+                    "alimiter=limit=0.94",
+                ]
+            )
         return ",".join(
             [
                 "highpass=f=55",
@@ -8565,6 +8924,9 @@ def _memorial_html(
       let speechStatusLastAt = 0;
       let speechMeterLive = false;
       let speakingOverlayPreview = "";
+      let memorialAudioWarmContext = null;
+      let memorialWarmupActive = false;
+      let memorialWarmupStopTimer = null;
       let realtimeSocket = null;
       let realtimeSocketPromise = null;
       let realtimePrefetchPromise = null;
@@ -9819,6 +10181,40 @@ def _memorial_html(
           }} catch (error) {{}}
         }}
       }}
+      async function primeMemorialAudioOutput(durationMs = 900) {{
+        if (memorialWarmupActive) return;
+        memorialWarmupActive = true;
+        try {{
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) {{
+            memorialWarmupActive = false;
+            return;
+          }}
+          memorialAudioWarmContext = memorialAudioWarmContext || new AudioCtx();
+          if (memorialAudioWarmContext.state === "suspended") {{
+            await memorialAudioWarmContext.resume();
+          }}
+          const oscillator = memorialAudioWarmContext.createOscillator();
+          const gain = memorialAudioWarmContext.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.value = 180;
+          gain.gain.value = 0.0008;
+          oscillator.connect(gain);
+          gain.connect(memorialAudioWarmContext.destination);
+          oscillator.start();
+          if (memorialWarmupStopTimer) clearTimeout(memorialWarmupStopTimer);
+          memorialWarmupStopTimer = window.setTimeout(() => {{
+            try {{ oscillator.stop(); }} catch (error) {{}}
+            try {{ oscillator.disconnect(); }} catch (error) {{}}
+            try {{ gain.disconnect(); }} catch (error) {{}}
+            memorialWarmupActive = false;
+            memorialWarmupStopTimer = null;
+          }}, Math.max(250, Number(durationMs || 900)));
+        }} catch (error) {{
+          memorialWarmupActive = false;
+          memorialWarmupStopTimer = null;
+        }}
+      }}
       function currentTtsOptionOrDefault() {{
         const option = getActiveTtsPluginOption();
         const plugin = String(ttsPluginSelect ? (ttsPluginSelect.value || memorialVoiceConfig.tts_plugin || "") : String(memorialVoiceConfig.tts_plugin || ""));
@@ -9999,6 +10395,7 @@ def _memorial_html(
         setSpeakingOverlayPreview(normalizedText);
         setSpeechStatus("", "thinking", "");
         try {{
+          await primeMemorialAudioOutput(350);
           await speechAudio.play();
         }} catch (error) {{
           failPlayback("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
@@ -10071,6 +10468,7 @@ def _memorial_html(
           if (onDone) onDone();
           return;
         }}
+        void primeMemorialAudioOutput(1200);
         setSpeechStatus("Erzeuge Sprachausgabe mit " + String(pluginConfig.tts_plugin_label || pluginConfig.tts_plugin || "TTS Plugin") + ".", "working", "Audio wird erzeugt");
         try {{
           const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-synthesize", {{
@@ -10639,6 +11037,7 @@ def _memorial_html(
         conversationActive = !conversationActive;
         setConversationUi(conversationActive);
         if (conversationActive) {{
+          void primeMemorialAudioOutput(900);
           conversationIdleMisses = 0;
           conversationTurnCount = 0;
           setSpeechStatus("Ich bin bei dir. Sprich einfach los.", "listening", "Ich hoere dir direkt zu");
