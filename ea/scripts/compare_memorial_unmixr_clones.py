@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import importlib.util
 import io
 import json
@@ -135,45 +136,55 @@ def _evaluate_candidate_prompt(
     combo: dict[str, str],
     reference_metrics: dict[str, float],
     base_url: str,
+    timeout_seconds: float,
 ) -> dict[str, object]:
-    audio, content_type = unmixr_synthesize_request(
-        text=prompt,
-        voice_id=voice_id,
-        lang="de-AT",
-        speaking_rate=str(combo.get("speaking_rate") or "").strip() or None,
-        speaking_pitch=str(combo.get("speaking_pitch") or "").strip() or None,
-        speaking_volume=str(combo.get("speaking_volume") or "").strip() or None,
-    )
-    wav_bytes = _convert_audio_to_wav(payload=audio, content_type=content_type)
-    transcript_payload = _OPTIMIZER._transcribe_audio_bytes(
-        wav_bytes,
-        content_type="audio/wav",
-        slug=slug,
-        base_url=base_url,
-    )
-    transcript_text = str(
-        transcript_payload.get("text")
-        or transcript_payload.get("transcript_text")
-        or ""
-    ).strip()
-    feature_similarity = float(
-        _OPTIMIZER._voice_feature_similarity(
-            reference_metrics,
-            _OPTIMIZER._wav_metrics_from_bytes(wav_bytes),
+    def _work() -> dict[str, object]:
+        audio, content_type = unmixr_synthesize_request(
+            text=prompt,
+            voice_id=voice_id,
+            lang="de-AT",
+            speaking_rate=str(combo.get("speaking_rate") or "").strip() or None,
+            speaking_pitch=str(combo.get("speaking_pitch") or "").strip() or None,
+            speaking_volume=str(combo.get("speaking_volume") or "").strip() or None,
         )
-    )
-    text_similarity = _text_overlap(prompt, transcript_text) if transcript_text else 0.0
-    duration_seconds = _wav_duration_seconds(wav_bytes)
-    score = (feature_similarity * 0.85) + (text_similarity * 0.15)
-    return {
-        "prompt": prompt,
-        "feature_similarity": round(feature_similarity, 4),
-        "text_similarity": round(text_similarity, 4),
-        "score": round(score, 4),
-        "duration_seconds": round(duration_seconds, 3),
-        "transcript_text": transcript_text,
-        "content_type": str(content_type or ""),
-    }
+        wav_bytes = _convert_audio_to_wav(payload=audio, content_type=content_type)
+        transcript_payload = _OPTIMIZER._transcribe_audio_bytes(
+            wav_bytes,
+            content_type="audio/wav",
+            slug=slug,
+            base_url=base_url,
+        )
+        transcript_text = str(
+            transcript_payload.get("text")
+            or transcript_payload.get("transcript_text")
+            or ""
+        ).strip()
+        feature_similarity = float(
+            _OPTIMIZER._voice_feature_similarity(
+                reference_metrics,
+                _OPTIMIZER._wav_metrics_from_bytes(wav_bytes),
+            )
+        )
+        text_similarity = _text_overlap(prompt, transcript_text) if transcript_text else 0.0
+        duration_seconds = _wav_duration_seconds(wav_bytes)
+        score = (feature_similarity * 0.85) + (text_similarity * 0.15)
+        return {
+            "prompt": prompt,
+            "feature_similarity": round(feature_similarity, 4),
+            "text_similarity": round(text_similarity, 4),
+            "score": round(score, 4),
+            "duration_seconds": round(duration_seconds, 3),
+            "transcript_text": transcript_text,
+            "content_type": str(content_type or ""),
+        }
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_work)
+        try:
+            return future.result(timeout=max(1.0, float(timeout_seconds or 0.0)))
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            raise TimeoutError(f"candidate_prompt_timeout:{int(max(1.0, float(timeout_seconds or 0.0)))}s") from exc
 
 
 def compare_unmixr_clones(
@@ -186,6 +197,7 @@ def compare_unmixr_clones(
     output_path: Path | None = None,
     resume: bool = False,
     max_rows: int = 0,
+    prompt_timeout_seconds: float = 90.0,
 ) -> dict[str, object]:
     reference_metrics = _OPTIMIZER._wav_metrics_from_bytes(_reference_path(slug=slug).read_bytes())
     rows: list[dict[str, object]] = []
@@ -281,6 +293,7 @@ def compare_unmixr_clones(
                     combo=combo,
                     reference_metrics=reference_metrics,
                     base_url=base_url,
+                    timeout_seconds=prompt_timeout_seconds,
                 )
                 for prompt in prompts
             ]
@@ -336,6 +349,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exhaustive-prosody", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--max-rows", type=int, default=0)
+    parser.add_argument("--prompt-timeout-seconds", type=float, default=90.0)
     parser.add_argument("--output", default="")
     return parser
 
@@ -357,6 +371,7 @@ def main() -> int:
         output_path=Path(output) if output else None,
         resume=bool(args.resume),
         max_rows=max(0, int(args.max_rows or 0)),
+        prompt_timeout_seconds=max(1.0, float(args.prompt_timeout_seconds or 90.0)),
     )
     if output:
         output_path = Path(output)

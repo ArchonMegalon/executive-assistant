@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import time
 from pathlib import Path
 
 
@@ -154,3 +155,34 @@ def test_compare_unmixr_clones_supports_resume_and_max_rows(monkeypatch, tmp_pat
     assert second["complete"] is True
     assert second["completed_rows"] == 2
     assert second["winner"]["speaking_rate"] == "medium"
+
+
+def test_compare_unmixr_clones_times_out_slow_prompt(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+
+    optimization_dir = tmp_path / "optimization"
+    candidates_dir = optimization_dir / "candidates"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    (candidates_dir / "oSQ9FhFc4YI-01440s-28.wav").write_bytes(b"ref")
+    monkeypatch.setattr(module, "_optimization_root", lambda *, slug: optimization_dir)
+    monkeypatch.setattr(module._OPTIMIZER, "_wav_metrics_from_bytes", lambda payload: {"payload_size": len(payload)})
+
+    def _slow_synthesize(**kwargs):
+        time.sleep(0.05)
+        return b"x" * 20, "audio/wav"
+
+    monkeypatch.setattr(module, "unmixr_synthesize_request", _slow_synthesize)
+
+    try:
+        module.compare_unmixr_clones(
+            slug="manfred",
+            base_url="http://127.0.0.1:8090",
+            voice_ids=["voice-a"],
+            prompts=["Ja. Ich bin da."],
+            combos=[{"speaking_rate": "low", "speaking_pitch": "low", "speaking_volume": "low"}],
+            prompt_timeout_seconds=0.01,
+        )
+    except TimeoutError as exc:
+        assert "candidate_prompt_timeout" in str(exc)
+    else:
+        raise AssertionError("expected timeout")
