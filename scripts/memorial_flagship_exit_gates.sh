@@ -13,6 +13,7 @@ pytest -q \
   tests/test_memorial_flagship_preflight.py \
   tests/test_memorial_room_ready_contracts.py \
   tests/test_memorial_security_contracts.py \
+  tests/test_validate_memorial_voice_loop.py \
   tests/test_providers_api_contracts.py \
   tests/test_memorial_showtime_contracts.py \
   -k 'memorial'
@@ -38,4 +39,22 @@ if [[ -n "${MEMORIAL_FLAGSHIP_BASE_URL:-}" ]]; then
     --output-dir "$TMPDIR/manfred_room_ready_exit_gate" \
     --skip-exit-gates \
     --optional-exit-gates
+
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+report_path = Path(os.environ["TMPDIR"]) / "manfred_room_ready_exit_gate" / "showtime_report.json"
+if not report_path.is_file():
+    raise SystemExit(f"missing_showtime_report:{report_path}")
+payload = json.loads(report_path.read_text(encoding="utf-8"))
+results = payload.get("results") or []
+voice_step = next((item for item in results if item.get("name") == "voice_roundtrip_validation"), None)
+if not voice_step:
+    raise SystemExit("missing_voice_roundtrip_validation_step")
+effective = str(voice_step.get("effective_status") or "")
+if effective != "pass":
+    raise SystemExit(f"voice_roundtrip_validation_not_pass:{effective}")
+PY
 fi
