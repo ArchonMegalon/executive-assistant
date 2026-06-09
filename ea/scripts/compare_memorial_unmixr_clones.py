@@ -11,6 +11,7 @@ import tempfile
 import wave
 from pathlib import Path
 
+from fastapi import HTTPException
 from app.api.routes import public_memorials as memorial_routes
 from app.services.memorial_openvoice import unmixr_synthesize_request
 
@@ -158,6 +159,28 @@ def _text_overlap(expected: str, actual: str) -> float:
     return float(_OPTIMIZER._text_similarity(expected, actual))
 
 
+def _unmixr_throttle_payload(exc: BaseException) -> dict[str, object] | None:
+    if not isinstance(exc, HTTPException):
+        return None
+    if int(getattr(exc, "status_code", 0) or 0) != 502:
+        return None
+    detail = str(getattr(exc, "detail", "") or "").strip()
+    if ":429" not in detail and "throttled" not in detail.lower():
+        return None
+    retry_after_seconds = 0
+    digits = []
+    for token in detail.replace(".", " ").replace(":", " ").split():
+        if token.isdigit():
+            digits.append(int(token))
+    if digits:
+        retry_after_seconds = max(digits)
+    return {
+        "status": "throttled",
+        "detail": detail,
+        "retry_after_seconds": retry_after_seconds,
+    }
+
+
 def _apply_memorial_unmixr_postprocess(
     *,
     payload: bytes,
@@ -194,14 +217,32 @@ def _evaluate_candidate_prompt(
     tail_silence_ms: int,
 ) -> dict[str, object]:
     def _work() -> dict[str, object]:
-        audio, content_type = unmixr_synthesize_request(
-            text=prompt,
-            voice_id=voice_id,
-            lang="de-AT",
-            speaking_rate=str(combo.get("speaking_rate") or "").strip() or None,
-            speaking_pitch=str(combo.get("speaking_pitch") or "").strip() or None,
-            speaking_volume=str(combo.get("speaking_volume") or "").strip() or None,
-        )
+        try:
+            audio, content_type = unmixr_synthesize_request(
+                text=prompt,
+                voice_id=voice_id,
+                lang="de-AT",
+                speaking_rate=str(combo.get("speaking_rate") or "").strip() or None,
+                speaking_pitch=str(combo.get("speaking_pitch") or "").strip() or None,
+                speaking_volume=str(combo.get("speaking_volume") or "").strip() or None,
+            )
+        except Exception as exc:
+            throttle = _unmixr_throttle_payload(exc)
+            if throttle is not None:
+                return {
+                    "prompt": prompt,
+                    "tts_postprocess_profile": str(postprocess_profile or "").strip(),
+                    "feature_similarity": 0.0,
+                    "text_similarity": 0.0,
+                    "score": 0.0,
+                    "duration_seconds": 0.0,
+                    "transcript_text": "",
+                    "content_type": "",
+                    "status": "throttled",
+                    "provider_detail": str(throttle.get("detail") or ""),
+                    "retry_after_seconds": int(throttle.get("retry_after_seconds") or 0),
+                }
+            raise
         wav_bytes, wav_content_type = _apply_memorial_unmixr_postprocess(
             payload=audio,
             content_type=content_type,
@@ -243,6 +284,7 @@ def _evaluate_candidate_prompt(
             "duration_seconds": round(duration_seconds, 3),
             "transcript_text": transcript_text,
             "content_type": "audio/wav",
+            "status": "ok",
         }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -384,6 +426,51 @@ def compare_unmixr_clones(
                     )
                     for prompt in prompts
                 ]
+                throttled_prompt = next(
+                    (
+                        item
+                        for item in prompt_rows
+                        if str(item.get("status") or "").strip().lower() == "throttled"
+                    ),
+                    None,
+                )
+                if isinstance(throttled_prompt, dict):
+                    _write_checkpoint()
+                    return {
+                        "slug": slug,
+                        "base_url": base_url,
+                        "reference_path": str(_reference_path(slug=slug)),
+                        "rows": rows,
+                        "winner": winner,
+                        "recommended_config": {
+                            "tts_plugin": "unmixr_clone",
+                            "tts_plugin_voice_id": str((winner or {}).get("voice_id") or "").strip(),
+                            "voice_profile_id": str((winner or {}).get("voice_id") or "").strip(),
+                            "voice_label": "Manfred Hoza · Unmixr-Klon",
+                            "tts_base_voice_variant": "unmixr",
+                            "unmixr_speaking_rate": str((winner or {}).get("speaking_rate") or "").strip(),
+                            "unmixr_speaking_pitch": str((winner or {}).get("speaking_pitch") or "").strip(),
+                            "unmixr_speaking_volume": str((winner or {}).get("speaking_volume") or "").strip(),
+                            "tts_postprocess_profile": str((winner or {}).get("tts_postprocess_profile") or "").strip(),
+                        },
+                        "completed_rows": len(rows),
+                        "requested_rows": len(voice_ids) * len(combos) * len(postprocess_profiles),
+                        "complete": False,
+                        "feature_only": bool(feature_only),
+                        "lead_in_ms": int(max(0, lead_in_ms)),
+                        "tail_silence_ms": int(max(0, tail_silence_ms)),
+                        "blocked": {
+                            "status": "throttled",
+                            "voice_id": str(voice_id or "").strip(),
+                            "speaking_rate": str(combo.get("speaking_rate") or "").strip(),
+                            "speaking_pitch": str(combo.get("speaking_pitch") or "").strip(),
+                            "speaking_volume": str(combo.get("speaking_volume") or "").strip(),
+                            "tts_postprocess_profile": str(postprocess_profile or "").strip(),
+                            "prompt": str(throttled_prompt.get("prompt") or "").strip(),
+                            "retry_after_seconds": int(throttled_prompt.get("retry_after_seconds") or 0),
+                            "provider_detail": str(throttled_prompt.get("provider_detail") or ""),
+                        },
+                    }
                 average_score = sum(float(item.get("score") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
                 average_feature_similarity = sum(float(item.get("feature_similarity") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
                 average_duration_seconds = sum(float(item.get("duration_seconds") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)

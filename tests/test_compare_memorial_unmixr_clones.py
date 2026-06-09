@@ -5,6 +5,8 @@ import json
 import time
 from pathlib import Path
 
+from fastapi import HTTPException
+
 
 SCRIPT_PATH = Path("/docker/EA/ea/scripts/compare_memorial_unmixr_clones.py")
 
@@ -335,3 +337,35 @@ def test_compare_unmixr_clones_two_stage_reranks_shortlist(monkeypatch, tmp_path
     assert len(report["feature_shortlist_rows"]) == 2
     assert report["winner"]["tts_postprocess_profile"] == "unmixr_natural_minimal"
     assert report["recommended_config"]["tts_postprocess_profile"] == "unmixr_natural_minimal"
+
+
+def test_compare_unmixr_clones_returns_blocked_payload_on_unmixr_throttle(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+
+    optimization_dir = tmp_path / "optimization"
+    candidates_dir = optimization_dir / "candidates"
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+    (candidates_dir / "oSQ9FhFc4YI-01440s-28.wav").write_bytes(b"ref")
+    monkeypatch.setattr(module, "_optimization_root", lambda *, slug: optimization_dir)
+    monkeypatch.setattr(module._OPTIMIZER, "_wav_metrics_from_bytes", lambda payload: {"payload_size": len(payload)})
+
+    def _throttled(**kwargs):
+        raise HTTPException(status_code=502, detail="Request was throttled. Expected available in 4439 seconds.:429")
+
+    monkeypatch.setattr(module, "unmixr_synthesize_request", _throttled)
+
+    report = module.compare_unmixr_clones(
+        slug="manfred",
+        base_url="http://127.0.0.1:8090",
+        voice_ids=["voice-a"],
+        prompts=["Ja. Ich bin da."],
+        combos=[{"speaking_rate": "medium", "speaking_pitch": "medium", "speaking_volume": "low"}],
+        postprocess_profiles=["unmixr_raw_preserve"],
+        feature_only=True,
+    )
+
+    assert report["complete"] is False
+    assert report["completed_rows"] == 0
+    assert report["blocked"]["status"] == "throttled"
+    assert report["blocked"]["retry_after_seconds"] == 4439
+    assert report["blocked"]["tts_postprocess_profile"] == "unmixr_raw_preserve"
