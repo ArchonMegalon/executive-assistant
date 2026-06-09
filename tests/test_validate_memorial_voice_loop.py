@@ -38,6 +38,17 @@ def test_token_overlap_scores_reasonable_similarity() -> None:
     assert overlap["recall"] >= 0.7
 
 
+def test_token_overlap_treats_jo_like_ja() -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    overlap = validator._token_overlap(
+        "Ja. Ich bin da.",
+        "Jo, ich bin da.",
+    )
+
+    assert overlap["f1"] == 1.0
+
+
 def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 

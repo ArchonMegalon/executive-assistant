@@ -90,7 +90,13 @@ def _normalize_compare_text(value: str) -> str:
         .replace("è", "e")
     )
     lowered = re.sub(r"[^a-z0-9]+", " ", lowered)
-    return " ".join(lowered.split())
+    tokens: list[str] = []
+    for token in lowered.split():
+        if token == "jo":
+            tokens.append("ja")
+            continue
+        tokens.append(token)
+    return " ".join(tokens)
 
 
 def _token_overlap(expected: str, actual: str) -> dict[str, float]:
