@@ -6374,6 +6374,14 @@ def _minimal_public_memorial_html(
         }});
       }}
 
+      function completeConversationTurn(generation) {{
+        if (generation !== conversationGeneration) return;
+        conversationActive = false;
+        conversationBusy = false;
+        syncConversationButtons();
+        setSpeechStatus("Ich bin da.", "idle", "");
+      }}
+
       async function captureTurnAudio(options = {{}}) {{
         const stream = await ensureInputStream();
         const mimeType = mimeTypeForRecorder();
@@ -6479,14 +6487,11 @@ def _minimal_public_memorial_html(
           const audioBlob = decodeAudioPayload(payload);
           if (!audioBlob) throw new Error("missing_memorial_audio");
           await playMemorialAudio(audioBlob, generation);
-          if (!conversationActive || generation !== conversationGeneration) return;
+          if (generation !== conversationGeneration) return;
           conversationTurnCount += 1;
-          setSpeechStatus("Ich höre zu.", "idle", "");
-          window.setTimeout(() => {{
-            if (conversationActive && generation === conversationGeneration) void runConversationTurn(generation);
-          }}, 320);
+          completeConversationTurn(generation);
         }} catch (error) {{
-          if (conversationActive && generation === conversationGeneration) setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+          if (conversationActive && generation === conversationGeneration) stopConversation("error");
         }} finally {{
           conversationBusy = false;
         }}
