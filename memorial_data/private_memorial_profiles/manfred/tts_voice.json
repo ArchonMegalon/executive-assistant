@@ -9,7 +9,7 @@
   "unmixr_speaking_rate": "medium",
   "unmixr_speaking_pitch": "medium",
   "unmixr_speaking_volume": "low",
-  "tts_postprocess_profile": "unmixr_natural_minimal",
+  "tts_postprocess_profile": "unmixr_raw_preserve",
   "voice_name_hints": [
     "de-AT",
     "de-DE",
@@ -17,7 +17,7 @@
   ],
   "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
   "tts_base_voice_variant": "unmixr",
-  "notes": "Aktive Memorial-Stimme ist jetzt genau ein Unmixr-Klon. Fuer den Live-Stand laeuft eine minimalere natuerliche Nachbearbeitung mit mittlerer Sprechrate, damit die Stimme weniger kuenstlich und weniger verbogen klingt. Andere Sprecher und Fallback-Stimmen bleiben fuer das Memorial-Gespraech deaktiviert.",
+  "notes": "Aktive Memorial-Stimme ist jetzt genau ein Unmixr-Klon. Fuer den Live-Stand laeuft der rohe Unmixr-Ausgang ohne zusaetzliche Klangverbiegung, weil dieser gegen die starke Referenz natuerlicher und identitaetsnäher wirkt als die zusaetzlichen Filterketten. Andere Sprecher und Fallback-Stimmen bleiben fuer das Memorial-Gespraech deaktiviert.",
   "synthetic_voice_clone_of_memorial_person": true,
   "tts_mode": "unmixr_clone",
   "consent_basis": "owner_consented_voice_clone",

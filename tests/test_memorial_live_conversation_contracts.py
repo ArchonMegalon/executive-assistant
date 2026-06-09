@@ -1581,6 +1581,17 @@ def test_memorial_unmixr_minimal_postprocess_profile_is_available() -> None:
     assert "afftdn" not in filters
 
 
+def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters_for_config(
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        {"tts_postprocess_profile": "unmixr_raw_preserve"},
+    )
+
+    assert filters == ""
+
+
 def test_memorial_speech_transcribe_route_logs_timing_metadata(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

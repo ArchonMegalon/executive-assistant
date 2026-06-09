@@ -5831,6 +5831,8 @@ def _speech_postprocess_filters_for_config(tts_plugin: str, payload: dict[str, o
             ]
         )
     if plugin_id == UNMIXR_TTS_PLUGIN_ID:
+        if profile in {"unmixr_raw_preserve", "unmixr_natural_raw", "raw", "none"}:
+            return ""
         if profile in {"unmixr_natural_minimal", "natural_minimal"}:
             return ",".join(
                 [
