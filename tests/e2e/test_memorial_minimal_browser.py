@@ -222,20 +222,16 @@ def _install_fake_audio_runtime(context) -> None:
             }
             start() {
               this.state = "recording";
-                setTimeout(() => {
-                  if (this.ondataavailable) {
-                    const payload = new Uint8Array(512);
-                    payload.fill(7);
-                    this.ondataavailable({
-                      data: new Blob([payload], { type: this.mimeType }),
-                    });
-                  }
-                this.state = "inactive";
-                if (this.onstop) this.onstop();
-              }, 70);
             }
             stop() {
               if (this.state === "inactive") return;
+              if (this.ondataavailable) {
+                const payload = new Uint8Array(512);
+                payload.fill(7);
+                this.ondataavailable({
+                  data: new Blob([payload], { type: this.mimeType }),
+                });
+              }
               this.state = "inactive";
               if (this.onstop) this.onstop();
             }
@@ -317,6 +313,14 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         )
         with page.expect_response(lambda response: response.url.endswith(f"/memorials/{slug}/conversation-turn") and response.status == 200, timeout=7000):
             page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
+            page.wait_for_function(
+                """() => {
+                  const button = document.getElementById("memorial-conversation");
+                  return Boolean(button && button.textContent && button.textContent.includes("Aufnahme beenden"));
+                }""",
+                timeout=3000,
+            )
+            page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
         page.wait_for_function(
             """() => {
               const audio = document.getElementById("memorial-speech-audio");
@@ -324,7 +328,13 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             }""",
             timeout=7000,
         )
-        page.wait_for_timeout(500)
+        page.wait_for_function(
+            """() => {
+              const button = document.getElementById("memorial-conversation");
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch beginnen"));
+            }""",
+            timeout=7000,
+        )
         phase_text = page.locator("#memorial-speech-phase").text_content() or ""
         message_text = page.locator("#memorial-speech-message").text_content() or ""
         assert "Bitte noch einmal" not in phase_text

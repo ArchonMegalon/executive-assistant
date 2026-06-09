@@ -5919,8 +5919,8 @@ def _minimal_public_memorial_html(
         align-items: center;
       }}
       .hero {{ padding: 0; display: grid; gap: 18px; justify-items: center; text-align: center; }}
-      .hero-copy {{ display: grid; gap: 14px; justify-items: center; }}
-      .hero-actions {{ display: grid; gap: 14px; justify-items: center; }}
+      .hero-copy {{ display: grid; gap: 14px; justify-items: center; width: 100%; }}
+      .hero-actions {{ display: grid; gap: 14px; justify-items: center; width: 100%; }}
       .hero-cta {{
         appearance: none;
         border: 1px solid rgba(72,103,126,.24);
@@ -5935,7 +5935,7 @@ def _minimal_public_memorial_html(
         transition: transform .18s ease, opacity .18s ease;
       }}
       .hero-cta.is-readying,
-      .hero-cta[disabled] {{ opacity: .86; }}
+      .hero-cta[disabled] {{ opacity: .86; cursor: default; }}
       .hero-cta:not([disabled]):hover {{ transform: translateY(-1px); }}
       .install-hint {{
         margin: 0;
@@ -5958,71 +5958,20 @@ def _minimal_public_memorial_html(
         left: 0;
         right: 0;
         bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-        margin-top: 0;
         padding: 0;
       }}
       .chat {{
         border: 1px solid var(--line);
         border-radius: 22px;
-        padding: 18px 18px 16px;
+        padding: 18px 18px 14px;
         background: var(--panel);
         box-shadow: var(--shadow);
       }}
-      .speech-status-bar {{ display: grid; gap: 10px; justify-items: center; text-align: center; }}
+      .speech-status-bar {{ display: grid; gap: 8px; justify-items: center; text-align: center; }}
       .speech-note strong {{ display: block; font-size: 1rem; font-weight: 700; }}
-      .speech-live-monitor {{ display: grid; gap: 10px; width: min(100%, 360px); }}
-      .speech-meter {{
-        position: relative;
-        overflow: hidden;
-        width: 100%;
-        height: 10px;
-        border-radius: 999px;
-        background: rgba(72,103,126,.14);
-      }}
-      .speech-meter-fill {{
-        position: absolute;
-        inset: 0 auto 0 0;
-        width: 100%;
-        transform-origin: left center;
-        transform: scaleX(.06);
-        border-radius: inherit;
-        background: linear-gradient(90deg, rgba(104,133,117,.72), rgba(72,103,126,.92), rgba(201,153,90,.92));
-        transition: transform .12s ease, opacity .16s ease;
-        opacity: .72;
-      }}
-      .speech-wave {{
-        display: flex;
-        align-items: end;
-        justify-content: center;
-        gap: 5px;
-        height: 30px;
-      }}
-      .speech-wave-bar {{
-        width: 7px;
-        height: 10px;
-        border-radius: 999px;
-        background: rgba(72,103,126,.28);
-        transform-origin: center bottom;
-        transform: scaleY(.42);
-        opacity: .72;
-      }}
-      .speech-live-monitor.is-listening .speech-wave-bar,
-      .speech-live-monitor.is-speaking .speech-wave-bar {{ animation: memorial-wave 1.02s ease-in-out infinite; }}
-      .speech-live-monitor.is-listening .speech-wave-bar {{ background: rgba(104,133,117,.66); }}
-      .speech-live-monitor.is-working .speech-wave-bar {{ background: rgba(189,145,84,.44); }}
-      .speech-live-monitor.is-speaking .speech-wave-bar {{ background: rgba(72,103,126,.66); }}
-      .speech-wave-bar:nth-child(2) {{ animation-delay: .08s; }}
-      .speech-wave-bar:nth-child(3) {{ animation-delay: .16s; }}
-      .speech-wave-bar:nth-child(4) {{ animation-delay: .24s; }}
-      .speech-wave-bar:nth-child(5) {{ animation-delay: .32s; }}
-      .speech-wave-bar:nth-child(6) {{ animation-delay: .4s; }}
-      @keyframes memorial-wave {{
-        0%, 100% {{ transform: scaleY(.34); opacity: .55; }}
-        50% {{ transform: scaleY(1); opacity: 1; }}
-      }}
       .speech-status-meta {{
         display: grid;
-        gap: 2px;
+        gap: 3px;
         color: var(--muted);
         font: 600 12px/1.35 ui-sans-serif, system-ui, sans-serif;
       }}
@@ -6049,7 +5998,7 @@ def _minimal_public_memorial_html(
       <div class="wrap hero">
         <div class="hero-copy">
           <div class="hero-actions is-readying" id="memorial-hero-actions">
-            <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Sprich mit der Erinnerung" aria-label="Sprich mit der Erinnerung" aria-disabled="true" disabled onclick="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;" ontouchstart="event.preventDefault(); event.stopImmediatePropagation(); window.__memorialStartConversation && window.__memorialStartConversation(); return false;">Gleich bereit …</button>
+            <button type="button" id="memorial-conversation" class="hero-cta is-readying" data-hero-action="conversation" title="Gespräch beginnen" aria-label="Gespräch beginnen" aria-disabled="true" disabled>Gleich bereit …</button>
           </div>
           <p class="install-hint" id="memorial-install-hint" hidden>
             Am Handy/Desktop installieren.
@@ -6062,17 +6011,6 @@ def _minimal_public_memorial_html(
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
           <strong id="memorial-speech-message">Ich bin da.</strong>
-          <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
-            <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
-            <div class="speech-wave" id="memorial-speech-wave">
-              <span class="speech-wave-bar"></span>
-              <span class="speech-wave-bar"></span>
-              <span class="speech-wave-bar"></span>
-              <span class="speech-wave-bar"></span>
-              <span class="speech-wave-bar"></span>
-              <span class="speech-wave-bar"></span>
-            </div>
-          </div>
           <div class="speech-status-meta">
             <span id="memorial-speech-phase">Bereit</span>
             <span id="memorial-speech-detail"></span>
@@ -6086,79 +6024,26 @@ def _minimal_public_memorial_html(
       const installHint = document.getElementById("memorial-install-hint");
       const installButton = document.getElementById("memorial-install-button");
       const heroActions = document.getElementById("memorial-hero-actions");
+      const conversationButton = document.getElementById("memorial-conversation");
       const retryButton = document.getElementById("memorial-retry-button");
       const speechAudio = document.getElementById("memorial-speech-audio");
       const speechNote = document.getElementById("memorial-speech-note");
       const speechMessage = document.getElementById("memorial-speech-message");
       const speechPhase = document.getElementById("memorial-speech-phase");
       const speechDetail = document.getElementById("memorial-speech-detail");
-      const speechMonitor = document.getElementById("memorial-speech-monitor");
-      const speechMeterFill = document.getElementById("memorial-speech-meter-fill");
-      const conversationButtons = Array.from(document.querySelectorAll("[data-hero-action='conversation']"));
       let deferredInstallPrompt = null;
       let memorialWarmupPromise = null;
       let memorialLandingReady = false;
-      let conversationActive = false;
-      let conversationBusy = false;
-      let conversationTurnCount = 0;
-      let conversationGeneration = 0;
-      let activeStream = null;
+      let recordingActive = false;
+      let requestInFlight = false;
+      let activeGeneration = 0;
       let activeRecorder = null;
-      let activeAudioContext = null;
-      let activeAnalyser = null;
-      let activeMeterTimer = null;
-      let activeMaxTimer = null;
-      let activeSilenceTimer = null;
-      let activeRequestController = null;
+      let activeStream = null;
+      let activeChunks = [];
+      let activeRecordStopTimer = null;
+      let activeFetchController = null;
+      let activeRecordingPromise = null;
       let speechObjectUrl = null;
-      let speechMeterLive = false;
-
-      function setSpeechMeterLevel(level) {{
-        if (!speechMeterFill) return;
-        const normalized = Math.max(0.06, Math.min(1, Number(level || 0)));
-        speechMeterFill.style.transform = "scaleX(" + String(normalized) + ")";
-        speechMeterFill.style.opacity = normalized > 0.2 ? ".96" : ".72";
-      }}
-
-      function disarmMeter() {{
-        speechMeterLive = false;
-        if (activeMeterTimer) {{
-          clearInterval(activeMeterTimer);
-          activeMeterTimer = null;
-        }}
-        if (activeAudioContext) {{
-          try {{ activeAudioContext.close(); }} catch (error) {{}}
-          activeAudioContext = null;
-        }}
-        activeAnalyser = null;
-      }}
-
-      function armMeter(stream) {{
-        disarmMeter();
-        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextCtor || !stream) return;
-        try {{
-          activeAudioContext = new AudioContextCtor();
-          const source = activeAudioContext.createMediaStreamSource(stream);
-          activeAnalyser = activeAudioContext.createAnalyser();
-          activeAnalyser.fftSize = 256;
-          source.connect(activeAnalyser);
-          const samples = new Uint8Array(activeAnalyser.fftSize);
-          speechMeterLive = true;
-          activeMeterTimer = window.setInterval(() => {{
-            if (!activeAnalyser) return;
-            activeAnalyser.getByteTimeDomainData(samples);
-            let sum = 0;
-            for (let index = 0; index < samples.length; index += 1) {{
-              const centered = (samples[index] - 128) / 128;
-              sum += centered * centered;
-            }}
-            setSpeechMeterLevel(Math.min(1, 0.08 + Math.sqrt(sum / samples.length) * 4.2));
-          }}, 70);
-        }} catch (error) {{
-          disarmMeter();
-        }}
-      }}
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
         if (retryButton) retryButton.hidden = state !== "error";
@@ -6172,45 +6057,40 @@ def _minimal_public_memorial_html(
         }}
         if (speechPhase) speechPhase.textContent = ({{
           idle: "Bereit",
-          listening: "Ich höre zu",
+          listening: "Aufnahme läuft",
           working: "Einen Moment",
           playing: "Manfred",
           error: "Bitte noch einmal"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
-        if (speechMonitor) {{
-          speechMonitor.classList.remove("is-idle", "is-listening", "is-working", "is-speaking", "is-error");
-          speechMonitor.classList.add(({{
-            idle: "is-idle",
-            listening: "is-listening",
-            working: "is-working",
-            playing: "is-speaking",
-            error: "is-error"
-          }})[state] || "is-idle");
-        }}
-        if (!speechMeterLive) {{
-          const ambient = ({{ idle: 0.06, listening: 0.22, working: 0.14, playing: 0.34, error: 0.08 }})[state] || 0.06;
-          setSpeechMeterLevel(ambient);
-        }}
       }}
 
-      function syncConversationButtons() {{
-        const label = conversationActive ? "Gespräch stoppen" : (memorialLandingReady ? "Gespräch beginnen" : "Gleich bereit …");
-        for (const button of conversationButtons) {{
-          if (!button) continue;
-          button.textContent = label;
-          button.setAttribute("aria-pressed", conversationActive ? "true" : "false");
-          button.disabled = !conversationActive && !memorialLandingReady;
-          button.setAttribute("aria-disabled", (!conversationActive && !memorialLandingReady) ? "true" : "false");
-          button.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
+      function syncConversationButton() {{
+        if (!conversationButton) return;
+        let label = "Gleich bereit …";
+        let disabled = true;
+        if (recordingActive) {{
+          label = "Aufnahme beenden";
+          disabled = false;
+        }} else if (requestInFlight) {{
+          label = "Einen Moment …";
+          disabled = true;
+        }} else if (memorialLandingReady) {{
+          label = "Gespräch beginnen";
+          disabled = false;
         }}
-        if (heroActions) heroActions.classList.toggle("is-readying", !conversationActive && !memorialLandingReady);
+        conversationButton.textContent = label;
+        conversationButton.disabled = disabled;
+        conversationButton.setAttribute("aria-disabled", disabled ? "true" : "false");
+        conversationButton.setAttribute("aria-pressed", recordingActive ? "true" : "false");
+        conversationButton.classList.toggle("is-readying", disabled && !recordingActive && !requestInFlight);
+        if (heroActions) heroActions.classList.toggle("is-readying", disabled && !recordingActive && !requestInFlight);
       }}
 
       function setMemorialLandingReady(ready, detail = "") {{
         memorialLandingReady = Boolean(ready);
-        syncConversationButtons();
-        if (!conversationActive) {{
+        syncConversationButton();
+        if (!recordingActive && !requestInFlight) {{
           if (memorialLandingReady) setSpeechStatus("Ich bin da.", "idle", detail || "");
           else setSpeechStatus("Ich richte mich kurz ein.", "working", detail || "");
         }}
@@ -6219,12 +6099,12 @@ def _minimal_public_memorial_html(
       async function fetchWithTimeout(url, options = {{}}, timeoutMs = 45000) {{
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
-        activeRequestController = controller;
+        activeFetchController = controller;
         try {{
           return await fetch(url, Object.assign({{}}, options, {{ signal: controller.signal }}));
         }} finally {{
           clearTimeout(timer);
-          if (activeRequestController === controller) activeRequestController = null;
+          if (activeFetchController === controller) activeFetchController = null;
         }}
       }}
 
@@ -6253,11 +6133,7 @@ def _minimal_public_memorial_html(
         while (Date.now() - startedAt < maxWaitMs) {{
           try {{
             const payload = await fetchMemorialWarmupStatus();
-            if (
-              payload &&
-              payload.warm &&
-              (payload.voice_required === false || payload.voice_ready === true)
-            ) return payload;
+            if (payload && payload.warm && (payload.voice_required === false || payload.voice_ready === true)) return payload;
           }} catch (error) {{}}
           await new Promise((resolve) => window.setTimeout(resolve, 900));
         }}
@@ -6276,14 +6152,6 @@ def _minimal_public_memorial_html(
         setMemorialLandingReady(true, "");
       }}
 
-      function mimeTypeForRecorder() {{
-        const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-        for (const candidate of candidates) {{
-          if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidate)) return candidate;
-        }}
-        return "";
-      }}
-
       async function ensureInputStream() {{
         if (activeStream) return activeStream;
         activeStream = await navigator.mediaDevices.getUserMedia({{
@@ -6293,54 +6161,72 @@ def _minimal_public_memorial_html(
         return activeStream;
       }}
 
+      function pickRecorderMimeType() {{
+        const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/mpeg"];
+        for (const candidate of candidates) {{
+          if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidate)) return candidate;
+        }}
+        return "";
+      }}
+
       function stopSpeechPlayback() {{
         if (speechObjectUrl) {{
-          URL.revokeObjectURL(speechObjectUrl);
+          try {{ URL.revokeObjectURL(speechObjectUrl); }} catch (error) {{}}
           speechObjectUrl = null;
         }}
         if (window.speechSynthesis) window.speechSynthesis.cancel();
         try {{
           speechAudio.pause();
+          speechAudio.currentTime = 0;
           speechAudio.removeAttribute("src");
           speechAudio.load();
         }} catch (error) {{}}
       }}
 
-      function releaseConversationAudio() {{
-        if (activeMaxTimer) {{
-          clearTimeout(activeMaxTimer);
-          activeMaxTimer = null;
+      function stopRecorder() {{
+        if (activeRecordStopTimer) {{
+          clearTimeout(activeRecordStopTimer);
+          activeRecordStopTimer = null;
         }}
-        if (activeSilenceTimer) {{
-          clearInterval(activeSilenceTimer);
-          activeSilenceTimer = null;
+        if (activeRecorder) {{
+          try {{
+            if (activeRecorder.state !== "inactive") activeRecorder.stop();
+          }} catch (error) {{}}
         }}
-        if (activeRecorder && activeRecorder.state !== "inactive") {{
-          try {{ activeRecorder.stop(); }} catch (error) {{}}
-        }}
-        activeRecorder = null;
+      }}
+
+      function releaseInputStream() {{
         if (activeStream) {{
           for (const track of activeStream.getTracks()) {{
             try {{ track.stop(); }} catch (error) {{}}
           }}
           activeStream = null;
         }}
-        disarmMeter();
       }}
 
-      function stopConversation(reason = "idle") {{
-        conversationActive = false;
-        conversationBusy = false;
-        conversationGeneration += 1;
-        if (activeRequestController) {{
-          try {{ activeRequestController.abort(); }} catch (error) {{}}
-          activeRequestController = null;
+      function resetCaptureState() {{
+        if (activeRecordStopTimer) {{
+          clearTimeout(activeRecordStopTimer);
+          activeRecordStopTimer = null;
         }}
+        activeRecorder = null;
+        activeChunks = [];
+        activeRecordingPromise = null;
+        releaseInputStream();
+      }}
+
+      function abortActiveTurn() {{
+        activeGeneration += 1;
+        recordingActive = false;
+        requestInFlight = false;
+        if (activeFetchController) {{
+          try {{ activeFetchController.abort(); }} catch (error) {{}}
+          activeFetchController = null;
+        }}
+        stopRecorder();
         stopSpeechPlayback();
-        releaseConversationAudio();
-        syncConversationButtons();
-        if (reason === "error") setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
-        else setSpeechStatus("Ich bin da.", "idle", "");
+        resetCaptureState();
+        syncConversationButton();
       }}
 
       function decodeAudioPayload(payload) {{
@@ -6369,91 +6255,50 @@ def _minimal_public_memorial_html(
           speechAudio.onended = () => finish();
           speechAudio.onerror = () => finish(new Error("audio_playback_failed"));
           speechAudio.play().then(() => {{
-            if (generation !== conversationGeneration) finish(new Error("playback_cancelled"));
+            if (generation !== activeGeneration) finish(new Error("playback_cancelled"));
           }}).catch((error) => finish(error || new Error("audio_play_failed")));
         }});
       }}
 
-      function completeConversationTurn(generation) {{
-        if (generation !== conversationGeneration) return;
-        conversationActive = false;
-        conversationBusy = false;
-        syncConversationButtons();
-        setSpeechStatus("Ich bin da.", "idle", "");
-      }}
-
-      async function captureTurnAudio(options = {{}}) {{
+      async function beginManualRecording(generation) {{
         const stream = await ensureInputStream();
-        const mimeType = mimeTypeForRecorder();
+        const mimeType = pickRecorderMimeType();
         const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
         activeRecorder = recorder;
-        armMeter(stream);
-        const analyser = activeAnalyser;
-        const samples = analyser ? new Uint8Array(analyser.fftSize) : null;
-        const chunks = [];
-        const autoStopMs = Math.max(1600, Number(options.autoStopMs || 2200));
-        const silenceMs = Math.max(220, Number(options.silenceMs || 300));
-        const silenceThreshold = Math.max(0.006, Number(options.silenceThreshold || 0.012));
+        activeChunks = [];
         return await new Promise((resolve, reject) => {{
           let settled = false;
-          let speechDetected = false;
-          let lastSpeechAt = Date.now();
           recorder.ondataavailable = (event) => {{
-            if (event.data && event.data.size > 0) chunks.push(event.data);
+            if (event.data && event.data.size > 0) activeChunks.push(event.data);
           }};
           recorder.onerror = () => {{
             if (settled) return;
             settled = true;
+            resetCaptureState();
             reject(new Error("capture_failed"));
           }};
           recorder.onstop = () => {{
             if (settled) return;
             settled = true;
-            if (activeSilenceTimer) {{
-              clearInterval(activeSilenceTimer);
-              activeSilenceTimer = null;
-            }}
-            if (activeMaxTimer) {{
-              clearTimeout(activeMaxTimer);
-              activeMaxTimer = null;
-            }}
-            disarmMeter();
-            const blob = chunks.length ? new Blob(chunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
+            const blob = activeChunks.length ? new Blob(activeChunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
+            resetCaptureState();
             resolve(blob);
           }};
           recorder.start();
-          activeMaxTimer = window.setTimeout(() => {{
-            if (recorder.state === "recording") {{
-              try {{ recorder.stop(); }} catch (error) {{}}
-            }}
-          }}, autoStopMs);
-          activeSilenceTimer = window.setInterval(() => {{
-            if (!analyser || !samples) return;
-            analyser.getByteTimeDomainData(samples);
-            let sum = 0;
-            for (let index = 0; index < samples.length; index += 1) {{
-              const centered = (samples[index] - 128) / 128;
-              sum += centered * centered;
-            }}
-            const rms = Math.sqrt(sum / samples.length);
-            if (rms >= silenceThreshold) {{
-              speechDetected = true;
-              lastSpeechAt = Date.now();
-              return;
-            }}
-            if (speechDetected && (Date.now() - lastSpeechAt) >= silenceMs && recorder.state === "recording") {{
-              try {{ recorder.stop(); }} catch (error) {{}}
-            }}
-          }}, 60);
+          activeRecordStopTimer = window.setTimeout(() => {{
+            if (generation !== activeGeneration) return;
+            stopRecorder();
+          }}, 12000);
         }});
       }}
 
-      async function sendConversationTurn(blob) {{
+      async function sendConversationTurn(blob, generation) {{
         const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/conversation-turn", {{
           method: "POST",
           headers: {{ "Content-Type": blob.type || "audio/webm" }},
           body: blob,
         }}, 90000);
+        if (generation !== activeGeneration) throw new Error("turn_superseded");
         let payload = null;
         try {{
           payload = await response.json();
@@ -6467,37 +6312,7 @@ def _minimal_public_memorial_html(
         return payload || {{}};
       }}
 
-      async function runConversationTurn(generation) {{
-        if (!conversationActive || conversationBusy || generation !== conversationGeneration) return;
-        conversationBusy = true;
-        try {{
-          const captureOptions = conversationTurnCount <= 0
-            ? {{ autoStopMs: 2100, silenceMs: 260, silenceThreshold: 0.012 }}
-            : {{ autoStopMs: 2500, silenceMs: 300, silenceThreshold: 0.013 }};
-          setSpeechStatus("Sprich direkt los.", "listening", "");
-          const blob = await captureTurnAudio(captureOptions);
-          if (!conversationActive || generation !== conversationGeneration) return;
-          if (!blob || blob.size < 128) {{
-            setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
-            return;
-          }}
-          setSpeechStatus("Einen Moment.", "working", "");
-          const payload = await sendConversationTurn(blob);
-          if (!conversationActive || generation !== conversationGeneration) return;
-          const audioBlob = decodeAudioPayload(payload);
-          if (!audioBlob) throw new Error("missing_memorial_audio");
-          await playMemorialAudio(audioBlob, generation);
-          if (generation !== conversationGeneration) return;
-          conversationTurnCount += 1;
-          completeConversationTurn(generation);
-        }} catch (error) {{
-          if (conversationActive && generation === conversationGeneration) stopConversation("error");
-        }} finally {{
-          conversationBusy = false;
-        }}
-      }}
-
-      async function startConversation() {{
+      async function ensureLandingReadyForConversation() {{
         if (!memorialLandingReady) {{
           setSpeechStatus("Ich richte mich noch ein.", "working", "");
           await requestMemorialWarmup("conversation_start");
@@ -6506,20 +6321,63 @@ def _minimal_public_memorial_html(
         }} else {{
           void requestMemorialWarmup("conversation_start");
         }}
-        if (conversationActive) return;
-        conversationActive = true;
-        conversationBusy = false;
-        conversationTurnCount = 0;
-        conversationGeneration += 1;
-        syncConversationButtons();
-        await runConversationTurn(conversationGeneration);
+      }}
+
+      async function startConversation() {{
+        if (recordingActive || requestInFlight) return;
+        await ensureLandingReadyForConversation();
+        stopSpeechPlayback();
+        activeGeneration += 1;
+        const generation = activeGeneration;
+        recordingActive = true;
+        syncConversationButton();
+        setSpeechStatus("Sprich jetzt. Wenn du fertig bist, tippe noch einmal.", "listening", "");
+        try {{
+          activeRecordingPromise = beginManualRecording(generation);
+        }} catch (error) {{
+          recordingActive = false;
+          activeRecordingPromise = null;
+          syncConversationButton();
+          setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+        }}
+      }}
+
+      async function finishConversationRecording() {{
+        if (!recordingActive) return;
+        const generation = activeGeneration;
+        const recordingPromise = activeRecordingPromise;
+        recordingActive = false;
+        requestInFlight = true;
+        syncConversationButton();
+        setSpeechStatus("Einen Moment.", "working", "");
+        stopRecorder();
+        try {{
+          const blob = await recordingPromise;
+          if (generation !== activeGeneration) return;
+          if (!blob || blob.size < 128) throw new Error("capture_empty");
+          const payload = await sendConversationTurn(blob, generation);
+          if (generation !== activeGeneration) return;
+          const audioBlob = decodeAudioPayload(payload);
+          if (!audioBlob) throw new Error("missing_memorial_audio");
+          await playMemorialAudio(audioBlob, generation);
+          if (generation !== activeGeneration) return;
+          setSpeechStatus("Ich bin da.", "idle", "");
+        }} catch (error) {{
+          if (generation === activeGeneration) setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+        }} finally {{
+          if (generation === activeGeneration) {{
+            requestInFlight = false;
+            syncConversationButton();
+          }}
+        }}
       }}
 
       function toggleConversation() {{
-        if (conversationActive) {{
-          stopConversation("idle");
+        if (recordingActive) {{
+          void finishConversationRecording();
           return;
         }}
+        if (requestInFlight) return;
         void startConversation();
       }}
 
@@ -6530,6 +6388,12 @@ def _minimal_public_memorial_html(
         retryButton.addEventListener("click", () => {{
           retryButton.hidden = true;
           void startConversation();
+        }});
+      }}
+      if (conversationButton) {{
+        conversationButton.addEventListener("click", (event) => {{
+          event.preventDefault();
+          toggleConversation();
         }});
       }}
 
@@ -6552,7 +6416,7 @@ def _minimal_public_memorial_html(
       }}
 
       window.addEventListener("beforeunload", () => {{
-        stopConversation("idle");
+        abortActiveTurn();
       }});
 
       async function retireLegacyMemorialServiceWorkers() {{
@@ -6579,7 +6443,7 @@ def _minimal_public_memorial_html(
         }} catch (error) {{}}
       }}
 
-      syncConversationButtons();
+      syncConversationButton();
       setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
       window.setTimeout(() => {{
         void retireLegacyMemorialServiceWorkers();

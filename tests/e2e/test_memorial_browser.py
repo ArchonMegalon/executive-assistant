@@ -222,20 +222,16 @@ def _install_fake_audio_runtime(context) -> None:
             }
             start() {
               this.state = "recording";
-              setTimeout(() => {
-                if (this.ondataavailable) {
-                  const payload = new Uint8Array(512);
-                  payload.fill(7);
-                  this.ondataavailable({
-                    data: new Blob([payload], { type: this.mimeType }),
-                  });
-                }
-                this.state = "inactive";
-                if (this.onstop) this.onstop();
-              }, 70);
             }
             stop() {
               if (this.state === "inactive") return;
+              if (this.ondataavailable) {
+                const payload = new Uint8Array(512);
+                payload.fill(7);
+                this.ondataavailable({
+                  data: new Blob([payload], { type: this.mimeType }),
+                });
+              }
               this.state = "inactive";
               if (this.onstop) this.onstop();
             }
@@ -365,6 +361,14 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
             lambda response: response.url.endswith(f"/memorials/{slug}/conversation-turn") and response.status == 200,
             timeout=7000,
         ):
+            page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
+            page.wait_for_function(
+                """() => {
+                  const button = document.getElementById("memorial-conversation");
+                  return Boolean(button && button.textContent && button.textContent.includes("Aufnahme beenden"));
+                }""",
+                timeout=3000,
+            )
             page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
         page.wait_for_function(
             """() => {

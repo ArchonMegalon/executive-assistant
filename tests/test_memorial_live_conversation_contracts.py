@@ -1355,10 +1355,11 @@ def test_memorial_live_page_uses_minimal_conversation_turn_client(
     assert "/memorials/manfred/conversation-turn" in source
     assert 'requestMemorialWarmup("page_load")' in source
     assert 'requestMemorialWarmup("conversation_start")' in source
-    assert "captureTurnAudio" in source
-    assert "autoStopMs: 2100" in source
-    assert "silenceMs: 260" in source
-    assert "silenceThreshold: 0.012" in source
+    assert "beginManualRecording" in source
+    assert "finishConversationRecording" in source
+    assert "Aufnahme beenden" in source
+    assert "captureTurnAudio" not in source
+    assert "ontouchstart=" not in source
     assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
     assert "retireLegacyMemorialServiceWorkers" in source
     assert "navigator.serviceWorker.register" not in source
