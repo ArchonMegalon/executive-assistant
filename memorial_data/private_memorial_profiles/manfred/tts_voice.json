@@ -8,7 +8,7 @@
   "volume": 1.0,
   "unmixr_speaking_rate": "medium",
   "unmixr_speaking_pitch": "medium",
-  "unmixr_speaking_volume": "low",
+  "unmixr_speaking_volume": "medium",
   "tts_postprocess_profile": "unmixr_raw_preserve",
   "voice_name_hints": [
     "de-AT",

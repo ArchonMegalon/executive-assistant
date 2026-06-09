@@ -11,6 +11,7 @@ import tempfile
 import wave
 from pathlib import Path
 
+from app.api.routes import public_memorials as memorial_routes
 from app.services.memorial_openvoice import unmixr_synthesize_request
 
 
@@ -26,6 +27,7 @@ DEFAULT_COMBOS = [
     {"speaking_rate": "medium", "speaking_pitch": "medium", "speaking_volume": "high"},
 ]
 _PROSODY_LEVELS = ("low", "medium", "high")
+DEFAULT_POSTPROCESS_PROFILES = [""]
 
 
 def _load_optimizer_module():
@@ -85,6 +87,18 @@ def _prosody_combos(*, exhaustive: bool) -> list[dict[str, str]]:
     return combos
 
 
+def _postprocess_profiles(*, configured: list[str] | None = None) -> list[str]:
+    requested = [str(item or "").strip() for item in list(configured or [])]
+    normalized = [item for item in requested if item or item == ""]
+    if not normalized:
+        return list(DEFAULT_POSTPROCESS_PROFILES)
+    deduped: list[str] = []
+    for item in normalized:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
 def _convert_audio_to_wav(*, payload: bytes, content_type: str) -> bytes:
     normalized = str(content_type or "").split(";", 1)[0].strip().lower()
     if normalized in {"audio/wav", "audio/wave", "audio/x-wav"}:
@@ -128,6 +142,27 @@ def _text_overlap(expected: str, actual: str) -> float:
     return float(_OPTIMIZER._text_similarity(expected, actual))
 
 
+def _apply_memorial_unmixr_postprocess(
+    *,
+    payload: bytes,
+    content_type: str,
+    postprocess_profile: str,
+    lead_in_ms: int,
+    tail_silence_ms: int,
+) -> tuple[bytes, str]:
+    filters = memorial_routes._speech_postprocess_filters_for_config(
+        memorial_routes.UNMIXR_TTS_PLUGIN_ID,
+        {"tts_postprocess_profile": str(postprocess_profile or "").strip()},
+    )
+    return memorial_routes._pad_speech_audio_lead_in(
+        payload=payload,
+        content_type=content_type,
+        silence_ms=max(0, int(lead_in_ms or 0)),
+        tail_silence_ms=max(0, int(tail_silence_ms or 0)),
+        extra_filters=filters,
+    )
+
+
 def _evaluate_candidate_prompt(
     *,
     slug: str,
@@ -137,6 +172,10 @@ def _evaluate_candidate_prompt(
     reference_metrics: dict[str, float],
     base_url: str,
     timeout_seconds: float,
+    postprocess_profile: str,
+    feature_only: bool,
+    lead_in_ms: int,
+    tail_silence_ms: int,
 ) -> dict[str, object]:
     def _work() -> dict[str, object]:
         audio, content_type = unmixr_synthesize_request(
@@ -147,18 +186,29 @@ def _evaluate_candidate_prompt(
             speaking_pitch=str(combo.get("speaking_pitch") or "").strip() or None,
             speaking_volume=str(combo.get("speaking_volume") or "").strip() or None,
         )
-        wav_bytes = _convert_audio_to_wav(payload=audio, content_type=content_type)
+        wav_bytes, wav_content_type = _apply_memorial_unmixr_postprocess(
+            payload=audio,
+            content_type=content_type,
+            postprocess_profile=postprocess_profile,
+            lead_in_ms=lead_in_ms,
+            tail_silence_ms=tail_silence_ms,
+        )
+        wav_bytes = _convert_audio_to_wav(payload=wav_bytes, content_type=wav_content_type)
         transcript_payload = _OPTIMIZER._transcribe_audio_bytes(
             wav_bytes,
             content_type="audio/wav",
             slug=slug,
             base_url=base_url,
+        ) if not feature_only else {}
+        transcript_text = (
+            str(
+                transcript_payload.get("text")
+                or transcript_payload.get("transcript_text")
+                or ""
+            ).strip()
+            if not feature_only
+            else ""
         )
-        transcript_text = str(
-            transcript_payload.get("text")
-            or transcript_payload.get("transcript_text")
-            or ""
-        ).strip()
         feature_similarity = float(
             _OPTIMIZER._voice_feature_similarity(
                 reference_metrics,
@@ -167,15 +217,16 @@ def _evaluate_candidate_prompt(
         )
         text_similarity = _text_overlap(prompt, transcript_text) if transcript_text else 0.0
         duration_seconds = _wav_duration_seconds(wav_bytes)
-        score = (feature_similarity * 0.85) + (text_similarity * 0.15)
+        score = feature_similarity if feature_only else ((feature_similarity * 0.85) + (text_similarity * 0.15))
         return {
             "prompt": prompt,
+            "tts_postprocess_profile": str(postprocess_profile or "").strip(),
             "feature_similarity": round(feature_similarity, 4),
             "text_similarity": round(text_similarity, 4),
             "score": round(score, 4),
             "duration_seconds": round(duration_seconds, 3),
             "transcript_text": transcript_text,
-            "content_type": str(content_type or ""),
+            "content_type": "audio/wav",
         }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -194,22 +245,28 @@ def compare_unmixr_clones(
     voice_ids: list[str],
     prompts: list[str],
     combos: list[dict[str, str]],
+    postprocess_profiles: list[str] | None = None,
     output_path: Path | None = None,
     resume: bool = False,
     max_rows: int = 0,
     prompt_timeout_seconds: float = 90.0,
+    feature_only: bool = False,
+    lead_in_ms: int = 0,
+    tail_silence_ms: int = 0,
 ) -> dict[str, object]:
+    postprocess_profiles = _postprocess_profiles(configured=postprocess_profiles)
     reference_metrics = _OPTIMIZER._wav_metrics_from_bytes(_reference_path(slug=slug).read_bytes())
     rows: list[dict[str, object]] = []
     winner: dict[str, object] | None = None
     seen_keys: set[tuple[str, str, str, str]] = set()
 
-    def _row_key(row: dict[str, object]) -> tuple[str, str, str, str]:
+    def _row_key(row: dict[str, object]) -> tuple[str, str, str, str, str]:
         return (
             str(row.get("voice_id") or "").strip(),
             str(row.get("speaking_rate") or "").strip(),
             str(row.get("speaking_pitch") or "").strip(),
             str(row.get("speaking_volume") or "").strip(),
+            str(row.get("tts_postprocess_profile") or "").strip(),
         )
 
     def _write_checkpoint() -> None:
@@ -230,10 +287,14 @@ def compare_unmixr_clones(
                 "unmixr_speaking_rate": str((winner or {}).get("speaking_rate") or "").strip(),
                 "unmixr_speaking_pitch": str((winner or {}).get("speaking_pitch") or "").strip(),
                 "unmixr_speaking_volume": str((winner or {}).get("speaking_volume") or "").strip(),
+                "tts_postprocess_profile": str((winner or {}).get("tts_postprocess_profile") or "").strip(),
             },
             "completed_rows": len(rows),
-            "requested_rows": len(voice_ids) * len(combos),
-            "complete": len(rows) >= (len(voice_ids) * len(combos)),
+            "requested_rows": len(voice_ids) * len(combos) * len(postprocess_profiles),
+            "complete": len(rows) >= (len(voice_ids) * len(combos) * len(postprocess_profiles)),
+            "feature_only": bool(feature_only),
+            "lead_in_ms": int(max(0, lead_in_ms)),
+            "tail_silence_ms": int(max(0, tail_silence_ms)),
         }
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -255,67 +316,78 @@ def compare_unmixr_clones(
     rows_evaluated = 0
     for voice_id in voice_ids:
         for combo in combos:
-            row_identity = (
-                str(voice_id or "").strip(),
-                str(combo.get("speaking_rate") or "").strip(),
-                str(combo.get("speaking_pitch") or "").strip(),
-                str(combo.get("speaking_volume") or "").strip(),
-            )
-            if row_identity in seen_keys:
-                continue
-            if max_rows > 0 and rows_evaluated >= max_rows:
-                _write_checkpoint()
-                return {
-                    "slug": slug,
-                    "base_url": base_url,
-                    "reference_path": str(_reference_path(slug=slug)),
-                    "rows": rows,
-                    "winner": winner,
-                    "recommended_config": {
-                        "tts_plugin": "unmixr_clone",
-                        "tts_plugin_voice_id": str((winner or {}).get("voice_id") or "").strip(),
-                        "voice_profile_id": str((winner or {}).get("voice_id") or "").strip(),
-                        "voice_label": "Manfred Hoza · Unmixr-Klon",
-                        "tts_base_voice_variant": "unmixr",
-                        "unmixr_speaking_rate": str((winner or {}).get("speaking_rate") or "").strip(),
-                        "unmixr_speaking_pitch": str((winner or {}).get("speaking_pitch") or "").strip(),
-                        "unmixr_speaking_volume": str((winner or {}).get("speaking_volume") or "").strip(),
-                    },
-                    "completed_rows": len(rows),
-                    "requested_rows": len(voice_ids) * len(combos),
-                    "complete": False,
-                }
-            prompt_rows = [
-                _evaluate_candidate_prompt(
-                    slug=slug,
-                    voice_id=voice_id,
-                    prompt=prompt,
-                    combo=combo,
-                    reference_metrics=reference_metrics,
-                    base_url=base_url,
-                    timeout_seconds=prompt_timeout_seconds,
+            for postprocess_profile in postprocess_profiles:
+                row_identity = (
+                    str(voice_id or "").strip(),
+                    str(combo.get("speaking_rate") or "").strip(),
+                    str(combo.get("speaking_pitch") or "").strip(),
+                    str(combo.get("speaking_volume") or "").strip(),
+                    str(postprocess_profile or "").strip(),
                 )
-                for prompt in prompts
-            ]
-            average_score = sum(float(item.get("score") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
-            average_feature_similarity = sum(float(item.get("feature_similarity") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
-            average_duration_seconds = sum(float(item.get("duration_seconds") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
-            row = {
-                "voice_id": voice_id,
-                "speaking_rate": str(combo.get("speaking_rate") or "").strip(),
-                "speaking_pitch": str(combo.get("speaking_pitch") or "").strip(),
-                "speaking_volume": str(combo.get("speaking_volume") or "").strip(),
-                "average_score": round(average_score, 4),
-                "average_feature_similarity": round(average_feature_similarity, 4),
-                "average_duration_seconds": round(average_duration_seconds, 3),
-                "prompts": prompt_rows,
-            }
-            rows.append(row)
-            seen_keys.add(_row_key(row))
-            rows_evaluated += 1
-            if winner is None or float(row["average_score"]) > float(winner["average_score"]):
-                winner = row
-            _write_checkpoint()
+                if row_identity in seen_keys:
+                    continue
+                if max_rows > 0 and rows_evaluated >= max_rows:
+                    _write_checkpoint()
+                    return {
+                        "slug": slug,
+                        "base_url": base_url,
+                        "reference_path": str(_reference_path(slug=slug)),
+                        "rows": rows,
+                        "winner": winner,
+                        "recommended_config": {
+                            "tts_plugin": "unmixr_clone",
+                            "tts_plugin_voice_id": str((winner or {}).get("voice_id") or "").strip(),
+                            "voice_profile_id": str((winner or {}).get("voice_id") or "").strip(),
+                            "voice_label": "Manfred Hoza · Unmixr-Klon",
+                            "tts_base_voice_variant": "unmixr",
+                            "unmixr_speaking_rate": str((winner or {}).get("speaking_rate") or "").strip(),
+                            "unmixr_speaking_pitch": str((winner or {}).get("speaking_pitch") or "").strip(),
+                            "unmixr_speaking_volume": str((winner or {}).get("speaking_volume") or "").strip(),
+                            "tts_postprocess_profile": str((winner or {}).get("tts_postprocess_profile") or "").strip(),
+                        },
+                        "completed_rows": len(rows),
+                        "requested_rows": len(voice_ids) * len(combos) * len(postprocess_profiles),
+                        "complete": False,
+                        "feature_only": bool(feature_only),
+                        "lead_in_ms": int(max(0, lead_in_ms)),
+                        "tail_silence_ms": int(max(0, tail_silence_ms)),
+                    }
+                prompt_rows = [
+                    _evaluate_candidate_prompt(
+                        slug=slug,
+                        voice_id=voice_id,
+                        prompt=prompt,
+                        combo=combo,
+                        reference_metrics=reference_metrics,
+                        base_url=base_url,
+                        timeout_seconds=prompt_timeout_seconds,
+                        postprocess_profile=postprocess_profile,
+                        feature_only=feature_only,
+                        lead_in_ms=lead_in_ms,
+                        tail_silence_ms=tail_silence_ms,
+                    )
+                    for prompt in prompts
+                ]
+                average_score = sum(float(item.get("score") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
+                average_feature_similarity = sum(float(item.get("feature_similarity") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
+                average_duration_seconds = sum(float(item.get("duration_seconds") or 0.0) for item in prompt_rows) / float(len(prompt_rows) or 1)
+                row = {
+                    "voice_id": voice_id,
+                    "speaking_rate": str(combo.get("speaking_rate") or "").strip(),
+                    "speaking_pitch": str(combo.get("speaking_pitch") or "").strip(),
+                    "speaking_volume": str(combo.get("speaking_volume") or "").strip(),
+                    "tts_postprocess_profile": str(postprocess_profile or "").strip(),
+                    "average_score": round(average_score, 4),
+                    "average_feature_similarity": round(average_feature_similarity, 4),
+                    "average_duration_seconds": round(average_duration_seconds, 3),
+                    "prompts": prompt_rows,
+                }
+                rows.append(row)
+                seen_keys.add(_row_key(row))
+                rows_evaluated += 1
+                if winner is None or float(row["average_score"]) > float(winner["average_score"]):
+                    winner = row
+                _write_checkpoint()
     if winner is None:
         raise RuntimeError("no_unmixr_candidates_evaluated")
     return {
@@ -325,7 +397,10 @@ def compare_unmixr_clones(
         "rows": rows,
         "winner": winner,
         "completed_rows": len(rows),
-        "requested_rows": len(voice_ids) * len(combos),
+        "requested_rows": len(voice_ids) * len(combos) * len(postprocess_profiles),
+        "feature_only": bool(feature_only),
+        "lead_in_ms": int(max(0, lead_in_ms)),
+        "tail_silence_ms": int(max(0, tail_silence_ms)),
         "complete": True,
         "recommended_config": {
             "tts_plugin": "unmixr_clone",
@@ -336,6 +411,7 @@ def compare_unmixr_clones(
             "unmixr_speaking_rate": str(winner.get("speaking_rate") or "").strip(),
             "unmixr_speaking_pitch": str(winner.get("speaking_pitch") or "").strip(),
             "unmixr_speaking_volume": str(winner.get("speaking_volume") or "").strip(),
+            "tts_postprocess_profile": str(winner.get("tts_postprocess_profile") or "").strip(),
         },
     }
 
@@ -346,7 +422,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="http://127.0.0.1:8090")
     parser.add_argument("--voice-id", action="append", default=[])
     parser.add_argument("--prompt", action="append", default=[])
+    parser.add_argument("--postprocess-profile", action="append", default=[])
     parser.add_argument("--exhaustive-prosody", action="store_true")
+    parser.add_argument("--feature-only", action="store_true")
+    parser.add_argument("--lead-in-ms", type=int, default=0)
+    parser.add_argument("--tail-silence-ms", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--max-rows", type=int, default=0)
     parser.add_argument("--prompt-timeout-seconds", type=float, default=90.0)
@@ -368,10 +448,14 @@ def main() -> int:
         voice_ids=voice_ids,
         prompts=prompts,
         combos=_prosody_combos(exhaustive=bool(args.exhaustive_prosody)),
+        postprocess_profiles=_postprocess_profiles(configured=list(args.postprocess_profile or [])),
         output_path=Path(output) if output else None,
         resume=bool(args.resume),
         max_rows=max(0, int(args.max_rows or 0)),
         prompt_timeout_seconds=max(1.0, float(args.prompt_timeout_seconds or 90.0)),
+        feature_only=bool(args.feature_only),
+        lead_in_ms=max(0, int(args.lead_in_ms or 0)),
+        tail_silence_ms=max(0, int(args.tail_silence_ms or 0)),
     )
     if output:
         output_path = Path(output)
