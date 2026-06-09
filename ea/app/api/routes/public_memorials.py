@@ -2331,7 +2331,8 @@ def _resolve_memorial_voice_chat_model(
 ) -> str:
     selected, models, _ = _resolve_memorial_chat_model(payload, private_profile, "")
     live_interaction = _is_memorial_live_interaction_question(question)
-    if live_interaction:
+    direct_contact = _is_memorial_contact_question(question)
+    if live_interaction or direct_contact:
         return GEMINI_VORTEX_PUBLIC_MODEL
     preferred = ("memorial-local-fast", GEMINI_VORTEX_PUBLIC_MODEL, "ea-coder-fast", "deepseek-chat")
     for candidate in preferred:
@@ -3541,6 +3542,48 @@ def _is_memorial_contact_question(question: str) -> bool:
             "bist du noch da",
         )
     )
+
+
+def _looks_like_memorial_contact_opening_transcript(question: str) -> bool:
+    normalized = _normalize_memorial_transcript_text(question)
+    if not normalized:
+        return False
+    if _is_memorial_contact_question(normalized):
+        return True
+    lowered = normalized.lower()
+    tokens = [token for token in re.split(r"\s+", lowered) if token]
+    if len(tokens) > 8:
+        return False
+    greetings = ("hallo", "hi", "servus", "gruess gott", "grüß gott", "guten tag")
+    has_greeting = any(greeting in lowered for greeting in greetings)
+    mentions_manfred = "manfred" in lowered
+    contact_needles = (
+        "antworte",
+        "antwortest",
+        "bist du da",
+        "hoerst du",
+        "hörst du",
+        "mit mir reden",
+        "mit mir sprechen",
+        "rede mit mir",
+        "sprich mit mir",
+        "sprich",
+        "rede",
+    )
+    has_contact_intent = any(needle in lowered for needle in contact_needles)
+    if lowered in {"hallo", "hallo manfred", "manfred", "manfred?", "hallo?"}:
+        return True
+    if mentions_manfred and (has_greeting or has_contact_intent):
+        return True
+    if has_greeting and has_contact_intent:
+        return True
+    return False
+
+
+def _canonical_memorial_contact_opening_question(question: str) -> str:
+    if _looks_like_memorial_contact_opening_transcript(question):
+        return "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    return _normalize_memorial_transcript_text(question)
 
 
 def _memorial_contact_answer_body(question: str) -> str:
@@ -5636,11 +5679,12 @@ def _build_memorial_conversation_turn_payload(
     transcript_text = _text(transcript_payload.get("transcript_text"))
     if not transcript_text:
         raise HTTPException(status_code=400, detail="speech_transcription_empty")
-    selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
+    effective_question = _canonical_memorial_contact_opening_question(transcript_text)
+    selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, effective_question)
     llm_started = time.perf_counter()
     answer_payload = _memorial_chat_answer(
         payload,
-        transcript_text,
+        effective_question,
         private_profile,
         requested_model=selected_model,
         slug=slug,
@@ -5686,7 +5730,7 @@ def _build_memorial_conversation_turn_payload(
     tts_ms = (time.perf_counter() - tts_started) * 1000.0
     pad_ms = 0.0
     response_payload = dict(answer_payload)
-    response_payload["transcript_text"] = transcript_text
+    response_payload["transcript_text"] = effective_question
     response_payload["audio_content_type"] = audio_content_type
     response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
     actual_fast_path = bool(prefer_fast_tts and selected_plugin == PIPER_FAST_TTS_PLUGIN_ID)
@@ -5695,14 +5739,14 @@ def _build_memorial_conversation_turn_payload(
     _remember_personal_conversation_turn(
         slug=slug,
         context=personal_memory_context or {},
-        question=transcript_text,
+        question=effective_question,
         answer=_text(answer_payload.get("answer"), ""),
     )
     _log_memorial_timing(
         "conversation_turn",
         slug=slug,
         content_type=content_type,
-        transcript_chars=len(transcript_text),
+        transcript_chars=len(effective_question),
         answer_chars=len(answer_text),
         requested_model=selected_model,
         effective_model=_text(answer_payload.get("llm_model")),
@@ -11397,6 +11441,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         try:
             if not transcript_text:
                 raise HTTPException(status_code=400, detail="speech_transcription_empty")
+            effective_question = _canonical_memorial_contact_opening_question(transcript_text)
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
@@ -11404,7 +11449,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 {
                     "type": "transcript",
                     "turn_id": turn_id,
-                    "text": transcript_text,
+                    "text": effective_question,
                 }
             ):
                 return
@@ -11412,11 +11457,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await _send_cancelled(turn_id)
                 return
             phase_detail = "Ich antworte gleich"
-            if _is_memorial_contact_question(transcript_text):
+            if _is_memorial_contact_question(effective_question):
                 phase_detail = "Ich antworte direkt"
-            elif _is_memorial_live_interaction_question(transcript_text):
+            elif _is_memorial_live_interaction_question(effective_question):
                 phase_detail = "Ich antworte direkt"
-            elif _is_memorial_ooda_question(transcript_text):
+            elif _is_memorial_ooda_question(effective_question):
                 phase_detail = "Komplizierte Frage. Ich ordne erst die Sache"
             if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": phase_detail}):
                 return
@@ -11427,7 +11472,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     asyncio.to_thread(
                         _memorial_chat_answer,
                         payload,
-                        transcript_text,
+                        effective_question,
                         private_profile,
                         selected_model,
                         slug=slug,
@@ -11441,7 +11486,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 answer_payload = await asyncio.to_thread(
                     _memorial_chat_fallback_answer,
                     payload,
-                    transcript_text,
+                    effective_question,
                     private_profile,
                     slug=slug,
                     memory_runtime=memory_runtime,
@@ -11459,7 +11504,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 _remember_personal_conversation_turn,
                 slug=slug,
                 context=personal_memory_context,
-                question=transcript_text,
+                question=effective_question,
                 answer=_text(answer_payload.get("answer"), ""),
             )
             compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
@@ -11478,9 +11523,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await _send_cancelled(turn_id)
                 return
             speaking_detail = "Meine Stimme kommt"
-            if _is_memorial_contact_question(transcript_text):
+            if _is_memorial_contact_question(effective_question):
                 speaking_detail = ""
-            elif _is_memorial_live_interaction_question(transcript_text):
+            elif _is_memorial_live_interaction_question(effective_question):
                 speaking_detail = ""
             if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail}):
                 return
@@ -11569,7 +11614,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 "realtime_transcript_turn",
                 slug=slug,
                 turn_id=turn_id,
-                transcript_chars=len(transcript_text),
+                transcript_chars=len(effective_question),
                 answer_chars=len(answer_text),
                 requested_model=selected_model,
                 effective_model=_text(answer_payload.get("llm_model")),
@@ -11616,13 +11661,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             stt_ms = (time.perf_counter() - stt_started) * 1000.0
             transcript_text = _text(transcript_payload.get("transcript_text"))
             await _process_transcript_turn(turn_id, transcript_text)
+            effective_question = _canonical_memorial_contact_opening_question(transcript_text)
             _log_memorial_timing(
                 "realtime_audio_turn",
                 slug=slug,
                 turn_id=turn_id,
                 content_type=content_type,
                 audio_bytes=len(audio_payload),
-                transcript_chars=len(transcript_text),
+                transcript_chars=len(effective_question),
                 stt_ms=stt_ms,
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
             )
