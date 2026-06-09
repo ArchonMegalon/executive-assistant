@@ -15,19 +15,18 @@ def _memorial_healthcheck_slug() -> str:
     return str(os.getenv("EA_HEALTHCHECK_MEMORIAL_SLUG") or "").strip()
 
 
-def _probe_public_memorial_html(slug: str) -> dict[str, object]:
+def _probe_public_memorial_surface(slug: str) -> dict[str, object]:
     from app.api.routes import public_memorials
 
     started = time.perf_counter()
-    payload = public_memorials._load_memorial(slug)
-    private_profile = public_memorials._load_private_profile(slug)
-    html = public_memorials._memorial_html(payload, private_profile=private_profile, hostname="127.0.0.1")
+    probe = public_memorials._public_memorial_surface_probe(slug)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
-    if len(str(html or "")) < 1000:
-        raise HTTPException(status_code=503, detail="not_live:memorial_html_too_small")
+    if not str(probe.get("person_name") or "").strip():
+        raise HTTPException(status_code=503, detail="not_live:memorial_surface_probe_incomplete")
     return {
         "slug": slug,
-        "html_bytes": len(html),
+        "voice_plugin": str(probe.get("voice_plugin") or ""),
+        "audio_clip_count": int(probe.get("audio_clip_count") or 0),
         "elapsed_ms": round(elapsed_ms, 1),
     }
 
@@ -47,11 +46,12 @@ async def health_live() -> dict[str, str]:
     slug = _memorial_healthcheck_slug()
     if not slug:
         return {"status": "live"}
-    probe = _probe_public_memorial_html(slug)
+    probe = _probe_public_memorial_surface(slug)
     return {
         "status": "live",
         "memorial_slug": str(probe["slug"]),
-        "memorial_html_bytes": str(probe["html_bytes"]),
+        "memorial_voice_plugin": str(probe["voice_plugin"]),
+        "memorial_audio_clip_count": str(probe["audio_clip_count"]),
         "memorial_elapsed_ms": str(probe["elapsed_ms"]),
     }
 

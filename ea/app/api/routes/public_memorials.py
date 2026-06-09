@@ -2182,6 +2182,25 @@ def _memorial_video_call_avatar(payload: dict[str, object], slug: str) -> dict[s
     return result
 
 
+def _public_memorial_surface_probe(slug: str) -> dict[str, object]:
+    payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
+    voice_config = _load_voice_config(slug)
+    public_payload = _public_memorial_payload(payload)
+    safe_slug = _safe_slug(slug)
+    person_name = _text(public_payload.get("person_name"), "")
+    if not safe_slug or not person_name:
+        raise HTTPException(status_code=503, detail="memorial_surface_probe_incomplete")
+    return {
+        "slug": safe_slug,
+        "person_name": person_name,
+        "title": _text(public_payload.get("title"), ""),
+        "audio_clip_count": len(_list_of_dicts(public_payload.get("audio_clips"))),
+        "voice_plugin": _safe_tts_plugin_id(voice_config.get("tts_plugin")) or _TTS_PLUGIN_DEFAULT_ID,
+        "has_private_profile": bool(private_profile),
+    }
+
+
 def _content_length_or_zero(request: Request) -> int:
     raw = str(request.headers.get("content-length") or "0").strip()
     if not raw:
@@ -6782,6 +6801,9 @@ def _minimal_public_memorial_html(
         }}
       }}
 
+      let memorialReadyPromise = null;
+      let memorialReadySnapshot = null;
+
       async function requestMemorialWarmup(reason = "page_load") {{
         if (memorialWarmupPromise) return memorialWarmupPromise;
         memorialWarmupPromise = fetch("/memorials/{html.escape(slug)}/warmup", {{
@@ -6807,23 +6829,38 @@ def _minimal_public_memorial_html(
         while (Date.now() - startedAt < maxWaitMs) {{
           try {{
             const payload = await fetchMemorialWarmupStatus();
-            if (payload && payload.warm && (payload.voice_required === false || payload.voice_ready === true)) return payload;
+            if (payload && payload.warm && (payload.voice_required === false || payload.voice_ready === true)) {{
+              memorialReadySnapshot = payload;
+              return payload;
+            }}
           }} catch (error) {{}}
           await new Promise((resolve) => window.setTimeout(resolve, 900));
         }}
         return null;
       }}
 
-      async function primeMemorialLanding() {{
+      async function ensureMemorialReady(reason = "page_load") {{
+        if (memorialLandingReady && memorialReadySnapshot) return memorialReadySnapshot;
+        if (memorialReadyPromise) return memorialReadyPromise;
         setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
-        try {{
-          await requestMemorialWarmup("page_load");
-          await Promise.race([
-            waitForMemorialVoiceReady(12000),
-            new Promise((resolve) => window.setTimeout(resolve, 12000)),
-          ]);
-        }} catch (error) {{}}
-        setMemorialLandingReady(true, "");
+        memorialReadyPromise = (async () => {{
+          try {{
+            await requestMemorialWarmup(reason);
+            memorialReadySnapshot = await Promise.race([
+              waitForMemorialVoiceReady(12000),
+              new Promise((resolve) => window.setTimeout(() => resolve(memorialReadySnapshot), 12000)),
+            ]);
+          }} catch (error) {{}}
+          setMemorialLandingReady(true, "");
+          return memorialReadySnapshot;
+        }})().finally(() => {{
+          memorialReadyPromise = null;
+        }});
+        return memorialReadyPromise;
+      }}
+
+      async function primeMemorialLanding() {{
+        await ensureMemorialReady("page_load");
       }}
 
       async function ensureInputStream() {{
@@ -7031,11 +7068,7 @@ def _minimal_public_memorial_html(
       async function ensureLandingReadyForConversation() {{
         if (!memorialLandingReady) {{
           setSpeechStatus("Ich richte mich noch ein.", "working", "");
-          await requestMemorialWarmup("conversation_start");
-          await waitForMemorialVoiceReady(12000);
-          setMemorialLandingReady(true, "");
-        }} else {{
-          void requestMemorialWarmup("conversation_start");
+          await ensureMemorialReady("page_load");
         }}
       }}
 

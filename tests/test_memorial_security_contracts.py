@@ -151,8 +151,8 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'id="memorial-hero-actions"' in page.text
     assert 'aria-disabled="true" disabled' in page.text
     assert f'/memorials/{slug}/warmup' in page.text
-    assert 'requestMemorialWarmup("page_load")' in page.text
-    assert 'requestMemorialWarmup("conversation_start")' in page.text
+    assert 'ensureMemorialReady("page_load")' in page.text
+    assert 'requestMemorialWarmup("conversation_start")' not in page.text
     assert "primeMemorialLanding()" in page.text
     assert "startVideoCallPreview()" not in page.text
     assert "continueVideoCallWithoutCamera()" not in page.text
@@ -163,8 +163,8 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'id="memorial-video-call-avatar-video"' not in page.text
     assert "Gleich bereit" in page.text
     assert "/memorials/manfred/conversation-turn" in page.text
-    assert "requestMemorialWarmup(\"page_load\")" in page.text
-    assert "requestMemorialWarmup(\"conversation_start\")" in page.text
+    assert "ensureMemorialReady(\"page_load\")" in page.text
+    assert "requestMemorialWarmup(\"conversation_start\")" not in page.text
     assert "server_stt_cooldown" not in page.text
     assert "utterance.onstart = () => {" not in page.text
     assert 'setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet")' not in page.text

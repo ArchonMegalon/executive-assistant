@@ -1939,8 +1939,9 @@ def test_memorial_live_page_uses_minimal_conversation_turn_client(
 
     assert "(payload.voice_required === false || payload.voice_ready === true)" in source
     assert "/memorials/manfred/conversation-turn" in source
-    assert 'requestMemorialWarmup("page_load")' in source
-    assert 'requestMemorialWarmup("conversation_start")' in source
+    assert 'ensureMemorialReady("page_load")' in source
+    assert 'requestMemorialWarmup("conversation_start")' not in source
+    assert "ensureMemorialReady(" in source
     assert "beginConversationRecording" in source
     assert "finishConversationTurn" in source
     assert "Gespräch stoppen" in source

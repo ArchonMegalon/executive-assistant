@@ -17,8 +17,8 @@ def test_health_live_includes_memorial_probe_when_configured(monkeypatch) -> Non
 
     monkeypatch.setattr(
         health,
-        "_probe_public_memorial_html",
-        lambda slug: {"slug": slug, "html_bytes": 26090, "elapsed_ms": 8.4},
+        "_probe_public_memorial_surface",
+        lambda slug: {"slug": slug, "voice_plugin": "unmixr_clone", "audio_clip_count": 3, "elapsed_ms": 8.4},
     )
     client = _client(storage_backend="memory")
     response = client.get("/health/live")
@@ -26,6 +26,7 @@ def test_health_live_includes_memorial_probe_when_configured(monkeypatch) -> Non
     assert response.json() == {
         "status": "live",
         "memorial_slug": "manfred",
-        "memorial_html_bytes": "26090",
+        "memorial_voice_plugin": "unmixr_clone",
+        "memorial_audio_clip_count": "3",
         "memorial_elapsed_ms": "8.4",
     }
