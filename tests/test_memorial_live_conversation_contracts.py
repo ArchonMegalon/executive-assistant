@@ -1360,6 +1360,8 @@ def test_memorial_live_page_uses_minimal_conversation_turn_client(
     assert "silenceMs: 260" in source
     assert "silenceThreshold: 0.012" in source
     assert 'if (window.speechSynthesis) window.speechSynthesis.cancel();' in source
+    assert "retireLegacyMemorialServiceWorkers" in source
+    assert "navigator.serviceWorker.register" not in source
     assert "primeRealtimeSocket" not in source
     assert "cancelRealtimeTurn" not in source
 

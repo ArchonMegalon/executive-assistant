@@ -99,7 +99,7 @@ _VIDEO_MEETING_RUNTIME_ROOT = Path("/data/artifacts/memorial_video_meeting")
 _MEMORIAL_TTS_RENDER_CACHE_ROOT = Path("/data/artifacts/memorial_tts_render_cache")
 _VOICE_AB_AUTO_SWAP_MARGIN = 3
 _VOICE_AB_AUTO_SWAP_MIN_TOTAL = 4
-_MEMORIAL_PWA_VERSION = "20260606b"
+_MEMORIAL_PWA_VERSION = "20260609a"
 _MEMORIAL_GUEST_COOKIE = "ea_memorial_guest"
 _MAX_REALTIME_AUDIO_BYTES = _MAX_SPEECH_UPLOAD_BYTES
 _MAX_REALTIME_TEXT_CHARS = 600
@@ -6555,15 +6555,34 @@ def _minimal_public_memorial_html(
         stopConversation("idle");
       }});
 
-      if ("serviceWorker" in navigator) {{
-        window.addEventListener("load", () => {{
-          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
-        }});
+      async function retireLegacyMemorialServiceWorkers() {{
+        if (!("serviceWorker" in navigator)) return;
+        const scopePath = "/memorials/{html.escape(slug)}";
+        try {{
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(registrations.map(async (registration) => {{
+            try {{
+              const registrationScope = String((registration && registration.scope) || "");
+              if (!registrationScope.includes(scopePath)) return;
+              await registration.unregister();
+            }} catch (error) {{}}
+          }}));
+        }} catch (error) {{}}
+        try {{
+          if (!("caches" in window)) return;
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => {{
+            const normalized = String(key || "");
+            if (!normalized.startsWith("memorial-pwa-{html.escape(slug)}-")) return Promise.resolve(false);
+            return caches.delete(key).catch(() => false);
+          }}));
+        }} catch (error) {{}}
       }}
 
       syncConversationButtons();
       setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
       window.setTimeout(() => {{
+        void retireLegacyMemorialServiceWorkers();
         void primeMemorialLanding();
       }}, 120);
     </script>

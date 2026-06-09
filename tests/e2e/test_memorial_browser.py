@@ -285,7 +285,7 @@ def test_memorial_public_page_ships_only_the_minimal_safe_surface(
         context.close()
 
 
-def test_memorial_pwa_bootstrap_registers_service_worker_and_exposes_single_active_voice_config(
+def test_memorial_page_exposes_single_active_voice_config_without_service_worker_registration(
     browser: Browser,
     memorial_browser_server: dict[str, object],
 ) -> None:
@@ -318,12 +318,12 @@ def test_memorial_pwa_bootstrap_registers_service_worker_and_exposes_single_acti
         has_registration = page.evaluate(
             """async (currentSlug) => {
               if (!("serviceWorker" in navigator)) return false;
-              const registration = await navigator.serviceWorker.getRegistration(`/memorials/${currentSlug}`);
-              return Boolean(registration && registration.scope.endsWith(`/memorials/${currentSlug}`));
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              return registrations.some((registration) => String(registration.scope || "").includes(`/memorials/${currentSlug}`));
             }""",
             slug,
         )
-        assert has_registration is True
+        assert has_registration is False
 
         voice_config = page.evaluate(
             """async (currentSlug) => {
