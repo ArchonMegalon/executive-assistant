@@ -33,5 +33,14 @@
     "authorized_at": "2026-06-05T16:25:00Z",
     "source_assets_reviewed": true,
     "revoked": false
+  },
+  "tts_backup_candidates": {
+    "voicewave": {
+      "provider": "voicewave",
+      "voice_label": "Manfred Hoza Memorial",
+      "status": "blocked",
+      "reason": "compare_failed",
+      "detail": "502: Request was throttled. Expected available in 1941 seconds.:429"
+    }
   }
 }
