@@ -6931,66 +6931,69 @@ def _minimal_public_memorial_html(
         }});
       }}
 
-      async function beginConversationRecording(generation) {{
+      function beginConversationRecording(generation) {{
+        return (async () => {{
         const stream = await ensureInputStream();
         const mimeType = pickRecorderMimeType();
         const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
         activeRecorder = recorder;
         activeChunks = [];
-        return await new Promise((resolve, reject) => {{
-          let settled = false;
-          recorder.ondataavailable = (event) => {{
-            if (event.data && event.data.size > 0) activeChunks.push(event.data);
-          }};
-          recorder.onerror = () => {{
-            if (settled) return;
-            settled = true;
-            resetCaptureState();
-            reject(new Error("capture_failed"));
-          }};
-          recorder.onstop = () => {{
-            if (settled) return;
-            settled = true;
-            const blob = activeChunks.length ? new Blob(activeChunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
-            resetCaptureState();
-            resolve(blob);
-          }};
-          recorder.start();
-          activeRecordStopTimer = window.setTimeout(() => {{
-            if (generation !== activeGeneration) return;
-            stopRecorder();
-          }}, 12000);
-          try {{
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (AudioCtx) {{
-              const audioContext = new AudioCtx();
-              const source = audioContext.createMediaStreamSource(stream);
-              const analyser = audioContext.createAnalyser();
-              analyser.fftSize = 2048;
-              source.connect(analyser);
-              const samples = new Float32Array(analyser.fftSize);
-              const startedAt = Date.now();
-              let speechSeen = false;
-              let lastLoudAt = startedAt;
-              activeLevelTimer = window.setInterval(() => {{
-                if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
-                analyser.getFloatTimeDomainData(samples);
-                let sum = 0;
-                for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
-                const rms = Math.sqrt(sum / samples.length);
-                const now = Date.now();
-                if (rms >= 0.012) {{
-                  speechSeen = true;
-                  lastLoudAt = now;
-                }}
-                if (speechSeen && now - lastLoudAt >= 700) {{
-                  stopRecorder();
-                  try {{ audioContext.close(); }} catch (error) {{}}
-                }}
-              }}, 120);
-            }}
-          }} catch (error) {{}}
-        }});
+        recorder.ondataavailable = (event) => {{
+          if (event.data && event.data.size > 0) activeChunks.push(event.data);
+        }};
+        recorder.onerror = () => {{
+          if (generation !== activeGeneration) return;
+          resetCaptureState();
+          conversationSessionActive = false;
+          recordingActive = false;
+          requestInFlight = false;
+          syncConversationButton();
+          setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+        }};
+        recorder.onstop = () => {{
+          const blob = activeChunks.length ? new Blob(activeChunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
+          resetCaptureState();
+          if (generation !== activeGeneration) return;
+          if (!conversationSessionActive) return;
+          void finishConversationTurn(blob, generation);
+        }};
+        recorder.start();
+        activeRecordStopTimer = window.setTimeout(() => {{
+          if (generation !== activeGeneration) return;
+          stopRecorder();
+        }}, 12000);
+        try {{
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) {{
+            const audioContext = new AudioCtx();
+            const source = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
+            const samples = new Float32Array(analyser.fftSize);
+            const startedAt = Date.now();
+            let speechSeen = false;
+            let lastLoudAt = startedAt;
+            activeLevelTimer = window.setInterval(() => {{
+              if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
+              analyser.getFloatTimeDomainData(samples);
+              let sum = 0;
+              for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
+              const rms = Math.sqrt(sum / samples.length);
+              const now = Date.now();
+              if (rms >= 0.012) {{
+                speechSeen = true;
+                lastLoudAt = now;
+              }}
+              if (speechSeen && now - lastLoudAt >= 700) {{
+                stopRecorder();
+                try {{ audioContext.close(); }} catch (error) {{}}
+              }}
+            }}, 120);
+          }}
+        }} catch (error) {{}}
+        return true;
+        }})();
       }}
 
       async function sendConversationTurn(blob, generation) {{
@@ -7011,23 +7014,6 @@ def _minimal_public_memorial_html(
           throw new Error(message);
         }}
         return payload || {{}};
-      }}
-
-      function armConversationTurnProcessing(generation) {{
-        const promise = activeRecordingPromise;
-        if (!promise) return;
-        promise.then(() => {{
-          if (generation !== activeGeneration) return;
-          if (!conversationSessionActive || requestInFlight) return;
-          void finishConversationTurn(promise);
-        }}).catch(() => {{
-          if (generation !== activeGeneration) return;
-          conversationSessionActive = false;
-          recordingActive = false;
-          requestInFlight = false;
-          syncConversationButton();
-          setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
-        }});
       }}
 
       async function ensureLandingReadyForConversation() {{
@@ -7051,29 +7037,27 @@ def _minimal_public_memorial_html(
         recordingActive = true;
         syncConversationButton();
         setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
-        try {{
-          activeRecordingPromise = beginConversationRecording(generation);
-          armConversationTurnProcessing(generation);
-        }} catch (error) {{
+        activeRecordingPromise = beginConversationRecording(generation);
+        activeRecordingPromise.catch(() => {{
+          if (generation !== activeGeneration) return;
           conversationSessionActive = false;
           recordingActive = false;
           activeRecordingPromise = null;
           syncConversationButton();
           setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
-        }}
+        }});
       }}
 
-      async function finishConversationTurn(recordingPromiseOverride = null) {{
+      async function finishConversationTurn(recordedBlob = null, generationOverride = null) {{
         if (!recordingActive) return;
-        const generation = activeGeneration;
-        const recordingPromise = recordingPromiseOverride || activeRecordingPromise;
+        const generation = generationOverride === null ? activeGeneration : generationOverride;
         recordingActive = false;
         requestInFlight = true;
         syncConversationButton();
         setSpeechStatus("Einen Moment.", "working", "");
         stopRecorder();
         try {{
-          const blob = await recordingPromise;
+          const blob = recordedBlob;
           if (generation !== activeGeneration) return;
           if (!blob || blob.size < 128) throw new Error("capture_empty");
           const payload = await sendConversationTurn(blob, generation);
@@ -7088,7 +7072,14 @@ def _minimal_public_memorial_html(
             syncConversationButton();
             setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
             activeRecordingPromise = beginConversationRecording(generation);
-            armConversationTurnProcessing(generation);
+            activeRecordingPromise.catch(() => {{
+              if (generation !== activeGeneration) return;
+              conversationSessionActive = false;
+              recordingActive = false;
+              activeRecordingPromise = null;
+              syncConversationButton();
+              setSpeechStatus("Bitte noch einmal sprechen.", "error", "");
+            }});
             return;
           }}
           setSpeechStatus("Ich bin da.", "idle", "");
