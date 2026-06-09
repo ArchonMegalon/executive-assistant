@@ -6266,7 +6266,11 @@ def _build_memorial_rescue_contact_turn_payload(
     selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
-    answer_text = _memorial_contact_answer_body("Kann ich jetzt mit dir reden?")
+    answer_text = (
+        "Ich habe dich akustisch gerade nicht sauber bekommen. "
+        "Ordne mir erst Ort, Zeit und den konkreten Stand. "
+        "Dann antworte ich dir nuechtern darauf."
+    )
     audio, audio_content_type = _render_memorial_tts_audio(
         slug=slug,
         text=answer_text,
@@ -6291,7 +6295,7 @@ def _build_memorial_rescue_contact_turn_payload(
         "llm_provider": "memorial_guardrail",
         "llm_request_model": GEMINI_VORTEX_PUBLIC_MODEL,
         "llm_fallback_used": False,
-        "fallback_reason": "direct_contact_opening",
+        "fallback_reason": "rescue_ooda_loop",
         "turn_rescue_reason": rescue_reason,
         "transcript_text": "",
         "audio_content_type": audio_content_type,
@@ -7158,7 +7162,7 @@ def _minimal_public_memorial_html(
       if (retryButton) {{
         retryButton.addEventListener("click", () => {{
           retryButton.hidden = true;
-          void startConversation();
+          void startConversationSession();
         }});
       }}
       if (conversationButton) {{
@@ -7214,12 +7218,15 @@ def _minimal_public_memorial_html(
         }} catch (error) {{}}
       }}
 
-      syncConversationButton();
-      setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
-      window.setTimeout(() => {{
-        void retireLegacyMemorialServiceWorkers();
-        void primeMemorialLanding();
-      }}, 120);
+      if (!window.__memorialMinimalBooted) {{
+        window.__memorialMinimalBooted = true;
+        syncConversationButton();
+        setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
+        window.setTimeout(() => {{
+          void retireLegacyMemorialServiceWorkers();
+          void primeMemorialLanding();
+        }}, 120);
+      }}
     </script>
   </body>
 </html>"""

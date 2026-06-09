@@ -665,7 +665,7 @@ def test_memorial_conversation_turn_keeps_configured_voice_even_while_warmup_is_
     assert scheduled == []
 
 
-def test_memorial_conversation_turn_rescues_transcription_failure_with_contact_reply(
+def test_memorial_conversation_turn_rescues_transcription_failure_with_ooda_reply(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -690,7 +690,7 @@ def test_memorial_conversation_turn_rescues_transcription_failure_with_contact_r
     )
     monkeypatch.setenv("UNMIXR_API_KEY", "unmixr-test-key")
 
-    output_audio = _generated_wav_bytes(textish_seed="Ja.")
+    output_audio = _generated_wav_bytes(textish_seed="Ordne mir erst Ort, Zeit und den konkreten Stand.")
     seen_unmixr_calls: list[dict[str, object]] = []
 
     def _raise_empty(**kwargs):
@@ -717,14 +717,15 @@ def test_memorial_conversation_turn_rescues_transcription_failure_with_contact_r
 
     assert response.status_code == 200
     body = response.json()
-    assert body["answer"] == "Ja."
-    assert body["fallback_reason"] == "direct_contact_opening"
+    assert "ort" in body["answer"].lower()
+    assert "zeit" in body["answer"].lower()
+    assert body["fallback_reason"] == "rescue_ooda_loop"
     assert body["turn_rescue_reason"] == "speech_transcription_empty"
     assert body["tts_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID
     assert seen_unmixr_calls
 
 
-def test_memorial_conversation_turn_rescues_throttled_transcription_with_contact_reply(
+def test_memorial_conversation_turn_rescues_throttled_transcription_with_ooda_reply(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -748,7 +749,7 @@ def test_memorial_conversation_turn_rescues_throttled_transcription_with_contact
         },
     )
 
-    output_audio = _generated_wav_bytes(textish_seed="Ja.")
+    output_audio = _generated_wav_bytes(textish_seed="Ordne mir erst Ort, Zeit und den konkreten Stand.")
     seen_openvoice_calls: list[dict[str, object]] = []
 
     def _raise_throttled(**kwargs):
@@ -778,8 +779,9 @@ def test_memorial_conversation_turn_rescues_throttled_transcription_with_contact
 
     assert response.status_code == 200
     body = response.json()
-    assert body["answer"] == "Ja."
-    assert body["fallback_reason"] == "direct_contact_opening"
+    assert "ort" in body["answer"].lower()
+    assert "zeit" in body["answer"].lower()
+    assert body["fallback_reason"] == "rescue_ooda_loop"
     assert "Request was throttled" in body["turn_rescue_reason"]
     assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert seen_openvoice_calls
@@ -1944,6 +1946,8 @@ def test_memorial_live_page_uses_minimal_conversation_turn_client(
     assert "ensureMemorialReady(" in source
     assert "beginConversationRecording" in source
     assert "finishConversationTurn" in source
+    assert "window.__memorialMinimalBooted" in source
+    assert "startConversation();" not in source
     assert "Gespräch stoppen" in source
     assert "captureTurnAudio" not in source
     assert "ontouchstart=" not in source
