@@ -3529,9 +3529,13 @@ def _is_memorial_contact_question(question: str) -> bool:
         for token in (
             "kann ich jetzt mit dir reden",
             "kann ich mit dir reden",
+            "kann ich direkt mit dir reden",
+            "kann ich direkt mit dir sprechen",
             "kannst du jetzt mit mir sprechen",
             "kannst du mit mir sprechen",
             "kannst du jetzt mit mir reden",
+            "kannst du direkt mit mir reden",
+            "kannst du direkt mit mir sprechen",
             "rede ich mit dir",
             "sprichst du mit mir",
             "bist du da",
