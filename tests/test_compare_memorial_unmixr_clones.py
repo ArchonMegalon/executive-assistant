@@ -84,3 +84,13 @@ def test_existing_candidates_reads_report(tmp_path: Path) -> None:
     module._optimization_root = lambda *, slug: optimization_dir
     candidates = module._existing_candidates(slug="manfred")
     assert candidates == ["abc", "def"]
+
+
+def test_prosody_combos_exhaustive_covers_full_grid() -> None:
+    module = _load_module()
+
+    combos = module._prosody_combos(exhaustive=True)
+
+    assert len(combos) == 27
+    assert {"speaking_rate": "low", "speaking_pitch": "low", "speaking_volume": "low"} in combos
+    assert {"speaking_rate": "high", "speaking_pitch": "high", "speaking_volume": "high"} in combos

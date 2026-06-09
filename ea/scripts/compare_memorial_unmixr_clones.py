@@ -24,6 +24,7 @@ DEFAULT_COMBOS = [
     {"speaking_rate": "low", "speaking_pitch": "medium", "speaking_volume": "high"},
     {"speaking_rate": "medium", "speaking_pitch": "medium", "speaking_volume": "high"},
 ]
+_PROSODY_LEVELS = ("low", "medium", "high")
 
 
 def _load_optimizer_module():
@@ -64,6 +65,23 @@ def _existing_candidates(*, slug: str) -> list[str]:
     if not candidates:
         raise RuntimeError("candidate_voice_ids_missing")
     return candidates
+
+
+def _prosody_combos(*, exhaustive: bool) -> list[dict[str, str]]:
+    if not exhaustive:
+        return [dict(item) for item in DEFAULT_COMBOS]
+    combos: list[dict[str, str]] = []
+    for rate in _PROSODY_LEVELS:
+        for pitch in _PROSODY_LEVELS:
+            for volume in _PROSODY_LEVELS:
+                combos.append(
+                    {
+                        "speaking_rate": rate,
+                        "speaking_pitch": pitch,
+                        "speaking_volume": volume,
+                    }
+                )
+    return combos
 
 
 def _convert_audio_to_wav(*, payload: bytes, content_type: str) -> bytes:
@@ -225,6 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="http://127.0.0.1:8090")
     parser.add_argument("--voice-id", action="append", default=[])
     parser.add_argument("--prompt", action="append", default=[])
+    parser.add_argument("--exhaustive-prosody", action="store_true")
     parser.add_argument("--output", default="")
     return parser
 
@@ -241,7 +260,7 @@ def main() -> int:
         base_url=base_url,
         voice_ids=voice_ids,
         prompts=prompts,
-        combos=list(DEFAULT_COMBOS),
+        combos=_prosody_combos(exhaustive=bool(args.exhaustive_prosody)),
     )
     output = str(args.output or "").strip()
     if output:
