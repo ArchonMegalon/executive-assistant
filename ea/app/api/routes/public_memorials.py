@@ -3552,7 +3552,7 @@ def _looks_like_memorial_contact_opening_transcript(question: str) -> bool:
         return True
     lowered = normalized.lower()
     tokens = [token for token in re.split(r"\s+", lowered) if token]
-    if len(tokens) > 8:
+    if len(tokens) > 10:
         return False
     greetings = ("hallo", "hi", "servus", "gruess gott", "grüß gott", "guten tag")
     has_greeting = any(greeting in lowered for greeting in greetings)
@@ -3565,6 +3565,8 @@ def _looks_like_memorial_contact_opening_transcript(question: str) -> bool:
         "hörst du",
         "mit mir reden",
         "mit mir sprechen",
+        "direkt mit mir reden",
+        "direkt mit mir sprechen",
         "rede mit mir",
         "sprich mit mir",
         "sprich",
