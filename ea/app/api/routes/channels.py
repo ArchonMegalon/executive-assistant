@@ -1010,6 +1010,23 @@ def _telegram_audio_upload_announcement_reply_text(text: str) -> str:
     return "Yes, send the audio recording here in Telegram. EA can receive it, transcribe it, and file it as a private conversation note."
 
 
+def _telegram_media_acknowledgement_reply(payload: dict[str, object] | None = None, *, text: str) -> str:
+    kind = str((dict(payload or {}).get("kind") or "").strip().lower())
+    if kind not in {"video", "document"}:
+        return ""
+    if kind == "video":
+        return (
+            "Got the video. Add one short instruction (summarize it, look for risks, pull key points), "
+            "and I will run it in the next assistant step."
+        )
+    if kind == "document":
+        return (
+            "Got the document. Add a short note (extract text, summarize, or flag action items), "
+            "and I will proceed."
+        )
+    return ""
+
+
 def _telegram_parse_relative_date_filter(text: str, *, keyword: str) -> str:
     normalized = " ".join(str(text or "").strip().lower().split())
     month_names = "|".join(sorted((re.escape(name) for name in _TELEGRAM_MONTH_ALIASES.keys()), key=len, reverse=True))
@@ -4975,6 +4992,9 @@ def _telegram_command_reply_text(
     photo_reply = _telegram_photo_reply_text(ctx.payload)
     if photo_reply:
         return photo_reply, False
+    media_reply = _telegram_media_acknowledgement_reply(ctx.payload, text=ctx.normalized)
+    if media_reply:
+        return media_reply, False
     if ctx.normalized:
         probe_reply = _telegram_probe_reply_text(ctx.normalized)
         if probe_reply:

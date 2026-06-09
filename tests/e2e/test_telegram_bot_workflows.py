@@ -25,6 +25,11 @@ def _client(*, principal_id: str) -> TestClient:
     return client
 
 
+@pytest.fixture(autouse=True)
+def _enable_legacy_runtime_surfaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
+
+
 class _TelegramScenarioAgent:
     def __init__(self, client: TestClient, *, secret: str, chat_id: int | str = 1354554303):
         self.client = client
@@ -237,6 +242,62 @@ def test_telegram_bot_workflow_routes_documents_photos_and_ltd_actions(monkeypat
     assert "Executed 1min.AI background_remove." in image["reply_text"]
     assert executed_requests[-1].payload_json["image_url"] == "https://example.invalid/cat.png"
     assert len(sent) >= 5
+
+
+def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-e2e-media")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-e2e-media")
+
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 9901}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+
+    client = _client(principal_id="")
+    agent = _TelegramScenarioAgent(client, secret="tg-secret")
+
+    video = agent.send_message_payload({"video": {"file_id": "video-file"}})
+    assert video["reply_sent"] is True
+    assert "Got the video" in str(video["reply_text"])
+
+    agent._message_id += 1
+    video_with_caption = agent.send_message_payload(
+        {"video": {"file_id": "video-file-caption"}, "caption": "this one is about meeting notes"}
+    )
+    assert video_with_caption["reply_sent"] is True
+    assert "Got the video" in str(video_with_caption["reply_text"])
+
+    agent._message_id += 1
+    document = agent.send_message_payload({"document": {"file_id": "doc-file", "file_name": "travel-plan.pdf"}})
+    assert document["reply_sent"] is True
+    assert "Got the document" in str(document["reply_text"])
+
+    agent._message_id += 1
+    document_with_caption = agent.send_message_payload(
+        {"document": {"file_id": "doc-file-caption", "file_name": "receipt.pdf"}, "caption": "please scan this"}
+    )
+    assert document_with_caption["reply_sent"] is True
+    assert "Got the document" in str(document_with_caption["reply_text"])
+
+    assert len(sent) == 4
 
 
 def test_telegram_bot_workflow_persists_async_admin_followup_memory(monkeypatch: pytest.MonkeyPatch) -> None:
