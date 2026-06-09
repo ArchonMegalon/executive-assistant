@@ -26,9 +26,9 @@ services:
       - "${FASTESTVPN_PROXY_HOST_PORT:-9312}:${FASTESTVPN_PROXY_PORT:-3128}"
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && nc -z 127.0.0.1 ${FASTESTVPN_PROXY_PORT:-3128}"]
-      interval: 10s
+      interval: 1m
       timeout: 5s
-      retries: 12
+      retries: 5
       start_period: 20s
 
   ea-fastestvpn-proxy-ie:
@@ -56,9 +56,9 @@ services:
       - ea_fastestvpn_state_ie:/state
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && nc -z 127.0.0.1 ${FASTESTVPN_PROXY_PORT:-3128}"]
-      interval: 10s
+      interval: 1m
       timeout: 5s
-      retries: 12
+      retries: 5
       start_period: 20s
 
   ea-fastestvpn-proxy-nl:
@@ -86,9 +86,9 @@ services:
       - ea_fastestvpn_state_nl:/state
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'Initialization Sequence Completed' /tmp/openvpn.log && nc -z 127.0.0.1 ${FASTESTVPN_PROXY_PORT:-3128}"]
-      interval: 10s
+      interval: 1m
       timeout: 5s
-      retries: 12
+      retries: 5
       start_period: 20s
 
   ea-api:

@@ -6,6 +6,11 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${EA_CF_TUNNEL_TOKEN}
-    depends_on:
-      ea-api:
-        condition: service_healthy
+    networks:
+      - default
+      - property_default
+
+networks:
+  property_default:
+    external: true
+    name: property_default

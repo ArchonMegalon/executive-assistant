@@ -59,7 +59,7 @@ services:
       test:
         - CMD-SHELL
         - curl -fsS --connect-timeout 2 --max-time 10 http://${TEABLE_RELAY_LISTEN_HOST:-172.17.0.1}:18787/healthz >/dev/null
-      interval: 30s
+      interval: 2m
       timeout: 10s
       retries: 5
 
@@ -95,6 +95,8 @@ services:
       - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
       - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
       - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
+      - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/mnt/pcloud/EA/browseract_ui_worker_shared}
+      - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/mnt/pcloud/EA/voicewave_runtime_tmp}
       - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
@@ -106,6 +108,7 @@ services:
       - ./config:/app/config:ro
       - /mnt/onedrive/Attachments:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
+      - /var/run/docker.sock:/var/run/docker.sock
       - ea_memorial_data:/data/memorial_data:ro
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
@@ -153,7 +156,7 @@ services:
       test:
         - CMD-SHELL
         - curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health/ready >/dev/null
-      interval: 30s
+      interval: 2m
       timeout: 10s
       retries: 5
     depends_on:
@@ -200,6 +203,8 @@ services:
         condition: service_healthy
       ea-db:
         condition: service_healthy
+    healthcheck:
+      disable: true
 
   ea-scheduler:
     build:
@@ -240,6 +245,8 @@ services:
         condition: service_healthy
       ea-db:
         condition: service_healthy
+    healthcheck:
+      disable: true
 
   ea-db:
     image: postgres:16-alpine
@@ -251,9 +258,9 @@ services:
       - ea_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 3
 
   ea-redis:
     image: redis:7-alpine
@@ -262,9 +269,9 @@ services:
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 30s
       timeout: 5s
-      retries: 10
+      retries: 3
 
 volumes:
   ea_artifacts: {}
