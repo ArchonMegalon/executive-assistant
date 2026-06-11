@@ -176,7 +176,8 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         content_type = str(kwargs.get("content_type") or "")
         payload = bytes(kwargs.get("payload") or b"")
         if content_type.startswith("audio/wav") and b"memorial-answer-audio" in payload:
-            transcript_text = "Ja, ich bin da."
+            marker = payload.split(b"memorial-answer-audio:", 1)[-1]
+            transcript_text = marker.decode("utf-8", errors="ignore").strip() or "Ich höre dich. Erzähl weiter."
         else:
             transcript_text = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
         return {
@@ -189,7 +190,7 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setattr(
         public_memorials,
         "_render_memorial_tts_audio",
-        lambda **kwargs: (_wav_bytes() + b"memorial-answer-audio", "audio/wav"),
+        lambda **kwargs: (_wav_bytes() + b"memorial-answer-audio:" + str(kwargs.get("text") or "").encode("utf-8"), "audio/wav"),
     )
 
     class _FakeGeminiLiveSocket:
@@ -604,12 +605,17 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
         assert result["audioBase64"]
         assert result["audioContentType"] == "audio/wav"
         assert result["ttsPlugin"] == "unmixr_clone"
-        assert result["assistantText"] == "Ja, ich bin da."
+        assert result["assistantText"] in {
+            "Ja. Ich höre dich.",
+            "Ich höre dich. Erzähl weiter.",
+            "Ja. Sag mir, was dich gerade beschäftigt.",
+            "Ich bin hier. Sprich ruhig weiter.",
+        }
         stt = result["stt"]
         assert isinstance(stt, dict)
         transcript = str(stt.get("transcript_text") or "")
         assert stt.get("transcription_status") == "transcribed"
-        assert _text_similarity(transcript, "Ja, ich bin da.") >= 0.9
+        assert _text_similarity(transcript, result["assistantText"]) >= 0.9
         assert any(event.get("type") == "turn_complete" for event in result["events"])
     finally:
         context.close()

@@ -20,6 +20,14 @@ from fastapi.testclient import TestClient
 from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 
+CONTACT_REPLY_VARIANTS = {
+    "Ja. Ich höre dich.",
+    "Ich höre dich. Erzähl weiter.",
+    "Ja. Sag mir, was dich gerade beschäftigt.",
+    "Ich bin hier. Sprich ruhig weiter.",
+}
+
+
 def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_API_TOKEN"] = ""
@@ -228,7 +236,7 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["llm_fallback_used"] is False
     assert body["fallback_reason"] == "direct_contact_opening"
-    assert body["answer"] == "Ja, ich bin da."
+    assert body["answer"] in CONTACT_REPLY_VARIANTS
 
 
 def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
@@ -395,7 +403,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["llm_fallback_used"] is False
     assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
     assert body["sources"] == []
-    assert body["answer"] == "Ja, ich bin da."
+    assert body["answer"] in CONTACT_REPLY_VARIANTS
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
     decoded_audio = base64.b64decode(body["audio_base64"])
@@ -489,7 +497,7 @@ def test_memorial_conversation_turn_canonicalizes_short_contact_openings(
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "direct_contact_opening"
     assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
-    assert body["answer"] == "Ja, ich bin da."
+    assert body["answer"] in CONTACT_REPLY_VARIANTS
 
 
 def test_memorial_conversation_turn_current_weather_short_circuits_to_present_world_answer(
@@ -1030,29 +1038,12 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     public_memorials._run_memorial_live_warmup(slug)
 
-    assert seen_render_calls == [
-        {
-            "text": "Ja, ich bin da.",
-            "slug": slug,
-            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-        },
-        {
-            "text": "Ja, ich bin da.",
-            "slug": slug,
-            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-        },
-        {
-            "text": "Ja, ich bin da.",
-            "slug": slug,
-            "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-        },
-    ]
+    assert len(seen_render_calls) == 3
+    assert {item["text"] for item in seen_render_calls} <= CONTACT_REPLY_VARIANTS
+    assert all(item["slug"] == slug for item in seen_render_calls)
+    assert all(item["selected_plugin"] == public_memorials.VOICEWAVE_TTS_PLUGIN_ID for item in seen_render_calls)
+    assert all(item["lead_in_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS for item in seen_render_calls)
+    assert all(item["tail_silence_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS for item in seen_render_calls)
 
 
 def test_memorial_warmup_primes_unmixr_contact_openings(
@@ -1115,29 +1106,12 @@ def test_memorial_warmup_primes_unmixr_contact_openings(
 
     public_memorials._run_memorial_live_warmup(slug)
 
-    assert seen_render_calls == [
-        {
-            "text": "Ja, ich bin da.",
-            "slug": slug,
-            "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-        },
-        {
-            "text": "Ja, ich bin da.",
-            "slug": slug,
-            "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-        },
-        {
-            "text": "Ja, ich bin da.",
-            "slug": slug,
-            "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
-            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
-        },
-    ]
+    assert len(seen_render_calls) == 3
+    assert {item["text"] for item in seen_render_calls} <= CONTACT_REPLY_VARIANTS
+    assert all(item["slug"] == slug for item in seen_render_calls)
+    assert all(item["selected_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID for item in seen_render_calls)
+    assert all(item["lead_in_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS for item in seen_render_calls)
+    assert all(item["tail_silence_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS for item in seen_render_calls)
 
 
 def test_memorial_speech_synthesize_reuses_final_render_cache(
@@ -1456,7 +1430,7 @@ def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
         message for message in messages if message.get("type") == "phase" and message.get("phase") == "speaking"
     )
 
-    assert answer_message["text"] == "Ja, ich bin da."
+    assert answer_message["text"] in CONTACT_REPLY_VARIANTS
     assert speaking_phase["detail"] == ""
     assert seen_pad_calls == [
         {
@@ -1984,7 +1958,7 @@ def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> No
 
     assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' in source
     assert 'piper_fast_synthesize_request(' in source
-    assert 'text="Ich bin da."' in source
+    assert 'text="Ja. Ich höre dich."' in source
 
 
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2164,7 +2138,8 @@ def test_memorial_gemini_live_uses_websocket_pcm_not_webrtc_sdp(
     assert setup["setup"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Kore"
     assert setup["setup"]["responseModalities"] == ["AUDIO"]
     assert setup["setup"]["inputAudioTranscription"] == {}
-    assert "Ja, ich bin da" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
+    assert "Vermeide 'Jo'" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
+    assert "wiederhole nicht staendig denselben Satz" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
     assert "test-gemini-key" not in json.dumps(setup)
 
 
@@ -2183,6 +2158,38 @@ def test_memorial_gemini_live_setup_is_pinned_to_german(
     assert "Antworte immer auf Deutsch (de-AT)" in instruction
     assert "browser language" not in instruction
     assert "Antworte auf Deutsch" not in instruction
+
+
+def test_memorial_spoken_tts_text_normalizes_common_german_ascii_spellings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    spoken = public_memorials._normalize_memorial_spoken_tts_text(
+        "Ich hoere dir zu und erzaehl dir etwas ueber das Gespraech fuer de-AT."
+    )
+
+    assert spoken == "Ich höre dir zu und erzähl dir etwas über das Gespräch für Deutsch."
+
+
+def test_memorial_unmixr_defaults_to_natural_minimal_postprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters_for_config(
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        {},
+    )
+
+    assert public_memorials._speech_postprocess_profile_for_config(public_memorials.UNMIXR_TTS_PLUGIN_ID, {}) == "unmixr_natural_minimal"
+    assert "afftdn" not in filters
+    assert "acompressor" not in filters
+    assert "lowpass=f=7600" in filters
 
 
 def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(
@@ -2403,7 +2410,7 @@ def test_memorial_gemini_live_defaults_to_server_tts_audio(
             if message.get("type") == "turn_complete":
                 break
 
-    assert seen["tts_text"] == "Ja, ich bin da."
+    assert seen["tts_text"] in CONTACT_REPLY_VARIANTS
     assert seen["tts_lang"] == "de-AT"
     assert seen["resolved_tts_plugin"] == "unmixr_clone"
     assert seen["resolved_voice_id"] == "live-unmixr-id"
@@ -2681,7 +2688,7 @@ def test_memorial_gemini_live_prefers_vertex_oauth_when_project_configured(
     assert setup["setup"]["generation_config"]["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"] == "Kore"
     assert setup["setup"]["input_audio_transcription"] == {}
     assert setup["setup"]["realtime_input_config"]["automatic_activity_detection"] == {"disabled": True}
-    assert "Ja, ich bin da" in setup["setup"]["system_instruction"]["parts"][0]["text"]
+    assert "Vermeide 'Jo'" in setup["setup"]["system_instruction"]["parts"][0]["text"]
 
 
 def test_memorial_gemini_live_websocket_streams_vertex_pcm_schema(

@@ -8526,7 +8526,7 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "speechHadError" not in page.text
     assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." not in page.text
     assert "readJsonResponse" not in page.text
-    assert "Ich bin da." in page.text
+    assert "Bereit." in page.text
     assert "recorder.start(250)" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text

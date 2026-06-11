@@ -2484,6 +2484,47 @@ def _normalize_tts_text(value: object) -> str:
     return " ".join(str(value or "").split()).strip()[:_TTS_MAX_TEXT_LEN]
 
 
+def _normalize_memorial_spoken_tts_text(value: object) -> str:
+    text = _normalize_tts_text(value)
+    if not text:
+        return ""
+    word_replacements = {
+        "fuer": "für",
+        "Fuer": "Für",
+        "ueber": "über",
+        "Ueber": "Über",
+        "zurueck": "zurück",
+        "Zurueck": "Zurück",
+        "hoere": "höre",
+        "Hoere": "Höre",
+        "hoerst": "hörst",
+        "Hoerst": "Hörst",
+        "erzaehl": "erzähl",
+        "Erzaehl": "Erzähl",
+        "erzaehle": "erzähle",
+        "Erzaehle": "Erzähle",
+        "moechte": "möchte",
+        "Moechte": "Möchte",
+        "koennen": "können",
+        "Koennen": "Können",
+        "waere": "wäre",
+        "Waere": "Wäre",
+        "Gespraech": "Gespräch",
+        "gespraech": "Gespräch",
+        "saetze": "Sätze",
+        "Saetze": "Sätze",
+        "direkt.": "direkt.",
+    }
+    for source, target in word_replacements.items():
+        text = re.sub(rf"\b{re.escape(source)}\b", target, text)
+    text = re.sub(r"\bde[-_ ]?AT\b", "Deutsch", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bOODA\b", "Uda", text)
+    text = re.sub(r"https?://\S+", "Link", text)
+    text = re.sub(r"[*_`#>]+", "", text)
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)
+    return " ".join(text.split()).strip()[:_TTS_MAX_TEXT_LEN]
+
+
 def _safe_tts_plugin_id(value: object) -> str:
     normalized = str(value or "").strip()
     if normalized == _LEGACY_ELEVENLABS_TTS_PLUGIN_ID:
@@ -4062,12 +4103,30 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Ja, ich bin da."
+    variants = (
+        "Ja. Ich höre dich.",
+        "Ich höre dich. Erzähl weiter.",
+        "Ja. Sag mir, was dich gerade beschäftigt.",
+        "Ich bin hier. Sprich ruhig weiter.",
+    )
+    normalized = _normalize_memorial_transcript_text(question)
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return variants[int(digest[:2], 16) % len(variants)]
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     normalized = _normalize_tts_text(text).lower()
-    return normalized in {"ja.", "ja, ich bin da."}
+    return normalized in {
+        "ja.",
+        "ja, ich bin da.",
+        "ja. ich höre dich.",
+        "ja. ich hoere dich.",
+        "ich höre dich. erzähl weiter.",
+        "ich hoere dich. erzaehl weiter.",
+        "ja. sag mir, was dich gerade beschäftigt.",
+        "ja. sag mir, was dich gerade beschaeftigt.",
+        "ich bin hier. sprich ruhig weiter.",
+    }
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -5799,7 +5858,7 @@ def _render_memorial_tts_audio(
     lead_in_ms: int,
     tail_silence_ms: int,
 ) -> tuple[bytes, str]:
-    normalized_text = _normalize_tts_text(text)
+    normalized_text = _normalize_memorial_spoken_tts_text(text)
     if not normalized_text:
         raise HTTPException(status_code=400, detail="tts_text_missing")
     voice_ref = _text(
@@ -5820,6 +5879,7 @@ def _render_memorial_tts_audio(
         "lead_in_ms": int(max(0, lead_in_ms)),
         "tail_silence_ms": int(max(0, tail_silence_ms)),
         "extra_filters": extra_filters,
+        "spoken_text_normalizer": "memorial_de_at_v2",
         "postprocess_impl": (
             f"{getattr(_pad_speech_audio_lead_in, '__module__', '')}:"
             f"{getattr(_pad_speech_audio_lead_in, '__qualname__', '')}:"
@@ -5885,7 +5945,7 @@ def _speech_postprocess_profile_for_config(tts_plugin: str, payload: dict[str, o
     if configured:
         return configured
     if plugin_id == UNMIXR_TTS_PLUGIN_ID:
-        return "unmixr_bright_legacy"
+        return "unmixr_natural_minimal"
     if plugin_id == VOICEWAVE_TTS_PLUGIN_ID:
         return "voicewave_fast_compact"
     return ""
@@ -5928,16 +5988,11 @@ def _speech_postprocess_filters_for_config(tts_plugin: str, payload: dict[str, o
             )
         return ",".join(
             [
-                "highpass=f=55",
-                "equalizer=f=165:t=q:w=1.1:g=1.8",
-                "equalizer=f=520:t=q:w=1.0:g=0.8",
-                "equalizer=f=2350:t=q:w=1.1:g=-1.6",
-                "equalizer=f=3600:t=q:w=1.0:g=-2.8",
-                "equalizer=f=5200:t=q:w=1.0:g=-2.0",
-                "lowpass=f=6200",
-                "afftdn=nf=-22",
-                "acompressor=threshold=-20dB:ratio=1.8:attack=16:release=135:makeup=1.0",
-                "alimiter=limit=0.90",
+                "highpass=f=45",
+                "equalizer=f=180:t=q:w=1.0:g=0.7",
+                "equalizer=f=2600:t=q:w=1.0:g=-0.6",
+                "lowpass=f=7200",
+                "alimiter=limit=0.96",
             ]
         )
     return ""
@@ -6063,7 +6118,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
             selected_plugin = PIPER_FAST_TTS_PLUGIN_ID
             phase_started = time.perf_counter()
             piper_fast_synthesize_request(
-                text="Ich bin da.",
+                text="Ja. Ich höre dich.",
                 lang=_text(base_config.get("lang"), "de-AT"),
                 base_voice_variant=_effective_tts_base_voice_variant(base_config),
             )
@@ -6803,7 +6858,7 @@ def _minimal_public_memorial_html(
     <main class="wrap">
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
-          <strong id="memorial-speech-message">Ich bin da.</strong>
+          <strong id="memorial-speech-message">Bereit.</strong>
           <div class="speech-status-meta">
             <span id="memorial-speech-phase">Bereit</span>
             <span id="memorial-speech-detail"></span>
@@ -6866,7 +6921,7 @@ def _minimal_public_memorial_html(
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
         if (retryButton) retryButton.hidden = state !== "error";
-        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Ich bin da.";
+        if (speechMessage) speechMessage.textContent = String(message || "").trim() || "Bereit.";
         if (speechNote) {{
           speechNote.classList.remove("is-pristine", "is-listening", "is-working", "is-error");
           if (state === "idle") speechNote.classList.add("is-pristine");
@@ -6913,7 +6968,7 @@ def _minimal_public_memorial_html(
         memorialLandingReady = Boolean(ready);
         syncConversationButton();
         if (!recordingActive && !requestInFlight) {{
-          if (memorialLandingReady) setSpeechStatus("Ich bin da.", "idle", detail || "");
+          if (memorialLandingReady) setSpeechStatus("Bereit.", "idle", detail || "");
           else setSpeechStatus("Ich richte mich kurz ein.", "working", detail || "");
         }}
       }}
@@ -7094,7 +7149,7 @@ def _minimal_public_memorial_html(
         speechObjectUrl = URL.createObjectURL(blob);
         speechAudio.src = speechObjectUrl;
         speechAudio.preload = "auto";
-        setSpeechStatus("Ich bin da.", "playing", "");
+        setSpeechStatus("Ich spreche.", "playing", "");
         await new Promise((resolve, reject) => {{
           let settled = false;
           const finish = (error = null) => {{
@@ -7250,11 +7305,11 @@ def _minimal_public_memorial_html(
           return;
         }}
         if (type === "response.output_audio.delta" || type === "response.audio.delta") {{
-          setSpeechStatus("Ich bin da.", "playing", "");
+          setSpeechStatus("Ich spreche.", "playing", "");
           return;
         }}
         if (type === "audio_chunk") {{
-          setSpeechStatus("Ich bin da.", "playing", liveAnswerTranscript.trim());
+          setSpeechStatus("Ich spreche.", "playing", liveAnswerTranscript.trim());
           playLivePcmChunk(event.audio_base64, event.content_type || "audio/pcm;rate=24000");
           return;
         }}
@@ -7280,12 +7335,12 @@ def _minimal_public_memorial_html(
         }}
         if (type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta" || type === "response.output_text.delta") {{
           liveAnswerTranscript += String(event.delta || "");
-          setSpeechStatus("Ich bin da.", "playing", liveAnswerTranscript.trim());
+          setSpeechStatus("Ich spreche.", "playing", liveAnswerTranscript.trim());
           return;
         }}
         if (type === "response.output_audio_transcript.done" || type === "response.output_text.done") {{
           liveAnswerTranscript = String(event.transcript || event.text || liveAnswerTranscript || "").trim();
-          setSpeechStatus("Ich bin da.", "playing", liveAnswerTranscript);
+          setSpeechStatus("Ich spreche.", "playing", liveAnswerTranscript);
           return;
         }}
         if (type === "response.done") {{
@@ -7531,7 +7586,7 @@ def _minimal_public_memorial_html(
               if (phase === "listening") setSpeechStatus("Ich höre zu.", "listening", detail || "Audio kommt an");
               else if (phase === "transcribing") setSpeechStatus("Einen Moment.", "working", detail || "Ich verstehe dich");
               else if (phase === "thinking") setSpeechStatus("Ich antworte gleich.", "working", detail || "");
-              else if (phase === "speaking") setSpeechStatus("Ich bin da.", "playing", detail || "");
+              else if (phase === "speaking") setSpeechStatus("Ich spreche.", "playing", detail || "");
               return;
             }}
             if (type === "transcript") {{
@@ -7735,7 +7790,7 @@ def _minimal_public_memorial_html(
             }});
             return;
           }}
-          setSpeechStatus("Ich bin da.", "idle", "");
+          setSpeechStatus("Bereit.", "idle", "");
         }} catch (error) {{
           if (generation === activeGeneration) {{
             conversationSessionActive = false;
@@ -7753,7 +7808,7 @@ def _minimal_public_memorial_html(
       function toggleConversation() {{
         if (conversationSessionActive) {{
           abortActiveTurn();
-          setSpeechStatus("Ich bin da.", "idle", "");
+          setSpeechStatus("Bereit.", "idle", "");
           return;
         }}
         if (requestInFlight) return;
@@ -9530,7 +9585,7 @@ def _memorial_html(
     <main class="wrap">
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
-          <strong>Ich bin da.</strong>
+          <strong>Bereit.</strong>
           <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
             <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
             <div class="speech-wave" id="memorial-speech-wave">
@@ -10071,7 +10126,7 @@ def _memorial_html(
         syncConversationButtons();
         if (!conversationActive) {{
           if (memorialLandingReady) {{
-            setSpeechStatus("Ich bin da.", "idle", detail || "Sprich mit mir");
+            setSpeechStatus("Bereit.", "idle", detail || "Sprich mit mir");
           }} else {{
             setSpeechStatus("Ich richte mich kurz ein.", "working", detail || "Einen kleinen Moment");
           }}
@@ -10402,7 +10457,7 @@ def _memorial_html(
         const turnId = String(payload.turn_id || "");
         if (turnId && settledRealtimeTurnIds.has(turnId) && type !== "error" && type !== "cancelled") return;
         if (type === "ready") {{
-          setSpeechStatus("Ich bin da.", "idle", "Sprich mit mir");
+          setSpeechStatus("Bereit.", "idle", "Sprich mit mir");
           return;
         }}
         if (turnId && activeRealtimeTurnId && turnId !== activeRealtimeTurnId) return;
@@ -11143,7 +11198,7 @@ def _memorial_html(
           }}
           stopSpeechPlayback();
           if (!finish("played", "ended_after_" + String(elapsedMs))) return;
-          setSpeechStatus("Ich bin da.", "idle", "Sprich, wenn du magst");
+          setSpeechStatus("Bereit.", "idle", "Sprich, wenn du magst");
           if (onDone) onDone();
         }};
         speechAudio.onerror = () => {{
@@ -13452,7 +13507,7 @@ def _build_memorial_gemini_live_instruction(
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
         "Bleibe im Erinnerungsmodus: keine Behauptung, dass die verstorbene Person real anwesend ist.",
-        "Wenn die Frage nur Kontaktaufnahme ist, antworte kurz: Ja, ich bin da.",
+        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Ich hoere dich. / Ich hoere dich. Erzaehl weiter. / Ich bin hier. Sprich ruhig weiter. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
         "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
         "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
         "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",
@@ -13730,6 +13785,15 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             }
                         )
                 if bool(server_content.get("turnComplete")):
+                    if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):
+                        answer_text = _memorial_contact_answer_body(f"{transcript_text} {turn_id}")
+                        await _safe_send_json(
+                            {
+                                "type": "response.output_audio_transcript.done",
+                                "turn_id": turn_id,
+                                "transcript": answer_text.strip(),
+                            }
+                        )
                     if output_audio_mode == "server_tts" and answer_text.strip():
                         await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": "Manfreds Stimme wird erzeugt"})
                         try:
