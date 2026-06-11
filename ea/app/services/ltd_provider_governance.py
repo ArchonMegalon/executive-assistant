@@ -268,7 +268,7 @@ LANES: tuple[ProviderLane, ...] = (
     ProviderLane(
         lane_key="video_provider_bakeoff",
         title="Video and Avatar Provider Bake-off",
-        providers=("VidBoard.ai", "FacePop", "Nonverbia", "Mootion", "MagicFit", "AvoMap"),
+        providers=("VidBoard.ai", "FacePop", "Nonverbia", "Mootion", "MagicFit", "AvoMap", "JoggAI"),
         integration_lane="video_avatar_newsroom_bakeoff",
         verified_state="verified_draft_operator_lane",
         missing_state="blocked_pending_proof",

@@ -33,7 +33,7 @@ def _sample_ltd_markdown() -> str:
 |---|---|---|---|---|---|---|---|
 | `FlipLink.me` | `Tier 10` | `1 account` | `Owned` |  | `Tier 3` | Candidate document portal | Must not host sourcebook PDFs, copied rulebook prose, private runner sheets, GM-only secrets, entitlement truth, or payment truth. |
 | `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local UNMIXR_* env contract | Piper fallback policy remains active; live API key and voice ID pending. |
-| `MagicFit` | `License Tier 5` | `2 accounts` | `Owned` |  | `Tier 4` | Candidate adapter | Commercial-use, watermark, export, credit, safety scan, human review, quality and likeness proof pending. |
+| `MagicFit` | `License Tier 5` | `3 accounts` | `Owned` |  | `Tier 4` | Candidate adapter | Commercial-use, watermark, export, credit, safety scan, human review, quality and likeness proof pending. |
 | `Poppy AI` | `Tier 6` | `1 account` | `Owned` |  | `Tier 4` | BrowserAct session probe | Session proof exists; privacy review, export semantics, tenant isolation, source of truth boundary and runtime-boundary proof pending. |
 | `Rafter` | `License Tier 3` | `1 account` | `Owned` |  | `Tier 2` | Fleet security/proof gate verified | Auxiliary security evidence only; not product truth, release truth, roadmap truth, or publish changes. |
 | `Pixefy` | `License Tier 3` | `1 account` | `Owned` |  | `Tier 2` | Fleet responsive visual QA gate verified | Visual QA only, not product truth. |
@@ -50,6 +50,7 @@ def _sample_ltd_markdown() -> str:
 | `Nonverbia` | `Tier 4` | `1 account` | `Activated` |  | `Tier 2` | BrowserAct credentials | Presenter candidate only. |
 | `Mootion` | `License Tier 3` | `1 license` | `Activated` |  | `Tier 2` | Scaffold packets | Motion candidate only. |
 | `AvoMap` | `10x code-based` | `10 codes` | `Activated` |  | `Tier 2` | Scaffold packets | Map/B-roll candidate only. |
+| `JoggAI` | `License Tier 4 / Team updates` | `1 account` | `Owned` |  | `Tier 4` | Local credentials/API status pending | Memorial video render candidate only. |
 | `Lunacal` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Booking candidate. |
 | `Signitic` | `Tier 4` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Signature template candidate. |
 | `GetNextStep.io` | `Tier 5` | `1 account` | `Activated` |  | `Tier 4` | Credentials | Strategy workbench only. |
@@ -120,6 +121,7 @@ def test_lane_boundaries_match_provider_risks() -> None:
     video = lane_by_key("video_provider_bakeoff")
     assert video is not None
     assert {"direct_publish", "unconsented_likeness", "product_proof"} <= set(video.forbidden_inputs)
+    assert "JoggAI" in set(video.providers)
 
 
 def test_public_signal_lane_schema_is_single_normalized_object() -> None:

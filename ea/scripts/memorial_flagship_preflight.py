@@ -37,7 +37,7 @@ BLOCKED_PUBLIC_ASSET_NAMES = {
 }
 ALLOWED_PUBLIC_ASSET_SUFFIXES = {
     ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm",
-    ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
+    ".mp4", ".mov", ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
 }
 ALLOWED_AVATAR_VIDEO_SUFFIXES = {".mp4", ".webm", ".mov"}
 ALLOWED_AVATAR_POSTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
@@ -135,6 +135,116 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _manifest_provider(item: dict[str, Any]) -> str:
+    return str(item.get("provider") or item.get("provider_key") or "").strip().lower()
+
+
+def _check_joggai_public_document(
+    *,
+    item: dict[str, Any],
+    candidate: Path,
+    bundle: Path,
+    section: str,
+    relpath: str,
+    report: Report,
+) -> None:
+    if _manifest_provider(item) != "joggai":
+        return
+    review_status = str(item.get("review_status") or "").strip().lower()
+    visibility = str(item.get("visibility") or "").strip().lower() or "public"
+    public_flag = bool(item.get("public") is True)
+    sha256 = str(item.get("sha256") or item.get("asset_sha256") or "").strip().lower()
+    receipt_relpath = _relpath(str(item.get("receipt_relpath") or item.get("receipt_path") or ""))
+    if public_flag or visibility == "public":
+        missing: list[str] = []
+        if review_status != "approved":
+            missing.append("review_status=approved")
+        if not sha256:
+            missing.append("sha256")
+        if not receipt_relpath:
+            missing.append("receipt_relpath")
+        if missing:
+            report.add(
+                "fail",
+                "joggai_public_asset_missing_receipt_gate",
+                "Public JoggAI asset is missing review/hash/receipt gates.",
+                section=section,
+                relpath=relpath,
+                missing=missing,
+            )
+            return
+        receipt_path = bundle / receipt_relpath
+        if not receipt_path.is_file():
+            report.add(
+                "fail",
+                "joggai_public_asset_missing_receipt_gate",
+                "Public JoggAI asset receipt is not present in the memorial bundle.",
+                section=section,
+                relpath=relpath,
+                receipt_relpath=receipt_relpath,
+            )
+            return
+        try:
+            receipt = load_json(receipt_path)
+        except Exception as exc:
+            report.add(
+                "fail",
+                "joggai_public_asset_missing_receipt_gate",
+                "Public JoggAI asset receipt could not be parsed.",
+                section=section,
+                relpath=relpath,
+                receipt_relpath=receipt_relpath,
+                error=str(exc),
+            )
+            return
+        receipt_contract = str(receipt.get("contract_name") or "").strip()
+        receipt_provider = str(receipt.get("provider") or receipt.get("provider_key") or "").strip().lower()
+        receipt_asset_relpath = _relpath(str(receipt.get("asset_relpath") or ""))
+        receipt_asset_hash = str(receipt.get("asset_sha256") or "").strip().lower()
+        receipt_public_ready = bool(receipt.get("public_ready") is True)
+        receipt_review_status = str(receipt.get("review_status") or "").strip().lower()
+        receipt_missing: list[str] = []
+        if receipt_contract != "executive_assistant.memorial_joggai_render.v1":
+            receipt_missing.append("contract_name")
+        if receipt_provider != "joggai":
+            receipt_missing.append("provider=joggai")
+        if receipt_asset_relpath != relpath:
+            receipt_missing.append("asset_relpath")
+        if receipt_asset_hash != sha256:
+            receipt_missing.append("asset_sha256")
+        if receipt_review_status != "approved":
+            receipt_missing.append("receipt.review_status=approved")
+        if receipt_public_ready is not True:
+            receipt_missing.append("receipt.public_ready=true")
+        if receipt_missing:
+            report.add(
+                "fail",
+                "joggai_public_asset_missing_receipt_gate",
+                "Public JoggAI asset receipt does not match the manifest gate.",
+                section=section,
+                relpath=relpath,
+                receipt_relpath=receipt_relpath,
+                missing=receipt_missing,
+            )
+            return
+        if candidate.is_file() and sha256_file(candidate) != sha256:
+            report.add(
+                "fail",
+                "joggai_public_asset_hash_mismatch",
+                "Public JoggAI asset hash does not match manifest.",
+                section=section,
+                relpath=relpath,
+            )
+            return
+        report.add(
+            "pass",
+            "joggai_public_asset_gate_ok",
+            "Public JoggAI asset is approved, receipt-linked, and hash-pinned.",
+            section=section,
+            relpath=relpath,
+        )
 
 
 def private_profile_root() -> Path:
@@ -321,6 +431,15 @@ def check_filesystem(slug: str, report: Report, *, require_clone_consent: bool =
                 report.add("fail", "asset_suffix_not_allowed", "A public asset uses a non-public suffix.", section=section, relpath=relpath, suffix=suffix)
             elif not candidate.is_file():
                 report.add("fail", "listed_asset_missing", "A listed public asset is missing from disk.", section=section, relpath=relpath)
+            else:
+                _check_joggai_public_document(
+                    item=item,
+                    candidate=candidate,
+                    bundle=bundle,
+                    section=section,
+                    relpath=relpath,
+                    report=report,
+                )
     if allowed_assets:
         report.add("pass", "public_assets_manifest_driven", "Public assets are declared through manifest fields.", count=allowed_assets)
     else:

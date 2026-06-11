@@ -204,6 +204,169 @@ def test_preflight_fails_enabled_avatar_hash_mismatch(monkeypatch, tmp_path) -> 
     assert any(item.code == "avatar_video_hash_mismatch" and item.status == "fail" for item in report.findings)
 
 
+def test_preflight_passes_public_joggai_video_with_receipt_and_hash(monkeypatch, tmp_path) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    (bundle / "video" / "joggai").mkdir(parents=True)
+    (bundle / "receipts").mkdir()
+    asset_relpath = "video/joggai/how-this-memorial-works.mp4"
+    receipt_relpath = "receipts/joggai-how-this-memorial-works.generated.json"
+    asset_bytes = b"joggai-video"
+    asset_hash = hashlib.sha256(asset_bytes).hexdigest()
+    (bundle / asset_relpath).write_bytes(asset_bytes)
+    (bundle / receipt_relpath).write_text(
+        json.dumps(
+            {
+                "contract_name": "executive_assistant.memorial_joggai_render.v1",
+                "provider": "joggai",
+                "asset_relpath": asset_relpath,
+                "asset_sha256": asset_hash,
+                "review_status": "approved",
+                "public_ready": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": "manfred",
+                "audio_clips": [],
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                },
+                "public_documents": [
+                    {
+                        "title": "How this memorial works",
+                        "asset_relpath": asset_relpath,
+                        "public": True,
+                        "visibility": "public",
+                        "provider": "joggai",
+                        "review_status": "approved",
+                        "sha256": asset_hash,
+                        "receipt_relpath": receipt_relpath,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "public_registry_path", lambda slug, generated=False: tmp_path / "missing.json")
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(item.code == "joggai_public_asset_gate_ok" and item.status == "pass" for item in report.findings)
+    assert not any(item.code == "asset_suffix_not_allowed" and item.detail.get("relpath") == asset_relpath for item in report.findings)
+
+
+def test_preflight_fails_public_joggai_video_without_receipt(monkeypatch, tmp_path) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    (bundle / "video" / "joggai").mkdir(parents=True)
+    asset_relpath = "video/joggai/how-this-memorial-works.mp4"
+    asset_bytes = b"joggai-video"
+    (bundle / asset_relpath).write_bytes(asset_bytes)
+    (bundle / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": "manfred",
+                "audio_clips": [],
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                },
+                "public_documents": [
+                    {
+                        "title": "How this memorial works",
+                        "asset_relpath": asset_relpath,
+                        "public": True,
+                        "visibility": "public",
+                        "provider": "joggai",
+                        "review_status": "approved",
+                        "sha256": hashlib.sha256(asset_bytes).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "public_registry_path", lambda slug, generated=False: tmp_path / "missing.json")
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(item.code == "joggai_public_asset_missing_receipt_gate" and item.status == "fail" for item in report.findings)
+
+
+def test_preflight_fails_public_joggai_video_hash_mismatch(monkeypatch, tmp_path) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    public_root = tmp_path / "public"
+    bundle = public_root / "manfred"
+    (bundle / "video" / "joggai").mkdir(parents=True)
+    (bundle / "receipts").mkdir()
+    asset_relpath = "video/joggai/how-this-memorial-works.mp4"
+    receipt_relpath = "receipts/joggai-how-this-memorial-works.generated.json"
+    manifest_hash = hashlib.sha256(b"original").hexdigest()
+    (bundle / asset_relpath).write_bytes(b"changed")
+    (bundle / receipt_relpath).write_text(
+        json.dumps(
+            {
+                "contract_name": "executive_assistant.memorial_joggai_render.v1",
+                "provider": "joggai",
+                "asset_relpath": asset_relpath,
+                "asset_sha256": manifest_hash,
+                "review_status": "approved",
+                "public_ready": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "memorial.json").write_text(
+        json.dumps(
+            {
+                "slug": "manfred",
+                "audio_clips": [],
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["synthesize", "conversation_turn", "realtime"],
+                    "revoked": False,
+                },
+                "public_documents": [
+                    {
+                        "title": "How this memorial works",
+                        "asset_relpath": asset_relpath,
+                        "public": True,
+                        "visibility": "public",
+                        "provider": "joggai",
+                        "review_status": "approved",
+                        "sha256": manifest_hash,
+                        "receipt_relpath": receipt_relpath,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "public_memorial_root", lambda: public_root)
+    monkeypatch.setattr(preflight, "public_registry_path", lambda slug, generated=False: tmp_path / "missing.json")
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_filesystem("manfred", report)
+
+    assert any(item.code == "joggai_public_asset_hash_mismatch" and item.status == "fail" for item in report.findings)
+
+
 def test_preflight_live_checks_current_minimal_surface(monkeypatch) -> None:
     import scripts.memorial_flagship_preflight as preflight
 
