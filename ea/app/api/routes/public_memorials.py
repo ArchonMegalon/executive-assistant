@@ -7438,7 +7438,7 @@ def _minimal_public_memorial_html(
             }}));
           }}
           socket.send(floatToPcm16(samples));
-          if (!liveTurnEnded && speechSeen && now - startedAt > 700 && now - lastVoiceAt > 620) {{
+          if (!liveTurnEnded && speechSeen && now - startedAt > 900 && now - lastVoiceAt > 920) {{
             liveTurnEnded = true;
             try {{ socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }})); }} catch (error) {{}}
             try {{ processor.disconnect(); }} catch (error) {{}}
@@ -11439,8 +11439,8 @@ def _memorial_html(
         let lastVoiceAt = Date.now();
         const startedAt = Date.now();
         const maxNoSpeechMs = Math.max(1800, Number(options.autoStopMs || 2400));
-        const silenceAfterSpeechMs = Math.max(420, Number(options.silenceMs || 620));
-        const minSpeechMs = 520;
+        const silenceAfterSpeechMs = Math.max(760, Number(options.silenceMs || 920));
+        const minSpeechMs = 760;
         const speechThreshold = Math.max(0.008, Number(options.silenceThreshold || 0.011));
         const finish = (resolve, reject, timeoutId, error = null) => {{
           if (settled) return;
@@ -13849,7 +13849,17 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             )
                         except Exception as exc:
                             logger.warning("gemini live server tts failed slug=%s turn_id=%s detail=%s", slug, turn_id, str(exc)[:240])
-                            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": "tts_plugin_failed"})
+                            _log_memorial_timing(
+                                "gemini_live_server_tts_soft_fail",
+                                slug=slug,
+                                turn_id=turn_id,
+                                transcript_chars=len(transcript_text.strip()),
+                                answer_chars=len(answer_text.strip()),
+                                language=current_conversation_language,
+                                detail=str(exc)[:160],
+                            )
+                            await _safe_send_json({"type": "audio_complete", "turn_id": turn_id, "content_type": "audio/wav", "audio_unavailable": True})
+                            await _safe_send_json({"type": "turn_complete", "turn_id": turn_id})
                             return
                     else:
                         await _safe_send_json({"type": "audio_complete", "turn_id": turn_id, "content_type": "audio/pcm;rate=24000"})
