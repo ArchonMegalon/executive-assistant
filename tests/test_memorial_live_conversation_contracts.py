@@ -2341,6 +2341,7 @@ def test_memorial_gemini_live_defaults_to_server_tts_audio(
                 await self._queue.put(
                     {
                         "serverContent": {
+                            "inputTranscription": {"text": "Hallo Manfred."},
                             "outputTranscription": {"text": "Ja, ich"},
                             "generationComplete": False,
                         }
@@ -2431,6 +2432,113 @@ def test_memorial_gemini_live_defaults_to_server_tts_audio(
     assert seen["resolved_voice_id"] == "live-unmixr-id"
     assert any(message.get("type") == "audio" and message.get("content_type") == "audio/wav" for message in messages)
     assert not any(message.get("type") == "audio_chunk" for message in messages)
+    assert any(message.get("type") == "turn_complete" for message in messages)
+
+
+def test_memorial_gemini_live_falls_back_to_stable_stt_when_input_transcript_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "live-unmixr-id")
+    monkeypatch.delenv("EA_GEMINI_LIVE_OUTPUT_AUDIO_MODE", raising=False)
+    monkeypatch.setattr(public_memorials, "_require_voice_consent", lambda *args, **kwargs: None)
+    seen: dict[str, object] = {}
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "outputTranscription": {"text": "Ich höre dich. Erzähl weiter."},
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda *, payload, content_type: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Wie ist das Wetter heute?",
+            "transcriber": "stable-test-stt",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda slug: {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "live-unmixr-id",
+            "voice_profile_ready": True,
+        },
+    )
+
+    def _fake_render(**kwargs):
+        seen["tts_text"] = kwargs["text"]
+        seen["tts_content_type"] = kwargs["selected_option"].get("tts_plugin")
+        return b"fake-wav-audio", "audio/wav"
+
+    monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", _fake_render)
+    client = _client(principal_id="exec-memorial-live-stt-fallback")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        assert websocket.receive_json()["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_weather_fallback",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(_pcm16_speech_bytes(samples=3200))
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_weather_fallback"})
+        messages = []
+        for _ in range(20):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    assert any(message.get("type") == "transcript" and message.get("text") == "Wie ist das Wetter heute?" for message in messages)
+    assert "Wetter" in seen["tts_text"]
+    assert seen["tts_text"] not in CONTACT_REPLY_VARIANTS
+    assert any(message.get("type") == "audio_chunk" and message.get("content_type") == "audio/wav" for message in messages)
+    assert any(message.get("type") == "audio_complete" and message.get("content_type") == "audio/wav" for message in messages)
     assert any(message.get("type") == "turn_complete" for message in messages)
 
 
@@ -2837,7 +2945,14 @@ def test_memorial_gemini_live_websocket_streams_vertex_pcm_schema(
                 await self._queue.put({"setupComplete": {}})
             realtime_input = payload.get("realtime_input")
             if isinstance(realtime_input, dict) and realtime_input.get("activityEnd") == {}:
-                await self._queue.put({"serverContent": {"turnComplete": True}})
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "inputTranscription": {"text": "Hallo Manfred."},
+                            "turnComplete": True,
+                        }
+                    }
+                )
 
         def __aiter__(self):
             return self

@@ -6665,6 +6665,25 @@ def _pcm16_payload_has_speech_energy(payload: bytes, *, threshold: float = 0.01)
     return rms >= 0.004 and (loud / total) >= 0.003
 
 
+def _pcm16_payload_to_wav(payload: bytes, *, content_type: str) -> bytes:
+    sample_rate = 16000
+    match = re.search(r"(?:rate|samplerate)=(\d+)", str(content_type or ""), flags=re.IGNORECASE)
+    if match:
+        try:
+            sample_rate = max(8000, min(48000, int(match.group(1))))
+        except ValueError:
+            sample_rate = 16000
+    raw = bytes(payload or b"")
+    raw = raw[: len(raw) - (len(raw) % 2)]
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(raw)
+    return buffer.getvalue()
+
+
 def _convert_audio_to_wav(*, payload: bytes, extension: str, enhance_for_speech: bool = False) -> bytes:
     suffix = extension if str(extension or "").startswith(".") else ".webm"
     with tempfile.TemporaryDirectory(prefix="ea-memorial-stt-") as tmp_dir:
@@ -13787,6 +13806,27 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             }
                         )
                 if bool(server_content.get("turnComplete")):
+                    normalized_transcript = _normalize_memorial_transcript_text(transcript_text)
+                    transcript_tokens = [token for token in re.split(r"\s+", normalized_transcript) if token]
+                    unreliable_live_transcript = len(normalized_transcript) < 8 or len(transcript_tokens) < 2
+                    if unreliable_live_transcript and current_audio:
+                        fallback_audio = bytes(current_audio)
+                        fallback_content_type = current_content_type
+                        if current_content_type.startswith("audio/pcm"):
+                            fallback_audio = _pcm16_payload_to_wav(fallback_audio, content_type=current_content_type)
+                            fallback_content_type = "audio/wav"
+                        _log_memorial_timing(
+                            "gemini_live_stt_fallback",
+                            slug=slug,
+                            turn_id=turn_id,
+                            live_transcript_chars=len(normalized_transcript),
+                            audio_bytes=len(fallback_audio),
+                            content_type=fallback_content_type,
+                        )
+                        await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
+                        task = asyncio.create_task(_process_turn(turn_id, fallback_audio, fallback_content_type))
+                        _register_turn_task(turn_id, task)
+                        return
                     if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):
                         answer_text = _memorial_contact_answer_body(f"{transcript_text} {turn_id}")
                         await _safe_send_json(
@@ -14228,6 +14268,14 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     await websocket.send_json({"type": "error", "message": "audio_start_required"})
                     continue
                 if current_gemini_socket is not None:
+                    if len(current_audio) + len(bytes_data) > _MAX_REALTIME_AUDIO_BYTES:
+                        await websocket.send_json({"type": "error", "turn_id": current_gemini_turn_id, "message": "audio_too_large"})
+                        await _close_gemini_live_turn()
+                        current_audio = bytearray()
+                        current_audio_started = False
+                        current_turn_id = ""
+                        continue
+                    current_audio.extend(bytes_data)
                     if current_content_type.startswith("audio/pcm") and _pcm16_payload_has_speech_energy(bytes_data):
                         current_gemini_audio_had_speech = True
                     try:
@@ -14342,7 +14390,6 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     await _close_gemini_live_turn()
                 current_audio_started = False
                 current_turn_id = ""
-                current_audio = bytearray()
                 continue
             if not current_audio:
                 current_audio_started = False
