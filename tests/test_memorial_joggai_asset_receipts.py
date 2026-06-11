@@ -105,6 +105,42 @@ def test_joggai_asset_verifier_writes_public_ready_receipt(tmp_path: Path) -> No
     assert receipt["api_used"] is False
 
 
+def test_joggai_asset_verifier_defaults_to_public_bundle_relpaths(tmp_path: Path) -> None:
+    asset = tmp_path / "intro.mp4"
+    poster = tmp_path / "intro-poster.webp"
+    packet = tmp_path / "script.json"
+    output = tmp_path / "receipt.json"
+    _write_video(asset)
+    poster.write_bytes(b"poster")
+    _write_script_packet(packet)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_script()),
+            "--slug",
+            "manfred",
+            "--asset",
+            str(asset),
+            "--poster",
+            str(poster),
+            "--script-packet",
+            str(packet),
+            "--output",
+            str(output),
+        ],
+        cwd="/docker/EA",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads(output.read_text(encoding="utf-8"))
+    assert receipt["asset_relpath"] == "video/joggai/intro.mp4"
+    assert receipt["poster_relpath"] == "video/joggai/intro-poster.webp"
+
+
 def test_joggai_asset_verifier_rejects_forbidden_presence_claim(tmp_path: Path) -> None:
     result = _run_verifier(
         tmp_path,
@@ -150,6 +186,59 @@ def test_joggai_asset_verifier_allows_candidate_likeness_with_consent(tmp_path: 
     assert receipt["review_status"] == "candidate"
 
 
+def test_joggai_asset_verifier_requires_public_playback_for_public_likeness(tmp_path: Path) -> None:
+    result = _run_verifier(
+        tmp_path,
+        packet_overrides={
+            "uses_manfred_likeness": True,
+            "avatar_consent": {
+                "status": "approved",
+                "scope": ["joggai_candidate_render", "family_review"],
+                "authorized_by": "family-owner",
+                "authorized_at": "2026-06-11T00:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+        extra_args=["--review-status", "approved", "--public-ready"],
+    )
+
+    assert result.returncode != 0
+    assert "avatar_consent_scope_missing:public_playback" in (result.stderr or result.stdout)
+
+
+def test_joggai_asset_verifier_requires_voice_consent_for_manfred_voice(tmp_path: Path) -> None:
+    result = _run_verifier(
+        tmp_path,
+        packet_overrides={"uses_manfred_voice": True},
+    )
+
+    assert result.returncode != 0
+    assert "voice_consent_required" in (result.stderr or result.stdout)
+
+
+def test_joggai_asset_verifier_allows_manfred_voice_with_specific_consent(tmp_path: Path) -> None:
+    result = _run_verifier(
+        tmp_path,
+        packet_overrides={
+            "uses_manfred_voice": True,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["joggai_candidate_render", "clone", "public_playback"],
+                "authorized_by": "family-owner",
+                "authorized_at": "2026-06-11T00:00:00Z",
+                "revoked": False,
+            },
+        },
+        extra_args=["--review-status", "approved", "--public-ready"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    receipt = json.loads((tmp_path / "receipt.json").read_text(encoding="utf-8"))
+    assert receipt["uses_manfred_voice"] is True
+    assert receipt["public_ready"] is True
+
+
 def test_joggai_asset_verifier_requires_private_memory_review(tmp_path: Path) -> None:
     result = _run_verifier(
         tmp_path,
@@ -165,3 +254,35 @@ def test_joggai_asset_verifier_blocks_public_ready_candidate(tmp_path: Path) -> 
 
     assert result.returncode != 0
     assert "public_ready_requires_approved_review" in (result.stderr or result.stdout)
+
+
+def test_joggai_asset_verifier_rejects_unsafe_manifest_relpath(tmp_path: Path) -> None:
+    result = _run_verifier(
+        tmp_path,
+        extra_args=[
+            "--review-status",
+            "approved",
+            "--public-ready",
+            "--asset-relpath",
+            "../private.mp4",
+        ],
+    )
+
+    assert result.returncode != 0
+    assert "asset_relpath_unsafe" in (result.stderr or result.stdout)
+
+
+def test_joggai_asset_verifier_rejects_absolute_manifest_relpath(tmp_path: Path) -> None:
+    result = _run_verifier(
+        tmp_path,
+        extra_args=[
+            "--review-status",
+            "approved",
+            "--public-ready",
+            "--asset-relpath",
+            "/tmp/private.mp4",
+        ],
+    )
+
+    assert result.returncode != 0
+    assert "asset_relpath_unsafe" in (result.stderr or result.stdout)

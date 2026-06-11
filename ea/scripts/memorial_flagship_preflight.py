@@ -141,6 +141,14 @@ def _manifest_provider(item: dict[str, Any]) -> str:
     return str(item.get("provider") or item.get("provider_key") or "").strip().lower()
 
 
+def _safe_public_relpath(value: str) -> str:
+    relpath = _relpath(value)
+    parts = [part for part in relpath.split("/") if part]
+    if not parts or any(part == ".." for part in parts) or "://" in relpath:
+        return ""
+    return "/".join(parts)
+
+
 def _check_joggai_public_document(
     *,
     item: dict[str, Any],
@@ -156,7 +164,7 @@ def _check_joggai_public_document(
     visibility = str(item.get("visibility") or "").strip().lower() or "public"
     public_flag = bool(item.get("public") is True)
     sha256 = str(item.get("sha256") or item.get("asset_sha256") or "").strip().lower()
-    receipt_relpath = _relpath(str(item.get("receipt_relpath") or item.get("receipt_path") or ""))
+    receipt_relpath = _safe_public_relpath(str(item.get("receipt_relpath") or item.get("receipt_path") or ""))
     if public_flag or visibility == "public":
         missing: list[str] = []
         if review_status != "approved":
@@ -165,6 +173,8 @@ def _check_joggai_public_document(
             missing.append("sha256")
         if not receipt_relpath:
             missing.append("receipt_relpath")
+        elif not receipt_relpath.endswith(".generated.json"):
+            missing.append("receipt_relpath=*.generated.json")
         if missing:
             report.add(
                 "fail",
@@ -176,6 +186,18 @@ def _check_joggai_public_document(
             )
             return
         receipt_path = bundle / receipt_relpath
+        try:
+            receipt_path.resolve().relative_to(bundle.resolve())
+        except ValueError:
+            report.add(
+                "fail",
+                "joggai_public_asset_missing_receipt_gate",
+                "Public JoggAI asset receipt path escapes the memorial bundle.",
+                section=section,
+                relpath=relpath,
+                receipt_relpath=receipt_relpath,
+            )
+            return
         if not receipt_path.is_file():
             report.add(
                 "fail",
@@ -238,6 +260,32 @@ def _check_joggai_public_document(
                 relpath=relpath,
             )
             return
+        poster_relpath = _safe_public_relpath(str(receipt.get("poster_relpath") or ""))
+        poster_hash = str(receipt.get("poster_sha256") or "").strip().lower()
+        if poster_relpath and poster_hash:
+            poster_path = bundle / poster_relpath
+            try:
+                poster_path.resolve().relative_to(bundle.resolve())
+            except ValueError:
+                report.add(
+                    "fail",
+                    "joggai_public_asset_missing_receipt_gate",
+                    "Public JoggAI poster path escapes the memorial bundle.",
+                    section=section,
+                    relpath=relpath,
+                    poster_relpath=poster_relpath,
+                )
+                return
+            if poster_path.is_file() and sha256_file(poster_path) != poster_hash:
+                report.add(
+                    "fail",
+                    "joggai_public_asset_hash_mismatch",
+                    "Public JoggAI poster hash does not match receipt.",
+                    section=section,
+                    relpath=relpath,
+                    poster_relpath=poster_relpath,
+                )
+                return
         report.add(
             "pass",
             "joggai_public_asset_gate_ok",

@@ -12,6 +12,7 @@ from typing import Any
 
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".webm", ".mov"}
 ALLOWED_POSTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+ALLOWED_PUBLIC_REVIEW_STATUSES = {"approved"}
 FORBIDDEN_SCRIPT_PHRASES = (
     "i am manfred and i am here again",
     "ich bin manfred und ich bin wieder da",
@@ -48,6 +49,19 @@ def _validate_file(path: Path, *, suffixes: set[str], code: str) -> None:
         raise SystemExit(f"{code}_missing:{path}")
     if path.suffix.lower() not in suffixes:
         raise SystemExit(f"{code}_unsupported_suffix:{path.suffix.lower()}")
+
+
+def _validate_relpath(value: str, *, code: str) -> str:
+    raw = str(value or "").replace("\\", "/").strip()
+    if raw.startswith("/") or "://" in raw:
+        raise SystemExit(f"{code}_unsafe")
+    normalized = raw.lstrip("/")
+    if not normalized:
+        raise SystemExit(f"{code}_missing")
+    parts = [part for part in normalized.split("/") if part]
+    if any(part == ".." for part in parts):
+        raise SystemExit(f"{code}_unsafe")
+    return "/".join(parts)
 
 
 def _ffprobe(path: Path) -> dict[str, Any]:
@@ -112,7 +126,24 @@ def _video_metadata(path: Path) -> dict[str, Any]:
     }
 
 
-def _validate_script_packet(packet: dict[str, Any]) -> None:
+def _consent_scope(consent: Any) -> set[str]:
+    if not isinstance(consent, dict):
+        return set()
+    return {str(item or "").strip() for item in list(consent.get("scope") or []) if str(item or "").strip()}
+
+
+def _validate_approved_consent(consent: Any, *, code: str, required_scopes: set[str]) -> None:
+    if not isinstance(consent, dict):
+        raise SystemExit(f"{code}_required")
+    if str(consent.get("status") or "").strip().lower() != "approved" or consent.get("revoked") is True:
+        raise SystemExit(f"{code}_not_approved")
+    scopes = _consent_scope(consent)
+    missing = sorted(required_scopes - scopes)
+    if missing:
+        raise SystemExit(f"{code}_scope_missing:{','.join(missing)}")
+
+
+def _validate_script_packet(packet: dict[str, Any], *, public_ready: bool) -> None:
     if str(packet.get("provider") or "").strip().lower() != "joggai":
         raise SystemExit("script_provider_not_joggai")
     if str(packet.get("approved_by") or "").strip() == "":
@@ -126,14 +157,15 @@ def _validate_script_packet(packet: dict[str, Any]) -> None:
     if any(phrase in lowered for phrase in FORBIDDEN_SCRIPT_PHRASES):
         raise SystemExit("script_forbidden_memorial_claim")
     if packet.get("uses_manfred_likeness") is True:
-        consent = packet.get("avatar_consent")
-        if not isinstance(consent, dict):
-            raise SystemExit("avatar_consent_required")
-        scopes = {str(item or "").strip() for item in list(consent.get("scope") or [])}
-        if str(consent.get("status") or "").lower() != "approved" or consent.get("revoked") is True:
-            raise SystemExit("avatar_consent_not_approved")
-        if "joggai_candidate_render" not in scopes:
-            raise SystemExit("avatar_consent_scope_missing")
+        required = {"joggai_candidate_render"}
+        if public_ready:
+            required.add("public_playback")
+        _validate_approved_consent(packet.get("avatar_consent"), code="avatar_consent", required_scopes=required)
+    if packet.get("uses_manfred_voice") is True:
+        required = {"joggai_candidate_render", "clone"}
+        if public_ready:
+            required.add("public_playback")
+        _validate_approved_consent(packet.get("voice_consent"), code="voice_consent", required_scopes=required)
     if packet.get("uses_private_memory") is True and packet.get("private_memory_review_approved") is not True:
         raise SystemExit("private_memory_review_required")
 
@@ -154,11 +186,13 @@ def build_receipt(
     _validate_file(asset, suffixes=ALLOWED_VIDEO_SUFFIXES, code="joggai_asset")
     _validate_file(poster, suffixes=ALLOWED_POSTER_SUFFIXES, code="joggai_poster")
     packet = _load_json(script_packet)
-    _validate_script_packet(packet)
-    metadata = _video_metadata(asset)
     normalized_review = str(review_status or "").strip().lower() or "candidate"
-    if public_ready and normalized_review != "approved":
+    if public_ready and normalized_review not in ALLOWED_PUBLIC_REVIEW_STATUSES:
         raise SystemExit("public_ready_requires_approved_review")
+    _validate_script_packet(packet, public_ready=public_ready)
+    asset_relpath = _validate_relpath(asset_relpath, code="asset_relpath")
+    poster_relpath = _validate_relpath(poster_relpath, code="poster_relpath")
+    metadata = _video_metadata(asset)
     if public_ready and watermark_present:
         raise SystemExit("public_ready_requires_no_watermark")
     asset_hash = _sha256_file(asset)
@@ -215,8 +249,8 @@ def main() -> int:
         poster=poster,
         script_packet=Path(args.script_packet),
         output=Path(args.output),
-        asset_relpath=str(args.asset_relpath or asset.as_posix()),
-        poster_relpath=str(args.poster_relpath or poster.as_posix()),
+        asset_relpath=str(args.asset_relpath or f"video/joggai/{asset.name}"),
+        poster_relpath=str(args.poster_relpath or f"video/joggai/{poster.name}"),
         review_status=str(args.review_status),
         public_ready=bool(args.public_ready),
         watermark_present=bool(args.watermark_present),
