@@ -13917,6 +13917,19 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             elif "invalid authentication credentials" in detail.lower():
                 public_detail = "gemini_live_auth_invalid"
             logger.warning("gemini live receive failed slug=%s turn_id=%s detail=%s", slug, turn_id, detail[:240])
+            if current_audio:
+                _log_memorial_timing(
+                    "gemini_live_receive_fallback",
+                    slug=slug,
+                    turn_id=turn_id,
+                    detail=public_detail,
+                    audio_bytes=len(current_audio),
+                    content_type=current_content_type,
+                )
+                await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
+                task = asyncio.create_task(_process_turn(turn_id, bytes(current_audio), current_content_type))
+                _register_turn_task(turn_id, task)
+                return
             await _safe_send_json({"type": "error", "turn_id": turn_id, "message": public_detail})
 
     async def _start_gemini_live_turn(turn_id: str) -> bool:
@@ -14211,6 +14224,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     async def _process_turn(turn_id: str, audio_payload: bytes, content_type: str) -> None:
         total_started = time.perf_counter()
         try:
+            if content_type.startswith("audio/pcm"):
+                audio_payload = _pcm16_payload_to_wav(audio_payload, content_type=content_type)
+                content_type = "audio/wav"
             stt_started = time.perf_counter()
             transcript_payload = await asyncio.to_thread(
                 _memorial_transcribe_audio_blob,
@@ -14362,8 +14378,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                                     await websocket.send_json({"type": "error", "turn_id": current_gemini_turn_id, "message": "gemini_live_failed"})
                                     await _close_gemini_live_turn()
                         continue
-                    current_audio_started = False
-                    current_turn_id = ""
+                    await websocket.send_json({"type": "phase", "turn_id": current_turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
                     continue
                 await websocket.send_json({"type": "phase", "turn_id": current_turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
                 continue
