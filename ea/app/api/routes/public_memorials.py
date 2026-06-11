@@ -2481,7 +2481,9 @@ def _public_voice_profile_summary(slug: str) -> dict[str, object]:
 
 
 def _normalize_tts_text(value: object) -> str:
-    return " ".join(str(value or "").split()).strip()[:_TTS_MAX_TEXT_LEN]
+    text = " ".join(str(value or "").split()).strip()
+    text = re.sub(r"([.!?])(?=\S)", r"\1 ", text)
+    return text[:_TTS_MAX_TEXT_LEN]
 
 
 def _normalize_memorial_spoken_tts_text(value: object) -> str:

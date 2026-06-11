@@ -500,6 +500,13 @@ def test_memorial_conversation_turn_canonicalizes_short_contact_openings(
     assert body["answer"] in CONTACT_REPLY_VARIANTS
 
 
+def test_memorial_contact_opening_detection_repairs_missing_sentence_space() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._normalize_tts_text("Ich höre dich.Erzähl weiter.") == "Ich höre dich. Erzähl weiter."
+    assert public_memorials._is_memorial_direct_contact_opening_text("Ich höre dich.Erzähl weiter.") is True
+
+
 def test_memorial_conversation_turn_current_weather_short_circuits_to_present_world_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
