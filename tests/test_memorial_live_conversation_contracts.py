@@ -2725,6 +2725,7 @@ def test_memorial_gemini_live_reports_oauth_scope_errors(
                 "scope": "https://www.googleapis.com/auth/cloud-platform",
                 "token_type": "Bearer",
                 "expiry_date": int((time.time() + 3600) * 1000),
+                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -2776,6 +2777,7 @@ def test_memorial_gemini_live_fails_soft_to_audio_buffer_after_oauth_scope_error
                 "scope": "https://www.googleapis.com/auth/cloud-platform",
                 "token_type": "Bearer",
                 "expiry_date": int((time.time() + 3600) * 1000),
+                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -2846,6 +2848,7 @@ def test_memorial_gemini_live_uses_mounted_oauth_credentials(
                 "scope": "https://www.googleapis.com/auth/cloud-platform",
                 "token_type": "Bearer",
                 "expiry_date": int((time.time() + 3600) * 1000),
+                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -2881,6 +2884,7 @@ def test_memorial_gemini_live_prefers_vertex_oauth_when_project_configured(
                 "scope": "https://www.googleapis.com/auth/cloud-platform",
                 "token_type": "Bearer",
                 "expiry_date": int((time.time() + 3600) * 1000),
+                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -2929,6 +2933,7 @@ def test_memorial_gemini_live_websocket_streams_vertex_pcm_schema(
                 "scope": "https://www.googleapis.com/auth/cloud-platform",
                 "token_type": "Bearer",
                 "expiry_date": int((time.time() + 3600) * 1000),
+                "ea_memorial_live_refreshed_at": "2026-06-11T08:00:00+00:00",
             }
         ),
         encoding="utf-8",
@@ -3149,6 +3154,51 @@ def test_memorial_gemini_live_reuses_existing_google_oauth_client_for_first_refr
     assert uri.startswith("wss://generativelanguage.googleapis.com/ws/")
     refreshed = json.loads(creds_path.read_text(encoding="utf-8"))
     assert refreshed["ea_memorial_live_refreshed_at"]
+
+
+def test_memorial_gemini_live_rejects_stale_oauth_when_required_refresh_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "stale-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "existing-google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "existing-google-secret")
+
+    class _RefreshResponse:
+        status_code = 401
+        text = '{"error":"unauthorized_client"}'
+
+        def json(self):
+            return {"error": "unauthorized_client"}
+
+    monkeypatch.setattr(public_memorials.requests, "post", lambda *args, **kwargs: _RefreshResponse())
+
+    uri, headers, auth_mode = public_memorials._gemini_live_connect_target()
+
+    assert uri == ""
+    assert headers == {}
+    assert auth_mode == ""
 
 
 def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(

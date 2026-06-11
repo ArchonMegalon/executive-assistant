@@ -13315,6 +13315,8 @@ def _gemini_live_oauth_access_token() -> str:
     needs_first_memorial_refresh = bool(str(creds.get("refresh_token") or "").strip()) and not bool(creds.get("ea_memorial_live_refreshed_at"))
     if force_refresh or needs_first_memorial_refresh or (expires_at_ms and expires_at_ms <= int((time.time() + 90) * 1000)):
         refreshed = _refresh_gemini_live_oauth_creds(creds)
+        if not refreshed.get("ea_memorial_live_refreshed_at"):
+            return ""
         token = str(refreshed.get("access_token") or "").strip()
     return token
 
@@ -13957,7 +13959,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         await _close_gemini_live_turn()
         uri, headers, auth_mode = _gemini_live_connect_target()
         if not uri:
-            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": "gemini_live_unavailable"})
+            await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
             return False
         if websockets is None:
             await _safe_send_json({"type": "error", "turn_id": turn_id, "message": "gemini_live_dependency_missing"})
