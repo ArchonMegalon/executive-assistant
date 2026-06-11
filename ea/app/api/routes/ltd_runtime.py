@@ -11,6 +11,7 @@ from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
 from app.services.ltd_runtime_catalog import LtdRuntimeAction, LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import infer_onemin_media_feature_type
+from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
 from app.services.tool_execution import ToolExecutionError
 
 router = APIRouter(
@@ -127,6 +128,21 @@ def list_runtime_catalog(
     container: AppContainer = Depends(get_container),
 ) -> list[dict[str, object]]:
     return [profile.as_dict() for profile in _catalog(container).list_profiles()]
+
+
+@router.get("/provider-lanes")
+def list_provider_lanes() -> dict[str, object]:
+    return build_ltd_provider_governance_receipt()
+
+
+@router.get("/provider-lanes/{lane_key}")
+def get_provider_lane(lane_key: str) -> dict[str, object]:
+    receipt = build_ltd_provider_governance_receipt()
+    normalized = lane_key.strip().lower().replace("-", "_")
+    for lane in receipt.get("lanes", []):
+        if str(lane.get("lane_key") or "").strip().lower() == normalized:
+            return dict(lane)
+    raise HTTPException(status_code=404, detail="ltd_provider_lane_not_found")
 
 
 @router.get("/{service_name}")

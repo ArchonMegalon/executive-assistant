@@ -12,6 +12,9 @@ fi
 memory_only="${PROPERTYQUARRY_MEMORY_ONLY:-${EA_MEMORY_ONLY:-0}}"
 bootstrap_db="${PROPERTYQUARRY_BOOTSTRAP_DB:-${EA_BOOTSTRAP_DB:-0}}"
 enable_fastestvpn="${PROPERTYQUARRY_ENABLE_FASTESTVPN:-${EA_ENABLE_FASTESTVPN:-0}}"
+if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
+  enable_fastestvpn="1"
+fi
 enable_cloudflared="${PROPERTYQUARRY_ENABLE_CLOUDFLARED:-${EA_ENABLE_CLOUDFLARED:-auto}}"
 run_runtime_hard_exit_gates="${PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES:-${EA_RUN_RUNTIME_HARD_EXIT_GATES:-1}}"
 cf_tunnel_token_name="${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-}"
@@ -100,6 +103,7 @@ if [[ "${enable_fastestvpn}" == "1" ]]; then
     COMPOSE_ARGS+=(-f docker-compose.fastestvpn.yml)
     FASTESTVPN_OVERLAY_ENABLED=1
   else
+    echo "EA_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${APP_ROOT}/vpn/fastestvpn" >&2
     echo "PROPERTYQUARRY_ENABLE_FASTESTVPN=1 but no FastestVPN *.ovpn profiles were found under ${APP_ROOT}/vpn/fastestvpn" >&2
     exit 1
   fi

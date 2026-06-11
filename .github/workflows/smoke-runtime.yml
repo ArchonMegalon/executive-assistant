@@ -144,6 +144,7 @@ jobs:
 
       - name: Run CI Gate Bundle
         run: |
+          make ci-gates
           make property-release-gates
 
   generated-release-artifacts-clean:
@@ -176,6 +177,7 @@ jobs:
 
       - name: Run Property Postgres Smoke Script
         run: |
+          bash scripts/smoke_postgres.sh --legacy-fixture
           bash scripts/smoke_property_postgres.sh
 
   postgres-runtime-contracts:
@@ -196,4 +198,5 @@ jobs:
 
       - name: Run Property Postgres Contract Tests
         run: |
+          bash scripts/test_postgres_contracts.sh
           bash scripts/test_property_postgres_contracts.sh

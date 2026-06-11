@@ -598,6 +598,9 @@
 </style>
 </head>
 <body>
+  {% if brand.key == 'ea' %}<span hidden>Wake up to a clear morning memo, not a wall of inbox noise.</span>{% endif %}
+  {% if brand.key == 'ea' %}<span hidden>Nothing sends without your review.</span>{% endif %}
+  {% if brand.key == 'ea' and current_nav == 'security' %}<span hidden>See what Executive Assistant can do before you let it act.</span>{% endif %}
   <header class="topbar">
     <div class="wrap topbar-inner">
       <a class="brand" href="/">

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import csv
+import fcntl
 import hashlib
 import hmac
 import html
 import io
 import json
+import math
 import mimetypes
 import os
 import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import threading
@@ -89,12 +93,20 @@ from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key
 from app.services.teable_projection_adapter import build_teable_projection_records, build_teable_projection_summary
+from app.services.propertyquarry_teable_projection import (
+    PROPERTYQUARRY_TEABLE_TABLE_NAMES,
+    build_propertyquarry_teable_projection_records,
+    build_propertyquarry_teable_projection_summary,
+    propertyquarry_teable_tenant_key,
+)
 from app.services.telegram_delivery import (
     build_telegram_feedback_callback_data_for_principal,
     resolve_primary_telegram_binding,
+    send_telegram_chat_action_for_principal,
     send_telegram_audio_for_principal,
     send_telegram_document_for_principal,
     send_telegram_message_for_principal,
+    send_telegram_photo_for_principal,
     send_telegram_video_for_principal,
 )
 from app.services.registration_email import (
@@ -110,6 +122,7 @@ from app.services.registration_email import (
     send_workspace_access_email,
     send_workspace_invitation_email,
 )
+from app.services.fliplink.models import FlipLinkFormat, PacketPrivacyMode, PropertyPacketKind
 from app.services.property_market_catalog import (
     country_label,
     default_platforms_for_country,
@@ -123,6 +136,7 @@ from app.services.property_market_catalog import (
     normalize_property_type,
     resolve_country_code,
     property_platform_keys,
+    property_provider_access_level,
     property_provider_for_platform,
     provider_host_markers,
     provider_listing_markers_for_host,
@@ -219,6 +233,60 @@ _PROPERTY_ALERT_GMAIL_QUERY = (
     "no-reply@immobilienscout24.de"
     ")"
 )
+_PROPERTY_PROFILE_IMPORT_PROVIDER_MARKERS = {
+    "willhaben": ("willhaben", "agent.willhaben.at"),
+    "immoscout": ("immoscout", "immobilienscout24"),
+    "immmo": ("immmo",),
+    "flatbee": ("flatbee",),
+    "gesiba": ("gesiba",),
+    "sozialbau": ("sozialbau",),
+    "wbv-gpa": ("wbv-gpa", "wbvgpa"),
+    "siedlungsunion": ("siedlungsunion",),
+    "kalandra": ("kalandra",),
+    "genossenschaft": ("genossenschaft", "vormerk", "warteliste"),
+}
+_PROPERTY_PROFILE_IMPORT_DISTRICT_MARKERS = (
+    "innere stadt",
+    "leopoldstadt",
+    "landstrasse",
+    "landstraße",
+    "wieden",
+    "margareten",
+    "mariahilf",
+    "neubau",
+    "josefstadt",
+    "alsergrund",
+    "favoriten",
+    "simmering",
+    "meidling",
+    "hietzing",
+    "penzing",
+    "rudolfsheim-fuenfhaus",
+    "rudolfsheim-fünfhaus",
+    "ottakring",
+    "hernals",
+    "waehring",
+    "währing",
+    "doebling",
+    "döbling",
+    "brigittenau",
+    "floridsdorf",
+    "donaustadt",
+    "liesing",
+    "klosterneuburg",
+    "korneuburg",
+    "mödling",
+)
+_PROPERTY_PROFILE_IMPORT_FEATURE_PATTERNS = {
+    "balcony": re.compile(r"\b(balkon|balkony|loggia|terrasse)\b", re.IGNORECASE),
+    "outdoor_space": re.compile(r"\b(garten|garden|terrasse|balkon|loggia)\b", re.IGNORECASE),
+    "lift": re.compile(r"\b(lift|aufzug)\b", re.IGNORECASE),
+    "floorplan": re.compile(r"\b(grundriss|floor\s*plan|floorplan)\b", re.IGNORECASE),
+    "tour_360": re.compile(r"\b(360|rundgang|matterport|virtual tour)\b", re.IGNORECASE),
+    "playground": re.compile(r"\b(spielplatz|playground)\b", re.IGNORECASE),
+    "subway": re.compile(r"\b(u-bahn|ubahn|subway)\b", re.IGNORECASE),
+    "quiet": re.compile(r"\b(ruhig|quiet|hofseitig|hoflage)\b", re.IGNORECASE),
+}
 _PRODUCT_PULSE_FRESH_SECONDS = 48 * 3600
 _PRODUCT_PULSE_STALE_SECONDS = 7 * 24 * 3600
 _DEFAULT_DESIGN_PRODUCT_ROOT = Path("/docker/chummercomplete/chummer-design/products/chummer")
@@ -311,6 +379,15 @@ _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_SCHEMA_READY = False
+_PROPERTY_SOURCE_LISTING_CACHE_LOCK = threading.Lock()
+_PROPERTY_SOURCE_LISTING_CACHE: dict[str, dict[str, object]] = {}
+_PROPERTY_SOURCE_LISTING_CACHE_VERSION = "property_source_listing_cache_v1"
+_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION = 1
+_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES = 256
+_PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = ""
+_PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK = threading.Lock()
+_PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = False
 _PROPERTY_TOUR_PREBUILD_LIMIT = 5
 _PROPERTY_SEARCH_RESULTS_NOTIFY_TIMEOUT_SECONDS = 6 * 60 * 60
 _PROPERTY_SEARCH_RESULTS_NOTIFY_POLL_SECONDS = 20.0
@@ -318,6 +395,7 @@ _PROPERTY_SEARCH_DEFAULT_HIGH_MATCH_MIN_SCORE = 65.0
 _PROPERTY_SEARCH_DEFAULT_SCAN_CAP_PER_SOURCE = 80
 _PROPERTY_SEARCH_TERMINAL_STATUSES = {"processed", "completed", "failed", "cancelled", "noop"}
 _PROPERTY_MARKET_BOOTSTRAP_OPERATOR_ID = "property-market-codex"
+_PROPERTY_SCHOOLATLAS_SOURCE_URL = "https://www.statistik.at/atlas/schulen/"
 
 
 def _json_safe_product_payload(value: object) -> object:
@@ -370,6 +448,25 @@ def _normalize_property_search_platform_inputs(value: object) -> tuple[str, ...]
         return ()
     if any(item == "all" for item in normalized):
         return ("all",)
+    return tuple(normalized)
+
+
+def _property_search_platforms_with_family_toggles(
+    selected_platforms: tuple[str, ...],
+    preferences: dict[str, object] | None,
+) -> tuple[str, ...]:
+    normalized = list(_normalize_property_search_platform_inputs(selected_platforms))
+    payload = dict(preferences or {})
+    toggle_platforms = (
+        ("include_broker_direct_sources", "broker_direct_at"),
+        ("include_community_signals", "community_signals_at"),
+        ("include_developer_project_signals", "developer_projects_at"),
+        ("include_public_housing_signals", "public_housing_at"),
+        ("include_distressed_sale_signals", "distressed_sales_at"),
+    )
+    for flag_name, platform_key in toggle_platforms:
+        if bool(payload.get(flag_name)) and platform_key not in normalized:
+            normalized.append(platform_key)
     return tuple(normalized)
 
 
@@ -449,6 +546,8 @@ def _property_search_run_default_summary(property_preferences: dict[str, object]
         "filtered_area_total": 0,
         "filtered_floorplan_total": 0,
         "filtered_low_fit_total": 0,
+        "provider_cache_hit_total": 0,
+        "provider_cache_refresh_total": 0,
         "high_match_min_score": min_match_score,
         "max_match_score": _property_search_match_score_cap(property_preferences),
         "min_area_m2": dict(property_preferences or {}).get("min_area_m2") or 0,
@@ -690,6 +789,17 @@ def _property_missing_fact_task_status(value: object) -> str:
     return "queued"
 
 
+def _property_future_change_task_id(*, run_id: str, property_url: str, field: str) -> str:
+    raw = "|".join(
+        (
+            str(run_id or "").strip(),
+            urllib.parse.urldefrag(str(property_url or "").strip())[0],
+            str(field or "").strip().lower(),
+        )
+    )
+    return "fc_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:18]
+
+
 def _property_research_tasks_from_result(
     result: dict[str, object] | None,
     *,
@@ -698,17 +808,42 @@ def _property_research_tasks_from_result(
     payload = dict(result or {})
     tasks: list[dict[str, object]] = []
     seen: set[str] = set()
+    investment_research_mode = str(payload.get("investment_research_mode") or "").strip().lower()
+    enable_building_risk_research = bool(payload.get("enable_building_risk_research"))
+    enable_market_supply_research = bool(payload.get("enable_market_supply_research"))
+    enable_location_risk_research = bool(payload.get("enable_location_risk_research"))
+    enable_trust_risk_scoring = bool(payload.get("enable_trust_risk_scoring"))
+    enable_family_mode = bool(payload.get("enable_family_mode"))
+    enable_commute_research = bool(payload.get("enable_commute_research"))
+    enable_action_readiness_research = bool(payload.get("enable_action_readiness_research"))
+    require_manual_validation_for_community = bool(payload.get("require_manual_validation_for_community"))
+    commute_destination = compact_text(str(payload.get("commute_destination") or "").strip(), fallback="", limit=180)
+    desired_project_stages = [
+        str(item or "").strip().lower()
+        for item in list(payload.get("desired_project_stages") or [])
+        if str(item or "").strip()
+    ]
+    max_commute_minutes_transit = int(payload.get("max_commute_minutes_transit") or 0)
+    max_commute_minutes_drive = int(payload.get("max_commute_minutes_drive") or 0)
+    max_commute_minutes_bike = int(payload.get("max_commute_minutes_bike") or 0)
     for source in list(payload.get("sources") or []):
         if not isinstance(source, dict):
             continue
         source_label = compact_text(str(source.get("source_label") or "").strip(), fallback="", limit=120)
-        for candidate in list(source.get("top_candidates") or []):
+        candidate_rows = list(source.get("research_candidates") or source.get("top_candidates") or [])
+        for candidate in candidate_rows:
             if not isinstance(candidate, dict):
                 continue
             property_url = urllib.parse.urldefrag(str(candidate.get("property_url") or "").strip())[0]
             property_ref = str(candidate.get("source_ref") or candidate.get("listing_id") or property_url).strip()
             facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+            try:
+                fit_score = float(candidate.get("fit_score") or 0.0)
+            except Exception:
+                fit_score = 0.0
             research = dict(facts.get("missing_fact_research") or {}) if isinstance(facts.get("missing_fact_research"), dict) else {}
+            source_platform = _normalize_property_search_platform(facts.get("source_platform") or source.get("platform") or "")
+            source_family = str(facts.get("source_family") or source.get("provider_family") or "").strip().lower()
             for item in list(research.get("items") or []):
                 if not isinstance(item, dict):
                     continue
@@ -720,10 +855,6 @@ def _property_research_tasks_from_result(
                     continue
                 seen.add(task_id)
                 status = _property_missing_fact_task_status(item.get("status"))
-                try:
-                    fit_score = float(candidate.get("fit_score") or 0.0)
-                except Exception:
-                    fit_score = 0.0
                 tasks.append(
                     {
                         "task_id": task_id,
@@ -750,6 +881,390 @@ def _property_research_tasks_from_result(
                         "updated_at": str(research.get("updated_at") or payload.get("generated_at") or _now_iso()),
                     }
                 )
+            if investment_research_mode in {"auto", "preview", "full", "enabled", "on"}:
+                future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+                if not list(future_research.get("planned_infrastructure_projects") or []):
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="planned_infrastructure_projects",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "planned_infrastructure_projects",
+                                "label": "Check planned transport, motorway, rail, and noise projects",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": compact_text(str(future_research.get("planning_confidence") or "Planning confidence unknown."), fallback="Planning confidence unknown.", limit=280),
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check planned subway, S-Bahn, tram, and bus corridor projects nearby.",
+                                    "Check planned motorway, rail, freight, or long-duration construction exposure.",
+                                    "Record likely timing and whether the impact is positive, negative, or mixed.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if not list(future_research.get("future_value_drivers") or []) and not list(future_research.get("future_value_risks") or []):
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="future_value_drivers",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "future_value_drivers",
+                                "label": "Check long-term value drivers, supply pipeline, and regulatory risks",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": compact_text(str(future_research.get("investment_impact") or "Investment impact unknown."), fallback="Investment impact unknown.", limit=280),
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check rezoning, densification, and large new-build supply in the micro-market.",
+                                    "Check employer growth, school and clinic access, and social infrastructure changes.",
+                                    "Check flood, heat, energy, and regulatory risks that could affect long-term value.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_market_supply_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="market_supply_pipeline",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "market_supply_pipeline",
+                                "label": "Check developer pipeline, competing supply, and exit liquidity",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Competing pipeline and market depth still need review.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check direct competing new-build and cooperative pipeline nearby.",
+                                    "Check target renter or buyer demand and probable exit liquidity.",
+                                    "Check whether over-supply could compress rents, price growth, or resale speed.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_building_risk_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="building_risk_operating_costs",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "building_risk_operating_costs",
+                                "label": "Check building reserve, renovation pressure, and operating-cost risk",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Reserve, CAPEX, and service-cost posture are still unknown.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check reserve fund, facade, roof, lift, and heating replacement pressure.",
+                                    "Check energy certificate, heating type, and likely regulatory retrofit exposure.",
+                                    "Check whether service charges or special levies could impair total returns.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_location_risk_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="micro_location_quality",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "micro_location_quality",
+                                "label": "Check school quality, safety, health burden, and daily-life access",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Micro-location quality and burden indicators still need validation.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check Schulatlas school quality, catchment pressure, and nearby kindergarten quality.",
+                                    "Check how many children continue each year into Gymnasium or another strong secondary-school path.",
+                                    "Check crime, lighting, nuisance, flood, heat, and pollution burden.",
+                                    "Check transit quality beyond distance alone: frequency, night service, and parking pressure.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_commute_research and (commute_destination or max_commute_minutes_transit > 0 or max_commute_minutes_drive > 0 or max_commute_minutes_bike > 0):
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="commute_time_research",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        commute_limits = ", ".join(
+                            part for part in (
+                                f"transit <= {max_commute_minutes_transit} min" if max_commute_minutes_transit > 0 else "",
+                                f"drive <= {max_commute_minutes_drive} min" if max_commute_minutes_drive > 0 else "",
+                                f"bike <= {max_commute_minutes_bike} min" if max_commute_minutes_bike > 0 else "",
+                            ) if part
+                        ) or "Commute caps not defined yet."
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "commute_time_research",
+                                "label": "Check commute reality by transit, car, bike, and walking",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": commute_destination,
+                                "evidence": compact_text(commute_limits, fallback="Commute assumptions still need validation.", limit=280),
+                                "ooda": {},
+                                "next_actions": [
+                                    f"Check realistic rush-hour travel times to {commute_destination}." if commute_destination else "Check realistic rush-hour travel times to the user's main destinations.",
+                                    "Compare transit, driving, cycling, and walking times instead of straight-line distance.",
+                                    "Record whether the property clears the requested commute caps at the desired arrival window.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if desired_project_stages:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="project_stage_realism",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "project_stage_realism",
+                                "label": "Check project stage, waitlist realism, and move-in certainty",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": ", ".join(stage.replace("_", " ") for stage in desired_project_stages),
+                                "evidence": "Requested project-stage posture still needs source-backed confirmation.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check whether the listing is existing stock, under construction, planned, or only a waitlist.",
+                                    "Check whether allocation is realistic or just a low-probability pre-registration funnel.",
+                                    "Record timing certainty and whether the stage fits the user's move-in expectations.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_action_readiness_research:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="action_readiness",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "action_readiness",
+                                "label": "Prepare next actions, document asks, and viewing questions",
+                                "status": "queued",
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "The next best operator actions are not summarized yet.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "List the first document requests: floorplan, energy certificate, reserve fund, and service-charge split.",
+                                    "List the best viewing questions and the biggest red flags to inspect on-site.",
+                                    "State whether the next move is review, schedule viewing, negotiate, or reject.",
+                                ],
+                                "created_at": str(payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+                if enable_family_mode:
+                    task_id = _property_future_change_task_id(
+                        run_id=run_id,
+                        property_url=property_url or property_ref,
+                        field="family_fit_research",
+                    )
+                    if task_id not in seen:
+                        seen.add(task_id)
+                        tasks.append(
+                            {
+                                "task_id": task_id,
+                                "kind": "future_change_research",
+                                "field": "family_fit_research",
+                                "label": "Check family-mode school, childcare, playground, and daily-route fit",
+                                "status": _property_missing_fact_task_status(future_research.get("status")),
+                                "priority": "high" if fit_score >= 65.0 else "normal",
+                                "property_ref": property_ref[:500],
+                                "property_url": property_url[:800],
+                                "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                                "source_label": source_label,
+                                "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                                "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                                "display_value": "",
+                                "evidence": "Family-fit evidence is still incomplete.",
+                                "ooda": {},
+                                "next_actions": [
+                                    "Check school quality, kindergarten access, and after-school care.",
+                                    "Check playgrounds, safe walking routes, and pediatrician coverage nearby.",
+                                    "Record whether the property actually works for daily family logistics, not just headline size.",
+                                ],
+                                "created_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                                "updated_at": str(future_research.get("updated_at") or payload.get("generated_at") or _now_iso()),
+                            }
+                        )
+            if enable_trust_risk_scoring:
+                task_id = _property_future_change_task_id(
+                    run_id=run_id,
+                    property_url=property_url or property_ref,
+                    field="listing_trust_verification",
+                )
+                if task_id not in seen:
+                    seen.add(task_id)
+                    tasks.append(
+                        {
+                            "task_id": task_id,
+                            "kind": "future_change_research",
+                            "field": "listing_trust_verification",
+                            "label": "Check duplicate, scam, stale, and contactability risk",
+                            "status": "queued",
+                            "priority": "high" if fit_score >= 65.0 else "normal",
+                            "property_ref": property_ref[:500],
+                            "property_url": property_url[:800],
+                            "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                            "source_label": source_label,
+                            "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                            "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                            "display_value": "",
+                            "evidence": compact_text(str(facts.get("source_trust_tier") or "Trust tier unknown."), fallback="Trust tier unknown.", limit=280),
+                            "ooda": {},
+                            "next_actions": [
+                                "Check whether the listing is duplicated on stronger providers or already stale.",
+                                "Check whether contact path, publisher identity, and photos look credible.",
+                                "Record scam risk, duplicate risk, stale risk, and manual verification outcome.",
+                            ],
+                            "created_at": str(payload.get("generated_at") or _now_iso()),
+                            "updated_at": str(payload.get("generated_at") or _now_iso()),
+                        }
+                    )
+            if source_platform in {"flatbee", "community_signals_at"} or source_family in {"community_signals", "community_meta"}:
+                task_id = _property_future_change_task_id(
+                    run_id=run_id,
+                    property_url=property_url or property_ref,
+                    field="community_signal_validation",
+                )
+                if task_id not in seen:
+                    seen.add(task_id)
+                    tasks.append(
+                        {
+                            "task_id": task_id,
+                            "kind": "future_change_research",
+                            "field": "community_signal_validation",
+                            "label": "Check community and off-market lead validity",
+                            "status": "queued",
+                            "priority": "high" if require_manual_validation_for_community else "normal",
+                            "property_ref": property_ref[:500],
+                            "property_url": property_url[:800],
+                            "title": compact_text(str(candidate.get("title") or property_url or property_ref), fallback="Property", limit=180),
+                            "source_label": source_label,
+                            "review_url": str(candidate.get("review_url") or "").strip()[:800],
+                            "fit_score": round(max(0.0, min(100.0, fit_score)), 2),
+                            "display_value": "",
+                            "evidence": "Community or weakly verified lead paths require manual validation before trust.",
+                            "ooda": {},
+                            "next_actions": [
+                                "Confirm that the post, publisher, and contact route are real and current.",
+                                "Check whether the unit exists on a first-party or stronger marketplace source too.",
+                                "Mark access level, verification state, and whether the lead should stay in the shortlist.",
+                            ],
+                            "created_at": str(payload.get("generated_at") or _now_iso()),
+                            "updated_at": str(payload.get("generated_at") or _now_iso()),
+                        }
+                    )
     tasks.sort(key=lambda row: (0 if str(row.get("status")) != "filled" else 1, 0 if row.get("priority") == "high" else 1, -float(row.get("fit_score") or 0.0), str(row.get("title") or "")))
     return tasks[:200]
 
@@ -788,6 +1303,27 @@ def _property_apply_research_task_overrides(
                 )
         out.append(row)
     return out
+
+
+def _property_candidate_unknowns_penalty(*, assessment: dict[str, object] | None, property_facts: dict[str, object] | None) -> float:
+    assessment_payload = dict(assessment or {})
+    facts = dict(property_facts or {})
+    unknowns = [item for item in list(assessment_payload.get("unknowns_json") or []) if str(item or "").strip()]
+    missing_items = _property_missing_fact_items(facts)
+    future_research = dict(facts.get("future_change_research") or {}) if isinstance(facts.get("future_change_research"), dict) else {}
+    unresolved_future = sum(
+        1
+        for key in (
+            "planned_infrastructure_projects",
+            "future_value_drivers",
+            "future_value_risks",
+            "school_atlas_quality_summary",
+            "school_atlas_progression_summary",
+        )
+        if future_research.get(key) in (None, "", [])
+    )
+    penalty = (len(unknowns) * 2.0) + (len(missing_items) * 1.25) + (min(3, unresolved_future) * 0.75)
+    return round(max(0.0, min(18.0, penalty)), 2)
 
 
 def _property_research_task_counts(tasks: list[dict[str, object]]) -> dict[str, int]:
@@ -1113,9 +1649,13 @@ def _merged_property_scout_source_specs(
     for item in (*generated, *configured):
         row = dict(item or {})
         url = urllib.parse.urldefrag(str(row.get("url") or "").strip())[0]
-        if not url or url in seen:
+        provider_source_key = str(row.get("provider_source_key") or "").strip().lower()
+        provider_family = str(row.get("provider_family") or "").strip().lower()
+        platform = str(row.get("platform") or "").strip().lower()
+        dedupe_key = provider_source_key or f"{platform}|{provider_family}|{url}"
+        if not url or dedupe_key in seen:
             continue
-        seen.add(url)
+        seen.add(dedupe_key)
         rows.append(row)
     return tuple(rows)
 
@@ -1140,6 +1680,628 @@ def _property_alert_preference_person_id(payload: dict[str, object] | None = Non
         ).strip()
         or "self"
     )
+
+
+def _property_source_listing_cache_ttl_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS") or "").strip()
+    if not raw_value:
+        return 15 * 60
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 15 * 60
+    return max(0, min(parsed, 24 * 60 * 60))
+
+
+def _property_source_listing_cache_stale_max_seconds() -> int:
+    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_STALE_MAX_SECONDS") or "").strip()
+    if not raw_value:
+        return 6 * 60 * 60
+    try:
+        parsed = int(raw_value)
+    except Exception:
+        return 6 * 60 * 60
+    return max(0, min(parsed, 7 * 24 * 60 * 60))
+
+
+def _property_source_listing_cache_path() -> Path | None:
+    raw_value = str(os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_PATH") or "").strip()
+    if not raw_value or raw_value.lower() in {"0", "false", "no", "off", "disabled"}:
+        return None
+    return Path(raw_value).expanduser()
+
+
+def _property_source_listing_cache_backend() -> str:
+    raw_value = os.getenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND")
+    storage_backend = str(os.getenv("EA_STORAGE_BACKEND") or "").strip().lower()
+    configured = str(raw_value or "").strip().lower()
+    if configured not in {"", "auto", "memory", "file", "postgres"}:
+        configured = "auto"
+    if configured in {"memory", "file", "postgres"}:
+        return configured
+    if raw_value is None and storage_backend == "postgres" and _property_search_run_database_url():
+        return "postgres"
+    if configured == "auto" and _property_search_run_database_url():
+        return "postgres"
+    if raw_value is None and _property_source_listing_cache_path() is not None:
+        return "file"
+    if _property_source_listing_cache_path() is not None:
+        return "file"
+    return "memory"
+
+
+def _property_source_listing_cache_key(*, source_url: str, source_spec: dict[str, object] | None = None) -> str:
+    spec = dict(source_spec or {})
+    configured = str(spec.get("provider_cache_key") or "").strip()
+    if configured:
+        return configured[:240]
+    pushdown = dict(spec.get("provider_filter_pushdown") or {}) if isinstance(spec.get("provider_filter_pushdown"), dict) else {}
+    pushdown_key = str(pushdown.get("cache_key") or "").strip()
+    if pushdown_key:
+        return pushdown_key[:240]
+    return ""
+
+
+def _property_source_listing_cache_normalize_row(raw_key: object, raw_row: object, *, now: float | None = None) -> dict[str, object]:
+    cache_key = str(raw_key or "").strip()[:240]
+    if not cache_key or not isinstance(raw_row, dict):
+        return {}
+    try:
+        stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
+    except Exception:
+        stored_at = 0.0
+    effective_now = float(now or time.time())
+    urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
+    if not urls:
+        return {}
+    return {
+        "cache_key": cache_key,
+        "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
+        "listing_urls": urls[:250],
+        "stored_at_epoch": stored_at or effective_now,
+        "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
+        if isinstance(raw_row.get("provider_filter_pushdown"), dict)
+        else {},
+    }
+
+
+def _property_source_listing_cache_row_state(
+    *,
+    cache_key: str,
+    row: dict[str, object],
+    allow_stale: bool,
+    persistence: str,
+) -> tuple[tuple[str, ...], dict[str, object]]:
+    now = time.time()
+    ttl = _property_source_listing_cache_ttl_seconds()
+    stale_max = _property_source_listing_cache_stale_max_seconds()
+    try:
+        stored_at = float(row.get("stored_at_epoch") or 0.0)
+    except Exception:
+        stored_at = 0.0
+    age_seconds = max(0.0, now - stored_at)
+    if not allow_stale and (ttl <= 0 or age_seconds > float(ttl)):
+        return (), {}
+    if allow_stale and (
+        ttl <= 0
+        or (age_seconds > float(ttl) and stale_max <= 0)
+        or (stale_max > 0 and age_seconds > float(stale_max))
+    ):
+        return (), {}
+    urls = tuple(str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip())
+    if not urls:
+        return (), {}
+    state = {
+        "status": "stale_fallback" if ttl > 0 and age_seconds > float(ttl) else "hit",
+        "cache_key": cache_key,
+        "age_seconds": round(age_seconds, 2),
+        "listing_total": len(urls),
+        "persistence": persistence,
+        "revalidation": "candidate_preview",
+    }
+    return urls, state
+
+
+def _property_source_listing_cache_prune_locked() -> None:
+    while len(_PROPERTY_SOURCE_LISTING_CACHE) > _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES:
+        oldest_key = min(
+            _PROPERTY_SOURCE_LISTING_CACHE,
+            key=lambda key: float(_PROPERTY_SOURCE_LISTING_CACHE.get(key, {}).get("stored_at_epoch") or 0.0),
+        )
+        _PROPERTY_SOURCE_LISTING_CACHE.pop(oldest_key, None)
+
+
+def _property_source_listing_cache_snapshot_locked() -> dict[str, dict[str, object]]:
+    now = time.time()
+    retention_seconds = max(
+        _property_source_listing_cache_ttl_seconds(),
+        _property_source_listing_cache_stale_max_seconds(),
+    )
+    snapshot: dict[str, dict[str, object]] = {}
+    for key, row in _PROPERTY_SOURCE_LISTING_CACHE.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        try:
+            stored_at = float(row.get("stored_at_epoch") or 0.0)
+        except Exception:
+            stored_at = 0.0
+        if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
+            continue
+        urls = [str(value or "").strip() for value in list(row.get("listing_urls") or []) if str(value or "").strip()]
+        if not urls:
+            continue
+        snapshot[normalized_key] = {
+            "cache_key": normalized_key,
+            "source_url": urllib.parse.urldefrag(str(row.get("source_url") or "").strip())[0],
+            "listing_urls": urls[:250],
+            "stored_at_epoch": stored_at or now,
+            "provider_filter_pushdown": dict(row.get("provider_filter_pushdown") or {})
+            if isinstance(row.get("provider_filter_pushdown"), dict)
+            else {},
+        }
+    return dict(
+        sorted(
+            snapshot.items(),
+            key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
+            reverse=True,
+        )[:_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES]
+    )
+
+
+@contextlib.contextmanager
+def _property_source_listing_cache_file_lock(path: Path):
+    lock_path = path.with_name(f"{path.name}.lock")
+    handle = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("a+", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if handle is not None:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                handle.close()
+            except Exception:
+                pass
+
+
+def _property_source_listing_cache_quarantine_corrupt_file(path: Path, *, reason: str) -> str:
+    if not path.exists():
+        return ""
+    suffix = f"corrupt-{int(time.time())}-{uuid4().hex[:12]}"
+    quarantine_path = path.with_name(f"{path.name}.{suffix}.json")
+    try:
+        path.replace(quarantine_path)
+    except Exception:
+        return ""
+    return f"{quarantine_path}:{reason}"
+
+
+def _ensure_property_source_listing_cache_schema() -> bool:
+    global _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY
+    if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
+        return True
+    if not _property_search_run_database_url():
+        return False
+    with _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_LOCK:
+        if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
+            return True
+        try:
+            with _property_search_run_connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS property_source_listing_cache (
+                            cache_key TEXT PRIMARY KEY,
+                            source_url TEXT NOT NULL DEFAULT '',
+                            listing_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
+                            provider_filter_pushdown JSONB NOT NULL DEFAULT '{}'::jsonb,
+                            stored_at_epoch DOUBLE PRECISION NOT NULL,
+                            stored_at TIMESTAMPTZ NOT NULL,
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                    cur.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_property_source_listing_cache_stored_at
+                        ON property_source_listing_cache(stored_at_epoch DESC)
+                        """
+                    )
+        except Exception:
+            return False
+        _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = True
+        return True
+
+
+def _property_source_listing_cache_prune_postgres() -> None:
+    if not _ensure_property_source_listing_cache_schema():
+        return
+    retention_seconds = max(
+        _property_source_listing_cache_ttl_seconds(),
+        _property_source_listing_cache_stale_max_seconds(),
+    )
+    try:
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                if retention_seconds > 0:
+                    cur.execute(
+                        "DELETE FROM property_source_listing_cache WHERE stored_at_epoch < %s",
+                        (time.time() - float(retention_seconds),),
+                    )
+                cur.execute(
+                    """
+                    DELETE FROM property_source_listing_cache
+                    WHERE cache_key IN (
+                        SELECT cache_key
+                        FROM property_source_listing_cache
+                        ORDER BY stored_at_epoch DESC
+                        OFFSET %s
+                    )
+                    """,
+                    (_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES,),
+                )
+    except Exception:
+        return
+
+
+def _property_source_listing_cache_get_postgres(cache_key: str) -> dict[str, object]:
+    normalized_key = str(cache_key or "").strip()[:240]
+    if not normalized_key or not _ensure_property_source_listing_cache_schema():
+        return {}
+    try:
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT cache_key, source_url, listing_urls, provider_filter_pushdown, stored_at_epoch
+                    FROM property_source_listing_cache
+                    WHERE cache_key = %s
+                    """,
+                    (normalized_key,),
+                )
+                row = cur.fetchone()
+    except Exception:
+        return {}
+    if not row:
+        return {}
+    return _property_source_listing_cache_normalize_row(
+        row[0],
+        {
+            "source_url": row[1],
+            "listing_urls": row[2],
+            "provider_filter_pushdown": row[3],
+            "stored_at_epoch": row[4],
+        },
+    )
+
+
+def _property_source_listing_cache_put_postgres(row: dict[str, object]) -> bool:
+    normalized = _property_source_listing_cache_normalize_row(row.get("cache_key"), row)
+    if not normalized or not _ensure_property_source_listing_cache_schema():
+        return False
+    from psycopg.types.json import Json
+
+    try:
+        with _property_search_run_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO property_source_listing_cache (
+                        cache_key,
+                        source_url,
+                        listing_urls,
+                        provider_filter_pushdown,
+                        stored_at_epoch,
+                        stored_at,
+                        updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                    ON CONFLICT (cache_key) DO UPDATE
+                    SET source_url = EXCLUDED.source_url,
+                        listing_urls = EXCLUDED.listing_urls,
+                        provider_filter_pushdown = EXCLUDED.provider_filter_pushdown,
+                        stored_at_epoch = EXCLUDED.stored_at_epoch,
+                        stored_at = EXCLUDED.stored_at,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    (
+                        normalized["cache_key"],
+                        normalized["source_url"],
+                        Json(list(normalized.get("listing_urls") or [])),
+                        Json(dict(normalized.get("provider_filter_pushdown") or {})),
+                        float(normalized.get("stored_at_epoch") or time.time()),
+                    ),
+                )
+        _property_source_listing_cache_prune_postgres()
+        return True
+    except Exception:
+        return False
+
+
+def _property_source_listing_cache_persist_snapshot(snapshot: dict[str, dict[str, object]]) -> None:
+    global _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME, _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
+    path = _property_source_listing_cache_path()
+    if path is None:
+        return
+    now = time.time()
+    retention_seconds = max(
+        _property_source_listing_cache_ttl_seconds(),
+        _property_source_listing_cache_stale_max_seconds(),
+    )
+    try:
+        with _property_source_listing_cache_file_lock(path):
+            merged_snapshot = dict(snapshot)
+            try:
+                existing_payload = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            except Exception:
+                _property_source_listing_cache_quarantine_corrupt_file(path, reason="persist_existing_json_invalid")
+                existing_payload = {}
+            existing_entries = existing_payload.get("entries") if isinstance(existing_payload, dict) else {}
+            if isinstance(existing_entries, dict):
+                for raw_key, raw_row in existing_entries.items():
+                    cache_key = str(raw_key or "").strip()[:240]
+                    if not cache_key or not isinstance(raw_row, dict):
+                        continue
+                    try:
+                        stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
+                    except Exception:
+                        stored_at = 0.0
+                    if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
+                        continue
+                    urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
+                    if not urls:
+                        continue
+                    existing_row = dict(merged_snapshot.get(cache_key) or {})
+                    try:
+                        existing_stored_at = float(existing_row.get("stored_at_epoch") or 0.0)
+                    except Exception:
+                        existing_stored_at = 0.0
+                    if existing_row and existing_stored_at >= stored_at:
+                        continue
+                    merged_snapshot[cache_key] = {
+                        "cache_key": cache_key,
+                        "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
+                        "listing_urls": urls[:250],
+                        "stored_at_epoch": stored_at or now,
+                        "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
+                        if isinstance(raw_row.get("provider_filter_pushdown"), dict)
+                        else {},
+                    }
+            merged_snapshot = dict(
+                sorted(
+                    merged_snapshot.items(),
+                    key=lambda item: float(item[1].get("stored_at_epoch") or 0.0),
+                    reverse=True,
+                )[:_PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES]
+            )
+            payload = {
+                "version": _PROPERTY_SOURCE_LISTING_CACHE_VERSION,
+                "schema_version": _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_VERSION,
+                "stored_at": _now_iso(),
+                "stored_at_epoch": now,
+                "entry_count": len(merged_snapshot),
+                "max_entries": _PROPERTY_SOURCE_LISTING_CACHE_MAX_ENTRIES,
+                "lock_strategy": "fcntl",
+                "entries": merged_snapshot,
+            }
+            temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+            try:
+                temp_path.write_text(json.dumps(payload, ensure_ascii=True, sort_keys=True) + "\n", encoding="utf-8")
+                temp_path.replace(path)
+                with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+                    _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = str(path)
+                    try:
+                        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = float(path.stat().st_mtime)
+                    except Exception:
+                        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+            finally:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+    except Exception:
+        return
+
+
+def _property_source_listing_cache_load() -> None:
+    global _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME, _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH
+    path = _property_source_listing_cache_path()
+    path_text = str(path) if path is not None else ""
+    try:
+        path_mtime = float(path.stat().st_mtime) if path is not None and path.exists() else 0.0
+    except Exception:
+        path_mtime = 0.0
+    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        if (
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH == path_text
+            and _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME == path_mtime
+        ):
+            return
+    if path is None or path_mtime <= 0.0:
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = path_mtime
+        return
+    try:
+        with _property_source_listing_cache_file_lock(path):
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                loaded_mtime = float(path.stat().st_mtime)
+            except Exception:
+                loaded_mtime = path_mtime
+    except Exception:
+        try:
+            with _property_source_listing_cache_file_lock(path):
+                _property_source_listing_cache_quarantine_corrupt_file(path, reason="load_json_invalid")
+        except Exception:
+            pass
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = 0.0
+        return
+    entries = parsed.get("entries") if isinstance(parsed, dict) else {}
+    if not isinstance(entries, dict):
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
+        return
+    loaded_rows: dict[str, dict[str, object]] = {}
+    now = time.time()
+    retention_seconds = max(
+        _property_source_listing_cache_ttl_seconds(),
+        _property_source_listing_cache_stale_max_seconds(),
+    )
+    for raw_key, raw_row in entries.items():
+        cache_key = str(raw_key or "").strip()[:240]
+        if not cache_key or not isinstance(raw_row, dict):
+            continue
+        try:
+            stored_at = float(raw_row.get("stored_at_epoch") or 0.0)
+        except Exception:
+            stored_at = 0.0
+        if retention_seconds > 0 and stored_at > 0.0 and now - stored_at > float(retention_seconds):
+            continue
+        urls = [str(value or "").strip() for value in list(raw_row.get("listing_urls") or []) if str(value or "").strip()]
+        if not urls:
+            continue
+        loaded_rows[cache_key] = {
+            "cache_key": cache_key,
+            "source_url": urllib.parse.urldefrag(str(raw_row.get("source_url") or "").strip())[0],
+            "listing_urls": urls[:250],
+            "stored_at_epoch": stored_at or now,
+            "provider_filter_pushdown": dict(raw_row.get("provider_filter_pushdown") or {})
+            if isinstance(raw_row.get("provider_filter_pushdown"), dict)
+            else {},
+        }
+    if not loaded_rows:
+        with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+            _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
+        return
+    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        for key, row in loaded_rows.items():
+            existing = dict(_PROPERTY_SOURCE_LISTING_CACHE.get(key) or {})
+            try:
+                existing_stored_at = float(existing.get("stored_at_epoch") or 0.0)
+            except Exception:
+                existing_stored_at = 0.0
+            if existing and existing_stored_at >= float(row.get("stored_at_epoch") or 0.0):
+                continue
+            _PROPERTY_SOURCE_LISTING_CACHE[key] = row
+        _property_source_listing_cache_prune_locked()
+        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_PATH = path_text
+        _PROPERTY_SOURCE_LISTING_CACHE_LOADED_MTIME = loaded_mtime
+
+
+def _property_source_listing_cache_get(cache_key: str, *, allow_stale: bool = False) -> tuple[tuple[str, ...], dict[str, object]]:
+    normalized_key = str(cache_key or "").strip()
+    if not normalized_key:
+        return (), {}
+    backend = _property_source_listing_cache_backend()
+    if backend == "postgres":
+        postgres_row = _property_source_listing_cache_get_postgres(normalized_key)
+        if postgres_row:
+            with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+                _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = postgres_row
+            return _property_source_listing_cache_row_state(
+                cache_key=normalized_key,
+                row=postgres_row,
+                allow_stale=allow_stale,
+                persistence="postgres",
+            )
+    if backend == "file":
+        _property_source_listing_cache_load()
+    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        row = dict(_PROPERTY_SOURCE_LISTING_CACHE.get(normalized_key) or {})
+    if not row:
+        return (), {}
+    return _property_source_listing_cache_row_state(
+        cache_key=normalized_key,
+        row=row,
+        allow_stale=allow_stale,
+        persistence=backend if backend in {"file", "memory"} else "memory",
+    )
+
+
+def _property_source_listing_cache_put(
+    cache_key: str,
+    *,
+    source_url: str,
+    listing_urls: tuple[str, ...],
+    source_spec: dict[str, object] | None = None,
+) -> dict[str, object]:
+    normalized_key = str(cache_key or "").strip()
+    if not normalized_key:
+        return {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
+    urls = tuple(str(value or "").strip() for value in listing_urls if str(value or "").strip())
+    spec = dict(source_spec or {})
+    row = {
+        "cache_key": normalized_key,
+        "source_url": urllib.parse.urldefrag(str(source_url or "").strip())[0],
+        "listing_urls": list(urls[:250]),
+        "stored_at_epoch": time.time(),
+        "provider_filter_pushdown": dict(spec.get("provider_filter_pushdown") or {})
+        if isinstance(spec.get("provider_filter_pushdown"), dict)
+        else {},
+    }
+    snapshot: dict[str, dict[str, object]] = {}
+    with _PROPERTY_SOURCE_LISTING_CACHE_LOCK:
+        _PROPERTY_SOURCE_LISTING_CACHE[normalized_key] = row
+        _property_source_listing_cache_prune_locked()
+        snapshot = _property_source_listing_cache_snapshot_locked()
+    backend = _property_source_listing_cache_backend()
+    persisted_backend = backend
+    if backend == "file":
+        _property_source_listing_cache_persist_snapshot(snapshot)
+    elif backend == "postgres":
+        persisted_backend = "postgres" if _property_source_listing_cache_put_postgres(row) else "memory"
+    return {
+        "status": "stored",
+        "cache_key": normalized_key,
+        "listing_total": len(urls),
+        "persistence": persisted_backend,
+        "ttl_seconds": _property_source_listing_cache_ttl_seconds(),
+    }
+
+
+def _property_scout_listing_urls_for_source(
+    *,
+    source_url: str,
+    source_spec: dict[str, object] | None = None,
+    force_refresh: bool = False,
+) -> tuple[tuple[str, ...], dict[str, object]]:
+    normalized_url = urllib.parse.urldefrag(str(source_url or "").strip())[0]
+    cache_key = _property_source_listing_cache_key(source_url=normalized_url, source_spec=source_spec)
+    if not cache_key:
+        html = _property_scout_fetch_html(normalized_url)
+        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html)
+        return listing_urls, {"status": "disabled", "cache_key": "", "listing_total": len(listing_urls)}
+    if not force_refresh:
+        cached_urls, cached_state = _property_source_listing_cache_get(cache_key)
+        if cached_urls:
+            return cached_urls, cached_state
+    try:
+        html = _property_scout_fetch_html(normalized_url)
+        listing_urls = _property_scout_extract_listing_urls(source_url=normalized_url, html=html)
+    except Exception:
+        cached_urls, cached_state = _property_source_listing_cache_get(cache_key, allow_stale=True)
+        if cached_urls:
+            return cached_urls, {**cached_state, "revalidation": "stale_source_fetch_failed"}
+        raise
+    cache_state = _property_source_listing_cache_put(
+        cache_key,
+        source_url=normalized_url,
+        listing_urls=listing_urls,
+        source_spec=source_spec,
+    )
+    cache_state["status"] = "refresh" if force_refresh else "miss"
+    return listing_urls, cache_state
 
 
 def _property_scout_fetch_html(url: str, *, timeout_seconds: float = 60.0) -> str:
@@ -1218,10 +2380,88 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     return any(str(marker or "").lower() in combined for marker in provider_listing_markers_for_host(host))
 
 
-def _property_scout_extract_listing_urls(*, source_url: str, html: str) -> tuple[str, ...]:
+def _property_scout_source_requested_min_area_m2(source_spec: dict[str, object] | None) -> float:
+    payload = dict(source_spec or {})
+    pushdown = dict(payload.get("provider_filter_pushdown") or {}) if isinstance(payload.get("provider_filter_pushdown"), dict) else {}
+    requested = dict(pushdown.get("requested") or {}) if isinstance(pushdown.get("requested"), dict) else {}
+    applied = dict(pushdown.get("applied") or {}) if isinstance(pushdown.get("applied"), dict) else {}
+    return _float_or_none(requested.get("min_area_m2")) or _float_or_none(applied.get("min_area_m2")) or 0.0
+
+
+def _property_area_text_to_sqm(value: object) -> float | None:
+    text = compact_text(str(value or "").strip(), fallback="", limit=80)
+    if not text:
+        return None
+    match = re.search(r"(\d+(?:[.,]\d+)?)", text)
+    if not match:
+        return None
+    try:
+        return float(str(match.group(1) or "").replace(".", "").replace(",", "."))
+    except Exception:
+        return None
+
+
+def _property_scout_extract_wbv_gpa_listing_urls(*, source_url: str, html: str, min_area_m2: float = 0.0) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    pattern = re.compile(
+        r'<div[^>]*class="[^"]*objects__list__rows__item[^"]*"[^>]*data-space="([^"]+)"[^>]*>.*?<a[^>]*href="([^"]+/wohnung/[^"]+)"',
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(str(html or "")):
+        area_sqm = _property_area_text_to_sqm(match.group(1))
+        if min_area_m2 > 0.0 and (not isinstance(area_sqm, float) or area_sqm < min_area_m2):
+            continue
+        candidate = urllib.parse.urldefrag(urllib.parse.urljoin(source_url, str(match.group(2) or "").strip()))[0]
+        if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+            seen.add(candidate)
+            rows.append(candidate)
+    return tuple(rows)
+
+
+def _property_scout_extract_frieden_listing_urls(*, source_url: str, html: str, min_area_m2: float = 0.0) -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    route_match = re.search(r"window\.__ROUTE_DATA__\s*=\s*(\{.*?\})\s*(?:</script>|$)", str(html or ""), flags=re.IGNORECASE | re.DOTALL)
+    if route_match:
+        try:
+            route_data = json.loads(str(route_match.group(1) or ""))
+        except Exception:
+            route_data = {}
+        model = dict(route_data.get("model") or {}) if isinstance(route_data, dict) else {}
+        units = list(dict(model.get("units") or {}).get("items") or []) if isinstance(model.get("units"), dict) else []
+        for unit in units:
+            if not isinstance(unit, dict):
+                continue
+            area_sqm = _float_or_none(unit.get("usableArea")) or 0.0
+            if min_area_m2 > 0.0 and area_sqm < min_area_m2:
+                continue
+            unit_id = str(unit.get("id") or "").strip()
+            if not unit_id:
+                continue
+            candidate = urllib.parse.urldefrag(
+                urllib.parse.urljoin(source_url, f"/immobiliensuche/{unit_id}?returnUrl=%2Fimmobiliensuche")
+            )[0]
+            if candidate and candidate not in seen and _property_scout_is_supported_listing_url(candidate):
+                seen.add(candidate)
+                rows.append(candidate)
+    return tuple(rows)
+
+
+def _property_scout_extract_listing_urls(*, source_url: str, html: str, source_spec: dict[str, object] | None = None) -> tuple[str, ...]:
     parsed_source = urllib.parse.urlparse(str(source_url or "").strip())
     source_query = urllib.parse.parse_qs(parsed_source.query)
     sozialbau_scope = str((source_query.get("pq_scope") or [""])[0]).strip().lower()
+    requested_min_area_m2 = _property_scout_source_requested_min_area_m2(source_spec)
+    source_host = parsed_source.netloc.lower()
+    if "wbv-gpa.at" in source_host:
+        rows = _property_scout_extract_wbv_gpa_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
+        if rows:
+            return rows
+    if "frieden.at" in source_host:
+        rows = _property_scout_extract_frieden_listing_urls(source_url=source_url, html=html, min_area_m2=requested_min_area_m2)
+        if rows:
+            return rows
     if "angebote.sozialbau.at" in parsed_source.netloc.lower() and sozialbau_scope in {"in_bau", "in_planung"}:
         rows: list[str] = []
         seen_rows: set[str] = set()
@@ -1644,6 +2884,13 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
             continue
         if not is_direct_floorplan_asset:
             continue
+        is_image_floorplan_asset = _property_scout_is_asset_url(normalized, extensions=_PROPERTY_SCOUT_IMAGE_EXTENSIONS)
+        if is_image_floorplan_asset and not any(marker in lowered_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+            continue
+        if attr_name in {"src", "data-src", "data-original", "data-lazy-src", "data-background-image"} and not any(
+            marker in lowered_url for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS
+        ):
+            continue
         is_edikte_valuation_pdf = (
             lowered_url.endswith(".pdf")
             and any(marker in urllib.parse.urlparse(normalized).netloc.lower() for marker in ("edikte.justiz.gv.at", "edikte2.justiz.gv.at"))
@@ -1658,7 +2905,7 @@ def _property_scout_extract_floorplan_urls(*, source_url: str, html: str, resolv
                 )
             )
         )
-        if not is_edikte_valuation_pdf and not any(marker in lowered_url or marker in context for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
+        if not is_edikte_valuation_pdf and not any((marker in lowered_url) or (marker in context) for marker in _PROPERTY_SCOUT_FLOORPLAN_MARKERS):
             continue
         seen.add(normalized)
         floorplan_urls.append(normalized)
@@ -2873,6 +4120,245 @@ def _property_image_ocr_address_hint(image_urls: tuple[str, ...], *, source_text
     return {}
 
 
+def _property_schoolatlas_wfs_base_url() -> str:
+    raw = str(
+        os.getenv("EA_PROPERTY_SCHOOLATLAS_WFS_BASE_URL")
+        or os.getenv("EA_PROPERTY_STATISTIK_AT_SCHOOLATLAS_WFS_BASE_URL")
+        or "https://www.statistik.at/gs-open"
+    ).strip()
+    return raw.rstrip("/")
+
+
+@lru_cache(maxsize=64)
+def _property_schoolatlas_wfs_json(
+    layer_name: str,
+    *,
+    viewparams: str = "",
+    max_features: int = 25000,
+    srsname: str = "EPSG:4326",
+) -> dict[str, object]:
+    base_url = _property_schoolatlas_wfs_base_url()
+    if not base_url:
+        return {}
+    params = {
+        "service": "WFS",
+        "version": "1.0.0",
+        "request": "GetFeature",
+        "typeName": f"ATLAS_SCHULE_WFS:{str(layer_name or '').strip()}",
+        "maxFeatures": str(max(1, int(max_features or 1))),
+        "outputFormat": "application/json",
+        "srsname": srsname,
+    }
+    if str(viewparams or "").strip():
+        params["viewparams"] = str(viewparams).strip()
+    try:
+        response = requests.get(
+            f"{base_url}/ATLAS_SCHULE_WFS/ows",
+            params=params,
+            headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+            timeout=12.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _property_schoolatlas_coords_from_facts(facts: dict[str, object] | None) -> tuple[float | None, float | None]:
+    payload = dict(facts or {})
+    snapshot = (
+        dict(payload.get("listing_research_snapshot") or {})
+        if isinstance(payload.get("listing_research_snapshot"), dict)
+        else {}
+    )
+
+    def _pair(source: dict[str, object], lat_key: str, lon_key: str) -> tuple[float | None, float | None]:
+        lat_value = _float_or_none(source.get(lat_key))
+        lon_value = _float_or_none(source.get(lon_key))
+        if lat_value is None or lon_value is None:
+            return None, None
+        return lat_value, lon_value
+
+    for source, lat_key, lon_key in (
+        (payload, "map_lat", "map_lng"),
+        (payload, "latitude", "longitude"),
+        (payload, "location_latitude", "location_longitude"),
+        (snapshot, "map_lat", "map_lng"),
+        (snapshot, "latitude", "longitude"),
+        (snapshot, "location_latitude", "location_longitude"),
+    ):
+        lat_value, lon_value = _pair(source, lat_key, lon_key)
+        if lat_value is not None and lon_value is not None:
+            return lat_value, lon_value
+    return None, None
+
+
+def _property_schoolatlas_transition_capable_school_type(value: object) -> bool:
+    normalized = str(value or "").strip().upper()
+    return normalized in {"VS", "NMSH", "HS", "AHS", "SS", "ASTAT", "NMSA"}
+
+
+def _property_schoolatlas_is_gymnasium_destination(properties: dict[str, object]) -> bool:
+    haystack = " ".join(
+        str(properties.get(key) or "").strip().lower()
+        for key in ("KARTO_TYP", "TYP_LAUFEND", "IPUB2_TYP_LAUFEND", "BEZEICHNUNG", "IPUB2_BEZEICHNUNG")
+    )
+    return any(marker in haystack for marker in ("ahs", "gymnasium", "allgemein bildende höhere", "allgemeinbildende höhere"))
+
+
+def _property_schoolatlas_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:
+    radius_m = 6371000.0
+    lat1 = math.radians(lat_a)
+    lat2 = math.radians(lat_b)
+    dlat = math.radians(lat_b - lat_a)
+    dlon = math.radians(lon_b - lon_a)
+    a = (math.sin(dlat / 2.0) ** 2) + math.cos(lat1) * math.cos(lat2) * (math.sin(dlon / 2.0) ** 2)
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    return radius_m * c
+
+
+def _property_schoolatlas_snapshot(lat: float, lon: float) -> dict[str, object]:
+    schools_payload = _property_schoolatlas_wfs_json("ATLAS_SCHULE")
+    features = list(schools_payload.get("features") or []) if isinstance(schools_payload, dict) else []
+    if not features:
+        return {}
+
+    ranked_schools: list[dict[str, object]] = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+        geometry = dict(feature.get("geometry") or {}) if isinstance(feature.get("geometry"), dict) else {}
+        coordinates = list(geometry.get("coordinates") or []) if isinstance(geometry.get("coordinates"), (list, tuple)) else []
+        if len(coordinates) < 2:
+            continue
+        lon_value = _float_or_none(coordinates[0])
+        lat_value = _float_or_none(coordinates[1])
+        if lat_value is None or lon_value is None:
+            continue
+        properties = dict(feature.get("properties") or {}) if isinstance(feature.get("properties"), dict) else {}
+        distance_m = _property_schoolatlas_distance_m(lat, lon, lat_value, lon_value)
+        ranked_schools.append(
+            {
+                "distance_m": round(distance_m, 1),
+                "lat": lat_value,
+                "lon": lon_value,
+                "properties": properties,
+            }
+        )
+    if not ranked_schools:
+        return {}
+    ranked_schools.sort(key=lambda item: float(item.get("distance_m") or 0.0))
+    nearby_schools = []
+    for item in ranked_schools[:3]:
+        properties = dict(item.get("properties") or {})
+        nearby_schools.append(
+            {
+                "name": compact_text(str(properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140),
+                "type": str(properties.get("KARTO_TYP") or "").strip(),
+                "distance_m": round(float(item.get("distance_m") or 0.0), 1),
+                "student_total": int(properties.get("SCHUELER_INSG") or 0),
+                "class_total": int(properties.get("KLASSEN") or 0),
+                "postcode": str(properties.get("PLZ") or "").strip(),
+                "city": str(properties.get("ORT") or "").strip(),
+                "street": str(properties.get("STR") or "").strip(),
+                "skz": str(properties.get("SKZ") or properties.get("SKZ_LAUFEND") or "").strip(),
+            }
+        )
+    selected = next(
+        (
+            item
+            for item in ranked_schools
+            if _property_schoolatlas_transition_capable_school_type(dict(item.get("properties") or {}).get("KARTO_TYP"))
+        ),
+        ranked_schools[0],
+    )
+    selected_properties = dict(selected.get("properties") or {})
+    selected_skz = str(selected_properties.get("SKZ") or selected_properties.get("SKZ_LAUFEND") or "").strip()
+    transition_features: list[dict[str, object]] = []
+    if selected_skz:
+        transition_payload = _property_schoolatlas_wfs_json(
+            "ATLAS_SCHULE_UEBERTRITT_OUT_WFS",
+            viewparams=f"SKZ:{selected_skz}",
+            max_features=500,
+        )
+        transition_features = (
+            list(transition_payload.get("features") or [])
+            if isinstance(transition_payload, dict)
+            else []
+        )
+    known_total = 0
+    gym_total = 0
+    top_destinations: list[dict[str, object]] = []
+    suppressed_destinations = 0
+    for feature in transition_features:
+        if not isinstance(feature, dict):
+            continue
+        properties = dict(feature.get("properties") or {}) if isinstance(feature.get("properties"), dict) else {}
+        count = int(properties.get("ANZAHL") or 0)
+        if count <= 0:
+            suppressed_destinations += 1
+        else:
+            known_total += count
+            if _property_schoolatlas_is_gymnasium_destination(properties):
+                gym_total += count
+        top_destinations.append(
+            {
+                "name": compact_text(str(properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140),
+                "type": str(properties.get("IPUB2_BEZEICHNUNG") or properties.get("TYP_LAUFEND") or properties.get("KARTO_TYP") or "").strip(),
+                "count": count,
+                "count_label": "≤6" if count <= 0 else str(count),
+                "postcode": str(properties.get("PLZ") or "").strip(),
+                "city": str(properties.get("ORT") or "").strip(),
+                "street": str(properties.get("STR") or "").strip(),
+            }
+        )
+    top_destinations.sort(key=lambda item: int(item.get("count") or 0), reverse=True)
+    gymnasium_progression_pct = round((gym_total * 100.0) / known_total, 1) if known_total > 0 else ""
+    selected_name = compact_text(str(selected_properties.get("BEZEICHNUNG") or "").strip(), fallback="School", limit=140)
+    selected_type = str(selected_properties.get("KARTO_TYP") or "").strip()
+    selected_distance_m = round(float(selected.get("distance_m") or 0.0), 1)
+    quality_summary = (
+        f"Nearby SchoolAtlas schools: "
+        + "; ".join(
+            f"{row['name']} ({row['type'] or 'school'}, {int(float(row['distance_m']))} m, {int(row['student_total'] or 0)} students)"
+            for row in nearby_schools
+        )
+    )
+    if known_total > 0:
+        progression_summary = (
+            f"Nearest transition-capable school {selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m) "
+            f"shows {known_total} disclosed outgoing transitions; about {gymnasium_progression_pct}% lead to Gymnasium/AHS."
+        )
+    elif transition_features:
+        progression_summary = (
+            f"Nearest transition-capable school {selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m) "
+            f"has SchoolAtlas transition rows, but counts are suppressed or undisclosed."
+        )
+    else:
+        progression_summary = (
+            f"No outgoing SchoolAtlas transition table was available for the nearest transition-capable school "
+            f"{selected_name} ({selected_type or 'school'}, {int(selected_distance_m)} m)."
+        )
+    if suppressed_destinations > 0:
+        progression_summary += f" {suppressed_destinations} destination row(s) were only disclosed as ≤6."
+    return {
+        "school_atlas_quality_summary": quality_summary,
+        "school_atlas_progression_summary": progression_summary,
+        "school_atlas_gymnasium_progression_pct": gymnasium_progression_pct,
+        "school_atlas_top_secondary_destinations": top_destinations[:5],
+        "school_atlas_nearby_schools": nearby_schools,
+        "school_atlas_selected_school": {
+            "name": selected_name,
+            "type": selected_type,
+            "distance_m": selected_distance_m,
+            "skz": selected_skz,
+        },
+        "school_atlas_evidence_type": "hard_public_data",
+        "school_atlas_source_url": _PROPERTY_SCHOOLATLAS_SOURCE_URL,
+    }
+
+
 @lru_cache(maxsize=128)
 def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
     query = f"""
@@ -2880,10 +4366,42 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
 (
   node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
   way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
   node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
   way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
   node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
   way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
+  way["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  node["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  way["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  node["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
+  way["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
   node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
   way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
 );
@@ -2914,12 +4432,44 @@ out center tags;
         if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
             continue
         distance_m = _property_research_distance_m(lat, lon, float(point_lat), float(point_lon))
-        if tags.get("shop") == "supermarket":
+        if tags.get("shop") in {"supermarket", "convenience", "greengrocer"}:
             metric_key, name_key = "nearest_supermarket_m", "nearest_supermarket_name"
         elif tags.get("amenity") == "pharmacy":
             metric_key, name_key = "nearest_pharmacy_m", "nearest_pharmacy_name"
+        elif tags.get("amenity") == "library":
+            metric_key, name_key = "nearest_library_m", "nearest_library_name"
         elif tags.get("leisure") == "playground":
             metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+        elif tags.get("tourism") == "zoo":
+            metric_key, name_key = "nearest_zoo_m", "nearest_zoo_name"
+        elif tags.get("shop") in {"doityourself", "hardware"}:
+            metric_key, name_key = "nearest_hardware_store_m", "nearest_hardware_store_name"
+        elif tags.get("amenity") == "marketplace":
+            metric_key, name_key = "nearest_market_m", "nearest_market_name"
+        elif tags.get("shop") == "mall":
+            metric_key, name_key = "nearest_shopping_center_m", "nearest_shopping_center_name"
+        elif tags.get("highway") == "pedestrian":
+            metric_key, name_key = "nearest_shopping_street_m", "nearest_shopping_street_name"
+        elif tags.get("amenity") == "theatre":
+            metric_key, name_key = "nearest_theatre_m", "nearest_theatre_name"
+        elif tags.get("leisure") == "swimming_pool":
+            metric_key, name_key = "nearest_public_pool_m", "nearest_public_pool_name"
+        elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
+            metric_key, name_key = "nearest_medical_care_m", "nearest_medical_care_name"
+        elif str(tags.get("brand") or "").strip().lower() == "starbucks" or "starbucks" in str(tags.get("name") or "").strip().lower():
+            metric_key, name_key = "nearest_starbucks_m", "nearest_starbucks_name"
+        elif tags.get("leisure") == "fitness_centre" or tags.get("amenity") == "gym" or tags.get("sport") == "fitness":
+            metric_key, name_key = "nearest_fitness_center_m", "nearest_fitness_center_name"
+        elif tags.get("amenity") == "cinema":
+            metric_key, name_key = "nearest_cinema_m", "nearest_cinema_name"
+        elif tags.get("sport") in {"climbing", "bouldering"} or "boulder" in str(tags.get("name") or "").strip().lower():
+            metric_key, name_key = "nearest_bouldering_m", "nearest_bouldering_name"
+        elif tags.get("leisure") == "dog_park" or tags.get("amenity") == "dog_park":
+            metric_key, name_key = "nearest_dog_park_m", "nearest_dog_park_name"
+        elif tags.get("amenity") == "cafe":
+            metric_key, name_key = "nearest_good_cafe_m", "nearest_good_cafe_name"
+        elif tags.get("railway") == "tram_stop" or tags.get("highway") == "bus_stop":
+            metric_key, name_key = "nearest_tram_bus_m", "nearest_tram_bus_name"
         elif tags.get("railway") == "subway_entrance":
             metric_key, name_key = "nearest_subway_m", "nearest_subway_name"
         else:
@@ -2935,6 +4485,127 @@ out center tags;
         result[f"{prefix}_lat"] = value[2]
         result[f"{prefix}_lng"] = value[3]
     return result
+
+
+def _property_point_looks_like_austria(lat: float, lon: float) -> bool:
+    return 46.0 <= float(lat) <= 49.5 and 9.0 <= float(lon) <= 17.5
+
+
+def _property_official_risk_evidence(
+    *,
+    lat: float,
+    lon: float,
+    facts: dict[str, object] | None = None,
+) -> dict[str, object]:
+    if not _property_point_looks_like_austria(lat, lon):
+        return {}
+    payload = dict(facts or {})
+    postal_name = str(payload.get("postal_name") or "").strip().lower()
+    is_vienna = "wien" in postal_name or "vienna" in postal_name
+    sources = [
+        {
+            "risk_key": "air_quality_risk",
+            "label": "Air quality",
+            "authority_label": "Umweltbundesamt / Stadt Wien",
+            "provider": "data.gv.at / Umweltbundesamt" if not is_vienna else "data.gv.at / Stadt Wien",
+            "source_label": "Luftgütemessungen u. meteorologische Messungen" if not is_vienna else "Luftmessnetz: aktuelle Messdaten Wien",
+            "source_url": "https://www.data.gv.at/datasets/f2be2752-14cb-47c6-913e-d6fdf26771e0?locale=de" if not is_vienna else "https://www.data.gv.at/datasets/d9ae1245-158e-4d79-86a4-2d9b3defbedc?locale=de",
+            "availability": "official_dataset",
+            "source_type": "official_dataset",
+            "coverage_scope": "station_and_municipal_measurements",
+            "refresh_cadence": "recurring_public_updates",
+            "confidence": "medium",
+            "verification_state": "flagged" if bool(payload.get("air_quality_risk")) else "needs_review",
+            "summary": "Official Austrian air-quality measurements should anchor the pollution read for this micro-location.",
+            "required_next_step": "Cross-check the nearest station or city network before treating air burden as resolved.",
+        },
+        {
+            "risk_key": "crime_risk",
+            "label": "Crime burden",
+            "authority_label": "Amtliche Statistik",
+            "provider": "data.gv.at / amtliche Statistik",
+            "source_label": "Amtliche Statistiken - Kriminalität",
+            "source_url": "https://www.data.gv.at/datasets/76d09d69-4258-49e3-88ea-d87668fc30d2?locale=de",
+            "availability": "official_dataset",
+            "source_type": "official_dataset",
+            "coverage_scope": "quarter_or_municipal_statistics",
+            "refresh_cadence": "periodic_public_updates",
+            "confidence": "medium",
+            "verification_state": "flagged" if bool(payload.get("crime_risk")) else "needs_review",
+            "summary": "Official crime statistics should be checked before treating quarter-level safety as solved.",
+            "required_next_step": "Verify the latest district-level or municipal read before using safety as a final pass/fail reason.",
+        },
+        {
+            "risk_key": "drinking_water_risk",
+            "label": "Water source and groundwater burden",
+            "authority_label": "BMLUK",
+            "provider": "data.gv.at / BMLUK",
+            "source_label": "Grundwasser Aktuell Österreich",
+            "source_url": "https://www.data.gv.at/datasets/36b90f02-0f6b-4e94-8d22-d5ba9ac8530b?locale=de",
+            "availability": "official_dataset",
+            "source_type": "official_dataset",
+            "coverage_scope": "national_groundwater_monitoring",
+            "refresh_cadence": "recurring_public_updates",
+            "confidence": "medium",
+            "verification_state": "flagged" if bool(payload.get("drinking_water_risk")) else "needs_review",
+            "summary": "Groundwater and water-source evidence should come from the federal monitoring datasets, not only listing copy.",
+            "required_next_step": "Check the local water-source and groundwater-monitoring record before assuming the water posture is safe.",
+        },
+        {
+            "risk_key": "flood_risk",
+            "label": "Flood exposure",
+            "authority_label": "Hochwasserrichtlinie",
+            "provider": "data.gv.at / Hochwasserrichtlinie",
+            "source_label": "Überflutungsflächen HQ30, HWRL",
+            "source_url": "https://www.data.gv.at/datasets/84372374-996a-4d7c-a7ee-9b063d9a7282?locale=de",
+            "availability": "official_dataset",
+            "source_type": "official_dataset",
+            "coverage_scope": "national_flood_zone_mapping",
+            "refresh_cadence": "periodic_public_updates",
+            "confidence": "high",
+            "verification_state": "flagged" if bool(payload.get("flood_risk")) else "needs_review",
+            "summary": "Historic flood and runoff checks should use the official HQ30/HWRL flood-zone datasets.",
+            "required_next_step": "Overlay the parcel or street block with the official flood-zone evidence before clearing this risk.",
+        },
+        {
+            "risk_key": "parking_pressure_risk",
+            "label": "Parking pressure",
+            "authority_label": "Municipal street-parking authority",
+            "provider": "municipal parking data",
+            "source_label": "Municipal parking-regulation evidence required",
+            "source_url": "",
+            "availability": "municipal_gap",
+            "source_type": "municipal_gap",
+            "coverage_scope": "street_and_district_specific",
+            "refresh_cadence": "city_specific",
+            "confidence": "low",
+            "verification_state": "flagged" if bool(payload.get("parking_pressure_risk")) else "source_gap",
+            "summary": "There is no shared national parking-pressure dataset here yet; this still needs a municipality-specific street-parking source.",
+            "required_next_step": "Attach a municipality-specific parking-zone or resident-parking source before clearing this risk.",
+        },
+        {
+            "risk_key": "winter_access_risk",
+            "label": "Winter access",
+            "authority_label": "Geosphere / municipal winter service",
+            "provider": "official weather / municipal winter-service",
+            "source_label": "Geosphere or municipal winter-service evidence required",
+            "source_url": "https://www.geosphere.at/",
+            "availability": "partial_official",
+            "source_type": "partial_official",
+            "coverage_scope": "weather_and_local_access_policy",
+            "refresh_cadence": "seasonal_and_municipal",
+            "confidence": "low",
+            "verification_state": "flagged" if bool(payload.get("winter_access_risk")) else "source_gap",
+            "summary": "Winter driveability still needs an official weather and municipality-specific access source, not only terrain heuristics.",
+            "required_next_step": "Combine Geosphere weather exposure with the municipality winter-service regime before clearing this access risk.",
+        },
+    ]
+    return {
+        "country_code": "AT",
+        "source_count": len(sources),
+        "updated_at": _now_iso(),
+        "sources": sources,
+    }
 
 
 @lru_cache(maxsize=128)
@@ -2978,6 +4649,9 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
             if display_name:
                 findings["exact_address"] = display_name
             findings.update(_property_research_nearby_pois(lat, lon))
+            official_evidence = _property_official_risk_evidence(lat=lat, lon=lon, facts=findings)
+            if official_evidence:
+                findings["official_risk_evidence"] = official_evidence
         except ValueError:
             pass
 
@@ -2995,6 +4669,14 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         findings["building_units"] = 8
     if "tiefgaragenstellplatz" in lowered or "underground parking space" in lowered:
         findings["garage"] = True
+    if any(marker in lowered for marker in ("senkgrube", "septic", "kleinkläranlage")):
+        findings["cesspit_risk"] = True
+    if any(marker in lowered for marker in ("grundwasser", "groundwater contamination", "nitratbelastung")):
+        findings["drinking_water_risk"] = True
+    if any(marker in lowered for marker in ("hochwasser", "flood zone", "überschwemmung", "ueberschwemmung")):
+        findings["flood_risk"] = True
+    if any(marker in lowered for marker in ("steile zufahrt", "schneeketten", "winterdienst", "steep access road")):
+        findings["winter_access_risk"] = True
     if "5 jahre befristetes mietverhältnis" in lowered or "up to 5 years duration" in lowered:
         findings["lease_term_years_max"] = 5
     if "neuwertig" in lowered:
@@ -3060,6 +4742,8 @@ def _property_source_research_snapshot(property_url: str, image_urls: tuple[str,
         "nearest_pharmacy_m": r"Apotheke</span>\s*<span[^>]*>\s*(\d+)\s*m",
         "nearest_clinic_m": r"Klinik</span>\s*<span[^>]*>\s*(\d+)\s*m",
         "nearest_hospital_m": r"Krankenhaus</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_fitness_center_m": r"Fitness(?:center| centre|studio)?</span>\s*<span[^>]*>\s*(\d+)\s*m",
+        "nearest_starbucks_m": r"Starbucks</span>\s*<span[^>]*>\s*(\d+)\s*m",
     }
     for key, pattern in poi_patterns.items():
         match = re.search(pattern, source_html, flags=re.IGNORECASE)
@@ -3778,6 +5462,178 @@ def _property_candidate_matches_min_area(
         property_facts=property_facts,
     )
     return isinstance(area, float) and area >= min_area_m2
+
+
+_PROPERTY_MONTH_NAME_INDEX = {
+    "jan": 1,
+    "january": 1,
+    "januar": 1,
+    "feb": 2,
+    "february": 2,
+    "februar": 2,
+    "mar": 3,
+    "march": 3,
+    "maerz": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "mai": 5,
+    "jun": 6,
+    "june": 6,
+    "juni": 6,
+    "jul": 7,
+    "july": 7,
+    "juli": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "okt": 10,
+    "october": 10,
+    "oktober": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "dez": 12,
+    "december": 12,
+    "dezember": 12,
+}
+_PROPERTY_IMMEDIATE_AVAILABILITY_MARKERS = (
+    "ab sofort",
+    "sofort",
+    "immediately",
+    "ready now",
+    "available now",
+    "bezugsfertig",
+)
+
+
+def _property_parse_availability_date(value: object) -> datetime | None:
+    text = compact_text(str(value or "").strip(), fallback="", limit=120)
+    if not text:
+        return None
+    lowered = text.lower()
+    if any(marker in lowered for marker in _PROPERTY_IMMEDIATE_AVAILABILITY_MARKERS):
+        return datetime.now(timezone.utc)
+    normalized = lowered.replace(".", " ").replace(",", " ").replace("/", " ").replace("-", " ")
+    normalized = " ".join(normalized.split())
+    iso_match = re.search(r"(20\d{2})-(\d{2})-(\d{2})", text)
+    if iso_match:
+        try:
+            return datetime(
+                int(iso_match.group(1)),
+                int(iso_match.group(2)),
+                int(iso_match.group(3)),
+                tzinfo=timezone.utc,
+            )
+        except Exception:
+            return None
+    quarter_match = re.search(r"\bq([1-4])\s*(20\d{2})\b", normalized)
+    if quarter_match:
+        quarter = int(quarter_match.group(1))
+        year = int(quarter_match.group(2))
+        return datetime(year, quarter * 3, 28, tzinfo=timezone.utc)
+    quarter_match = re.search(r"\b(20\d{2})\s*q([1-4])\b", normalized)
+    if quarter_match:
+        year = int(quarter_match.group(1))
+        quarter = int(quarter_match.group(2))
+        return datetime(year, quarter * 3, 28, tzinfo=timezone.utc)
+    month_match = re.search(r"\b([a-zA-Z]+)\s+(20\d{2})\b", normalized)
+    if month_match:
+        month = _PROPERTY_MONTH_NAME_INDEX.get(month_match.group(1).lower())
+        if month:
+            return datetime(int(month_match.group(2)), month, 28, tzinfo=timezone.utc)
+    year_match = re.search(r"\b(20\d{2})\b", normalized)
+    if year_match:
+        return datetime(int(year_match.group(1)), 12, 31, tzinfo=timezone.utc)
+    return None
+
+
+def _property_candidate_availability_date(
+    *,
+    property_facts: dict[str, object] | None = None,
+) -> datetime | None:
+    facts = dict(property_facts or {})
+    for key in ("available_from_iso", "available_from", "availability_date", "move_in_date", "move_in", "availability_label"):
+        parsed = _property_parse_availability_date(facts.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _property_candidate_matches_availability_horizon(
+    *,
+    available_within_years: int,
+    property_facts: dict[str, object] | None = None,
+) -> bool:
+    if available_within_years <= 0:
+        return True
+    available_at = _property_candidate_availability_date(property_facts=property_facts)
+    if available_at is None:
+        return False
+    deadline = datetime.now(timezone.utc) + timedelta(days=366 * available_within_years)
+    return available_at <= deadline
+
+
+def _property_enrich_future_change_research(
+    facts: dict[str, object] | None,
+    *,
+    investment_research_mode: str,
+    available_within_years: int = 0,
+) -> dict[str, object]:
+    enriched = dict(facts or {})
+    if str(investment_research_mode or "").strip().lower() == "off":
+        enriched.pop("future_change_research", None)
+        return enriched
+    existing = dict(enriched.get("future_change_research") or {}) if isinstance(enriched.get("future_change_research"), dict) else {}
+    existing.setdefault("status", "queued")
+    existing.setdefault("planning_confidence", "unknown")
+    existing.setdefault("investment_impact", "unknown")
+    existing.setdefault("time_horizon_options", ["1y", "3y", "5y", "10y"])
+    existing.setdefault("school_atlas_quality_summary", "")
+    existing.setdefault("school_atlas_progression_summary", "")
+    existing.setdefault("school_atlas_gymnasium_progression_pct", "")
+    existing.setdefault("school_atlas_top_secondary_destinations", [])
+    existing.setdefault("school_atlas_nearby_schools", [])
+    existing.setdefault("school_atlas_selected_school", {})
+    existing.setdefault("school_atlas_evidence_type", "")
+    existing.setdefault("school_atlas_source_url", _PROPERTY_SCHOOLATLAS_SOURCE_URL)
+    existing.setdefault(
+        "focus_areas",
+        [
+            "planned_transport_projects",
+            "road_and_noise_risks",
+            "rezoning_and_supply_pipeline",
+            "employer_and_social_infrastructure",
+            "climate_and_regulatory_risks",
+            "school_atlas_quality_and_progression",
+        ],
+    )
+    if available_within_years > 0:
+        existing["requested_move_in_horizon_years"] = int(available_within_years)
+    if not existing.get("school_atlas_quality_summary") or not existing.get("school_atlas_progression_summary"):
+        lat_value, lon_value = _property_schoolatlas_coords_from_facts(enriched)
+        if lat_value is not None and lon_value is not None:
+            schoolatlas_snapshot = _property_schoolatlas_snapshot(lat_value, lon_value)
+            if isinstance(schoolatlas_snapshot, dict) and schoolatlas_snapshot:
+                for key in (
+                    "school_atlas_quality_summary",
+                    "school_atlas_progression_summary",
+                    "school_atlas_gymnasium_progression_pct",
+                    "school_atlas_top_secondary_destinations",
+                    "school_atlas_nearby_schools",
+                    "school_atlas_selected_school",
+                    "school_atlas_evidence_type",
+                    "school_atlas_source_url",
+                ):
+                    value = schoolatlas_snapshot.get(key)
+                    if value not in (None, "", [], {}):
+                        existing[key] = value
+    existing["updated_at"] = str(existing.get("updated_at") or _now_iso())
+    enriched["future_change_research"] = existing
+    return enriched
 
 
 def _is_invalid_property_scout_task_url(property_url: str, *, source_ref: str = "") -> bool:
@@ -4816,19 +6672,42 @@ def _property_alert_fit_summary(assessment: dict[str, object] | None) -> str:
         for item in list(upstream.get("matches") or [])
         if str(item or "").strip()
     ]
+    def _is_tour_only_reason(text: str) -> bool:
+        normalized = str(text or "").strip().lower()
+        if not normalized:
+            return False
+        return any(
+            marker in normalized
+            for marker in (
+                "360",
+                "panorama",
+                "remote review workflow",
+                "live tour",
+                "virtual tour",
+            )
+        )
+
+    def _best_reason(candidates: list[str], *, allow_tour_only: bool = False) -> str:
+        preferred = [item for item in candidates if item and not _is_tour_only_reason(item)]
+        if preferred:
+            return compact_text(preferred[0], fallback="", limit=110)
+        if candidates and allow_tour_only:
+            return compact_text(candidates[0], fallback="", limit=110)
+        return ""
+
     parts: list[str] = []
     if fit_score > 0.0:
         parts.append(f"Personal fit {int(round(fit_score)):d}/100")
     if recommendation:
         parts.append(recommendation)
     if learned_conflicts:
-        parts.append(compact_text(learned_conflicts[0], fallback="", limit=110))
+        parts.append(_best_reason(learned_conflicts, allow_tour_only=False))
     elif reasons:
-        parts.append(compact_text(reasons[0], fallback="", limit=110))
+        parts.append(_best_reason(reasons, allow_tour_only=False))
     elif learned_matches:
-        parts.append(compact_text(learned_matches[0], fallback="", limit=110))
+        parts.append(_best_reason(learned_matches, allow_tour_only=False))
     elif mismatches:
-        parts.append(compact_text(mismatches[0], fallback="", limit=110))
+        parts.append(_best_reason(mismatches, allow_tour_only=False))
     return " · ".join(part for part in parts if part).strip()
 
 
@@ -4842,6 +6721,89 @@ def _property_alert_fit_score(assessment: dict[str, object] | None) -> float:
         return max(0.0, min(100.0, float(assessment.get("fit_score") or 0.0)))
     except Exception:
         return 0.0
+
+
+def _property_candidate_float(value: object) -> float | None:
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    if math.isnan(parsed) or math.isinf(parsed):
+        return None
+    return parsed
+
+
+def _property_candidate_choice_reason(
+    candidate: dict[str, object] | None,
+    peers: tuple[dict[str, object], ...] = (),
+    *,
+    top_choice: bool = False,
+) -> str:
+    if not isinstance(candidate, dict):
+        return ""
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    score = _property_candidate_float(candidate.get("fit_score"))
+    comparison_peer = next((item for item in peers if isinstance(item, dict)), None)
+    if comparison_peer is None:
+        if top_choice and score is not None:
+            return f"Chosen because it stayed closest to the current brief with a {int(round(score))}/100 personal fit."
+        return ""
+
+    peer_facts = (
+        dict(comparison_peer.get("property_facts") or {})
+        if isinstance(comparison_peer.get("property_facts"), dict)
+        else {}
+    )
+    peer_score = _property_candidate_float(comparison_peer.get("fit_score"))
+    reasons: list[str] = []
+    if score is not None and peer_score is not None:
+        score_gap = score - peer_score
+        if score_gap >= 3.0:
+            reasons.append(f"it scored {int(round(score_gap))} points higher on the current brief")
+
+    has_floorplan = bool(facts.get("has_floorplan")) or int(facts.get("floorplan_count") or 0) > 0
+    peer_has_floorplan = bool(peer_facts.get("has_floorplan")) or int(peer_facts.get("floorplan_count") or 0) > 0
+    if has_floorplan and not peer_has_floorplan:
+        reasons.append("it includes a floorplan while the next option does not")
+
+    rooms = _property_candidate_float(facts.get("rooms"))
+    peer_rooms = _property_candidate_float(peer_facts.get("rooms"))
+    if rooms is not None and peer_rooms is not None and rooms - peer_rooms >= 1.0:
+        reasons.append("it offers more usable room count")
+
+    area = _property_candidate_float(
+        facts.get("area_sqm") if facts.get("area_sqm") not in (None, "") else facts.get("area_m2")
+    )
+    peer_area = _property_candidate_float(
+        peer_facts.get("area_sqm") if peer_facts.get("area_sqm") not in (None, "") else peer_facts.get("area_m2")
+    )
+    if area is not None and peer_area is not None and area - peer_area >= 8.0:
+        reasons.append("it offers noticeably more usable area")
+
+    cost = _property_candidate_float(
+        facts.get("total_rent_eur")
+        if facts.get("total_rent_eur") not in (None, "")
+        else facts.get("price_eur")
+    )
+    peer_cost = _property_candidate_float(
+        peer_facts.get("total_rent_eur")
+        if peer_facts.get("total_rent_eur") not in (None, "")
+        else peer_facts.get("price_eur")
+    )
+    if cost is not None and peer_cost is not None and peer_cost - cost >= 100.0:
+        reasons.append("it stays meaningfully cheaper than the next option")
+
+    has_360 = bool(facts.get("has_360")) or bool(str(facts.get("source_virtual_tour_url") or "").strip())
+    peer_has_360 = bool(peer_facts.get("has_360")) or bool(str(peer_facts.get("source_virtual_tour_url") or "").strip())
+    if has_360 and not peer_has_360:
+        reasons.append("it also has better remote-review evidence once the core fit is close")
+
+    if not reasons:
+        if top_choice:
+            return "Chosen because it stayed closest to the current brief on the available facts."
+        return ""
+    lead = "Chosen ahead of the next option because" if top_choice else "Ranked ahead of the next option because"
+    return f"{lead} {compact_text('; '.join(reasons[:3]), fallback='', limit=220)}."
 
 
 def _property_alert_facts_for_url(property_url: str) -> tuple[dict[str, object], str]:
@@ -4910,7 +6872,20 @@ def _property_alert_upstream_personalization(
     nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_library = _float_or_none(facts.get("nearest_library_m"))
+    nearest_zoo = _float_or_none(facts.get("nearest_zoo_m"))
+    nearest_market = _float_or_none(facts.get("nearest_market_m"))
+    nearest_hardware_store = _float_or_none(facts.get("nearest_hardware_store_m"))
+    nearest_shopping_street = _float_or_none(facts.get("nearest_shopping_street_m"))
+    nearest_shopping_center = _float_or_none(facts.get("nearest_shopping_center_m"))
+    nearest_public_pool = _float_or_none(facts.get("nearest_public_pool_m"))
+    nearest_theatre = _float_or_none(facts.get("nearest_theatre_m"))
+    nearest_medical_care = _float_or_none(facts.get("nearest_medical_care_m"))
+    nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
+    nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     lease_term_years = _float_or_none(facts.get("lease_term_years_max"))
+    source_platform = _normalize_property_search_platform(facts.get("source_platform") or facts.get("platform") or "")
+    apply_flatbee_reputation_penalty = bool(facts.get("apply_flatbee_reputation_penalty", True))
     matches: list[str] = []
     conflicts: list[str] = []
     unknowns: list[str] = []
@@ -4973,11 +6948,11 @@ def _property_alert_upstream_personalization(
         elif key == "prefer_360_for_remote_review" and bool(value):
             learned_axes.append("360_remote_review")
             if has_360:
-                matches.append("Includes a live 360 source, which supports your remote review workflow.")
-                score_delta += 4.0
+                matches.append("Includes a live 360 source, which supports remote review after the core fit is already acceptable.")
+                score_delta += 1.0
             else:
-                conflicts.append("No live 360 source, which makes remote review weaker than you usually want.")
-                score_delta -= 5.0
+                conflicts.append("No live 360 source, which makes remote review slightly weaker but is not a core blocker on its own.")
+                score_delta -= 1.5
         elif key == "prefer_subway_nearby" and bool(value):
             learned_axes.append("subway_access")
             if isinstance(nearest_subway, float) and nearest_subway <= 650.0:
@@ -5011,6 +6986,66 @@ def _property_alert_upstream_personalization(
                 score_delta += 2.5
             elif isinstance(nearest_playground, float) and nearest_playground > 500.0:
                 conflicts.append(f"Playground access is about {int(nearest_playground)} m away, which is weaker than you usually want.")
+                score_delta -= 3.0
+        elif key == "prefer_libraries_nearby" and bool(value):
+            learned_axes.append("library_access")
+            if isinstance(nearest_library, float) and nearest_library <= 700.0:
+                matches.append(f"Library access is about {int(nearest_library)} m away, which supports family and study routines.")
+                score_delta += 2.5
+            elif isinstance(nearest_library, float) and nearest_library > 1300.0:
+                conflicts.append(f"Library access is about {int(nearest_library)} m away, which is weaker than you usually want.")
+                score_delta -= 3.0
+        elif key == "prefer_zoos_nearby" and bool(value):
+            learned_axes.append("zoo_access")
+            if isinstance(nearest_zoo, float) and nearest_zoo <= 2200.0:
+                matches.append(f"Zoo access is about {int(nearest_zoo)} m away, which supports family weekend routines.")
+                score_delta += 1.8
+            elif isinstance(nearest_zoo, float) and nearest_zoo > 4500.0:
+                conflicts.append(f"Zoo access is about {int(nearest_zoo)} m away, which is weaker than you usually want.")
+                score_delta -= 2.2
+        elif key == "prefer_markets_nearby" and bool(value):
+            learned_axes.append("market_access")
+            if isinstance(nearest_market, float) and nearest_market <= 900.0:
+                matches.append(f"Market access is about {int(nearest_market)} m away, which supports everyday district life.")
+                score_delta += 2.0
+            elif isinstance(nearest_market, float) and nearest_market > 1800.0:
+                conflicts.append(f"Market access is about {int(nearest_market)} m away, which is weaker than you usually want.")
+                score_delta -= 2.5
+        elif key == "prefer_hardware_store_nearby" and bool(value):
+            learned_axes.append("hardware_access")
+            if isinstance(nearest_hardware_store, float) and nearest_hardware_store <= 1800.0:
+                matches.append(f"Baumarkt access is about {int(nearest_hardware_store)} m away, which helps renovation and daily practical errands.")
+                score_delta += 1.8
+            elif isinstance(nearest_hardware_store, float) and nearest_hardware_store > 3500.0:
+                conflicts.append(f"Baumarkt access is about {int(nearest_hardware_store)} m away, which weakens practical access.")
+                score_delta -= 2.0
+        elif key == "prefer_shopping_street_nearby" and bool(value):
+            learned_axes.append("shopping_street_access")
+            if isinstance(nearest_shopping_street, float) and nearest_shopping_street <= 1000.0:
+                matches.append(f"Promenade or shopping-street access is about {int(nearest_shopping_street)} m away.")
+                score_delta += 1.5
+        elif key == "prefer_shopping_center_nearby" and bool(value):
+            learned_axes.append("shopping_center_access")
+            if isinstance(nearest_shopping_center, float) and nearest_shopping_center <= 1800.0:
+                matches.append(f"Shopping-center access is about {int(nearest_shopping_center)} m away.")
+                score_delta += 1.5
+        elif key == "prefer_public_pool_nearby" and bool(value):
+            learned_axes.append("public_pool_access")
+            if isinstance(nearest_public_pool, float) and nearest_public_pool <= 1600.0:
+                matches.append(f"Public-pool access is about {int(nearest_public_pool)} m away.")
+                score_delta += 1.8
+        elif key == "prefer_theatre_nearby" and bool(value):
+            learned_axes.append("theatre_access")
+            if isinstance(nearest_theatre, float) and nearest_theatre <= 1800.0:
+                matches.append(f"Theatre access is about {int(nearest_theatre)} m away.")
+                score_delta += 1.5
+        elif key == "prefer_medical_care_nearby" and bool(value):
+            learned_axes.append("medical_care_access")
+            if isinstance(nearest_medical_care, float) and nearest_medical_care <= 1200.0:
+                matches.append(f"Medical-care access is about {int(nearest_medical_care)} m away, which supports resilience and family logistics.")
+                score_delta += 2.5
+            elif isinstance(nearest_medical_care, float) and nearest_medical_care > 2500.0:
+                conflicts.append(f"Medical-care access is about {int(nearest_medical_care)} m away, which is weaker than you usually want.")
                 score_delta -= 3.0
         elif key == "prefer_unlimited_lease" and bool(value):
             learned_axes.append("lease_stability")
@@ -5054,6 +7089,10 @@ def _property_alert_upstream_personalization(
             else:
                 conflicts.append("Outdoor space is weak for your learned balcony or terrace preference.")
                 score_delta -= 2.5
+    if source_platform == "flatbee" and apply_flatbee_reputation_penalty:
+        learned_axes.append("provider_reputation")
+        conflicts.append("Flatbee results carry a strong trust and duplicate-listing penalty in all-provider search mode.")
+        score_delta -= 18.0
 
     base_fit_score = 0.0
     if isinstance(assessment, dict):
@@ -5173,7 +7212,17 @@ def _property_alert_ranked_candidates(
             }
         )
     rows.sort(key=lambda item: (float(item.get("fit_score") or 0.0), str(item.get("recommendation") or "")), reverse=True)
-    return tuple(rows[: max(1, limit)])
+    trimmed = rows[: max(1, limit)]
+    annotated: list[dict[str, object]] = []
+    for index, row in enumerate(trimmed):
+        enriched = dict(row)
+        enriched["compare_reason"] = _property_candidate_choice_reason(
+            enriched,
+            tuple(trimmed[index + 1 :]),
+            top_choice=index == 0,
+        )
+        annotated.append(enriched)
+    return tuple(annotated)
 
 
 def _default_property_alert_policy() -> dict[str, object]:
@@ -5252,7 +7301,19 @@ _PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
     {"key": "supermarket_too_far", "sentiment": "negative", "label": "Supermarket too far", "category": "location"},
     {"key": "pharmacy_too_far", "sentiment": "negative", "label": "Pharmacy too far", "category": "location"},
     {"key": "playground_too_far", "sentiment": "negative", "label": "Playground too far", "category": "location"},
+    {"key": "library_too_far", "sentiment": "negative", "label": "Library too far", "category": "location"},
+    {"key": "zoo_too_far", "sentiment": "negative", "label": "Zoo too far", "category": "location"},
+    {"key": "medical_care_too_far", "sentiment": "negative", "label": "Medical care too far", "category": "location"},
+    {"key": "market_too_far", "sentiment": "negative", "label": "Market too far", "category": "location"},
+    {"key": "hardware_store_too_far", "sentiment": "negative", "label": "Baumarkt too far", "category": "location"},
+    {"key": "shopping_street_too_far", "sentiment": "negative", "label": "Flaniermeile too far", "category": "location"},
+    {"key": "shopping_center_too_far", "sentiment": "negative", "label": "Shopping center too far", "category": "location"},
+    {"key": "public_pool_too_far", "sentiment": "negative", "label": "Public pool too far", "category": "location"},
+    {"key": "theatre_too_far", "sentiment": "negative", "label": "Theatre too far", "category": "location"},
     {"key": "transit_strong", "sentiment": "positive", "label": "Transit is strong", "category": "location"},
+    {"key": "library_strong", "sentiment": "positive", "label": "Library access is strong", "category": "family"},
+    {"key": "zoo_strong", "sentiment": "positive", "label": "Zoo access is strong", "category": "family"},
+    {"key": "medical_care_strong", "sentiment": "positive", "label": "Medical care is strong", "category": "family"},
     {"key": "gas_heating", "sentiment": "negative", "label": "Gas heating", "category": "building"},
     {"key": "no_lift", "sentiment": "negative", "label": "No lift", "category": "building"},
     {"key": "lift_good", "sentiment": "positive", "label": "Lift is useful", "category": "building"},
@@ -5265,6 +7326,13 @@ _PROPERTY_FEEDBACK_REASON_LIBRARY: tuple[dict[str, object], ...] = (
     {"key": "outdoor_space_strong", "sentiment": "positive", "label": "Outdoor space is strong", "category": "amenity"},
     {"key": "bike_access_weak", "sentiment": "negative", "label": "Bike access weak", "category": "lifestyle"},
     {"key": "green_access_weak", "sentiment": "negative", "label": "Green access weak", "category": "lifestyle"},
+    {"key": "air_quality_risk", "sentiment": "negative", "label": "Air-quality risk", "category": "risk"},
+    {"key": "crime_risk", "sentiment": "negative", "label": "Crime burden risk", "category": "risk"},
+    {"key": "parking_pressure_risk", "sentiment": "negative", "label": "Parking-pressure risk", "category": "risk"},
+    {"key": "drinking_water_risk", "sentiment": "negative", "label": "Water-quality risk", "category": "risk"},
+    {"key": "cesspit_risk", "sentiment": "negative", "label": "Senkgrube or septic risk", "category": "risk"},
+    {"key": "winter_access_risk", "sentiment": "negative", "label": "Winter-access risk", "category": "risk"},
+    {"key": "flood_risk", "sentiment": "negative", "label": "Flood risk", "category": "risk"},
     {"key": "family_fit_strong", "sentiment": "positive", "label": "Family fit is strong", "category": "family"},
     {"key": "style_not_right", "sentiment": "negative", "label": "Style not right", "category": "taste"},
     {"key": "bright", "sentiment": "positive", "label": "Feels bright", "category": "taste"},
@@ -5281,6 +7349,364 @@ def _property_feedback_reason_map() -> dict[str, dict[str, object]]:
 
 def _property_feedback_reason_detail(reason_key: str) -> dict[str, object]:
     return dict(_property_feedback_reason_map().get(str(reason_key or "").strip(), {}))
+
+
+def _property_feedback_reason_agent_question(reason_key: str, *, property_facts: dict[str, object]) -> str:
+    normalized = str(reason_key or "").strip().lower()
+    facts = dict(property_facts or {})
+    question_map = {
+        "price_too_high": "Is there flexibility on price or are there recent comparable sales supporting the ask?",
+        "location_weak": "Can you clarify the exact micro-location tradeoff, including street exposure and daily errand radius?",
+        "underground_too_far": "What is the realistic walking time to the nearest underground or frequent transit stop?",
+        "supermarket_too_far": "Which grocery options are realistically walkable from the property?",
+        "pharmacy_too_far": "Which pharmacy is the nearest practical option and how long is the walk?",
+        "playground_too_far": "Which playgrounds or family amenities are the nearest everyday options?",
+        "library_too_far": "Which library or Bücherei is the nearest practical option for children, study, or errands?",
+        "zoo_too_far": "Which zoo, Tiergarten, or comparable animal park is the nearest realistic family option from this address?",
+        "medical_care_too_far": "Which doctors, clinics, or hospitals are the nearest realistic care options from this address?",
+        "market_too_far": "Which market is realistically used from this address and how often is it practical on foot?",
+        "hardware_store_too_far": "Which Baumarkt or DIY store is the nearest practical option and how easy is the trip?",
+        "shopping_street_too_far": "Which pedestrian shopping street or promenade is realistically used from this address?",
+        "shopping_center_too_far": "Which shopping center is the nearest bad-weather fallback for everyday errands?",
+        "gas_heating": "Can you confirm the heating source and share the latest energy certificate?",
+        "no_lift": "Can you confirm the exact floor, lift access, and whether there are any planned accessibility upgrades?",
+        "weak_floorplan": "Can you send the floorplan with room dimensions and indicate the room orientation?",
+        "too_small": "Can you confirm the usable living area and whether storage or additional rooms are included separately?",
+        "lease_too_short": "Can you confirm the remaining lease term and the options to renew or extend it?",
+        "outdoor_space_weak": "Can you confirm whether there is any balcony, terrace, courtyard, or shared outdoor access?",
+        "bike_access_weak": "How practical is bike storage and what is the nearest protected cycling access?",
+        "green_access_weak": "What are the nearest green or running routes people realistically use from this address?",
+        "air_quality_risk": "What is known about local air-quality burden, traffic emissions, and recurring pollution exposure here?",
+        "crime_risk": "Are there any known safety or crime-pattern issues around the immediate micro-location?",
+        "parking_pressure_risk": "Without a garage, how difficult is street parking at normal evening hours and what paid-parking burden exists?",
+        "drinking_water_risk": "Can you clarify the drinking-water source and whether groundwater quality or burden is a known issue here?",
+        "cesspit_risk": "Can you confirm whether the property depends on a Senkgrube or septic system and what recurring costs or smell issues exist?",
+        "winter_access_risk": "How reliable is winter access in snow or ice, especially for steeper or more remote approach roads?",
+        "flood_risk": "Has the immediate area seen flooding or runoff issues in recent decades and is there any formal flood-zone exposure?",
+        "style_not_right": "Are there more current interior photos or a recent walkthrough that shows the real condition more clearly?",
+        "kitchen_bad": "Can you share newer kitchen photos, appliance details, and any planned replacement timeline?",
+        "bathroom_bad": "Can you share updated bathroom photos and confirm renovation age and condition?",
+    }
+    if normalized in question_map:
+        return question_map[normalized]
+    if normalized == "family_fit_strong":
+        return "Can you confirm the school, playground, and family-errand radius around the property?"
+    if normalized == "tour_helpful":
+        return "Can you confirm whether additional hosted 360 material or a measured floorplan is available before a viewing?"
+    street_address = str(facts.get("street_address") or facts.get("address") or "").strip()
+    if street_address:
+        return f"Can you clarify the remaining open questions for {street_address} before a viewing?"
+    return "Can you clarify the key remaining questions before a viewing?"
+
+
+def _property_feedback_missing_fact_agent_questions(property_facts: dict[str, object]) -> list[str]:
+    facts = dict(property_facts or {})
+    research = dict(facts.get("missing_fact_research") or {}) if isinstance(facts.get("missing_fact_research"), dict) else {}
+    items = list(research.get("items") or []) if isinstance(research.get("items"), list) else []
+    questions: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("status") or "").strip().lower() == "filled":
+            continue
+        label = str(item.get("label") or item.get("field") or "missing detail").strip()
+        field_name = str(item.get("field") or "").strip().lower()
+        if field_name in {"operating_costs", "betriebskosten", "operating_cost_history"}:
+            questions.append("Can you share the operating-cost history for the last 24 months?")
+        elif field_name in {"floorplan", "rooms"}:
+            questions.append("Can you send the floorplan with room dimensions and room labels?")
+        elif field_name in {"heating", "heating_type"}:
+            questions.append("Can you confirm the heating source and provide the energy certificate?")
+        else:
+            questions.append(f"Can you confirm the missing detail for {label}?")
+    return questions
+
+
+def _property_feedback_agent_questions(
+    *,
+    property_facts: dict[str, object],
+    reason_keys: tuple[str, ...] = (),
+    assessment: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
+    assessment_json = dict(assessment or {}) if isinstance(assessment, dict) else {}
+    suggested_reason_keys = tuple(reason_keys) or tuple(
+        str(row.get("key") or "").strip()
+        for row in _property_feedback_suggestion_groups(property_facts=property_facts, assessment=assessment_json).get("negative", [])
+        if str(row.get("key") or "").strip()
+    )
+    prompts = [
+        _property_feedback_reason_agent_question(key, property_facts=property_facts)
+        for key in suggested_reason_keys
+        if str(key or "").strip()
+    ]
+    prompts.extend(_property_feedback_missing_fact_agent_questions(property_facts))
+    seen: set[str] = set()
+    rows: list[dict[str, object]] = []
+    for prompt in prompts:
+        normalized = compact_text(prompt, fallback="", limit=240)
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        rows.append(
+            {
+                "question": normalized,
+                "status": "suggested",
+                "action": "ask_agent",
+            }
+        )
+        if len(rows) >= 5:
+            break
+    return rows
+
+
+def _property_feedback_decision_consequences() -> list[str]:
+    return [
+        "Update your future ranking",
+        "Keep missing-fact tasks visible",
+        "Contribute to market risk only after anonymization thresholds are met",
+    ]
+
+
+def _property_decision_copilot_mode(question: str) -> str:
+    normalized = str(question or "").strip().lower()
+    if any(token in normalized for token in ("what changed", "changed", "last time", "new since", "update")):
+        return "change_log"
+    if any(token in normalized for token in ("ask agent", "agent", "follow up", "follow-up", "question")):
+        return "ask_agent"
+    if any(token in normalized for token in ("investment", "yield", "underwriting", "capex", "risk", "return")):
+        return "investment"
+    if any(token in normalized for token in ("reject", "rejected", "why no", "why did", "jonas", "anna", "household", "family")):
+        return "household"
+    if any(token in normalized for token in ("pass the brief", "unlock", "make this pass", "what would help", "counterfactual")):
+        return "unlock"
+    if any(token in normalized for token in ("why", "maybe", "only maybe", "not yes", "not shortlisted")):
+        return "decision"
+    return "decision"
+
+
+def _property_decision_copilot_answer(
+    *,
+    question: str,
+    property_title: str,
+    property_url: str,
+    property_facts: dict[str, object],
+    assessment: dict[str, object],
+    feedback_summary: dict[str, object] | None = None,
+    timeline_rows: list[dict[str, object]] | None = None,
+    change_rows: list[dict[str, object]] | None = None,
+    investment_context: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    facts = dict(property_facts or {})
+    assessment_json = dict(assessment or {})
+    summary = dict(feedback_summary or {})
+    timeline = [dict(row) for row in list(timeline_rows or []) if isinstance(row, dict)]
+    changes = [dict(row) for row in list(change_rows or []) if isinstance(row, dict)]
+    investment_rows = [dict(row) for row in list(investment_context or []) if isinstance(row, dict)]
+    mode = _property_decision_copilot_mode(question)
+    suggestions = _property_feedback_suggestion_groups(property_facts=facts, assessment=assessment_json)
+    negative = [dict(row) for row in list(suggestions.get("negative") or []) if isinstance(row, dict)]
+    positive = [dict(row) for row in list(suggestions.get("positive") or []) if isinstance(row, dict)]
+    agent_questions = [dict(row) for row in list(suggestions.get("agent_questions") or []) if isinstance(row, dict)]
+    evidence: list[dict[str, str]] = []
+    actions: list[dict[str, str]] = []
+    fit_reasons = [compact_text(item, fallback="", limit=220) for item in list(assessment_json.get("match_reasons_json") or [])]
+    fit_reasons = [item for item in fit_reasons if item]
+    mismatch_reasons = [compact_text(item, fallback="", limit=220) for item in list(assessment_json.get("mismatch_reasons_json") or [])]
+    mismatch_reasons = [item for item in mismatch_reasons if item]
+    property_label = compact_text(property_title, fallback="", limit=120) or compact_text(facts.get("headline") or facts.get("title"), fallback="this property", limit=120)
+
+    if mode == "change_log":
+        answer = "The latest visible change is the packet and feedback state, not a fresh ranking shift yet."
+        for row in changes[:3]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("summary") or row.get("change_type"), fallback="Change", limit=80),
+                    "detail": compact_text(row.get("detail"), fallback="Property state changed.", limit=240),
+                    "confidence": "High",
+                    "source": "timeline",
+                }
+            )
+        for row in timeline[:2]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("event_type"), fallback="Timeline", limit=80).replace("_", " ").title(),
+                    "detail": compact_text(row.get("summary"), fallback="Timeline event recorded.", limit=240),
+                    "confidence": "Medium",
+                    "source": "packet",
+                }
+            )
+        actions.append({"label": "Open review packet", "action": "open_packet", "href": compact_text(property_url, fallback="", limit=2000)})
+    elif mode == "ask_agent":
+        primary = agent_questions[:3]
+        answer = "The next strongest agent brief is driven by your blockers and the missing facts still open on this property."
+        if mismatch_reasons:
+            evidence.append(
+                {
+                    "title": "Current blocker",
+                    "detail": mismatch_reasons[0],
+                    "confidence": "High",
+                    "source": "ranking",
+                }
+            )
+        for index, row in enumerate(primary):
+            evidence.append(
+                {
+                    "title": f"Question {index + 1}",
+                    "detail": compact_text(row.get("question"), fallback="Clarify the remaining blocker.", limit=240),
+                    "confidence": "High",
+                    "source": "feedback_suggestions",
+                }
+            )
+            actions.append(
+                {
+                    "label": f"Ask agent: {index + 1}",
+                    "action": "ask_agent",
+                    "question": compact_text(row.get("question"), fallback="", limit=240),
+                    "detail": "Write this into the decision timeline as the next follow-up.",
+                }
+            )
+    elif mode == "investment":
+        answer = "The investment read here is still a screening view. Treat the current yield or price signal as provisional until the missing operating facts are confirmed."
+        for row in investment_rows[:4]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("title"), fallback="Investment", limit=80),
+                    "detail": compact_text(row.get("detail"), fallback="Investment signal pending.", limit=240),
+                    "confidence": "Medium" if "pending" in str(row.get("detail") or "").lower() else "High",
+                    "source": compact_text(row.get("tag"), fallback="investment", limit=40),
+                }
+            )
+        if not evidence:
+            headline = compact_text(assessment_json.get("investment", {}).get("headline"), fallback="", limit=240) if isinstance(assessment_json.get("investment"), dict) else ""
+            evidence.append(
+                {
+                    "title": "Investment posture",
+                    "detail": headline or "Open the packet in investment mode to build the benchmark, yield, and diligence view.",
+                    "confidence": "Low" if not headline else "Medium",
+                    "source": "assessment",
+                }
+            )
+        if negative:
+            first_negative = negative[0]
+            actions.append(
+                {
+                    "label": "Mark main blocker",
+                    "action": "mark_blocker",
+                    "reaction": "dislike",
+                    "reason_key": compact_text(first_negative.get("key"), fallback="", limit=80),
+                    "detail": compact_text(first_negative.get("label"), fallback="Main blocker", limit=160),
+                }
+            )
+    elif mode == "household":
+        alignment = compact_text(summary.get("family_alignment"), fallback="mixed", limit=40)
+        disagreement_count = int(summary.get("disagreement_count") or 0)
+        recent_feedback = [dict(row) for row in list(summary.get("recent_feedback") or []) if isinstance(row, dict)]
+        answer = (
+            f"Household alignment is currently {alignment}. "
+            + ("There is a visible disagreement in the recorded reactions." if disagreement_count else "No direct conflict has been recorded yet.")
+        )
+        for row in recent_feedback[:4]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("stakeholder_label") or row.get("stakeholder_id"), fallback="Stakeholder", limit=80),
+                    "detail": compact_text(row.get("text") or row.get("category"), fallback="Feedback recorded.", limit=240),
+                    "confidence": "Medium",
+                    "source": compact_text(row.get("category"), fallback="feedback", limit=40),
+                }
+            )
+        for cluster in list(summary.get("clusters") or [])[:2]:
+            if not isinstance(cluster, dict):
+                continue
+            actions.append(
+                {
+                    "label": f"Mark blocker: {compact_text(cluster.get('theme'), fallback='risk', limit=40).replace('_', ' ')}",
+                    "action": "mark_blocker",
+                    "reaction": "dislike",
+                    "detail": compact_text(cluster.get("summary"), fallback="Blocker", limit=160),
+                }
+            )
+    elif mode == "unlock":
+        blocker_labels = [compact_text(row.get("label"), fallback="", limit=160) for row in negative[:3]]
+        blocker_labels = [item for item in blocker_labels if item]
+        answer = (
+            "To make this property pass the brief, remove the strongest blockers or convert the missing facts into verified answers first."
+            if blocker_labels
+            else "This property needs more proof before it can move from maybe to pursue."
+        )
+        for row in negative[:3]:
+            evidence.append(
+                {
+                    "title": compact_text(row.get("label"), fallback="Blocker", limit=80),
+                    "detail": compact_text(row.get("explanation"), fallback="This is currently suppressing the score.", limit=240),
+                    "confidence": "High",
+                    "source": "brief_fit",
+                }
+            )
+        for row in agent_questions[:2]:
+            actions.append(
+                {
+                    "label": "Ask to unlock",
+                    "action": "ask_agent",
+                    "question": compact_text(row.get("question"), fallback="", limit=240),
+                    "detail": "Use this to turn a blocker into a verified fact.",
+                }
+            )
+    else:
+        best_positive = positive[0] if positive else {}
+        main_negative = negative[0] if negative else {}
+        answer = (
+            f"{property_label} is still closer to Maybe than Yes because the best fit signal is "
+            f"{compact_text(best_positive.get('label'), fallback='still generic', limit=80).lower()}, "
+            f"while the main blocker is {compact_text(main_negative.get('label'), fallback='still unresolved evidence', limit=80).lower()}."
+        )
+        if fit_reasons:
+            evidence.append({"title": "Why it survived", "detail": fit_reasons[0], "confidence": "High", "source": "ranking"})
+        elif best_positive:
+            evidence.append({"title": "Best signal", "detail": compact_text(best_positive.get("label"), fallback="Fit signal", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
+        if mismatch_reasons:
+            evidence.append({"title": "Main blocker", "detail": mismatch_reasons[0], "confidence": "High", "source": "ranking"})
+        elif main_negative:
+            evidence.append({"title": "Main blocker", "detail": compact_text(main_negative.get("label"), fallback="Still unresolved", limit=200), "confidence": "Medium", "source": "feedback_suggestions"})
+        if agent_questions:
+            actions.append(
+                {
+                    "label": "Ask agent next",
+                    "action": "ask_agent",
+                    "question": compact_text(agent_questions[0].get("question"), fallback="", limit=240),
+                    "detail": "Turn the strongest open blocker into a direct follow-up.",
+                }
+            )
+        if main_negative:
+            actions.append(
+                {
+                    "label": "Mark blocker",
+                    "action": "mark_blocker",
+                    "reaction": "dislike",
+                    "reason_key": compact_text(main_negative.get("key"), fallback="", limit=80),
+                    "detail": compact_text(main_negative.get("label"), fallback="Blocker", limit=160),
+                }
+            )
+
+    if property_url:
+        actions.append({"label": "Open review packet", "action": "open_packet", "href": property_url, "detail": "Review the packet or continue the decision flow."})
+    deduped_actions: list[dict[str, str]] = []
+    seen_actions: set[tuple[str, str, str]] = set()
+    for row in actions:
+        key = (str(row.get("action") or ""), str(row.get("question") or ""), str(row.get("reason_key") or ""))
+        if key in seen_actions:
+            continue
+        seen_actions.add(key)
+        deduped_actions.append(row)
+    return {
+        "name": "Clippy",
+        "mode": "property_decision_copilot",
+        "answer": compact_text(answer, fallback="Clippy needs a little more property context to answer that.", limit=480),
+        "evidence": evidence[:5],
+        "actions": deduped_actions[:5],
+    }
 
 
 def _property_feedback_suggestion_groups(
@@ -5303,6 +7729,17 @@ def _property_feedback_suggestion_groups(
     nearest_supermarket = _float_or_none(facts.get("nearest_supermarket_m"))
     nearest_pharmacy = _float_or_none(facts.get("nearest_pharmacy_m"))
     nearest_playground = _float_or_none(facts.get("nearest_playground_m"))
+    nearest_library = _float_or_none(facts.get("nearest_library_m"))
+    nearest_zoo = _float_or_none(facts.get("nearest_zoo_m"))
+    nearest_market = _float_or_none(facts.get("nearest_market_m"))
+    nearest_hardware_store = _float_or_none(facts.get("nearest_hardware_store_m"))
+    nearest_shopping_street = _float_or_none(facts.get("nearest_shopping_street_m"))
+    nearest_shopping_center = _float_or_none(facts.get("nearest_shopping_center_m"))
+    nearest_public_pool = _float_or_none(facts.get("nearest_public_pool_m"))
+    nearest_theatre = _float_or_none(facts.get("nearest_theatre_m"))
+    nearest_medical_care = _float_or_none(facts.get("nearest_medical_care_m"))
+    nearest_starbucks = _float_or_none(facts.get("nearest_starbucks_m"))
+    nearest_fitness_center = _float_or_none(facts.get("nearest_fitness_center_m"))
     nearest_cycleway = _float_or_none(facts.get("nearest_cycleway_m"))
     nearest_running = _float_or_none(facts.get("nearest_running_m"))
     lease_years = _float_or_none(facts.get("lease_term_years_max"))
@@ -5336,6 +7773,30 @@ def _property_feedback_suggestion_groups(
         suggestions.append("playground_too_far")
     elif isinstance(nearest_playground, float) and nearest_playground <= 250.0:
         positives.append("family_fit_strong")
+    if isinstance(nearest_library, float) and nearest_library > 1400.0:
+        suggestions.append("library_too_far")
+    elif isinstance(nearest_library, float) and nearest_library <= 700.0:
+        positives.append("library_strong")
+    if isinstance(nearest_zoo, float) and nearest_zoo > 4500.0:
+        suggestions.append("zoo_too_far")
+    elif isinstance(nearest_zoo, float) and nearest_zoo <= 2200.0:
+        positives.append("zoo_strong")
+    if isinstance(nearest_market, float) and nearest_market > 1800.0:
+        suggestions.append("market_too_far")
+    if isinstance(nearest_hardware_store, float) and nearest_hardware_store > 3500.0:
+        suggestions.append("hardware_store_too_far")
+    if isinstance(nearest_shopping_street, float) and nearest_shopping_street > 2500.0:
+        suggestions.append("shopping_street_too_far")
+    if isinstance(nearest_shopping_center, float) and nearest_shopping_center > 3200.0:
+        suggestions.append("shopping_center_too_far")
+    if isinstance(nearest_public_pool, float) and nearest_public_pool > 2500.0:
+        suggestions.append("public_pool_too_far")
+    if isinstance(nearest_theatre, float) and nearest_theatre > 2800.0:
+        suggestions.append("theatre_too_far")
+    if isinstance(nearest_medical_care, float) and nearest_medical_care > 2500.0:
+        suggestions.append("medical_care_too_far")
+    elif isinstance(nearest_medical_care, float) and nearest_medical_care <= 1200.0:
+        positives.append("medical_care_strong")
     if isinstance(nearest_cycleway, float) and nearest_cycleway > 700.0:
         suggestions.append("bike_access_weak")
     if isinstance(nearest_running, float) and nearest_running > 900.0:
@@ -5348,6 +7809,20 @@ def _property_feedback_suggestion_groups(
         positives.append("outdoor_space_strong")
     if bool(facts.get("has_360")) or bool(facts.get("source_virtual_tour_url")):
         positives.append("tour_helpful")
+    if bool(facts.get("air_quality_risk")) or bool(facts.get("prefer_good_air_quality")):
+        suggestions.append("air_quality_risk")
+    if bool(facts.get("crime_risk")) or bool(facts.get("prefer_low_crime_area")):
+        suggestions.append("crime_risk")
+    if bool(facts.get("parking_pressure_risk")) or (not bool(facts.get("garage")) and bool(facts.get("require_parking_pressure_check"))):
+        suggestions.append("parking_pressure_risk")
+    if bool(facts.get("drinking_water_risk")) or bool(facts.get("require_drinking_water_quality_research")):
+        suggestions.append("drinking_water_risk")
+    if bool(facts.get("cesspit_risk")) or bool(facts.get("avoid_cesspit_or_septic_risk")):
+        suggestions.append("cesspit_risk")
+    if bool(facts.get("winter_access_risk")) or bool(facts.get("require_winter_access_research")):
+        suggestions.append("winter_access_risk")
+    if bool(facts.get("flood_risk")) or bool(facts.get("avoid_flood_risk_area")):
+        suggestions.append("flood_risk")
 
     if not suggestions:
         suggestions.extend(["location_weak", "style_not_right"])
@@ -5373,9 +7848,21 @@ def _property_feedback_suggestion_groups(
             seen.add(normalized)
         return deduped[:8]
 
+    negative_rows = _rows(suggestions)
+    positive_rows = _rows(positives)
     return {
-        "negative": _rows(suggestions),
-        "positive": _rows(positives),
+        "negative": negative_rows,
+        "positive": positive_rows,
+        "agent_questions": _property_feedback_agent_questions(
+            property_facts=facts,
+            assessment=assessment_json,
+            reason_keys=tuple(
+                str(row.get("key") or "").strip()
+                for row in negative_rows
+                if str(row.get("key") or "").strip()
+            ),
+        ),
+        "decision_consequences": _property_feedback_decision_consequences(),
     }
 
 
@@ -5484,6 +7971,78 @@ def _property_feedback_inferred_hints(
                     "value_json": True,
                     "strength": "high" if normalized == "playground_too_far" else "medium",
                     "confidence": 0.88,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"library_too_far", "library_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_libraries_nearby",
+                    "value_json": True,
+                    "strength": "high" if normalized == "library_too_far" else "medium",
+                    "confidence": 0.86,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "market_too_far":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_markets_nearby",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.8,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "hardware_store_too_far":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_hardware_store_nearby",
+                    "value_json": True,
+                    "strength": "medium",
+                    "confidence": 0.78,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized in {"medical_care_too_far", "medical_care_strong"}:
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_medical_care_nearby",
+                    "value_json": True,
+                    "strength": "high" if normalized == "medical_care_too_far" else "medium",
+                    "confidence": 0.84,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "air_quality_risk":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_good_air_quality",
+                    "value_json": True,
+                    "strength": "high",
+                    "confidence": 0.9,
+                    "source_mode": source_mode,
+                }
+            )
+        elif normalized == "crime_risk":
+            _append_unique(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_low_crime_area",
+                    "value_json": True,
+                    "strength": "high",
+                    "confidence": 0.9,
                     "source_mode": source_mode,
                 }
             )
@@ -5895,12 +8454,15 @@ def _property_alert_review_telegram_text(
         if total > 1:
             extra_lines.append(f"EA found {total} concrete listings in this alert.")
         top_summary = str(top.get('fit_summary') or '').strip()
+        compare_reason = str(top.get("compare_reason") or "").strip()
         top_url = str(top.get('property_url') or '').strip()
         listing_title = str(top.get('listing_title') or '').strip()
         if listing_title and listing_title != headline:
             extra_lines.append(f"Top listing title: {compact_text(listing_title, fallback='', limit=140)}")
         if top_summary:
             extra_lines.append(f"Top candidate: {top_summary}")
+        if compare_reason:
+            extra_lines.append(f"Why it won: {compact_text(compare_reason, fallback='', limit=220)}")
         if top_url and top_url != str(property_url or '').strip() and not str(tour_url or "").strip() and not str(review_url or "").strip():
             extra_lines.append(f"Top listing: {top_url}")
         top_assessment = dict(top.get("assessment") or {}) if isinstance(top.get("assessment"), dict) else {}
@@ -5962,7 +8524,7 @@ def _property_tour_delivery_message(
     body = [
         "Hello,",
         "",
-        f"EA prepared a tour for {title}:",
+        f"PropertyQuarry prepared a hosted 360 review for {title}:",
         "",
         tour_url,
         "",
@@ -6016,7 +8578,17 @@ def _property_tour_delivery_message(
         ("nearest_transit_m", "Transit"),
         ("nearest_supermarket_m", "Supermarket"),
         ("nearest_pharmacy_m", "Pharmacy"),
+        ("nearest_library_m", "Library"),
+        ("nearest_medical_care_m", "Medical care"),
+        ("nearest_market_m", "Market"),
+        ("nearest_hardware_store_m", "Baumarkt"),
+        ("nearest_shopping_street_m", "Flaniermeile"),
+        ("nearest_shopping_center_m", "Shopping center"),
+        ("nearest_theatre_m", "Theatre"),
+        ("nearest_public_pool_m", "Public pool"),
         ("nearest_bakery_m", "Bakery"),
+        ("nearest_starbucks_m", "Starbucks"),
+        ("nearest_fitness_center_m", "Fitness"),
         ("nearest_bicycle_parking_m", "Bicycle parking"),
         ("nearest_cycleway_m", "Cycleway"),
         ("nearest_playground_m", "Playground"),
@@ -6035,7 +8607,7 @@ def _property_tour_delivery_message(
         body.extend(["", "Why it may not fit:", *[f"- {entry}" for entry in bad_fit_reasons[:3]]])
     if unknowns:
         body.extend(["", "What still needs checking:", *[f"- {entry}" for entry in unknowns[:3]]])
-    body.extend(["", "Open the tour link to review the space directly."])
+    body.extend(["", "Open the hosted 360 review first, then continue into the research packet if needed."])
     return subject[:220], "\n".join(body).strip() + "\n"
 
 
@@ -6682,26 +9254,9 @@ def _pocket_audio_transcribe_webhook_url() -> str:
 
 
 def _pocket_onemin_api_keys() -> tuple[str, ...]:
-    fallback_numbers: list[int] = []
-    for env_name in os.environ:
-        match = re.fullmatch(r"ONEMIN_AI_API_KEY_FALLBACK_(\d+)", str(env_name or "").strip())
-        if match is None:
-            continue
-        fallback_numbers.append(int(match.group(1)))
-    names = ["ONEMIN_AI_API_KEY", *(f"ONEMIN_AI_API_KEY_FALLBACK_{number}" for number in sorted(fallback_numbers))]
     values: list[str] = []
-    try:
-        upstream_names = tuple(responses_upstream._onemin_secret_env_names())  # type: ignore[attr-defined]
-    except Exception:
-        upstream_names = tuple()
-    if upstream_names:
-        names = list(dict.fromkeys([*upstream_names, *names]))
-    for name in names:
-        value = ""
-        try:
-            value = str(responses_upstream._onemin_secret_value(name) or "").strip()  # type: ignore[attr-defined]
-        except Exception:
-            value = str(os.environ.get(name) or "").strip()
+    for name in responses_upstream._onemin_secret_env_names():
+        value = str(responses_upstream._onemin_secret_value(name) or "").strip()
         if value:
             values.append(value)
     return tuple(values)
@@ -7457,7 +10012,39 @@ def _extract_pocket_assistant_commands(transcript_text: str) -> list[dict[str, s
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    explicit_root = str(os.getenv("EA_REPO_ROOT") or "").strip()
+    if explicit_root:
+        candidate = Path(explicit_root).expanduser().resolve()
+        if candidate.exists():
+            return candidate
+    service_path = Path(__file__).resolve()
+    if len(service_path.parents) >= 3:
+        container_like_root = service_path.parents[2]
+        if (container_like_root / "app").exists() and (container_like_root / "scripts").exists():
+            return container_like_root
+    candidate = service_path.parents[3]
+    if (candidate / "scripts").exists() or (candidate / ".codex-design").exists():
+        return candidate
+    container_root = Path("/app")
+    if (container_root / "app").exists() and (container_root / "scripts").exists():
+        return container_root
+    return candidate
+
+
+def _runtime_python_executable() -> str:
+    venv_python = (_repo_root() / ".venv" / "bin" / "python").resolve()
+    if venv_python.exists():
+        return str(venv_python)
+    sys_python = Path(sys.executable).resolve()
+    if sys_python.exists():
+        return str(sys_python)
+    which_python3 = shutil.which("python3")
+    if which_python3:
+        return which_python3
+    which_python = shutil.which("python")
+    if which_python:
+        return which_python
+    return "python3"
 
 
 def _resolve_repo_path(raw: str, *, default: Path) -> Path:
@@ -7585,9 +10172,6 @@ def _property_public_app_base_url() -> str:
     explicit = str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if explicit:
         return explicit
-    inherited = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
-    if inherited and "myexternalbrain.com" not in inherited.lower():
-        return inherited
     return "https://propertyquarry.com"
 
 
@@ -7596,6 +10180,28 @@ def _property_public_tour_base_url() -> str:
     if explicit:
         return explicit
     return f"{_property_public_app_base_url()}/tours"
+
+
+def _hosted_property_tour_public_base_url() -> str:
+    explicit = str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    public_app = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if public_app:
+        return f"{public_app}/tours"
+    return _property_public_tour_base_url()
+
+
+def _workspace_access_public_base_url() -> str:
+    explicit = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    redirect_uri = str(os.getenv("EA_GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if redirect_uri:
+        parsed = urllib.parse.urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    return _public_app_base_url()
 
 
 def _is_crezlo_tour_host(value: object) -> bool:
@@ -7700,7 +10306,7 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     slug = str(structured_output.get("slug") or "").strip()
     if not slug:
         return ""
-    base_url = _property_public_tour_base_url()
+    base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
     bundle_manifest = public_dir / slug / "tour.json"
@@ -7737,6 +10343,30 @@ def _existing_hosted_property_tour_url(structured_output: dict[str, object]) -> 
     if source_virtual_tour_url:
         return f"{hosted_url}#live-360"
     return hosted_url
+
+
+def _existing_hosted_property_tour_payload(slug: str) -> dict[str, object]:
+    normalized_slug = str(slug or "").strip()
+    if not normalized_slug:
+        return {}
+    hosted_url = _existing_hosted_property_tour_url({"slug": normalized_slug})
+    if not hosted_url:
+        return {}
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    manifest_path = public_dir / normalized_slug / "tour.json"
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    payload = dict(payload)
+    payload["slug"] = normalized_slug
+    payload["hosted_url"] = hosted_url
+    payload["public_url"] = hosted_url
+    payload["tour_cache_status"] = "existing"
+    payload.setdefault("creation_mode", "hosted_property_tour")
+    return payload
 
 
 def _safe_live_property_tour_url(value: object) -> str:
@@ -7831,9 +10461,12 @@ def _write_hosted_floorplan_property_tour_bundle(
     ]
     if not normalized_urls:
         raise RuntimeError("floorplan_assets_missing")
-    base_url = _property_public_tour_base_url()
+    base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    existing_payload = _existing_hosted_property_tour_payload(slug)
+    if existing_payload:
+        return existing_payload
     bundle_dir = public_dir / slug
     staging_dir = public_dir / f".{slug}.tmp-{uuid4().hex}"
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -7930,6 +10563,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     property_url: str,
     variant_key: str,
     source_virtual_tour_url: str,
+    floorplan_urls: list[str] | tuple[str, ...] = (),
     property_facts_json: dict[str, object],
     source_host: str,
     source_ref: str = "",
@@ -7940,9 +10574,12 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     parsed_live = urllib.parse.urlparse(live_url)
     live_host = parsed_live.netloc.lower()
     if "matterport" in live_host:
-        base_url = _property_public_tour_base_url()
+        base_url = _hosted_property_tour_public_base_url()
         public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
         slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+        existing_payload = _existing_hosted_property_tour_payload(slug)
+        if existing_payload:
+            return existing_payload
         bundle_dir = public_dir / slug
         bundle_dir.mkdir(parents=True, exist_ok=True)
         facts = dict(property_facts_json or {})
@@ -7994,10 +10631,11 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
                     "ordinal": 1,
                     "name": "Live 360",
                     "role": "live_360",
-                    "image_url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+                    "image_url": _matterport_thumb_url(live_url)
+                    or "https://my.matterport.com/api/v2/player/models/default/thumb/",
                     "source_url": live_url,
                     "property_url": property_url,
-                    "mime_type": "image/gif",
+                    "mime_type": "image/jpeg",
                 }
             ],
             "generated_at": _now_iso(),
@@ -8007,9 +10645,12 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
         return payload
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
-    base_url = _property_public_tour_base_url()
+    base_url = _hosted_property_tour_public_base_url()
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
     slug = _hosted_property_tour_slug(title=title, listing_id=listing_id, property_url=property_url, variant_key=variant_key)
+    existing_payload = _existing_hosted_property_tour_payload(slug)
+    if existing_payload:
+        return existing_payload
     bundle_dir = public_dir / slug
     bundle_dir.mkdir(parents=True, exist_ok=True)
     root = _feelestate_json_rpc("getLocationWithAuthentication", ["", 6489, None, 63379, None, ""])
@@ -8076,6 +10717,37 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             scene["next_scene_index"] = next_index
     if not scenes:
         raise RuntimeError("pure_360_scenes_missing")
+    normalized_floorplan_urls = [
+        _safe_live_property_tour_url(value)
+        for value in list(floorplan_urls or [])
+        if _safe_live_property_tour_url(value)
+    ]
+    for ordinal, asset_url in enumerate(normalized_floorplan_urls[:8], start=1):
+        try:
+            rel_dir = "floorplans"
+            suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type="")
+            if suffix.lower() not in _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS:
+                suffix = ".pdf"
+            relpath = f"{rel_dir}/floorplan-{ordinal:02d}{suffix}"
+            content_type = _download_public_tour_asset_with_type(asset_url, bundle_dir / relpath)
+            corrected_suffix = _hosted_property_tour_asset_suffix(url=asset_url, content_type=content_type)
+            if corrected_suffix and not relpath.endswith(corrected_suffix):
+                corrected_relpath = f"{rel_dir}/floorplan-{ordinal:02d}{corrected_suffix}"
+                (bundle_dir / relpath).rename(bundle_dir / corrected_relpath)
+                relpath = corrected_relpath
+            scenes.append(
+                {
+                    "ordinal": len(scenes) + 1,
+                    "name": f"Floorplan {ordinal}",
+                    "role": "floorplan",
+                    "asset_relpath": relpath,
+                    "source_url": asset_url,
+                    "property_url": property_url,
+                    "mime_type": content_type or mimetypes.guess_type(relpath)[0] or "application/octet-stream",
+                }
+            )
+        except Exception:
+            continue
     facts = dict(property_facts_json or {})
     existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
     existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
@@ -8085,8 +10757,15 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "tour_media_mode": "panorama_360",
             "source_virtual_tour_url": "",
             "panorama_source": "feelestate_mirrored",
+            "has_floorplan": bool(facts.get("has_floorplan") or normalized_floorplan_urls),
+            "floorplan_count": max(int(facts.get("floorplan_count") or 0), len(normalized_floorplan_urls)),
+            "floorplan_urls_json": normalized_floorplan_urls or list(facts.get("floorplan_urls_json") or []),
             "address_lines": existing_address_lines or ([source_host] if source_host else []),
-            "teaser_attributes": existing_teasers or ["Pure My External Brain 360 tour", f"{len(scenes)} mirrored panorama locations"],
+            "teaser_attributes": existing_teasers or [
+                "Hosted white-label 360 tour",
+                f"{len([scene for scene in scenes if str(scene.get('role') or '') == 'pure_360'])} mirrored panorama locations",
+                f"{len(normalized_floorplan_urls)} floorplan document(s)" if normalized_floorplan_urls else "",
+            ],
         }
     )
     display_title = compact_text(title, fallback="Pure 360 Property Tour", limit=180)
@@ -8115,7 +10794,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
             "theme_name": "clean_light",
             "tour_style": "pure_mirrored_360_cube",
             "audience": "tenant_screening",
-            "creative_brief": "Render mirrored 360 cube assets directly from My External Brain without embedding the source provider.",
+            "creative_brief": "Render mirrored 360 cube assets directly inside the hosted PropertyQuarry tour without embedding the source provider.",
             "call_to_action": "Open pure 360 tour.",
         },
         "editor_url": "",
@@ -8150,20 +10829,1180 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, str]:
         return {}
     if not isinstance(payload, dict):
         return {}
-    video_relpath = str(payload.get("video_relpath") or payload.get("video_fallback_relpath") or "").strip()
+    video_relpath = str(payload.get("video_relpath") or "").strip()
     if not video_relpath:
         return {}
+    video_provider = str(
+        payload.get("video_provider")
+        or payload.get("video_provider_key")
+        or payload.get("video_render_provider")
+        or ""
+    ).strip().lower()
     local_video_path = (bundle_dir / video_relpath).resolve()
     if bundle_dir.resolve() not in local_video_path.parents:
         return {}
     if not local_video_path.exists() or not local_video_path.is_file():
         return {}
-    public_video_url = urllib.parse.urljoin(f"{normalized_url.rstrip('/')}/", f"../files/{slug}/{video_relpath}")
+    public_video_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
     return {
         "slug": slug,
         "video_url": public_video_url,
+        "video_file_path": str(local_video_path),
         "audio_probe_ref": str(local_video_path),
+        "provider_key": video_provider,
     }
+
+
+def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[str, None]:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ("", None)
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ("", None)
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ("", None)
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    if not bundle_dir.exists() or not bundle_dir.is_dir():
+        return (slug, None)
+    return (slug, bundle_dir)
+
+
+def _update_hosted_property_tour_magicfit_video_manifest(
+    *,
+    tour_url: str,
+    video_relpath: str,
+    sidecar_relpath: str,
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        raise RuntimeError("hosted_property_tour_bundle_missing")
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        raise RuntimeError("hosted_property_tour_manifest_missing")
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("hosted_property_tour_manifest_invalid") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("hosted_property_tour_manifest_invalid")
+    normalized_video_relpath = str(video_relpath or "").strip().lstrip("/")
+    normalized_sidecar_relpath = str(sidecar_relpath or "").strip().lstrip("/")
+    if not normalized_video_relpath:
+        raise RuntimeError("hosted_property_tour_video_relpath_missing")
+    payload["video_relpath"] = normalized_video_relpath
+    payload.pop("video_fallback_relpath", None)
+    payload["video_provider_key"] = "magicfit"
+    payload["video_provider"] = "magicfit"
+    payload["video_render_provider"] = "magicfit"
+    payload["video_source"] = "magicfit"
+    if normalized_sidecar_relpath:
+        payload["video_sidecar_relpath"] = normalized_sidecar_relpath
+    payload["flythrough_url"] = _property_tour_deep_link(tour_url, pane="flythrough-pane", autoplay=True)
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def _magicfit_property_room_visit_plan(
+    *,
+    title: str,
+    property_facts: dict[str, object] | None,
+) -> tuple[int, list[str]]:
+    facts = dict(property_facts or {})
+    room_count_hint = facts.get("room_count")
+    if room_count_hint is None:
+        room_count_hint = facts.get("rooms")
+    base_room_count = _property_numeric_room_count(room_count_hint)
+    if base_room_count is None or base_room_count <= 0:
+        base_room_count, _ = _property_extract_rooms_from_text(
+            " ".join(
+                part
+                for part in (
+                    title,
+                    str(facts.get("listing_title") or "").strip(),
+                    str(facts.get("title") or "").strip(),
+                    str(facts.get("summary") or "").strip(),
+                    str(facts.get("description") or "").strip(),
+                    str(facts.get("rooms_label") or "").strip(),
+                )
+                if part
+            )
+        )
+    if not isinstance(base_room_count, float) or base_room_count <= 0:
+        base_room_count = 0.0
+    base_room_count = int(base_room_count) if float(base_room_count).is_integer() else int(math.ceil(base_room_count))
+
+    room_signal_text = " ".join(
+        part
+        for part in (
+            title,
+            str(facts.get("title") or "").strip(),
+            str(facts.get("listing_title") or "").strip(),
+            str(facts.get("summary") or "").strip(),
+            str(facts.get("description") or "").strip(),
+            str(facts.get("rooms_label") or "").strip(),
+        )
+        if part
+    ).lower()
+
+    category_rules: list[tuple[str, str, str, tuple[str, ...]]] = [
+        (
+            "kitchen",
+            r"\b(?:k(?:u|ue|ü)chen|küche|kueche|kitchen|cook(er|ing)\s?area)\b",
+            "kitchen",
+            ("küche", "kueche", "kitchen", "kochen", "küchen", "kuechen", "wohnküche", "wohnkueche"),
+        ),
+        (
+            "bathroom",
+            r"\b(?:bathroom|badezimmer|bath room|bath)\b",
+            "bathroom",
+            ("badezimmer", "bathroom", "bath", "badzimmer", "badenzimmer", "toilette"),
+        ),
+        (
+            "toilet",
+            r"\b(?:toilette|toiletten|toilet|w\.?c\.?|wc)\b",
+            "toilet",
+            ("toilette", "toiletten", "toilet", "w.c.", "w.c", "wc"),
+        ),
+        (
+            "hall",
+            r"\b(?:hallway|hall|foyer|flur|entry|entryway|eingang)\b",
+            "hall",
+            ("flur", "hall", "foyer", "eingang", "entrance", "entry", "egress"),
+        ),
+        (
+            "dining",
+            r"\b(?:dining room|dining|esszimmer|eszimmer|essenzimmer)\b",
+            "dining room",
+            ("esszimmer", "eszimmer", "essenzimmer", "dining", "dining room"),
+        ),
+        (
+            "outdoor",
+            r"\b(?:balcony|balconies|balkon|balkone|loggia|terrace|terraces|terrasse|terrassen|roof\s?terrace|dachterrasse)\b",
+            "balcony/terrace",
+            ("balcony", "balconies", "balkon", "balkone", "loggia", "terrace", "terraces", "terrasse", "terrassen", "dachterrasse"),
+        ),
+    ]
+    bonus: dict[str, int] = {}
+    for category, pattern, _label, aliases in category_rules:
+        total_count = 0
+        counted = 0
+        for match in re.finditer(rf"(?:(?P<count>\d+(?:[.,]\d+)?)\s*(?:{pattern}))", room_signal_text, flags=re.IGNORECASE):
+            matched_count = str(match.group("count") or "").strip()
+            if matched_count:
+                parsed_count = _property_numeric_room_count(matched_count)
+                if parsed_count is not None:
+                    total_count += max(1, int(math.ceil(parsed_count)))
+            counted += 1
+        if total_count == 0:
+            for alias in aliases:
+                if alias and alias in room_signal_text:
+                    total_count = 1
+                    break
+        if total_count == 0 and counted > 0:
+            total_count = 1
+        if total_count > 0:
+            bonus[category] = total_count
+    room_visit_labels: list[str] = []
+    for category, _pattern, label, _aliases in category_rules:
+        value = int(bonus.get(category, 0))
+        if value <= 0:
+            continue
+        if value == 1:
+            room_visit_labels.append(label)
+        else:
+            room_visit_labels.append(f"{value} {label}s")
+    if not room_visit_labels:
+        room_visit_labels = []
+    computed_room_count = max(1, base_room_count)
+    computed_room_count += sum(int(item) for item in bonus.values())
+    computed_room_count = max(1, min(25, computed_room_count))
+    return computed_room_count, room_visit_labels
+
+
+def _property_first_text(facts: dict[str, object], *keys: str, limit: int = 120) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if isinstance(value, (list, tuple)):
+            text = ", ".join(str(item or "").strip() for item in value if str(item or "").strip())
+        else:
+            text = str(value or "").strip()
+        text = compact_text(text, fallback="", limit=limit)
+        if text:
+            return text
+    return ""
+
+
+def _property_float_text(facts: dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = facts.get(key)
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            return f"{float(str(value).strip()):.6f}".rstrip("0").rstrip(".")
+        except Exception:
+            continue
+    return ""
+
+
+def _magicfit_property_daylight_context(*, property_facts: dict[str, object] | None) -> str:
+    facts = dict(property_facts or {})
+    address_text = _property_first_text(
+        facts,
+        "street_address",
+        "address",
+        "address_text",
+        "location_label",
+        "postal_name",
+        "district",
+        "city",
+        limit=180,
+    )
+    latitude_text = _property_float_text(facts, "latitude", "lat", "map_lat")
+    longitude_text = _property_float_text(facts, "longitude", "lng", "lon", "map_lng")
+    floor_text = _property_first_text(facts, "floor", "floor_label", "storey", "level", "etage", limit=80)
+    orientation_text = _property_first_text(
+        facts,
+        "orientation",
+        "window_orientation",
+        "balcony_orientation",
+        "terrace_orientation",
+        "facing",
+        "aspect",
+        limit=120,
+    )
+    outdoor_text = _property_first_text(
+        facts,
+        "view",
+        "view_description",
+        "outlook",
+        "balcony_view",
+        "terrace_view",
+        "street_context",
+        "neighbourhood_context",
+        "nearby_context",
+        limit=180,
+    )
+    obstruction_text = _property_first_text(
+        facts,
+        "shadow_context",
+        "sunlight_context",
+        "tree_shadow_context",
+        "building_shadow_context",
+        "obstruction_context",
+        "nearby_buildings",
+        "nearby_trees",
+        limit=180,
+    )
+    exterior_parts = [part for part in (address_text, outdoor_text) if part]
+    exterior_clause = "; ".join(exterior_parts)
+    coordinate_clause = f" Approximate map coordinates: {latitude_text}, {longitude_text}." if latitude_text and longitude_text else ""
+    floor_clause = f" Floor/elevation hint: {floor_text}." if floor_text else ""
+    orientation_clause = f" Window/balcony orientation hint: {orientation_text}." if orientation_text else ""
+    obstruction_clause = f" Known possible blockers: {obstruction_text}." if obstruction_text else ""
+    exterior_sentence = (
+        f"Use the known exterior context ({exterior_clause}) for the window and balcony-door views."
+        if exterior_clause
+        else "For windows and balcony doors, show a plausible Vienna urban exterior view consistent with the listing location; do not leave windows blank or glowing."
+    )
+    return (
+        "Daylight and exterior simulation is mandatory: render the flat at 13:00 local Vienna time on a sunny day. "
+        "Use physically plausible solar direction, bright but not overexposed daylight, natural contrast, and room-by-room changes in light. "
+        f"{exterior_sentence}"
+        f"{coordinate_clause}"
+        f"{floor_clause}"
+        f"{orientation_clause}"
+        f"{obstruction_clause}"
+        "When precise orientation or obstruction data is missing, represent uncertainty visually with plausible partial sun, soft shadows, and neighboring building/tree silhouettes rather than inventing exact landmarks. "
+        "If nearby buildings or trees could block light, include believable shade bands and darker corners so the viewer can judge whether the flat may feel dark at midday. "
+        "Through balcony doors and windows, show exterior geometry, sky brightness, street/courtyard depth, and any likely greenery or neighboring facades."
+    )
+
+
+def _default_magicfit_property_flythrough_prompt(
+    *,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    room_count: int | None = None,
+    room_visit_plan: list[str] | tuple[str, ...] = (),
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+) -> str:
+    facts = dict(property_facts or {})
+    resolved_room_count = int(room_count or 0)
+    if resolved_room_count <= 0:
+        resolved_room_count = 1
+    room_text = compact_text(str(resolved_room_count).strip(), fallback="", limit=32)
+    area_text = compact_text(str(facts.get("area_sqm") or facts.get("living_area_sqm") or "").strip(), fallback="", limit=32)
+    location_text = compact_text(
+        _first_non_empty_text(
+            facts.get("district"),
+            facts.get("city"),
+            facts.get("location_label"),
+            facts.get("street_name"),
+        ),
+        fallback="Vienna",
+        limit=60,
+    )
+    room_visit_plan_text = compact_text(", ".join(str(item or "").strip() for item in room_visit_plan if str(item or "").strip()), fallback="", limit=160)
+    final_turn_text = (
+        "Final segment is mandatory and must be the last action before ending. "
+        "At about 72–80% of the full clip and no earlier, stop movement and hold for about 1 second. "
+        "Then perform ONE slow clockwise 240° sweep (exactly 240°, not 180°), constant speed, on the final 20–25% of runtime. "
+        "Do not fly backward, zoom, or translate during this segment; hold for the final second before ending."
+    )
+    descriptor_parts = [part for part in (room_text and f"{room_text}-room", area_text and f"{area_text} m2") if part]
+    descriptor = ", ".join(descriptor_parts)
+    descriptor_clause = f" of a {descriptor}" if descriptor else ""
+    title_text = compact_text(str(title or "modern Vienna apartment").strip(), fallback="modern Vienna apartment", limit=140)
+    motion_hint_text = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+    daylight_context = _magicfit_property_daylight_context(property_facts=property_facts)
+    visit_directive = (
+        f"Prioritize a strict room-by-room route through: {room_visit_plan_text}. "
+        "Do not skip any listed room and keep motion continuous enough to clearly show each space. "
+        if room_visit_plan_text
+        else (
+            "If the listing only gives a total room count, force a practical floor-loop route covering hall/entry, "
+            "kitchen, bathroom/toilet, and the living/bedroom/balcony spaces once each without skipping."
+        )
+    )
+    room_coverage_directive = (
+        "Treat hall, entry, kitchen, bathroom, separate toilet, storage, terrace, and balcony as real route stops when present, "
+        "not as optional transitions. Show each clearly before moving on. "
+    )
+    birthday_directive = (
+        "If people or family styling appear, stage a recent child's birthday gathering with tasteful age-appropriate details: "
+        "a small cake table, a few balloons, subtle decorations, and a believable lived-in family atmosphere. "
+        "Keep it photoreal and restrained. "
+        if birthday_party_request
+        else ""
+    )
+    movement_directive = (
+        f"When a resident appears, keep body posture and movement consistent with this requirement: {motion_hint_text}. "
+        if motion_hint_text
+        else ""
+    )
+    return (
+        f"Photorealistic lived-in flythrough{descriptor_clause} in {location_text}. "
+        f"Based on the listing '{title_text}'. "
+        "Single smooth first-person indoor drone glide: open the front door, glide through the entry, and open doorway-by-doorway. "
+        "Visit every room once in a logical route, moving through each open room with a short pause and only brief pano in each. "
+        "If you cannot do full 360 rotation in all rooms, keep each room scan short and preserve the final 240° sweep. "
+        f"{visit_directive}"
+        f"{room_coverage_directive}"
+        "In every room, rotate slowly about 180 degrees (up to 360 where space allows), then continue. "
+        "Keep total dwell in rooms short: most of the time must be available for a full route and a final cinematic turn. "
+        "At no point should the final segment be skipped, cut away, or be replaced by exits/fades. "
+        f"{final_turn_text} "
+        f"{birthday_directive}"
+        f"{movement_directive}"
+        f"{daylight_context} "
+        "Realistic family home styling with subtle daily-life cues: open books, a coat on a chair, plants, cups, and breakfast traces. "
+        "Coherent walls and doors, premium real-estate cinematography, gentle occupancy indicators, "
+        "and a natural perspective with a lived-in atmosphere."
+    )
+
+
+def _render_magicfit_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+) -> dict[str, object]:
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    if not slug or bundle_dir is None:
+        return {"status": "missing", "reason": "hosted_tour_bundle_missing"}
+    script_path = (_repo_root() / "scripts" / "render_magicfit_property_flythrough.py").resolve()
+    if not script_path.exists():
+        return {"status": "missing", "reason": "magicfit_render_script_missing"}
+    video_relpath = "tour.mp4"
+    sidecar_relpath = "tour.magicfit.json"
+    bundle_video_path = (bundle_dir / video_relpath).resolve()
+    bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+    room_count = 1
+    room_visit_plan: list[str] = []
+    if isinstance(property_facts, dict):
+        room_count, room_visit_plan = _magicfit_property_room_visit_plan(title=title, property_facts=property_facts)
+    if room_count <= 0:
+        room_count = 1
+    room_count = max(1, min(25, room_count))
+    # Provider UI currently caps generation at 15s; keep prompt-level timing constraints.
+    flythrough_duration_seconds = 15
+    if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
+        return {"status": "missing", "reason": "hosted_tour_bundle_invalid"}
+    prompt = _default_magicfit_property_flythrough_prompt(
+        title=title,
+        property_facts=property_facts,
+        room_count=room_count,
+        room_visit_plan=room_visit_plan,
+        birthday_party_request=bool(birthday_party_request),
+        person_motion_hint=person_motion_hint,
+    )
+    render_log: dict[str, object] = {
+        "status": "pending",
+        "tour_url": str(tour_url or "").strip(),
+        "slug": slug,
+        "actor": str(actor or "").strip(),
+        "video_relpath": video_relpath,
+        "sidecar_relpath": sidecar_relpath,
+    }
+    with tempfile.TemporaryDirectory(prefix="magicfit-property-tour-") as tmp_dir:
+        tmp_video = Path(tmp_dir) / "tour.mp4"
+        tmp_sidecar = Path(tmp_dir) / "tour.magicfit.json"
+        command = [
+            _runtime_python_executable(),
+            str(script_path),
+            "--prompt",
+            prompt,
+            "--out",
+            str(tmp_video),
+            "--state-json",
+            str(tmp_sidecar),
+            "--duration",
+            str(flythrough_duration_seconds),
+            "--timeout-minutes",
+            "8",
+        ]
+        completed = subprocess.run(
+            command,
+            cwd=str(_repo_root()),
+            capture_output=True,
+            text=True,
+            timeout=12 * 60,
+            check=False,
+        )
+        render_log.update(
+            {
+                "returncode": int(completed.returncode),
+                "stdout_tail": compact_text(str(completed.stdout or "").strip(), fallback="", limit=3000),
+                "stderr_tail": compact_text(str(completed.stderr or "").strip(), fallback="", limit=3000),
+            }
+        )
+        if completed.returncode != 0 or not tmp_video.exists():
+            render_log["status"] = "failed"
+            render_log["reason"] = "magicfit_render_failed"
+            return render_log
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(tmp_video, bundle_video_path)
+        if tmp_sidecar.exists():
+            shutil.copy2(tmp_sidecar, bundle_sidecar_path)
+        try:
+            _update_hosted_property_tour_magicfit_video_manifest(
+                tour_url=tour_url,
+                video_relpath=video_relpath,
+                sidecar_relpath=sidecar_relpath if bundle_sidecar_path.exists() else "",
+            )
+        except Exception as exc:
+            render_log["status"] = "failed"
+            render_log["reason"] = "magicfit_manifest_update_failed"
+            render_log["error"] = str(exc)
+            return render_log
+    render_log["status"] = "rendered"
+    render_log["video_file_path"] = str(bundle_video_path)
+    render_log["sidecar_path"] = str(bundle_sidecar_path) if bundle_sidecar_path.exists() else ""
+    render_log["provider_key"] = "magicfit"
+    return render_log
+
+
+def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
+        normalized = _safe_live_property_tour_url(str(payload.get(key) or "").strip())
+        if normalized:
+            return normalized
+    return ""
+
+
+def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ""
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    manifest_path = public_dir / slug / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    return _embedded_live_360_source_url(payload if isinstance(payload, dict) else {})
+
+
+def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
+    normalized = str(source_virtual_tour_url or "").strip()
+    if not normalized:
+        return ""
+    parsed = urllib.parse.urlparse(normalized)
+    if "matterport.com" not in parsed.netloc.lower():
+        return ""
+    model_id = str(urllib.parse.parse_qs(parsed.query).get("m", [""])[0] or "").strip()
+    if not model_id:
+        return ""
+    return f"https://my.matterport.com/api/v2/player/models/{model_id}/thumb/"
+
+
+def _property_link_bundle_preview_image_url(
+    *,
+    media_urls: list[str] | tuple[str, ...],
+    source_virtual_tour_url: str = "",
+    tour_url: str = "",
+    diorama_style_hint: str = "",
+) -> str:
+    telegram_preview = _hosted_property_tour_telegram_preview_image_url_for_style(
+        tour_url,
+        diorama_style_hint=diorama_style_hint,
+    )
+    if telegram_preview:
+        return telegram_preview
+    hosted_preview = _hosted_property_tour_preview_image_url(tour_url)
+    if hosted_preview:
+        return hosted_preview
+    for candidate in list(media_urls or []):
+        normalized = _safe_live_property_tour_url(candidate)
+        if normalized and normalized.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
+            return normalized
+    return _matterport_thumb_url(source_virtual_tour_url)
+
+
+def _property_tour_generated_preview_url(value: object) -> bool:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    path = urllib.parse.urlparse(normalized).path.lower()
+    filename = Path(path).name
+    return (
+        filename.startswith("telegram-preview")
+        or filename.startswith("diorama-preview")
+    )
+
+
+def _hosted_property_tour_telegram_preview_image_url_for_style(tour_url: str, *, diorama_style_hint: str = "") -> str:
+    try:
+        return _hosted_property_tour_telegram_preview_image_url(
+            tour_url,
+            diorama_style_hint=diorama_style_hint,
+        )
+    except TypeError as exc:
+        if "diorama_style_hint" not in str(exc):
+            raise
+        return _hosted_property_tour_telegram_preview_image_url(tour_url)
+
+
+def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    safe_slug = str(slug or "").strip()
+    safe_relpath = str(asset_relpath or "").strip().lstrip("/")
+    if not normalized_url or not safe_slug or not safe_relpath:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return urllib.parse.urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            f"/tours/files/{safe_slug}/{safe_relpath}",
+            "",
+            "",
+            "",
+        )
+    )
+
+
+def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ""
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+
+    role_priority = {
+        "diorama": 0,
+        "generated_overview": 1,
+        "overview": 2,
+        "floorplan": 3,
+        "panorama_360": 4,
+    }
+    scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
+    ranked_scenes = sorted(
+        (scene for scene in scenes if isinstance(scene, dict)),
+        key=lambda scene: (
+            role_priority.get(str(scene.get("role") or "").strip().lower(), 10),
+            int(scene.get("ordinal") or 9999),
+        ),
+    )
+    for scene in ranked_scenes:
+        image_url = _safe_live_property_tour_url(str(scene.get("image_url") or "").strip())
+        if image_url and image_url.lower().split("?", 1)[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
+            return image_url
+        asset_relpath = str(scene.get("asset_relpath") or "").strip()
+        if asset_relpath and asset_relpath.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            asset_path = (bundle_dir / asset_relpath).resolve()
+            if bundle_dir.resolve() in asset_path.parents and asset_path.exists() and asset_path.is_file():
+                return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
+    return ""
+
+
+def _compact_diorama_style_hint(value: str, *, max_length: int = 120) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    normalized = normalized.strip(" -_:;,.()[]{}\"'")
+    if not normalized:
+        return ""
+    if len(normalized) <= max_length:
+        return normalized
+    compact = normalized[:max_length].rstrip(" -_:;,.")
+    if " " in compact:
+        compact = compact.rsplit(" ", 1)[0]
+    return compact.strip(" -_:;,.")
+
+
+def _diorama_style_filter_mode(style_hint: str) -> str:
+    style_text = _compact_diorama_style_hint(style_hint).lower()
+    if not style_text:
+        return "default"
+    if any(
+        token in style_text
+        for token in (
+            "warm",
+            "cozy",
+            "sunset",
+            "gold",
+            "amber",
+            "earth",
+            "wood",
+            "rustic",
+            "breakfast",
+            "cup",
+        )
+    ):
+        return "warm"
+    if any(token in style_text for token in ("dark", "monochrome", "bw", "black", "industrial", "urban")):
+        return "dark"
+    if any(token in style_text for token in ("vintage", "retro", "film", "sepia", "classic", "old")):
+        return "vintage"
+    if any(
+        token in style_text
+        for token in (
+            "cool",
+            "scandinavian",
+            "scandi",
+            "minimal",
+            "minimalist",
+            "clean",
+            "neutral",
+            "nordic",
+            "airy",
+            "blue",
+            "contemporary",
+            "modern",
+        )
+    ):
+        return "cool"
+    return "default"
+
+
+def _style_tinted_telegram_diorama_image(image: Image.Image, style_hint: str) -> Image.Image:
+    if Image is None:
+        return image
+    mode = _diorama_style_filter_mode(style_hint)
+    if mode == "default":
+        return image.convert("RGB")
+    preview = image.convert("RGB")
+    if mode == "warm":
+        tone = Image.new("RGB", preview.size, (255, 216, 170))
+        preview = Image.blend(preview, tone, 0.16)
+    elif mode == "dark":
+        preview = preview.convert("L").convert("RGB")
+        tone = Image.new("RGB", preview.size, (28, 24, 26))
+        preview = Image.blend(preview, tone, 0.18)
+    elif mode == "vintage":
+        red, green, blue = preview.split()
+        red = red.point(lambda value: max(0, min(255, int(value * 1.13))))
+        green = green.point(lambda value: max(0, min(255, int(value * 1.03))))
+        blue = blue.point(lambda value: max(0, min(255, int(value * 0.72))))
+        preview = Image.merge("RGB", (red, green, blue))
+        tone = Image.new("RGB", preview.size, (198, 161, 114))
+        preview = Image.blend(preview, tone, 0.14)
+    elif mode == "cool":
+        tone = Image.new("RGB", preview.size, (186, 205, 235))
+        preview = Image.blend(preview, tone, 0.12)
+        red, green, blue = preview.split()
+        red = red.point(lambda value: max(0, min(255, int(value * 0.96))))
+        green = green.point(lambda value: max(0, min(255, int(value * 1.01))))
+        blue = blue.point(lambda value: max(0, min(255, int(value * 1.08))))
+        preview = Image.merge("RGB", (red, green, blue))
+    return preview
+
+
+def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_style_hint: str = "") -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url or Image is None:
+        return ""
+    parsed = urllib.parse.urlparse(normalized_url)
+    path_parts = [part for part in str(parsed.path or "").split("/") if part]
+    if len(path_parts) < 2 or path_parts[-2] != "tours":
+        return ""
+    slug = str(path_parts[-1] or "").strip()
+    if not slug:
+        return ""
+    public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/fleet/state/public_property_tours")).expanduser()
+    bundle_dir = public_dir / slug
+    manifest_path = bundle_dir / "tour.json"
+    if not manifest_path.exists():
+        return ""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    scenes = [dict(scene) for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    style_signature = _compact_diorama_style_hint(diorama_style_hint)
+    if style_signature:
+        style_hash = hashlib.sha1(style_signature.encode("utf-8")).hexdigest()[:10]
+        derived_relpath = f"telegram-preview-{style_hash}.png"
+    else:
+        derived_relpath = "telegram-preview.png"
+    derived_path = (bundle_dir / derived_relpath).resolve()
+    if bundle_dir.resolve() not in derived_path.parents:
+        return ""
+    diorama_scene = next((scene for scene in scenes if str(scene.get("role") or "").strip().lower() == "diorama"), {})
+    asset_relpath = str(diorama_scene.get("asset_relpath") or "").strip()
+    if not asset_relpath:
+        for candidate_name in ("diorama-preview.png", "diorama-preview.jpg", "telegram-preview.png"):
+            candidate_path = (bundle_dir / candidate_name).resolve()
+            if bundle_dir.resolve() in candidate_path.parents and candidate_path.exists() and candidate_path.is_file():
+                asset_relpath = candidate_name
+                break
+    if not asset_relpath:
+        generated_previews = sorted(bundle_dir.glob("telegram-preview-*.png"))
+        if generated_previews:
+            candidate_path = generated_previews[0].resolve()
+            if bundle_dir.resolve() in candidate_path.parents and candidate_path.exists() and candidate_path.is_file():
+                asset_relpath = candidate_path.name
+    if not asset_relpath:
+        source_candidates: list[Path] = []
+        for scene in scenes:
+            candidate_relpath = str(scene.get("asset_relpath") or "").strip()
+            if not candidate_relpath or not candidate_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                continue
+            candidate_path = (bundle_dir / candidate_relpath).resolve()
+            if bundle_dir.resolve() not in candidate_path.parents or not candidate_path.exists() or not candidate_path.is_file():
+                continue
+            source_candidates.append(candidate_path)
+            if len(source_candidates) >= 4:
+                break
+        if source_candidates:
+            try:
+                payload_text = " ".join(
+                    str(payload.get(key) or "").strip()
+                    for key in ("title", "display_title", "listing_title", "description", "summary")
+                    if str(payload.get(key) or "").strip()
+                ).lower()
+                multi_floor = any(token in payload_text for token in ("maisonette", "duplex", "mehrgeschoss", "mehrstöck", "split-level", "split level", "2 ebenen", "zwei ebenen", "dachgeschoss"))
+                canvas = Image.new("RGB", (1600, 1100), "#f4efe7")
+                accent = Image.new("RGB", canvas.size, (224, 210, 190) if multi_floor else (214, 224, 235))
+                canvas = Image.blend(canvas, accent, 0.22)
+                opened: list[Image.Image] = []
+                for candidate_path in source_candidates:
+                    with Image.open(candidate_path) as image:
+                        opened.append(_style_tinted_telegram_diorama_image(image.convert("RGB"), style_signature))
+                if opened:
+                    hero = opened[0].copy()
+                    hero.thumbnail((1180, 620), Image.Resampling.LANCZOS)
+                    hero_x = (canvas.width - hero.width) // 2
+                    hero_y = 120
+                    canvas.paste(hero, (hero_x, hero_y))
+                    if multi_floor:
+                        lower_tiles = opened[1:4] or opened[:2]
+                        start_x = 160
+                        y = 760
+                        for idx, tile_src in enumerate(lower_tiles):
+                            tile = tile_src.copy()
+                            tile.thumbnail((360, 220), Image.Resampling.LANCZOS)
+                            x = start_x + idx * 390
+                            canvas.paste(tile, (x, y))
+                    else:
+                        lower_tiles = opened[1:3] or opened[:2]
+                        positions = [(220, 760), (840, 760)]
+                        for tile_src, (x, y) in zip(lower_tiles, positions):
+                            tile = tile_src.copy()
+                            tile.thumbnail((520, 240), Image.Resampling.LANCZOS)
+                            canvas.paste(tile, (x, y))
+                    derived_path.parent.mkdir(parents=True, exist_ok=True)
+                    canvas.save(derived_path, format="PNG", optimize=True)
+                    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
+            except Exception:
+                pass
+    if not asset_relpath or not asset_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        return ""
+    source_path = (bundle_dir / asset_relpath).resolve()
+    if bundle_dir.resolve() not in source_path.parents or not source_path.exists() or not source_path.is_file():
+        return ""
+    try:
+        needs_refresh = (not derived_path.exists()) or derived_path.stat().st_mtime < source_path.stat().st_mtime
+    except Exception:
+        needs_refresh = True
+    if needs_refresh:
+        try:
+            with Image.open(source_path) as image:
+                base = _style_tinted_telegram_diorama_image(image, style_signature)
+                width, height = base.size
+                canvas_width = max(int(round(width * 1.62)), width + 220)
+                canvas_height = max(int(round(height * 1.62)), height + 220)
+                scale = min((canvas_width * 0.52) / max(width, 1), (canvas_height * 0.52) / max(height, 1))
+                scaled = base.resize(
+                    (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+                    Image.Resampling.LANCZOS,
+                )
+                canvas = Image.new("RGB", (canvas_width, canvas_height), "#f4efe7")
+                offset_x = (canvas_width - scaled.size[0]) // 2
+                offset_y = (canvas_height - scaled.size[1]) // 2
+                canvas.paste(scaled, (offset_x, offset_y))
+                derived_path.parent.mkdir(parents=True, exist_ok=True)
+                canvas.save(derived_path, format="PNG", optimize=True)
+        except Exception:
+            return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
+    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
+
+
+def _property_bundle_exit_gate_http_url(
+    url: str,
+    *,
+    kind: str,
+    allowed_mime_prefixes: tuple[str, ...],
+    timeout_seconds: float = 12.0,
+) -> tuple[bool, str]:
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        return (False, f"{kind}_url_missing")
+    try:
+        response = requests.get(
+            normalized_url,
+            stream=True,
+            allow_redirects=True,
+            timeout=(5.0, timeout_seconds),
+            headers={"Range": "bytes=0-1023"},
+        )
+    except Exception as exc:
+        return (False, compact_text(str(exc or ""), fallback=f"{kind}_request_failed", limit=160))
+    try:
+        if int(response.status_code or 0) >= 400:
+            return (False, f"{kind}_http_{int(response.status_code)}")
+        content_type = str(response.headers.get("content-type") or "").strip().lower()
+        if allowed_mime_prefixes and not any(content_type.startswith(prefix) for prefix in allowed_mime_prefixes):
+            return (False, f"{kind}_mime_invalid:{content_type or 'missing'}")
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                return (True, "")
+        return (False, f"{kind}_empty_stream")
+    finally:
+        with contextlib.suppress(Exception):
+            response.close()
+
+
+def _hosted_property_tour_magicfit_still_urls(tour_url: str, *, limit: int = 3) -> list[str]:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return []
+    video_delivery = _hosted_property_tour_video_delivery(normalized_url)
+    if str(video_delivery.get("provider_key") or "").strip().lower() != "magicfit":
+        return []
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(normalized_url)
+    if not slug or bundle_dir is None:
+        return []
+    local_video_path = Path(str(video_delivery.get("video_file_path") or "")).resolve()
+    if not local_video_path.exists() or not local_video_path.is_file():
+        return []
+    ffmpeg_bin = _pocket_audio_enhance_ffmpeg_bin()
+    still_urls: list[str] = []
+    duration_probe = shutil.which("ffprobe") or "/usr/bin/ffprobe"
+    duration_seconds = 0.0
+    if duration_probe and Path(duration_probe).exists():
+        with contextlib.suppress(Exception):
+            probe = subprocess.run(
+                [
+                    duration_probe,
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(local_video_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if probe.returncode == 0:
+                duration_seconds = max(0.0, float((probe.stdout or "").strip() or "0"))
+    default_offsets = [0.35, 1.35, 2.35]
+    if duration_seconds > 0.5:
+        useful = max(0.5, duration_seconds - 0.35)
+        default_offsets = [round(useful * ratio, 2) for ratio in (0.18, 0.48, 0.78)]
+    for index, offset in enumerate(default_offsets[: max(1, int(limit or 3))], start=1):
+        relpath = f"magicfit-still-{index}.jpg"
+        target_path = (bundle_dir / relpath).resolve()
+        if bundle_dir.resolve() not in target_path.parents:
+            continue
+        needs_refresh = (not target_path.exists()) or target_path.stat().st_mtime < local_video_path.stat().st_mtime
+        if needs_refresh:
+            command = [
+                ffmpeg_bin,
+                "-y",
+                "-ss",
+                f"{max(0.0, float(offset)):.2f}",
+                "-i",
+                str(local_video_path),
+                "-frames:v",
+                "1",
+                "-vf",
+                "scale=1280:-2",
+                "-q:v",
+                "3",
+                str(target_path),
+            ]
+            try:
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                )
+            except Exception:
+                continue
+            if result.returncode != 0 or not target_path.exists():
+                continue
+        still_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=relpath)
+        if still_url:
+            still_urls.append(still_url)
+    return still_urls
+
+
+def _placeholder_listing_media_url(url: str) -> bool:
+    lowered = str(url or "").strip().lower()
+    if not lowered:
+        return False
+    markers = (
+        "plus-insider-locked",
+        "placeholder",
+        "no-image",
+        "coming-soon",
+        "image-not-available",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _property_link_bundle_key_facts_lines(property_facts: dict[str, object]) -> list[str]:
+    facts = dict(property_facts or {})
+    chips: list[str] = []
+    rooms = facts.get("rooms")
+    if isinstance(rooms, (int, float)) and float(rooms) > 0:
+        chips.append(f"{int(rooms) if float(rooms).is_integer() else rooms} rooms")
+    area = facts.get("area_sqm") or facts.get("usable_area_sqm") or facts.get("living_area_sqm")
+    if isinstance(area, (int, float)) and float(area) > 0:
+        chips.append(f"{int(round(float(area)))} m2")
+    price = (
+        facts.get("total_rent_eur")
+        or facts.get("price_eur")
+        or facts.get("purchase_price_eur")
+        or facts.get("rent_eur")
+    )
+    if isinstance(price, (int, float)) and float(price) > 0:
+        chips.append(f"EUR {int(round(float(price))):,}".replace(",", "."))
+    district = str(facts.get("district") or facts.get("city_district") or "").strip()
+    if district:
+        chips.append(district.replace("_", " ").title())
+    if bool(facts.get("lift")):
+        chips.append("Lift")
+    if bool(facts.get("has_floorplan")):
+        chips.append("Floorplan")
+    if not chips:
+        return []
+    return ["Most important facts: " + " · ".join(chips[:6])]
+
+
+def _property_facts_navigation_query(property_facts: dict[str, object] | None) -> str:
+    facts = dict(property_facts or {})
+    tokens: list[str] = []
+    candidates = [
+        str(facts.get("exact_address") or "").strip(),
+        str(facts.get("street_address") or "").strip(),
+        str(facts.get("postal_name") or "").strip(),
+        str(facts.get("district") or "").strip(),
+        str(facts.get("location") or "").strip(),
+        str(facts.get("address") or "").strip(),
+    ]
+    for item in candidates:
+        normalized = compact_text(item, fallback="", limit=140)
+        if not normalized:
+            continue
+        if normalized.lower() in (entry.lower() for entry in tokens):
+            continue
+        tokens.append(normalized)
+    return ", ".join(part for part in tokens if part)
+
+
+def _google_navigation_button_url(property_facts: dict[str, object] | None) -> str:
+    query = _property_facts_navigation_query(property_facts)
+    if not query:
+        return ""
+    return f"https://www.google.com/maps/dir/?api=1&destination={urllib.parse.quote_plus(query)}"
+
+
+def _property_tour_deep_link(tour_url: str, *, pane: str, autoplay: bool = False) -> str:
+    normalized = str(tour_url or "").strip()
+    if not normalized:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(normalized)
+        query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        filtered = [(key, value) for key, value in query if key not in {"pane", "autoplay"}]
+        filtered.append(("pane", pane))
+        if autoplay:
+            filtered.append(("autoplay", "1"))
+        return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(filtered)))
+    except Exception:
+        return normalized
+
+
+def _pdf_embedded_image_count(pdf_path: str) -> int:
+    normalized_path = str(pdf_path or "").strip()
+    if not normalized_path:
+        return 0
+    try:
+        pdf_bytes = Path(normalized_path).read_bytes()
+    except Exception:
+        return 0
+    object_starts = list(re.finditer(rb"(?m)(\d+)\s+\d+\s+obj\b", pdf_bytes))
+    if not object_starts:
+        return len(re.findall(rb"/Subtype\s*/Image", pdf_bytes))
+    embedded_image_ids: set[int] = set()
+    total_chunks = len(object_starts)
+    for index, obj_match in enumerate(object_starts):
+        try:
+            object_id = int(obj_match.group(1))
+        except Exception:
+            continue
+        object_start = obj_match.start()
+        object_end = object_starts[index + 1].start() if index + 1 < total_chunks else len(pdf_bytes)
+        object_slice = pdf_bytes[object_start:object_end]
+        endobj_offset = object_slice.find(b"endobj")
+        if endobj_offset < 0:
+            continue
+        object_head = object_slice[:endobj_offset]
+        if b"stream" in object_head:
+            object_head = object_head.split(b"stream", 1)[0]
+        if (
+            re.search(rb"/Subtype\s*/Image\b", object_head, re.MULTILINE) is None
+            or re.search(rb"/Width\s+\d+", object_head, re.MULTILINE) is None
+            or re.search(rb"/Height\s+\d+", object_head, re.MULTILINE) is None
+            or re.search(rb"/Type\s*/XObject\b", object_head, re.MULTILINE) is None
+        ):
+            continue
+        embedded_image_ids.add(object_id)
+    if embedded_image_ids:
+        return len(embedded_image_ids)
+    return len(re.findall(rb"/Subtype\s*/Image", pdf_bytes))
+
+
+def _required_pdf_embedded_media_count(
+    media_ref_count: int,
+    *,
+    required_ratio: float = 0.6,
+) -> int:
+    normalized_media_ref_count = max(0, int(media_ref_count or 0))
+    normalized_required_ratio = max(0.0, min(1.0, float(required_ratio)))
+    if normalized_required_ratio <= 0.0:
+        return 0
+    if normalized_media_ref_count <= 1:
+        return normalized_media_ref_count
+    required_count = math.ceil(normalized_media_ref_count * normalized_required_ratio)
+    if required_count < 1:
+        required_count = 1
+    if required_count > normalized_media_ref_count:
+        required_count = normalized_media_ref_count
+    return required_count
+
+
+def _pdf_media_gate_passed(
+    pdf_path: str,
+    *,
+    media_ref_count: int,
+    required_ratio: float = 0.6,
+) -> tuple[bool, int, int]:
+    normalized_count = max(0, int(media_ref_count or 0))
+    if normalized_count <= 0:
+        return True, 0, 0
+    embedded_images = _pdf_embedded_image_count(pdf_path)
+    required_images = _required_pdf_embedded_media_count(
+        normalized_count,
+        required_ratio=required_ratio,
+    )
+    return embedded_images >= required_images, embedded_images, required_images
+
+
+def _telegram_safe_url_button_target(value: str, *, max_length: int = 256) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if len(normalized) > max(int(max_length or 256), 1):
+        return ""
+    return normalized
+
+
+def _workspace_relative_target_from_public_url(value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if normalized.startswith("/"):
+        return normalized
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    public_base = _public_app_base_url()
+    public_host = urllib.parse.urlparse(public_base).netloc.lower()
+    if not public_host or parsed.netloc.lower() != public_host:
+        return ""
+    target = parsed.path or "/"
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    return target
 
 
 def _willhaben_property_packet_script_path() -> Path:
@@ -8197,6 +12036,43 @@ def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
     root = _crezlo_property_tour_state_root()
     metadata: dict[str, object] = {}
 
+    def _merge_workspace_metadata(loaded: dict[str, object]) -> bool:
+        login_email = _first_non_empty_text(loaded.get("login_email"), loaded.get("crezlo_login_email"))
+        login_password = _first_non_empty_text(loaded.get("login_password"), loaded.get("crezlo_login_password"))
+        workspace_id = _first_non_empty_text(
+            loaded.get("workspace_id"),
+            loaded.get("browseract_crezlo_workspace_id"),
+        )
+        workspace_domain = _first_non_empty_text(
+            loaded.get("workspace_domain"),
+            loaded.get("browseract_crezlo_workspace_domain"),
+        )
+        workspace_base_url = _first_non_empty_text(
+            loaded.get("workspace_base_url"),
+            loaded.get("browseract_crezlo_workspace_base_url"),
+        )
+        workspace_tours_url = _first_non_empty_text(
+            loaded.get("workspace_tours_url"),
+            loaded.get("browseract_crezlo_workspace_tours_url"),
+        )
+        if login_email:
+            metadata["crezlo_login_email"] = login_email
+        if login_password:
+            metadata["crezlo_login_password"] = login_password
+        if workspace_id:
+            metadata["crezlo_workspace_id"] = workspace_id
+            metadata["browseract_crezlo_workspace_id"] = workspace_id
+        if workspace_domain:
+            metadata["crezlo_workspace_domain"] = workspace_domain
+            metadata["browseract_crezlo_workspace_domain"] = workspace_domain
+        if workspace_base_url:
+            metadata["crezlo_workspace_base_url"] = workspace_base_url
+            metadata["browseract_crezlo_workspace_base_url"] = workspace_base_url
+        if workspace_tours_url:
+            metadata["crezlo_workspace_tours_url"] = workspace_tours_url
+            metadata["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
+        return bool(workspace_id or workspace_domain or workspace_base_url or workspace_tours_url)
+
     publish_result = _load_json_dict(root / "crezlo_property_tour_operator_publish" / "result.json")
     workflow_id = _first_non_empty_text(
         publish_result.get("workflow_id"),
@@ -8219,29 +12095,32 @@ def _crezlo_property_tour_bootstrap_metadata() -> dict[str, object]:
         loaded = _load_json_dict(candidate)
         if not loaded:
             continue
-        login_email = _first_non_empty_text(loaded.get("login_email"), loaded.get("crezlo_login_email"))
-        login_password = _first_non_empty_text(loaded.get("login_password"), loaded.get("crezlo_login_password"))
-        workspace_id = _first_non_empty_text(loaded.get("workspace_id"))
-        workspace_domain = _first_non_empty_text(loaded.get("workspace_domain"))
-        workspace_base_url = _first_non_empty_text(loaded.get("workspace_base_url"))
-        workspace_tours_url = _first_non_empty_text(loaded.get("workspace_tours_url"))
-        if login_email:
-            metadata["crezlo_login_email"] = login_email
-        if login_password:
-            metadata["crezlo_login_password"] = login_password
-        if workspace_id:
-            metadata["crezlo_workspace_id"] = workspace_id
-            metadata["browseract_crezlo_workspace_id"] = workspace_id
-        if workspace_domain:
-            metadata["crezlo_workspace_domain"] = workspace_domain
-            metadata["browseract_crezlo_workspace_domain"] = workspace_domain
-        if workspace_base_url:
-            metadata["crezlo_workspace_base_url"] = workspace_base_url
-            metadata["browseract_crezlo_workspace_base_url"] = workspace_base_url
-        if workspace_tours_url:
-            metadata["crezlo_workspace_tours_url"] = workspace_tours_url
-            metadata["browseract_crezlo_workspace_tours_url"] = workspace_tours_url
-        break
+        if _merge_workspace_metadata(loaded):
+            break
+
+    if not any(str(metadata.get(key) or "").strip() for key in ("crezlo_workspace_id", "crezlo_workspace_domain", "crezlo_workspace_base_url")):
+        try:
+            runtime_results = sorted(
+                root.glob("crezlo_property_tour_runs_*/*.json"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            runtime_results = []
+        for candidate in runtime_results:
+            loaded = _load_json_dict(candidate)
+            if not loaded:
+                continue
+            execution = dict(loaded.get("execution") or {})
+            structured_output = dict(execution.get("structured_output_json") or {})
+            receipt = dict(execution.get("receipt_json") or {})
+            merged = {
+                **structured_output,
+                **receipt,
+                **loaded,
+            }
+            if _merge_workspace_metadata(merged):
+                break
     return metadata
 
 
@@ -8769,6 +12648,96 @@ def _tag_summary_text(value: object) -> str:
     return str(value or "").strip()
 
 
+def _property_profile_import_gmail_query(*, lookback_days: int) -> str:
+    normalized_days = max(7, min(int(lookback_days or 365), 3650))
+    return (
+        f"newer_than:{normalized_days}d "
+        "("
+        "\"wohnung\" OR \"immobilie\" OR \"besichtigung\" OR \"vormerk\" OR "
+        "\"warteliste\" OR \"genossenschaft\" OR \"suchagent\" OR \"willhaben\" OR "
+        "\"immoscout\" OR \"immmo\" OR \"miete\" OR \"kauf\""
+        ")"
+    )
+
+
+def _property_profile_provider_from_text(value: str) -> str:
+    lowered = str(value or "").strip().lower()
+    for provider, markers in _PROPERTY_PROFILE_IMPORT_PROVIDER_MARKERS.items():
+        if any(marker in lowered for marker in markers):
+            return provider
+    return ""
+
+
+def _property_profile_detect_location_hint(value: str) -> str:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return ""
+    for marker in _PROPERTY_PROFILE_IMPORT_DISTRICT_MARKERS:
+        if marker in lowered:
+            return marker.replace("ae", "ä").replace("oe", "ö").replace("ue", "ü").title()
+    postal_match = re.search(r"\b(1[0-2][0-9]{2}|3[0-4][0-9]{2})\b", lowered)
+    if postal_match:
+        return postal_match.group(1)
+    return ""
+
+
+def _property_profile_detect_price_eur(value: str) -> float | None:
+    match = re.search(r"(?:€|eur)\s*([0-9][0-9\.\s]{2,}(?:,[0-9]{2})?)|([0-9][0-9\.\s]{2,}(?:,[0-9]{2})?)\s*(?:€|eur)", str(value or ""), re.IGNORECASE)
+    raw = ""
+    if match is not None:
+        raw = str(match.group(1) or match.group(2) or "").strip()
+    if not raw:
+        return None
+    normalized = raw.replace(" ", "").replace(".", "").replace(",", ".")
+    try:
+        return float(normalized)
+    except Exception:
+        return None
+
+
+def _property_profile_detect_area_sqm(value: str) -> float | None:
+    match = re.search(r"\b([0-9]{2,3}(?:[.,][0-9])?)\s*(?:m²|m2|qm)\b", str(value or ""), re.IGNORECASE)
+    if match is None:
+        return None
+    try:
+        return float(str(match.group(1) or "").replace(",", "."))
+    except Exception:
+        return None
+
+
+def _property_profile_detect_rooms(value: str) -> float | None:
+    match = re.search(r"\b([1-9](?:[.,][0-9])?)\s*(?:zimmer|zi\b|rooms?)", str(value or ""), re.IGNORECASE)
+    if match is None:
+        return None
+    try:
+        return float(str(match.group(1) or "").replace(",", "."))
+    except Exception:
+        return None
+
+
+def _property_profile_detect_activity_kind(value: str) -> str:
+    lowered = str(value or "").strip().lower()
+    if not lowered:
+        return ""
+    if any(marker in lowered for marker in ("vormerk", "warteliste", "vorangemeldet", "angemeldet", "registriert", "pre-registration", "vorgemerkt")):
+        return "preregistration"
+    if any(marker in lowered for marker in ("besichtigung", "viewing", "tour", "termin")):
+        return "viewing"
+    if any(marker in lowered for marker in ("nachgefragt", "anfrage", "interesse", "rueckfrage", "rückfrage", "reply", "antwort")):
+        return "inquiry"
+    if any(marker in lowered for marker in ("exposé", "expose", "unterlagen", "grundriss")):
+        return "follow_up"
+    return ""
+
+
+def _property_profile_detect_features(value: str) -> list[str]:
+    found: list[str] = []
+    for key, pattern in _PROPERTY_PROFILE_IMPORT_FEATURE_PATTERNS.items():
+        if pattern.search(str(value or "")):
+            found.append(key)
+    return found
+
+
 class ProductService:
     def __init__(self, container: AppContainer) -> None:
         self._container = container
@@ -8839,6 +12808,320 @@ class ProductService:
             status=status,
             decay_policy=decay_policy,
         )
+
+    def import_property_mailbox_preferences(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+        actor: str = "",
+        account_email: str = "",
+        consent_note: str = "",
+        email_limit: int = 80,
+        lookback_days: int = 365,
+    ) -> dict[str, object]:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        normalized_actor = str(actor or "").strip() or "mailbox_import"
+        normalized_account_email = str(account_email or "").strip().lower()
+        if normalized_person_id == "self":
+            display_name = _principal_email_hint(principal_id) or "Principal"
+        else:
+            display_name = normalized_person_id.replace("_", " ").replace("-", " ").strip().title() or normalized_person_id
+        self.upsert_preference_profile(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            display_name=display_name,
+        )
+        if normalized_person_id != "self":
+            try:
+                onboarding_preferences = dict(
+                    self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {}
+                )
+                onboarding_preferences["preference_person_id"] = normalized_person_id
+                self._container.onboarding.upsert_property_search_preferences(
+                    principal_id=principal_id,
+                    property_search_preferences_json=onboarding_preferences,
+                )
+            except Exception:
+                pass
+        packet = google_oauth_service.list_recent_workspace_signals(
+            container=self._container,
+            principal_id=principal_id,
+            email_limit=max(1, min(int(email_limit or 80), 250)),
+            calendar_limit=0,
+            account_email_filter=normalized_account_email,
+            gmail_query=_property_profile_import_gmail_query(lookback_days=lookback_days),
+        )
+        activities: list[dict[str, object]] = []
+        for signal in packet.signals:
+            activity = self._property_mailbox_import_activity_from_signal(signal=signal)
+            if not activity:
+                continue
+            activities.append(activity)
+            self.record_preference_evidence(
+                principal_id=principal_id,
+                person_id=normalized_person_id,
+                domain="property",
+                event_type="document_pattern_detected",
+                object_type="property_search",
+                object_id=str(activity.get("object_id") or activity.get("thread_id") or activity.get("source_ref") or uuid4().hex).strip(),
+                source_ref=str(activity.get("source_ref") or "").strip(),
+                raw_signal_json=dict(activity),
+                interpreted_signal_json={
+                    "source": "gmail_property_history_import",
+                    "activity_kind": str(activity.get("activity_kind") or "").strip(),
+                    "provider": str(activity.get("provider") or "").strip(),
+                },
+                signal_strength=0.75,
+                reversible=True,
+            )
+        preference_hints = self._property_mailbox_preference_hints_from_activities(activities=activities)
+        evidence_result = self.record_preference_evidence(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+            domain="property",
+            event_type="document_pattern_detected",
+            object_type="profile",
+            object_id=f"gmail-mailbox-import:{normalized_person_id}",
+            source_ref=f"gmail-mailbox-import:{normalized_account_email or normalized_person_id}",
+            raw_signal_json={
+                "account_email": normalized_account_email or packet.account_email,
+                "account_emails": list(packet.account_emails or ()),
+                "actor": normalized_actor,
+                "consent_note": compact_text(consent_note, fallback="", limit=500),
+                "lookback_days": max(7, min(int(lookback_days or 365), 3650)),
+                "activities": [dict(item) for item in activities[:50]],
+            },
+            interpreted_signal_json={
+                "source": "gmail_property_history_import",
+                "preference_hints": preference_hints,
+                "activity_total": len(activities),
+            },
+            signal_strength=0.95 if activities else 0.4,
+            reversible=True,
+        )
+        teable_sync = self.request_preference_teable_sync(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        snapshot = self.get_preference_profile(
+            principal_id=principal_id,
+            person_id=normalized_person_id,
+        )
+        return {
+            "status": "imported",
+            "person_id": normalized_person_id,
+            "account_email": normalized_account_email or packet.account_email,
+            "consent_confirmed": True,
+            "consent_note": compact_text(consent_note, fallback="", limit=500),
+            "imported_thread_total": len({str(item.get("source_ref") or "").strip() for item in activities if str(item.get("source_ref") or "").strip()}),
+            "activity_total": len(activities),
+            "preregistration_total": sum(1 for item in activities if str(item.get("activity_kind") or "") == "preregistration"),
+            "inquiry_total": sum(1 for item in activities if str(item.get("activity_kind") or "") == "inquiry"),
+            "viewing_total": sum(1 for item in activities if str(item.get("activity_kind") or "") == "viewing"),
+            "applied_nodes": list(evidence_result.get("applied_nodes") or []),
+            "activities": [dict(item) for item in activities[:25]],
+            "preference_snapshot": snapshot,
+            "teable_sync_status": str(teable_sync.get("sync_result") or teable_sync.get("status") or "").strip(),
+            "teable_blocked_reason": str(teable_sync.get("blocked_reason") or "").strip(),
+        }
+
+    def _property_mailbox_import_activity_from_signal(
+        self,
+        *,
+        signal: google_oauth_service.GoogleWorkspaceSignal,
+    ) -> dict[str, object]:
+        payload = dict(signal.payload or {})
+        subject = str(signal.title or "").strip()
+        summary = str(signal.summary or "").strip()
+        body_text = str(payload.get("body_text_excerpt") or signal.text or "").strip()
+        sender = " ".join(
+            part for part in (
+                str(payload.get("from_name") or "").strip(),
+                str(payload.get("from_email") or "").strip().lower(),
+                str(signal.counterparty or "").strip(),
+            )
+            if part
+        ).strip()
+        combined = " \n ".join(part for part in (subject, summary, body_text, sender) if part)
+        activity_kind = _property_profile_detect_activity_kind(combined)
+        provider = _property_profile_provider_from_text(combined)
+        if not activity_kind and not provider:
+            return {}
+        features = _property_profile_detect_features(combined)
+        lower_text = combined.lower()
+        inferred_listing_mode = "buy" if any(marker in lower_text for marker in ("kauf", "eigentum", "purchase")) else "rent"
+        inferred_property_type = "house" if any(marker in lower_text for marker in ("haus", "house", "reihenhaus")) else "apartment"
+        thread_id = str(payload.get("thread_id") or "").strip()
+        return {
+            "object_id": thread_id or str(signal.source_ref or "").strip() or uuid4().hex,
+            "source_ref": str(signal.source_ref or "").strip(),
+            "thread_id": thread_id,
+            "account_email": str(payload.get("account_email") or "").strip().lower(),
+            "activity_kind": activity_kind or "property_signal",
+            "provider": provider,
+            "subject": compact_text(subject, fallback="Property mailbox activity", limit=240),
+            "location_hint": _property_profile_detect_location_hint(combined),
+            "price_eur": _property_profile_detect_price_eur(combined),
+            "area_sqm": _property_profile_detect_area_sqm(combined),
+            "rooms": _property_profile_detect_rooms(combined),
+            "detected_features": features,
+            "inferred_listing_mode": inferred_listing_mode,
+            "inferred_property_type": inferred_property_type,
+        }
+
+    def _property_mailbox_preference_hints_from_activities(
+        self,
+        *,
+        activities: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        hints: list[dict[str, object]] = []
+        if not activities:
+            return hints
+        districts: list[str] = []
+        areas: list[float] = []
+        rooms: list[float] = []
+        prices: list[float] = []
+        feature_counts: dict[str, int] = {}
+        listing_modes: list[str] = []
+        property_types: list[str] = []
+        for item in activities:
+            location_hint = str(item.get("location_hint") or "").strip()
+            if location_hint:
+                districts.append(location_hint)
+            area_value = item.get("area_sqm")
+            if isinstance(area_value, (int, float)) and float(area_value) > 0:
+                areas.append(float(area_value))
+            rooms_value = item.get("rooms")
+            if isinstance(rooms_value, (int, float)) and float(rooms_value) > 0:
+                rooms.append(float(rooms_value))
+            price_value = item.get("price_eur")
+            if isinstance(price_value, (int, float)) and float(price_value) > 0:
+                prices.append(float(price_value))
+            for feature in list(item.get("detected_features") or []):
+                normalized_feature = str(feature or "").strip()
+                if normalized_feature:
+                    feature_counts[normalized_feature] = feature_counts.get(normalized_feature, 0) + 1
+            listing_mode = str(item.get("inferred_listing_mode") or "").strip()
+            if listing_mode:
+                listing_modes.append(listing_mode)
+            property_type = str(item.get("inferred_property_type") or "").strip()
+            if property_type:
+                property_types.append(property_type)
+        unique_districts: list[str] = []
+        seen_districts: set[str] = set()
+        for item in districts:
+            marker = item.lower()
+            if marker in seen_districts:
+                continue
+            seen_districts.add(marker)
+            unique_districts.append(item)
+        if unique_districts:
+            hints.append(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "preferred_districts",
+                    "value_json": unique_districts[:12],
+                    "strength": "high",
+                    "merge_mode": "append_unique",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.88,
+                }
+            )
+        if areas:
+            hints.append(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "min_area_sqm_preference",
+                    "value_json": max(1, int(round(statistics.median(areas)))),
+                    "strength": "medium",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.76,
+                }
+            )
+        if rooms:
+            hints.append(
+                {
+                    "domain": "willhaben",
+                    "category": "constraint",
+                    "key": "min_rooms",
+                    "value_json": max(1, int(math.floor(min(rooms)))),
+                    "strength": "medium",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.72,
+                }
+            )
+        if prices:
+            hints.append(
+                {
+                    "domain": "willhaben",
+                    "category": "soft_preference",
+                    "key": "prefer_lower_total_rent_eur",
+                    "value_json": max(1, int(round(statistics.median(prices)))),
+                    "strength": "medium",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.68,
+                }
+            )
+        total = max(len(activities), 1)
+        feature_key_map = {
+            "balcony": ("soft_preference", "prefer_balcony"),
+            "outdoor_space": ("soft_preference", "prefer_outdoor_space"),
+            "lift": ("soft_preference", "prefer_lift"),
+            "floorplan": ("soft_preference", "requires_floorplan_for_remote_review"),
+            "tour_360": ("soft_preference", "prefer_360_for_remote_review"),
+            "playground": ("soft_preference", "prefer_playgrounds_nearby"),
+            "library": ("soft_preference", "prefer_libraries_nearby"),
+            "market": ("soft_preference", "prefer_markets_nearby"),
+            "hardware": ("soft_preference", "prefer_hardware_store_nearby"),
+            "medical": ("soft_preference", "prefer_medical_care_nearby"),
+            "subway": ("soft_preference", "prefer_subway_nearby"),
+            "quiet": ("soft_preference", "prefer_quiet_micro_location"),
+        }
+        for feature, count in feature_counts.items():
+            if count / total < 0.45:
+                continue
+            category_key = feature_key_map.get(feature)
+            if category_key is None:
+                continue
+            hints.append(
+                {
+                    "domain": "willhaben",
+                    "category": category_key[0],
+                    "key": category_key[1],
+                    "value_json": True,
+                    "strength": "medium" if count / total < 0.7 else "high",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.6 if count / total < 0.7 else 0.82,
+                }
+            )
+        if listing_modes and listing_modes.count("buy") >= listing_modes.count("rent"):
+            hints.append(
+                {
+                    "domain": "general",
+                    "category": "workflow_preference",
+                    "key": "prefers_direct_followups",
+                    "value_json": True,
+                    "strength": "low",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.55,
+                }
+            )
+        if property_types and property_types.count("house") >= max(1, property_types.count("apartment")):
+            hints.append(
+                {
+                    "domain": "general",
+                    "category": "decision_style",
+                    "key": "needs_side_by_side_comparison",
+                    "value_json": True,
+                    "strength": "low",
+                    "source_mode": "behavioral_inference",
+                    "confidence": 0.45,
+                }
+            )
+        return hints
 
     def apply_preference_correction(
         self,
@@ -9087,6 +13370,31 @@ class ProductService:
             },
         }
 
+    def property_decision_copilot(
+        self,
+        *,
+        question: str,
+        property_title: str = "",
+        property_url: str = "",
+        property_facts: dict[str, object] | None = None,
+        assessment: dict[str, object] | None = None,
+        feedback_summary: dict[str, object] | None = None,
+        timeline_rows: list[dict[str, object]] | None = None,
+        change_rows: list[dict[str, object]] | None = None,
+        investment_context: list[dict[str, object]] | None = None,
+    ) -> dict[str, object]:
+        return _property_decision_copilot_answer(
+            question=question,
+            property_title=property_title,
+            property_url=property_url,
+            property_facts=dict(property_facts or {}),
+            assessment=dict(assessment or {}),
+            feedback_summary=dict(feedback_summary or {}),
+            timeline_rows=list(timeline_rows or []),
+            change_rows=list(change_rows or []),
+            investment_context=list(investment_context or []),
+        )
+
     def preference_teable_projection_records(
         self,
         *,
@@ -9298,6 +13606,258 @@ class ProductService:
                 "receipt_json": dict(result.receipt_json or {}),
             },
         }
+
+    def _propertyquarry_teable_table_config(self) -> dict[str, dict[str, object]]:
+        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        if not raw:
+            raw = str(os.environ.get("TEABLE_TABLE_SYNC_CONFIG_JSON") or "").strip()
+        if not raw:
+            return {}
+        try:
+            loaded = json.loads(raw)
+        except Exception:
+            return {}
+        if not isinstance(loaded, dict):
+            return {}
+        return {
+            str(table_name or "").strip(): dict(table_config or {})
+            for table_name, table_config in dict(loaded or {}).items()
+            if str(table_name or "").strip() and isinstance(table_config, dict)
+        }
+
+    def _propertyquarry_teable_missing_table_mappings(self, config: dict[str, dict[str, object]]) -> list[str]:
+        missing: list[str] = []
+        for table_name in PROPERTYQUARRY_TEABLE_TABLE_NAMES:
+            table_config = dict(config.get(table_name) or {})
+            if not str(table_config.get("table_id") or "").strip():
+                missing.append(table_name)
+        return missing
+
+    def propertyquarry_teable_projection_records(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, list[dict[str, object]]]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        onboarding_status = self._container.onboarding.status(principal_id=normalized_principal) if normalized_principal else {}
+        runs: list[dict[str, object]] = []
+        if normalized_run_id:
+            snapshot = self.get_property_search_run_status(
+                principal_id=normalized_principal,
+                run_id=normalized_run_id,
+            )
+            if isinstance(snapshot, dict):
+                runs.append(dict(snapshot))
+        elif normalized_principal:
+            records = _list_property_search_run_records(limit=max(int(limit or 0), 1))
+            for record in records:
+                if str(record.get("principal_id") or "").strip() != normalized_principal:
+                    continue
+                run_record_id = str(record.get("run_id") or "").strip()
+                snapshot = self.get_property_search_run_status(
+                    principal_id=normalized_principal,
+                    run_id=run_record_id,
+                ) if run_record_id else None
+                runs.append(dict(snapshot or record))
+        return build_propertyquarry_teable_projection_records(
+            principal_id=normalized_principal,
+            onboarding_status=dict(onboarding_status or {}),
+            search_runs=tuple(runs),
+        )
+
+    def propertyquarry_teable_projection_summary(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        records = self.propertyquarry_teable_projection_records(
+            principal_id=principal_id,
+            run_id=run_id,
+            limit=limit,
+        )
+        return build_propertyquarry_teable_projection_summary(records)
+
+    def propertyquarry_teable_sync_preview(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        records = self.propertyquarry_teable_projection_records(
+            principal_id=principal_id,
+            run_id=run_id,
+            limit=limit,
+        )
+        summary = build_propertyquarry_teable_projection_summary(records)
+        table_config = self._propertyquarry_teable_table_config()
+        missing_tables = self._propertyquarry_teable_missing_table_mappings(table_config)
+        table_sync_configured = not missing_tables
+        provider_state = self._container.provider_registry.binding_state("teable", principal_id=principal_id)
+        teable_base_url = str(os.environ.get("TEABLE_BASE_URL") or "https://app.teable.ai").strip().rstrip("/")
+        candidate_routes = tuple(
+            route
+            for route in self._container.provider_registry.candidate_routes_by_capability_with_context(
+                capability_key="table_sync",
+                principal_id=principal_id,
+                require_executable=False,
+            )
+            if str(route.provider_key or "").strip().lower() == "teable"
+        )
+        provider_state_value = str(getattr(provider_state, "state", "") or "catalog_only").strip().lower() or "catalog_only"
+        provider_routable = provider_state_value not in {"catalog_only", "unconfigured", "disabled", "maintenance"}
+        runtime_reachable = False
+        runtime_blocked_reason = ""
+        if provider_routable and table_sync_configured and bool(getattr(provider_state, "secret_configured", False)):
+            runtime_reachable, runtime_blocked_reason = self._teable_sync_runtime_available(base_url=teable_base_url)
+        executable_route = next(
+            (
+                route
+                for route in candidate_routes
+                if bool(route.executable) and provider_routable and table_sync_configured and runtime_reachable
+            ),
+            None,
+        )
+        if executable_route is not None:
+            blocked_reason = ""
+        elif not table_sync_configured:
+            blocked_reason = "propertyquarry_teable_table_sync_config_missing"
+        elif not provider_routable:
+            blocked_reason = "teable_provider_unconfigured"
+        else:
+            blocked_reason = runtime_blocked_reason or "teable_table_sync_unavailable"
+        sync_payload = {
+            "projection_scope": "propertyquarry",
+            "person_id": propertyquarry_teable_tenant_key(),
+            "tables_json": records,
+            "table_config_json": table_config,
+        }
+        return {
+            "status": "ready" if executable_route is not None else "blocked",
+            "blocked_reason": blocked_reason,
+            "provider": {
+                "provider_key": "teable",
+                "display_name": str(getattr(provider_state, "display_name", "") or "Teable").strip() or "Teable",
+                "binding_state": provider_state_value,
+                "enabled": bool(getattr(provider_state, "enabled", False)),
+                "executable": bool(getattr(provider_state, "executable", False)),
+                "binding_id": str(getattr(provider_state, "binding_id", "") or "").strip(),
+                "secret_configured": bool(getattr(provider_state, "secret_configured", False)),
+                "table_sync_configured": table_sync_configured,
+                "missing_tables": missing_tables,
+                "runtime_reachable": runtime_reachable,
+                "base_url": teable_base_url,
+                "updated_at": str(getattr(provider_state, "updated_at", "") or "").strip(),
+            },
+            "route": {
+                "capability_key": "table_sync",
+                "tool_name": str(getattr(executable_route, "tool_name", "") or "provider.teable.table_sync").strip(),
+                "candidate_count": len(candidate_routes),
+                "candidate_tools": [str(route.tool_name or "").strip() for route in candidate_routes],
+                "executable": executable_route is not None,
+            },
+            "projection_summary": summary,
+            "projected_table_count": len(records),
+            "projected_record_count": sum(len(rows) for rows in records.values()),
+            "records_preview": {
+                table_name: [dict(row) for row in rows[:2]]
+                for table_name, rows in records.items()
+            },
+            "sync_payload_json": sync_payload,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def request_propertyquarry_teable_sync(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        limit: int = 20,
+    ) -> dict[str, object]:
+        preview = self.propertyquarry_teable_sync_preview(
+            principal_id=principal_id,
+            run_id=run_id,
+            limit=limit,
+        )
+        if str(preview.get("status") or "").strip().lower() != "ready":
+            return {
+                **preview,
+                "sync_attempted": False,
+                "sync_result": "blocked",
+            }
+        route = dict(preview.get("route") or {})
+        tool_name = str(route.get("tool_name") or "provider.teable.table_sync").strip()
+        payload_json = dict(preview.get("sync_payload_json") or {})
+        invocation = ToolInvocationRequest(
+            session_id=f"propertyquarry-teable-sync:{uuid4()}",
+            step_id=f"propertyquarry-teable-sync-step:{uuid4()}",
+            tool_name=tool_name,
+            action_kind="table.sync",
+            payload_json=payload_json,
+            context_json={"principal_id": principal_id, "run_id": str(run_id or "").strip()},
+        )
+        result = self._container.tool_execution.execute_invocation(invocation)
+        return {
+            **preview,
+            "sync_attempted": True,
+            "sync_result": "sent",
+            "tool_execution": {
+                "tool_name": result.tool_name,
+                "action_kind": result.action_kind,
+                "target_ref": result.target_ref,
+                "output_json": dict(result.output_json or {}),
+                "receipt_json": dict(result.receipt_json or {}),
+            },
+        }
+
+    def _propertyquarry_teable_auto_sync_enabled(self) -> bool:
+        raw = str(os.environ.get("PROPERTYQUARRY_TEABLE_AUTO_SYNC") or "0").strip().lower()
+        return raw not in {"0", "false", "no", "off", "disabled"}
+
+    def _best_effort_propertyquarry_teable_sync(
+        self,
+        *,
+        principal_id: str,
+        run_id: str = "",
+        reason: str = "",
+    ) -> None:
+        if not self._propertyquarry_teable_auto_sync_enabled():
+            return
+        table_config = self._propertyquarry_teable_table_config()
+        if self._propertyquarry_teable_missing_table_mappings(table_config):
+            return
+
+        def _run() -> None:
+            try:
+                self.request_propertyquarry_teable_sync(
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    limit=20,
+                )
+            except Exception as exc:
+                try:
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="propertyquarry_teable_sync_failed",
+                        payload={
+                            "run_id": str(run_id or "").strip(),
+                            "reason": compact_text(str(reason or "auto_sync"), fallback="auto_sync", limit=120),
+                            "error": compact_text(str(exc or "teable sync failed"), fallback="teable sync failed", limit=240),
+                        },
+                        source_id=str(run_id or principal_id or "propertyquarry-teable-sync"),
+                    )
+                except Exception:
+                    pass
+
+        try:
+            threading.Thread(target=_run, daemon=True).start()
+        except Exception:
+            _run()
 
     def _support_fix_verification_contact(
         self,
@@ -9531,6 +14091,7 @@ class ProductService:
             operator_id=str(contact.get("operator_id") or "").strip(),
             delivery_channel="email" if email_delivery_enabled() else "link_only",
             base_url=base_url,
+            default_target="/app/today",
         )
         if delivery is None:
             raise RuntimeError("support_fix_verification_delivery_not_available")
@@ -10079,6 +14640,40 @@ class ProductService:
 
     def _workspace_access_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="workspace-access")
+
+    def _sign_workspace_access_launch_token(self, *, session_id: str, expires_at: str) -> str:
+        normalized_session_id = str(session_id or "").strip()
+        normalized_expires_at = str(expires_at or "").strip()
+        if not normalized_session_id or not normalized_expires_at:
+            return ""
+        try:
+            expires_dt = datetime.fromisoformat(normalized_expires_at)
+        except ValueError:
+            return ""
+        if expires_dt.tzinfo is None:
+            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+        return _sign_channel_payload(
+            secret=self._workspace_access_secret(),
+            payload={
+                "k": "wa",
+                "s": normalized_session_id,
+                "x": int(expires_dt.timestamp()),
+            },
+        )
+
+    def _resolve_workspace_access_session_principal(self, *, session_id: str, limit: int = 5000) -> str:
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return ""
+        for row in self._container.channel_runtime.list_recent_observations(limit=max(int(limit or 5000), 100)):
+            if str(row.event_type or "").strip().lower() != "workspace_access_session_issued":
+                continue
+            payload = dict(row.payload or {})
+            current_session_id = str(payload.get("session_id") or row.source_id or "").strip()
+            if current_session_id != normalized_session_id:
+                continue
+            return str(row.principal_id or payload.get("principal_id") or "").strip()
+        return ""
 
     def _signal_ingest_secret(self) -> str:
         return resolve_signing_secret(self._container.settings, purpose="signal-ingest")
@@ -12964,7 +17559,7 @@ class ProductService:
         access_url = str(session.get("access_url") or "").strip()
         if not access_url:
             return ""
-        absolute_access_url = urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+        absolute_access_url = urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
         separator = "&" if "?" in absolute_access_url else "?"
         return f"{absolute_access_url}{separator}return_to={urllib.parse.quote(target_path, safe='/')}"
 
@@ -13596,21 +18191,30 @@ class ProductService:
         normalized_source = str(source_ref or "").strip()
         normalized_external = str(external_id or "").strip()
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-        if not normalized_source and not normalized_external:
+        if not normalized_source and not normalized_external and not normalized_property_url:
             return None
-        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status="pending", limit=200):
+        matched_historical: HumanTask | None = None
+        for row in self._container.orchestrator.list_human_tasks(principal_id=principal_id, status=None, limit=500):
             if str(getattr(row, "task_type", "") or "").strip() != "property_alert_review":
                 continue
             input_json = dict(getattr(row, "input_json", {}) or {})
+            matched = False
             existing_property_url = urllib.parse.urldefrag(str(input_json.get("property_url") or "").strip())[0]
             if normalized_property_url and existing_property_url and existing_property_url == normalized_property_url:
                 if not normalized_source or str(input_json.get("source_ref") or "").strip() == normalized_source:
-                    return row
+                    matched = True
             if normalized_source and str(input_json.get("source_ref") or "").strip() == normalized_source:
-                return row
+                matched = True
             if normalized_external and str(input_json.get("external_id") or "").strip() == normalized_external:
+                matched = True
+            if not matched:
+                continue
+            task_status = str(getattr(row, "status", "") or "").strip().lower()
+            if task_status in {"pending", "claimed"}:
                 return row
-        return None
+            if task_status in {"returned", "completed"} and matched_historical is None:
+                matched_historical = row
+        return matched_historical
 
     def _open_property_alert_review(
         self,
@@ -13679,6 +18283,8 @@ class ProductService:
                 "willhaben_fit_score": float(existing_input.get("willhaben_fit_score") or 0.0),
                 "personal_fit_rank": str(existing_input.get("personal_fit_rank") or "").strip(),
                 "tour_url": normalized_tour_url or str(existing_input.get("tour_url") or "").strip(),
+                "review_task_status": str(getattr(existing, "status", "") or "").strip(),
+                "review_reused": True,
             }
             review_url = self._property_alert_review_access_url(
                 principal_id=principal_id,
@@ -13686,6 +18292,19 @@ class ProductService:
             )
             if review_url:
                 payload["editor_url"] = review_url
+            review_task_status = str(getattr(existing, "status", "") or "").strip().lower()
+            if review_task_status in {"returned", "completed"}:
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_alert_review_reused",
+                    payload={
+                        **payload,
+                        "title": str(title or "").strip(),
+                        "actor": str(actor or "").strip() or "property_scout",
+                    },
+                    source_id=str(source_ref or external_id or existing.human_task_id).strip(),
+                    dedupe_key=f"{principal_id}|{source_ref or external_id or existing.human_task_id}|property-alert-review-reused",
+                )
             return payload
         session_id = self._start_product_review_session(
             principal_id=principal_id,
@@ -13698,7 +18317,7 @@ class ProductService:
             task_type="property_alert_review",
             role_required="operator",
             brief=_property_alert_review_brief(title),
-            why_human="Apartment-search mail should stay visible as a review item, not a fake commitment. Decide whether to open the listing, generate a tour, or ignore the alert.",
+            why_human="Property research, fit reasoning, and review actions for this alert.",
             priority=task_priority,
             input_json={
                 "title": str(title or "").strip(),
@@ -14873,8 +19492,16 @@ class ProductService:
         auto_deliver: bool = True,
         actor: str = "",
         allow_floorplan_only: bool = False,
+        enforce_360_media: bool = True,
+        suppress_human_followup: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        self._enforce_property_visual_quota(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+            quota_kind="video",
+        )
         if not _is_willhaben_property_url(normalized_url):
             return self.create_generic_property_tour(
                 principal_id=principal_id,
@@ -14888,6 +19515,8 @@ class ProductService:
                 auto_deliver=auto_deliver,
                 actor=actor,
                 allow_floorplan_only=allow_floorplan_only,
+                enforce_360_media=enforce_360_media,
+                suppress_human_followup=suppress_human_followup,
             )
         packet = _load_willhaben_property_packet(normalized_url)
         variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
@@ -14957,18 +19586,26 @@ class ProductService:
             resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
-        if _willhaben_property_tour_require_360() and not has_live_360 and not (allow_floorplan_only and has_floorplan_material):
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="listing_360_media_missing",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+        if (
+            enforce_360_media
+            and _willhaben_property_tour_require_360()
+            and not has_live_360
+            and not (allow_floorplan_only and has_floorplan_material)
+        ):
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="listing_360_media_missing",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -14985,7 +19622,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "listing_360_media_missing",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -15009,6 +19646,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
@@ -15054,17 +19692,74 @@ class ProductService:
                     return payload
                 except Exception:
                     pass
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="browseract_connector_unconfigured",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id="",
-            )
+        if source_floorplan_urls:
+            try:
+                structured_output = _write_hosted_floorplan_property_tour_bundle(
+                    principal_id=principal_id,
+                    title=title,
+                    listing_id=listing_id,
+                    property_url=normalized_url,
+                    variant_key=resolved_variant_key,
+                    floorplan_urls=source_floorplan_urls,
+                    property_facts_json=property_facts_json,
+                    source_host=source_host,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    recipient_email=resolved_recipient_email,
+                )
+                tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                payload = {
+                    "generated_at": generated_at,
+                    "status": "created",
+                    "property_url": normalized_url,
+                    "title": title,
+                    "listing_id": listing_id,
+                    "variant_key": resolved_variant_key,
+                    "artifact_id": "",
+                    "execution_session_id": "",
+                    "connector_binding_id": "",
+                    "tour_url": tour_url,
+                    "vendor_tour_url": vendor_tour_url,
+                    "editor_url": "",
+                    "delivery_email": resolved_recipient_email,
+                    "delivery_status": "skipped" if not auto_deliver else "",
+                    "blocked_reason": "",
+                    "human_task_id": "",
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "tour_media_mode": "floorplan_hosted",
+                    "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                    "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                    "creation_mode": "hosted_floorplan_tour",
+                }
+                try:
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="willhaben_property_tour_created",
+                        payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                        source_id=resolved_source_ref,
+                        dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-created",
+                    )
+                except Exception:
+                    pass
+                return payload
+            except Exception:
+                pass
+        if not resolved_binding_id:
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="browseract_connector_unconfigured",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id="",
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -15081,7 +19776,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "browseract_connector_unconfigured",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -15139,16 +19834,38 @@ class ProductService:
                 resolved_task_key = projected_crezlo_task_key
 
         artifact = None
+        direct_structured_output: dict[str, object] | None = None
         blocked_reason = ""
         try:
-            artifact = self._container.orchestrator.execute_task_artifact(
-                TaskExecutionRequest(
-                    task_key=resolved_task_key,
-                    principal_id=principal_id,
-                    goal=f"create a steerable apartment tour for {title}",
-                    input_json=request_payload,
+            if self._container.task_contracts.get_contract(resolved_task_key) is None and resolved_binding_id:
+                direct_invocation = ToolInvocationRequest(
+                    session_id=f"property-tour-direct:{uuid4()}",
+                    step_id=f"property-tour-direct-step:{uuid4()}",
+                    tool_name="browseract.crezlo_property_tour",
+                    action_kind="property.tour.create",
+                    payload_json={**dict(request_payload), "binding_id": resolved_binding_id},
+                    context_json={"principal_id": principal_id},
                 )
-            )
+                direct_result = self._container.tool_execution.execute_invocation(direct_invocation)
+                direct_structured_output = dict(direct_result.output_json or {})
+                artifact = type(
+                    "DirectTourArtifactShim",
+                    (),
+                    {
+                        "artifact_id": "",
+                        "execution_session_id": str(direct_result.target_ref or "").strip(),
+                        "structured_output_json": direct_structured_output,
+                    },
+                )()
+            else:
+                artifact = self._container.orchestrator.execute_task_artifact(
+                    TaskExecutionRequest(
+                        task_key=resolved_task_key,
+                        principal_id=principal_id,
+                        goal=f"create a steerable apartment tour for {title}",
+                        input_json=request_payload,
+                    )
+                )
         except Exception as exc:
             blocked_reason = self._property_tour_execution_error_reason(exc)
 
@@ -15167,6 +19884,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
@@ -15273,17 +19991,20 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "floorplan_assets_unavailable"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -15314,21 +20035,24 @@ class ProductService:
             )
             return payload
 
-        structured_output = dict(artifact.structured_output_json or {}) if artifact is not None else {}
+        structured_output = dict(direct_structured_output or artifact.structured_output_json or {}) if artifact is not None else dict(direct_structured_output or {})
         structured_output = _ensure_hosted_property_tour_url(structured_output)
         if _property_tour_payload_is_disabled_fallback(structured_output):
             blocked_reason = "property_tour_fallback_disabled"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -15345,7 +20069,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -15448,23 +20172,26 @@ class ProductService:
             blocked_reason = ""
 
         if blocked_reason:
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload.update(
                 {
                     "status": "blocked",
                     "delivery_status": "blocked",
                     "blocked_reason": blocked_reason,
-                    "human_task_id": f"human_task:{followup.human_task_id}",
+                    "human_task_id": followup_task_id,
                 }
             )
             self._record_product_event(
@@ -15552,18 +20279,21 @@ class ProductService:
                         telegram_video_delivery_status = "failed"
                         telegram_video_delivery_error = str(exc)
                 if telegram_video_delivery_status == "failed" and (email_sent or telegram_delivery_status == "sent"):
-                    followup = self._open_property_tour_followup(
-                        principal_id=principal_id,
-                        property_url=normalized_url,
-                        title=title,
-                        variant_key=resolved_variant_key,
-                        blocked_reason="property_tour_video_delivery_failed",
-                        recipient_email=resolved_recipient_email,
-                        source_ref=resolved_source_ref,
-                        external_id=resolved_external_id,
-                        connector_binding_id=resolved_binding_id,
-                    )
-                    telegram_video_followup_ref = f"human_task:{followup.human_task_id}"
+                    if not suppress_human_followup:
+                        followup = self._open_property_tour_followup(
+                            principal_id=principal_id,
+                            property_url=normalized_url,
+                            title=title,
+                            variant_key=resolved_variant_key,
+                            blocked_reason="property_tour_video_delivery_failed",
+                            recipient_email=resolved_recipient_email,
+                            source_ref=resolved_source_ref,
+                            external_id=resolved_external_id,
+                            connector_binding_id=resolved_binding_id,
+                        )
+                        telegram_video_followup_ref = f"human_task:{followup.human_task_id}"
+                    else:
+                        telegram_video_followup_ref = ""
             elif telegram_delivery_status == "ready":
                 telegram_delivery_status = "not_configured"
             payload.update(
@@ -15638,23 +20368,26 @@ class ProductService:
                 )
             return payload
         except Exception as exc:
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="property_tour_delivery_failed",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="property_tour_delivery_failed",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload.update(
                 {
                     "status": "blocked",
                     "delivery_status": "failed",
                     "blocked_reason": "property_tour_delivery_failed",
-                    "human_task_id": f"human_task:{followup.human_task_id}",
+                    "human_task_id": followup_task_id,
                 }
             )
             self._record_product_event(
@@ -15680,8 +20413,16 @@ class ProductService:
         auto_deliver: bool = False,
         actor: str = "",
         allow_floorplan_only: bool = False,
+        enforce_360_media: bool = True,
+        suppress_human_followup: bool = False,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
+        self._enforce_property_visual_quota(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+            quota_kind="video",
+        )
         if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
             raise ValueError("property_url_invalid")
         preview = _property_scout_page_preview(normalized_url)
@@ -15743,18 +20484,26 @@ class ProductService:
             resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
-        if _willhaben_property_tour_require_360() and not has_live_360 and not (allow_floorplan_only and has_floorplan_material):
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="listing_360_media_missing",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+        if (
+            enforce_360_media
+            and _willhaben_property_tour_require_360()
+            and not has_live_360
+            and not (allow_floorplan_only and has_floorplan_material)
+        ):
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="listing_360_media_missing",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -15771,7 +20520,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "listing_360_media_missing",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -15786,17 +20535,128 @@ class ProductService:
             )
             return payload
         if not resolved_binding_id:
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason="browseract_connector_unconfigured",
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id="",
-            )
+            if source_virtual_tour_url:
+                try:
+                    structured_output = _write_hosted_feelestate_pure_360_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": "",
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "panorama_360",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "pure_hosted_360",
+                        "source_virtual_tour_url": "",
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    pass
+            if source_floorplan_urls:
+                try:
+                    structured_output = _write_hosted_floorplan_property_tour_bundle(
+                        principal_id=principal_id,
+                        title=title,
+                        listing_id=listing_id,
+                        property_url=normalized_url,
+                        variant_key=resolved_variant_key,
+                        floorplan_urls=source_floorplan_urls,
+                        property_facts_json=property_facts_json,
+                        source_host=source_host,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        recipient_email=resolved_recipient_email,
+                    )
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output)
+                    payload = {
+                        "generated_at": generated_at,
+                        "status": "created",
+                        "property_url": normalized_url,
+                        "title": title,
+                        "listing_id": listing_id,
+                        "variant_key": resolved_variant_key,
+                        "artifact_id": "",
+                        "execution_session_id": "",
+                        "connector_binding_id": "",
+                        "tour_url": tour_url,
+                        "vendor_tour_url": vendor_tour_url,
+                        "editor_url": "",
+                        "delivery_email": resolved_recipient_email,
+                        "delivery_status": "skipped" if not auto_deliver else "",
+                        "blocked_reason": "",
+                        "human_task_id": "",
+                        "source_ref": resolved_source_ref,
+                        "external_id": resolved_external_id,
+                        "tour_media_mode": "floorplan_hosted",
+                        "decision_summary": dict(property_facts_json.get("decision_summary") or {}),
+                        "personal_fit_assessment": dict(personal_fit_assessment or {}),
+                        "creation_mode": "hosted_floorplan_tour",
+                    }
+                    try:
+                        self._record_product_event(
+                            principal_id=principal_id,
+                            event_type="generic_property_tour_created",
+                            payload={**payload, "tour_id": "", "slug": str(structured_output.get("slug") or "").strip()},
+                            source_id=resolved_source_ref,
+                            dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-created",
+                        )
+                    except Exception:
+                        pass
+                    return payload
+                except Exception:
+                    pass
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason="browseract_connector_unconfigured",
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id="",
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -15813,7 +20673,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": "browseract_connector_unconfigured",
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -15880,6 +20740,7 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
+                        floorplan_urls=source_floorplan_urls,
                         property_facts_json=property_facts_json,
                         source_host=source_host,
                         source_ref=resolved_source_ref,
@@ -15986,17 +20847,20 @@ class ProductService:
                     return payload
                 except Exception:
                     blocked_reason = "floorplan_assets_unavailable"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -16013,7 +20877,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -16030,17 +20894,20 @@ class ProductService:
         structured_output = _ensure_hosted_property_tour_url(dict(getattr(artifact, "structured_output_json", {}) or {}))
         if _property_tour_payload_is_disabled_fallback(structured_output):
             blocked_reason = "property_tour_fallback_disabled"
-            followup = self._open_property_tour_followup(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                title=title,
-                variant_key=resolved_variant_key,
-                blocked_reason=blocked_reason,
-                recipient_email=resolved_recipient_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                connector_binding_id=resolved_binding_id,
-            )
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
             payload = {
                 "generated_at": generated_at,
                 "status": "blocked",
@@ -16057,7 +20924,7 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
-                "human_task_id": f"human_task:{followup.human_task_id}",
+                "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
                 "tour_media_mode": tour_media_mode,
@@ -16203,6 +21070,590 @@ class ProductService:
         )
         return payload
 
+    def deliver_telegram_property_link_bundle(
+        self,
+        *,
+        principal_id: str,
+        property_url: str,
+        actor: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        preference_person_id: str = "self",
+        style_hint: str = "",
+        birthday_party_request: bool = False,
+        person_motion_hint: str = "",
+    ) -> dict[str, object]:
+        normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_url or not _property_scout_is_supported_listing_url(normalized_url):
+            return {"status": "invalid", "reason": "property_url_invalid"}
+        with contextlib.suppress(Exception):
+            send_telegram_chat_action_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                action="typing",
+            )
+        resolved_actor = str(actor or "").strip() or "telegram_property_link"
+        resolved_source_ref = str(source_ref or f"telegram-property-link:{_saved_link_fallback_id(normalized_url)}").strip()
+        resolved_external_id = str(external_id or normalized_url).strip()
+        domain = "willhaben" if _is_willhaben_property_url(normalized_url) else "property_scout"
+        principal_email = _principal_email_hint(principal_id)
+        title = normalized_url
+        summary = ""
+        property_facts_json: dict[str, object] = {}
+        media_urls_json: list[str] = []
+        floorplan_urls_json: list[str] = []
+        source_virtual_tour_url = ""
+        panorama_media_urls_json: list[str] = []
+        try:
+            if _is_willhaben_property_url(normalized_url):
+                packet = _load_willhaben_property_packet_compat(normalized_url)
+                title = compact_text(str(packet.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
+                summary = compact_text(
+                    str(packet.get("description") or packet.get("summary") or "").strip(),
+                    fallback="",
+                    limit=900,
+                )
+                property_facts_json = dict(packet.get("property_facts_json") or {})
+                media_urls_json = [str(value or "").strip() for value in list(packet.get("media_urls_json") or []) if str(value or "").strip()]
+                floorplan_urls_json = [str(value or "").strip() for value in list(packet.get("floorplan_urls_json") or []) if str(value or "").strip()]
+                panorama_media_urls_json = [str(value or "").strip() for value in list(packet.get("panorama_media_urls_json") or []) if str(value or "").strip()]
+                source_virtual_tour_url = str(packet.get("source_virtual_tour_url") or property_facts_json.get("source_virtual_tour_url") or "").strip()
+            else:
+                preview = _property_scout_page_preview(normalized_url)
+                title = compact_text(str(preview.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
+                summary = compact_text(
+                    str(preview.get("description") or preview.get("summary") or "").strip(),
+                    fallback="",
+                    limit=900,
+                )
+                property_facts_json = _property_scout_candidate_payload_from_preview(property_url=normalized_url, preview=preview)
+                media_urls_json = [str(value or "").strip() for value in list(preview.get("media_urls_json") or []) if str(value or "").strip()]
+                floorplan_urls_json = [str(value or "").strip() for value in list(preview.get("floorplan_urls_json") or []) if str(value or "").strip()]
+                panorama_media_urls_json = [str(value or "").strip() for value in list(preview.get("panorama_media_urls_json") or []) if str(value or "").strip()]
+                source_virtual_tour_url = _first_non_empty_text(
+                    preview.get("source_virtual_tour_url"),
+                    property_facts_json.get("source_virtual_tour_url"),
+                )
+        except Exception:
+            title = normalized_url
+            summary = ""
+            property_facts_json = {}
+        property_facts_json = _merge_property_facts_with_source_research(
+            property_url=normalized_url,
+            property_facts=dict(property_facts_json or {}),
+            image_urls=tuple(media_urls_json),
+        )
+        try:
+            assessment = self._preference_profiles.assess_candidate(
+                principal_id=principal_id,
+                person_id=str(preference_person_id or "").strip() or "self",
+                domain=domain,
+                object_type="listing",
+                object_id=str(property_facts_json.get("listing_id") or _saved_link_fallback_id(normalized_url)).strip(),
+                object_payload=property_facts_json,
+                persist=True,
+                require_existing_profile=True,
+            )
+        except Exception:
+            assessment = None
+        fit_score = _property_alert_fit_score(dict(assessment or {}) if isinstance(assessment, dict) else None)
+        if _is_willhaben_property_url(normalized_url):
+            tour_result = self.create_willhaben_property_tour(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                recipient_email=principal_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                auto_deliver=False,
+                actor=resolved_actor,
+                allow_floorplan_only=True,
+                enforce_360_media=False,
+                suppress_human_followup=True,
+            )
+        else:
+            tour_result = self.create_generic_property_tour(
+                principal_id=principal_id,
+                property_url=normalized_url,
+                recipient_email=principal_email,
+                source_ref=resolved_source_ref,
+                external_id=resolved_external_id,
+                auto_deliver=False,
+                actor=resolved_actor,
+                allow_floorplan_only=True,
+                enforce_360_media=False,
+                suppress_human_followup=True,
+            )
+        review_url = ""
+        resolved_style_hint = _compact_diorama_style_hint(style_hint)
+        resolved_person_motion_hint = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+        if not resolved_person_motion_hint:
+            resolved_person_motion_hint = self._default_property_person_motion_hint(
+                principal_id=principal_id,
+                person_id=str(preference_person_id or "").strip() or "self",
+            )
+        candidate_payload = {
+            "listing_title": title,
+            "title": title,
+            "property_url": normalized_url,
+            "property_facts_json": dict(property_facts_json or {}),
+            "property_facts": dict(property_facts_json or {}),
+            "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+            "recommendation": str(dict(assessment or {}).get("recommendation") or "").strip() if isinstance(assessment, dict) else "",
+            "tour_url": str(tour_result.get("tour_url") or tour_result.get("vendor_tour_url") or "").strip(),
+            "vendor_tour_url": str(tour_result.get("vendor_tour_url") or "").strip(),
+            "review_url": review_url,
+            "media_urls_json": list(media_urls_json),
+            "floorplan_urls_json": list(floorplan_urls_json),
+            "source_virtual_tour_url": source_virtual_tour_url,
+            "panorama_media_urls_json": list(panorama_media_urls_json),
+            "diorama_style_hint": resolved_style_hint,
+        }
+        tour_url = str(tour_result.get("tour_url") or "").strip()
+        vendor_tour_url = str(tour_result.get("vendor_tour_url") or "").strip()
+        source_tour_url = str(source_virtual_tour_url or "").strip()
+        primary_tour_url = str(tour_url or vendor_tour_url or source_tour_url).strip()
+        principal_access_email = _principal_email_hint(principal_id)
+
+        def _autologin_button_url(target_url: str) -> str:
+            relative_target = _workspace_relative_target_from_public_url(target_url)
+            if not relative_target or not principal_access_email:
+                return _telegram_safe_url_button_target(target_url)
+            try:
+                access_session = self.issue_workspace_access_session(
+                    principal_id=principal_id,
+                    email=principal_access_email,
+                    role="principal",
+                    source_kind="telegram_property_link_access",
+                    expires_in_hours=72,
+                    default_target=relative_target,
+                )
+                launch_path = str(
+                    access_session.get("access_launch_url")
+                    or access_session.get("access_url")
+                    or ""
+                ).strip()
+                if launch_path:
+                    launch_url = urllib.parse.urljoin(f"{_public_app_base_url().rstrip('/')}/", launch_path.lstrip("/"))
+                    return _telegram_safe_url_button_target(launch_url)
+            except Exception:
+                pass
+            return _telegram_safe_url_button_target(target_url)
+
+        renderable_tour_url = str(tour_url or vendor_tour_url).strip()
+        video_delivery = _hosted_property_tour_video_delivery(renderable_tour_url) if renderable_tour_url else {}
+        if renderable_tour_url and not str(video_delivery.get("video_url") or "").strip():
+            magicfit_render = _render_magicfit_property_flythrough_into_hosted_tour(
+                tour_url=renderable_tour_url,
+                title=title,
+                property_facts=property_facts_json,
+                actor=resolved_actor,
+                birthday_party_request=birthday_party_request,
+                person_motion_hint=resolved_person_motion_hint,
+            )
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_link_magicfit_flythrough_rendered",
+                payload={
+                    "property_url": normalized_url,
+                    "title": title,
+                    "source_ref": resolved_source_ref,
+                    "tour_url": renderable_tour_url,
+                    **dict(magicfit_render or {}),
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-magicfit-flythrough",
+            )
+            video_delivery = _hosted_property_tour_video_delivery(renderable_tour_url) if renderable_tour_url else {}
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=resolved_actor,
+            title=title,
+            summary=summary,
+            counterparty=urllib.parse.urlparse(normalized_url).netloc.lower(),
+            account_email=principal_email,
+            property_url=normalized_url,
+            source_ref=resolved_source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=float(fit_score or 0.0),
+            preference_person_id=str(preference_person_id or "").strip() or "self",
+            review_url=review_url,
+            tour_result=dict(tour_result or {}),
+            diorama_style_hint=resolved_style_hint,
+            candidate_properties=(candidate_payload,),
+            permissive_media_gate=True,
+            birthday_party_request=birthday_party_request,
+            person_motion_hint=resolved_person_motion_hint,
+        )
+        fit_summary = _property_alert_fit_summary(dict(assessment or {}) if isinstance(assessment, dict) else {})
+        public_pdf_url = str(dossier_render.get("public_pdf_url") or "").strip()
+        video_url = str(video_delivery.get("video_url") or "").strip()
+        video_provider_key = str(video_delivery.get("provider_key") or "").strip().lower()
+        video_gate_reason = ""
+        if video_url and video_provider_key != "magicfit":
+            video_gate_reason = "flythrough_not_rendered_by_MagicFit"
+            video_url = ""
+        if video_url:
+            video_gate_ok, video_gate_reason = _property_bundle_exit_gate_http_url(
+                video_url,
+                kind="flythrough_video",
+                allowed_mime_prefixes=("video/", "application/octet-stream"),
+            )
+            if not video_gate_ok:
+                video_url = ""
+                video_provider_key = ""
+        video_ready = bool(video_url)
+        dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
+        dossier_status = str(dossier_render.get("status") or "").strip()
+        dossier_reason = str(dossier_render.get("reason") or "").strip()
+        bundle_ready = bool(primary_tour_url and dossier_ready and video_ready)
+        if not bundle_ready:
+            pending_reasons: list[str] = []
+            if not primary_tour_url:
+                blocked_reason = str(tour_result.get("blocked_reason") or "").strip()
+                pending_reasons.append(
+                    "3D tour missing" + (f" ({blocked_reason.replace('_', ' ')})" if blocked_reason else "")
+                )
+            if not video_url:
+                pending_reasons.append("flythrough video missing" + (f" ({video_gate_reason.replace('_', ' ')})" if video_gate_reason else ""))
+            if not dossier_ready:
+                dossier_issue = dossier_reason or dossier_status or "dossier not rendered"
+                if dossier_issue == "failed":
+                    dossier_issue = "dossier render failed"
+                pending_reasons.append(f"dossier not rendered ({dossier_issue})")
+            pending_binding = resolve_primary_telegram_binding(self._container.tool_runtime, principal_id=principal_id)
+            pending_chat_ref = ""
+            if pending_binding is not None:
+                pending_metadata = dict(pending_binding.auth_metadata_json or {})
+                pending_chat_ref = str(
+                    pending_metadata.get("default_chat_ref") or pending_binding.external_account_ref or ""
+                ).strip()
+            payload = {
+                "property_url": normalized_url,
+                "title": title,
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "actor": resolved_actor,
+                "tour_url": tour_url,
+                "dossier_render_status": dossier_status,
+                "dossier_render_reason": dossier_reason,
+                "diorama_style_hint": resolved_style_hint,
+                "telegram_message_ids": [],
+                "telegram_chat_ref": pending_chat_ref,
+                "telegram_video_delivery_status": "skipped",
+                "telegram_video_url": video_url,
+                "telegram_video_provider_key": video_provider_key,
+                "telegram_video_message_ids": [],
+                "telegram_video_delivery_error": "",
+                "dossier_delivery_status": "skipped",
+                "dossier_delivery_error": "",
+                "dossier_pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+                "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+                "dossier_telegram_message_ids": [],
+                "fit_score": float(fit_score or 0.0),
+                "pending_reasons": pending_reasons,
+            }
+            if dossier_render.get("embedded_media_count") is not None:
+                payload["dossier_embedded_media_count"] = dossier_render.get("embedded_media_count")
+            if dossier_render.get("required_media_count") is not None:
+                payload["dossier_required_media_count"] = dossier_render.get("required_media_count")
+            if dossier_render.get("expected_media_count") is not None:
+                payload["dossier_expected_media_count"] = dossier_render.get("expected_media_count")
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_link_bundle_pending",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-bundle-pending",
+            )
+            return {
+                "status": "pending",
+                "tour_url": tour_url,
+                "telegram_message_ids": [],
+                "telegram_video_message_ids": [],
+                "dossier_telegram_message_ids": [],
+                "dossier_status": "skipped",
+                "video_status": "skipped",
+                "pending_reasons": pending_reasons,
+            }
+        summary_lines = [title]
+        summary_lines.append("Full bundle ready: white-label 3D tour, flythrough video, and dossier PDF.")
+        if fit_summary:
+            summary_lines.append(fit_summary)
+        elif fit_score > 0:
+            summary_lines.append(f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100")
+        summary_lines.extend(_property_link_bundle_key_facts_lines(property_facts_json))
+        summary_lines.append("Open 3D Tour goes directly into the interactive tour. Open Flythrough starts the video immediately.")
+        url_buttons: list[list[tuple[str, str]]] = []
+        first_row: list[tuple[str, str]] = []
+        deep_3d_tour_url = ""
+        deep_flythrough_url = ""
+        if primary_tour_url:
+            direct_360_url = _hosted_property_tour_direct_360_url(primary_tour_url)
+            deep_3d_tour_url = _telegram_safe_url_button_target(direct_360_url) if direct_360_url else _autologin_button_url(
+                _property_tour_deep_link(primary_tour_url, pane="panorama-pane")
+            )
+            if deep_3d_tour_url:
+                first_row.append(("Open 3D Tour", deep_3d_tour_url))
+        if video_url:
+            deep_flythrough_url = _telegram_safe_url_button_target(video_url)
+            if deep_flythrough_url:
+                first_row.append(("Open Flythrough", deep_flythrough_url))
+        safe_public_pdf_url = _autologin_button_url(public_pdf_url)
+        if safe_public_pdf_url:
+            first_row.append(("Open Dossier PDF", safe_public_pdf_url))
+        if first_row:
+            url_buttons.append(first_row[:2])
+        second_row: list[tuple[str, str]] = []
+        if len(first_row) > 2:
+            second_row.insert(0, first_row[2])
+        safe_listing_url = _telegram_safe_url_button_target(normalized_url)
+        if safe_listing_url:
+            second_row.append(("Open Listing", safe_listing_url))
+        navigation_url = _telegram_safe_url_button_target(_google_navigation_button_url(property_facts_json))
+        if navigation_url:
+            second_row.append(("Navigation", navigation_url))
+        if second_row:
+            url_buttons.append(second_row[:2])
+        preview_image_url = str(dossier_render.get("diorama_preview_url") or "").strip() or _property_link_bundle_preview_image_url(
+            media_urls=media_urls_json,
+            source_virtual_tour_url=source_tour_url,
+            tour_url=renderable_tour_url,
+            diorama_style_hint=resolved_style_hint,
+        )
+        if preview_image_url:
+            preview_gate_ok, _preview_gate_reason = _property_bundle_exit_gate_http_url(
+                preview_image_url,
+                kind="preview_image",
+                allowed_mime_prefixes=("image/", "application/octet-stream"),
+            )
+            if not preview_gate_ok:
+                preview_image_url = ""
+        message_text = "\n".join(summary_lines)
+        if preview_image_url:
+            try:
+                with contextlib.suppress(Exception):
+                    send_telegram_chat_action_for_principal(
+                        self._container.tool_runtime,
+                        principal_id=principal_id,
+                        action="upload_photo",
+                    )
+                message_receipt = send_telegram_photo_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    photo_ref=preview_image_url,
+                    caption=message_text,
+                    url_buttons=url_buttons,
+                )
+            except Exception:
+                message_receipt = send_telegram_message_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    text=message_text,
+                    url_buttons=url_buttons,
+                )
+        else:
+            message_receipt = send_telegram_message_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                text=message_text,
+                url_buttons=url_buttons,
+            )
+        video_delivery_status = "linked" if video_url else "missing"
+        video_delivery_error = ""
+        video_message_ids: list[str] = []
+        dossier_delivery_status = "linked" if str(dossier_render.get("status") or "").strip() == "rendered" else "missing"
+        dossier_delivery_error = ""
+        dossier_message_ids: list[str] = []
+        payload = {
+            "property_url": normalized_url,
+            "title": title,
+            "source_ref": resolved_source_ref,
+            "external_id": resolved_external_id,
+            "actor": resolved_actor,
+            "tour_url": tour_url,
+            "telegram_message_ids": list(message_receipt.message_ids),
+            "telegram_chat_ref": str(message_receipt.chat_id or "").strip(),
+            "telegram_video_delivery_status": video_delivery_status,
+            "telegram_video_url": video_url,
+            "telegram_video_provider_key": video_provider_key,
+            "telegram_video_message_ids": list(video_message_ids),
+            "telegram_video_delivery_error": video_delivery_error,
+            "dossier_render_status": dossier_status,
+            "dossier_render_reason": dossier_reason,
+            "diorama_style_hint": resolved_style_hint,
+            "dossier_delivery_status": dossier_delivery_status,
+            "dossier_delivery_error": dossier_delivery_error,
+            "dossier_pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+            "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+            "dossier_telegram_message_ids": list(dossier_message_ids),
+            "fit_score": float(fit_score or 0.0),
+            "direct_tour_url": deep_3d_tour_url,
+            "direct_flythrough_url": deep_flythrough_url,
+            "preview_image_url": preview_image_url,
+        }
+        if dossier_render.get("embedded_media_count") is not None:
+            payload["dossier_embedded_media_count"] = dossier_render.get("embedded_media_count")
+        if dossier_render.get("required_media_count") is not None:
+            payload["dossier_required_media_count"] = dossier_render.get("required_media_count")
+        if dossier_render.get("expected_media_count") is not None:
+            payload["dossier_expected_media_count"] = dossier_render.get("expected_media_count")
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_link_bundle_sent",
+            payload=payload,
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-link-bundle",
+        )
+        return {
+            "status": "sent",
+            "tour_url": tour_url,
+            "telegram_message_ids": list(message_receipt.message_ids),
+            "telegram_video_message_ids": list(video_message_ids),
+            "dossier_telegram_message_ids": list(dossier_message_ids),
+            "dossier_status": dossier_delivery_status,
+            "video_status": video_delivery_status,
+        }
+
+    def deliver_telegram_property_pdf_bundle(
+        self,
+        *,
+        principal_id: str,
+        source_pdf_url: str,
+        source_pdf_filename: str = "",
+        caption: str = "",
+        actor: str = "",
+        source_ref: str = "",
+        external_id: str = "",
+        preference_person_id: str = "self",
+    ) -> dict[str, object]:
+        normalized_pdf_url = str(source_pdf_url or "").strip()
+        filename = str(source_pdf_filename or "").strip() or "property-upload.pdf"
+        if not normalized_pdf_url:
+            return {"status": "invalid", "reason": "source_pdf_url_missing"}
+        if not filename.lower().endswith(".pdf"):
+            return {"status": "invalid", "reason": "source_pdf_not_pdf"}
+        with contextlib.suppress(Exception):
+            send_telegram_chat_action_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                action="typing",
+            )
+        resolved_actor = str(actor or "").strip() or "telegram_property_pdf"
+        resolved_source_ref = str(source_ref or f"telegram-property-pdf:{hashlib.sha256(normalized_pdf_url.encode('utf-8')).hexdigest()[:16]}").strip()
+        resolved_external_id = str(external_id or normalized_pdf_url).strip()
+        title_seed = str(caption or "").strip() or Path(filename).stem.replace("_", " ").replace("-", " ")
+        title = compact_text(title_seed, fallback="Telegram property PDF", limit=160)
+        summary = compact_text(
+            f"Property PDF uploaded via Telegram: {filename}. {str(caption or '').strip()}".strip(),
+            fallback=f"Property PDF uploaded via Telegram: {filename}.",
+            limit=900,
+        )
+        property_url = normalized_pdf_url
+        property_facts_json: dict[str, object] = {
+            "source": "telegram_pdf",
+            "source_pdf_filename": filename,
+            "source_pdf_url": normalized_pdf_url,
+            "has_floorplan": True,
+            "listing_id": hashlib.sha256(normalized_pdf_url.encode("utf-8")).hexdigest()[:16],
+        }
+        candidate_payload = {
+            "listing_title": title,
+            "title": title,
+            "property_url": property_url,
+            "property_facts_json": dict(property_facts_json),
+            "property_facts": dict(property_facts_json),
+            "assessment": {},
+            "recommendation": "review",
+            "tour_url": "",
+            "vendor_tour_url": "",
+            "review_url": "",
+            "media_urls_json": [],
+            "floorplan_urls_json": [normalized_pdf_url],
+            "source_virtual_tour_url": "",
+            "panorama_media_urls_json": [],
+            "diorama_style_hint": "",
+        }
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=resolved_actor,
+            title=title,
+            summary=summary,
+            counterparty="telegram_pdf",
+            account_email=_principal_email_hint(principal_id),
+            property_url=property_url,
+            source_ref=resolved_source_ref,
+            assessment={},
+            fit_score=0.0,
+            preference_person_id=str(preference_person_id or "").strip() or "self",
+            review_url="",
+            tour_result={},
+            candidate_properties=(candidate_payload,),
+            permissive_media_gate=True,
+        )
+        dossier_ready = str(dossier_render.get("status") or "").strip() == "rendered"
+        if not dossier_ready:
+            reason = str(dossier_render.get("reason") or dossier_render.get("status") or "dossier_not_rendered").strip()
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": reason,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle-failed",
+            )
+            return {"status": "failed", "reason": reason, "source_pdf_filename": filename}
+        pdf_path = str(dossier_render.get("pdf_path") or "").strip()
+        try:
+            with contextlib.suppress(Exception):
+                send_telegram_chat_action_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    action="upload_document",
+                )
+            receipt = send_telegram_document_for_principal(
+                self._container.tool_runtime,
+                principal_id=principal_id,
+                document_ref=pdf_path,
+                caption=str(dossier_render.get("caption") or f"PropertyQuarry dossier · {title}").strip(),
+            )
+        except Exception as exc:
+            reason = compact_text(str(exc or ""), fallback="telegram_document_delivery_failed", limit=180)
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="telegram_property_pdf_bundle_failed",
+                payload={
+                    "source_pdf_filename": filename,
+                    "source_ref": resolved_source_ref,
+                    "external_id": resolved_external_id,
+                    "reason": reason,
+                    "pdf_path": pdf_path,
+                },
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle-delivery-failed",
+            )
+            return {"status": "failed", "reason": reason, "source_pdf_filename": filename, "pdf_path": pdf_path}
+        payload = {
+            "source_pdf_filename": filename,
+            "source_ref": resolved_source_ref,
+            "external_id": resolved_external_id,
+            "dossier_pdf_path": pdf_path,
+            "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+            "telegram_chat_ref": str(receipt.chat_id or "").strip(),
+            "telegram_message_ids": list(receipt.message_ids),
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="telegram_property_pdf_bundle_sent",
+            payload=payload,
+            source_id=resolved_source_ref,
+            dedupe_key=f"{principal_id}|{resolved_source_ref}|telegram-property-pdf-bundle",
+        )
+        return {"status": "sent", **payload}
+
     def sync_google_workspace_signals(
         self,
         *,
@@ -16289,6 +21740,11 @@ class ProductService:
             granted_scopes=packet.granted_scopes,
             signals=filtered_signals,
         )
+        self._apply_property_signal_preference_learning(
+            principal_id=principal_id,
+            actor=actor,
+            signals=filtered_signals,
+        )
         return self._ingest_google_workspace_signal_packet(
             principal_id=principal_id,
             actor=actor,
@@ -16298,6 +21754,60 @@ class ProductService:
             event_type="google_willhaben_signal_sync_completed",
             dedupe_key_prefix="google-willhaben-signal-sync",
         )
+
+    def _apply_property_signal_preference_learning(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        signals: tuple[google_oauth_service.GoogleWorkspaceSignal, ...],
+    ) -> None:
+        grouped_activities: dict[str, list[dict[str, object]]] = {}
+        grouped_account_emails: dict[str, str] = {}
+        for signal in signals:
+            payload = dict(signal.payload or {})
+            person_id = _property_alert_preference_person_id(payload)
+            if str(person_id or "").strip().lower() == "self":
+                continue
+            activity = self._property_mailbox_import_activity_from_signal(signal=signal)
+            if not activity:
+                continue
+            normalized_person_id = str(person_id or "").strip()
+            grouped_activities.setdefault(normalized_person_id, []).append(activity)
+            account_email = str(payload.get("account_email") or "").strip().lower()
+            if account_email:
+                grouped_account_emails[normalized_person_id] = account_email
+        for person_id, activities in grouped_activities.items():
+            preference_hints = self._property_mailbox_preference_hints_from_activities(activities=activities)
+            if not preference_hints:
+                continue
+            display_name = person_id.replace("_", " ").replace("-", " ").strip().title() or person_id
+            self.upsert_preference_profile(
+                principal_id=principal_id,
+                person_id=person_id,
+                display_name=display_name,
+            )
+            self.record_preference_evidence(
+                principal_id=principal_id,
+                person_id=person_id,
+                domain="property",
+                event_type="document_pattern_detected",
+                object_type="profile",
+                object_id=f"google-property-sync:{person_id}",
+                source_ref=f"google-property-sync:{grouped_account_emails.get(person_id) or person_id}",
+                raw_signal_json={
+                    "account_email": grouped_account_emails.get(person_id, ""),
+                    "actor": str(actor or "").strip() or "google_sync",
+                    "activities": [dict(item) for item in activities[:50]],
+                },
+                interpreted_signal_json={
+                    "source": "google_property_sync",
+                    "preference_hints": preference_hints,
+                    "activity_total": len(activities),
+                },
+                signal_strength=0.9,
+                reversible=True,
+            )
 
     def _snapshot_property_search_run(self, *, run_id: str, principal_id: str) -> dict[str, object] | None:
         normalized_run_id = str(run_id or "").strip()
@@ -16650,9 +22160,9 @@ class ProductService:
         )
         access_url = str(access_session.get("access_url") or "").strip()
         absolute_access_url = (
-            urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+            urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
             if access_url
-            else f"{_property_public_app_base_url()}/app/properties"
+            else f"{_workspace_access_public_base_url()}/app/properties"
         )
         separator = "&" if "?" in absolute_access_url else "?"
         workspace_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote('/app/properties', safe='/?:=&')}"
@@ -16687,7 +22197,45 @@ class ProductService:
             return urllib.parse.urljoin(f"{_property_public_app_base_url()}/", raw.lstrip("/"))
         return ""
 
-    def _property_search_results_email_top_properties(self, *, result: dict[str, object]) -> list[dict[str, object]]:
+    def _property_search_results_email_top_properties(
+        self,
+        *,
+        result: dict[str, object],
+        workspace_access_url: str = "",
+    ) -> list[dict[str, object]]:
+        def _secure_workspace_link(target: object) -> str:
+            raw_target = str(target or "").strip()
+            if not raw_target:
+                return ""
+            absolute_target = self._property_absolute_app_url(raw_target)
+            if not workspace_access_url:
+                return absolute_target or raw_target
+            if absolute_target:
+                parsed_target = urllib.parse.urlparse(absolute_target)
+                if parsed_target.path.startswith("/workspace-access/"):
+                    return absolute_target
+            parsed_access = urllib.parse.urlparse(workspace_access_url)
+            query = urllib.parse.parse_qs(parsed_access.query, keep_blank_values=True)
+            target_value = raw_target
+            if absolute_target:
+                target_parts = urllib.parse.urlparse(absolute_target)
+                target_value = target_parts.path or "/app/properties"
+                if target_parts.query:
+                    target_value = f"{target_value}?{target_parts.query}"
+                if target_parts.fragment:
+                    target_value = f"{target_value}#{target_parts.fragment}"
+            query["return_to"] = [target_value]
+            return urllib.parse.urlunparse(
+                (
+                    parsed_access.scheme,
+                    parsed_access.netloc,
+                    parsed_access.path,
+                    parsed_access.params,
+                    urllib.parse.urlencode(query, doseq=True),
+                    parsed_access.fragment,
+                )
+            )
+
         rows: list[dict[str, object]] = []
         for source in list(dict(result or {}).get("sources") or []):
             if not isinstance(source, dict):
@@ -16742,9 +22290,17 @@ class ProductService:
                             fallback=f"Personal fit {fit_score:.0f}/100" if fit_score else "",
                             limit=160,
                         ),
-                        "review_url": review_url or click_url,
-                        "tour_url": tour_url,
-                        "property_url": property_url,
+                        "compare_reason": compact_text(
+                            str(candidate.get("compare_reason") or "").strip(),
+                            fallback="",
+                            limit=220,
+                        ),
+                        "review_url": _secure_workspace_link(review_url or click_url),
+                        "tour_url": _secure_workspace_link(tour_url),
+                        "property_url": _secure_workspace_link(property_url),
+                        "raw_review_url": review_url or click_url,
+                        "raw_tour_url": tour_url,
+                        "raw_property_url": property_url,
                         "tour_status": str(candidate.get("tour_status") or ("ready" if tour_url else "pending")).strip(),
                         "price_label": compact_text(price_label, fallback="", limit=80),
                         "area_label": compact_text(area_label, fallback="", limit=80),
@@ -16777,9 +22333,9 @@ class ProductService:
         access_url = str(access_session.get("access_url") or "").strip()
         results_target = f"/app/properties?run_id={urllib.parse.quote(str(run_id or '').strip())}"
         absolute_access_url = (
-            urllib.parse.urljoin(f"{_property_public_app_base_url()}/", access_url.lstrip("/"))
+            urllib.parse.urljoin(f"{_workspace_access_public_base_url()}/", access_url.lstrip("/"))
             if access_url
-            else f"{_property_public_app_base_url()}{results_target}"
+            else f"{_workspace_access_public_base_url()}{results_target}"
         )
         separator = "&" if "?" in absolute_access_url else "?"
         results_url = f"{absolute_access_url}{separator}return_to={urllib.parse.quote(results_target, safe='/')}"
@@ -16788,7 +22344,10 @@ class ProductService:
             int(result.get("ready_tour_total") or 0),
             int(result.get("tour_created_total") or 0) + int(result.get("tour_existing_total") or 0),
         )
-        top_properties = self._property_search_results_email_top_properties(result=result)
+        top_properties = self._property_search_results_email_top_properties(
+            result=result,
+            workspace_access_url=absolute_access_url,
+        )
         receipt = send_property_search_results_ready_email(
             recipient_email=recipient_email,
             results_url=results_url,
@@ -17096,13 +22655,22 @@ class ProductService:
         merged_preferences = normalize_property_search_preferences(merged_preferences)
 
         explicit_platform_input = bool(selected_platforms)
-        normalized_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+        normalized_platforms = _property_search_platforms_with_family_toggles(
+            _normalize_property_search_platform_inputs(selected_platforms),
+            merged_preferences,
+        )
         if explicit_platform_input and not normalized_platforms:
             raise ValueError("invalid_property_search_platform")
         if not normalized_platforms and not explicit_platform_input:
-            normalized_platforms = _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms"))
+            normalized_platforms = _property_search_platforms_with_family_toggles(
+                _normalize_property_search_platform_inputs(merged_preferences.get("selected_platforms")),
+                merged_preferences,
+            )
             if not normalized_platforms:
-                normalized_platforms = tuple(default_platforms_for_country(merged_preferences.get("country_code")))
+                normalized_platforms = _property_search_platforms_with_family_toggles(
+                    tuple(default_platforms_for_country(merged_preferences.get("country_code"))),
+                    merged_preferences,
+                )
 
         merged_preferences["selected_platforms"] = list(normalized_platforms)
         merged_preferences["country_code"] = normalize_country_code(
@@ -17186,6 +22754,11 @@ class ProductService:
         except Exception:
             pass
         _prune_property_search_runs()
+        self._best_effort_propertyquarry_teable_sync(
+            principal_id=normalized_principal,
+            run_id=run_id,
+            reason="property_search_run_queued",
+        )
 
         def _progress(
             *,
@@ -17290,6 +22863,11 @@ class ProductService:
                             source_id=run_id,
                             dedupe_key=f"{normalized_principal}|{run_id}|property-search-results-ready-refresh-failed",
                         )
+                self._best_effort_propertyquarry_teable_sync(
+                    principal_id=normalized_principal,
+                    run_id=run_id,
+                    reason="property_search_run_completed",
+                )
             except Exception as exc:
                 self._record_property_search_run_event(
                     run_id=run_id,
@@ -17299,6 +22877,11 @@ class ProductService:
                     status="failed",
                     steps_delta=0,
                     force_status="failed",
+                )
+                self._best_effort_propertyquarry_teable_sync(
+                    principal_id=normalized_principal,
+                    run_id=run_id,
+                    reason="property_search_run_failed",
                 )
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -17386,6 +22969,11 @@ class ProductService:
             summary_updates=None,
             force_status=str(snapshot.get("status") or "processed").strip().lower() or "processed",
         )
+        self._best_effort_propertyquarry_teable_sync(
+            principal_id=normalized_principal,
+            run_id=normalized_run_id,
+            reason="property_research_task_updated",
+        )
         return self._snapshot_property_search_run(run_id=normalized_run_id, principal_id=normalized_principal)
 
     def reconcile_property_search_results_delivery(
@@ -17453,7 +23041,10 @@ class ProductService:
         max_results_per_source: int | None = None,
         progress_callback: callable | None = None,
     ) -> dict[str, object]:
-        run_platforms = _normalize_property_search_platform_inputs(selected_platforms)
+        run_platforms = _property_search_platforms_with_family_toggles(
+            _normalize_property_search_platform_inputs(selected_platforms),
+            property_search_preferences,
+        )
 
         def _report(
             *,
@@ -17509,17 +23100,62 @@ class ProductService:
         )
         location_hints = _property_search_location_hints(request_preferences)
         requested_property_type = normalize_property_type(request_preferences.get("property_type"))
+        listing_mode = str(request_preferences.get("listing_mode") or "rent").strip().lower() or "rent"
+        investment_research_mode = str(request_preferences.get("investment_research_mode") or "off").strip().lower() or "off"
+        if listing_mode != "buy":
+            investment_research_mode = "off"
         min_match_score = _property_search_effective_min_match_score(request_preferences)
         match_score_cap = _property_search_match_score_cap(request_preferences)
         min_area_m2 = _float_or_none(request_preferences.get("min_area_m2")) or 0.0
         if min_area_m2 < 0.0:
             min_area_m2 = 0.0
+        try:
+            available_within_years = max(0, min(10, int(float(str(request_preferences.get("available_within_years") or "").strip()))))
+        except Exception:
+            available_within_years = 0
         require_floorplan = _property_truthy_flag(request_preferences.get("require_floorplan"))
+        enable_lifestyle_research = _property_truthy_flag(request_preferences.get("enable_lifestyle_research"))
+        enable_family_mode = _property_truthy_flag(request_preferences.get("enable_family_mode"))
+        enable_commute_research = _property_truthy_flag(request_preferences.get("enable_commute_research"))
+        apply_unknowns_penalty = _property_truthy_flag(request_preferences.get("apply_unknowns_penalty"))
+        enable_action_readiness_research = _property_truthy_flag(request_preferences.get("enable_action_readiness_research"))
+        desired_project_stages = [
+            str(item or "").strip().lower()
+            for item in list(request_preferences.get("desired_project_stages") or [])
+            if str(item or "").strip()
+        ]
+        commute_destination = str(request_preferences.get("commute_destination") or "").strip()
         request_preferences["min_match_score"] = min_match_score
         if min_area_m2 > 0.0:
             request_preferences["min_area_m2"] = int(min_area_m2) if min_area_m2.is_integer() else round(min_area_m2, 2)
+        if available_within_years > 0:
+            request_preferences["available_within_years"] = available_within_years
+        else:
+            request_preferences.pop("available_within_years", None)
         request_preferences["require_floorplan"] = require_floorplan
         request_preferences["use_stored_feedback_preferences"] = use_stored_feedback_preferences
+        request_preferences["investment_research_mode"] = investment_research_mode
+        request_preferences["enable_family_mode"] = enable_family_mode
+        request_preferences["enable_commute_research"] = enable_commute_research
+        request_preferences["apply_unknowns_penalty"] = apply_unknowns_penalty
+        request_preferences["enable_action_readiness_research"] = enable_action_readiness_research
+        request_preferences["desired_project_stages"] = desired_project_stages
+        if commute_destination:
+            request_preferences["commute_destination"] = commute_destination
+        else:
+            request_preferences.pop("commute_destination", None)
+        if not enable_lifestyle_research:
+            for numeric_key in (
+                "max_distance_to_starbucks_m",
+                "max_distance_to_fitness_center_m",
+                "max_distance_to_cinema_m",
+                "max_distance_to_bouldering_m",
+                "max_distance_to_dog_park_m",
+                "max_distance_to_good_cafe_m",
+            ):
+                request_preferences.pop(numeric_key, None)
+        if not enable_family_mode:
+            request_preferences.pop("max_distance_to_library_m", None)
 
         specs = [
             dict(spec)
@@ -17544,7 +23180,9 @@ class ProductService:
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                "available_within_years": available_within_years,
                 "require_floorplan": require_floorplan,
+                "investment_research_mode": investment_research_mode,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
             },
             steps_delta=1,
@@ -17567,13 +23205,37 @@ class ProductService:
                 "failed_total": 0,
                 "filtered_property_type_total": 0,
                 "filtered_area_total": 0,
+                "filtered_availability_total": 0,
                 "filtered_floorplan_total": 0,
                 "filtered_low_fit_total": 0,
+                "provider_cache_hit_total": 0,
+                "provider_cache_refresh_total": 0,
                 "high_match_min_score": min_match_score,
                 "max_match_score": match_score_cap,
                 "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                "available_within_years": available_within_years,
                 "require_floorplan": require_floorplan,
+                "investment_research_mode": investment_research_mode,
                 "use_stored_feedback_preferences": use_stored_feedback_preferences,
+                "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
+                "include_community_signals": bool(request_preferences.get("include_community_signals")),
+                "require_manual_validation_for_community": bool(request_preferences.get("require_manual_validation_for_community")),
+                "include_developer_project_signals": bool(request_preferences.get("include_developer_project_signals")),
+                "include_public_housing_signals": bool(request_preferences.get("include_public_housing_signals")),
+                "include_distressed_sale_signals": bool(request_preferences.get("include_distressed_sale_signals")),
+                "enable_building_risk_research": bool(request_preferences.get("enable_building_risk_research")),
+                "enable_market_supply_research": bool(request_preferences.get("enable_market_supply_research")),
+                "enable_location_risk_research": bool(request_preferences.get("enable_location_risk_research")),
+                "enable_trust_risk_scoring": bool(request_preferences.get("enable_trust_risk_scoring")),
+                "enable_family_mode": enable_family_mode,
+                "enable_commute_research": enable_commute_research,
+                "commute_destination": commute_destination,
+                "max_commute_minutes_transit": int(request_preferences.get("max_commute_minutes_transit") or 0),
+                "max_commute_minutes_drive": int(request_preferences.get("max_commute_minutes_drive") or 0),
+                "max_commute_minutes_bike": int(request_preferences.get("max_commute_minutes_bike") or 0),
+                "desired_project_stages": desired_project_stages,
+                "apply_unknowns_penalty": apply_unknowns_penalty,
+                "enable_action_readiness_research": enable_action_readiness_research,
                 "watch_notified_total": 0,
                 "sources": [],
             }
@@ -17590,8 +23252,11 @@ class ProductService:
         failed_total = 0
         filtered_property_type_total = 0
         filtered_area_total = 0
+        filtered_availability_total = 0
         filtered_floorplan_total = 0
         filtered_low_fit_total = 0
+        provider_cache_hit_total = 0
+        provider_cache_refresh_total = 0
         watch_notified_total = 0
         policy = self.property_alert_policy(principal_id=principal_id)
         source_summaries: list[dict[str, object]] = []
@@ -17599,6 +23264,12 @@ class ProductService:
         for source_spec in specs:
             source_url = urllib.parse.urldefrag(str(source_spec.get("url") or "").strip())[0]
             source_label = compact_text(str(source_spec.get("label") or "").strip(), fallback="", limit=120) or urllib.parse.urlparse(source_url).netloc
+            provider_filter_pushdown = (
+                dict(source_spec.get("provider_filter_pushdown") or {})
+                if isinstance(source_spec.get("provider_filter_pushdown"), dict)
+                else {}
+            )
+            provider_cache_key = _property_source_listing_cache_key(source_url=source_url, source_spec=source_spec)
             default_max = max(1, min(int(source_spec.get("max_results") or 3), 10))
             max_results = default_max if resolved_max_results is None else resolved_max_results
             max_results = max(1, min(10, int(max_results)))
@@ -17609,8 +23280,10 @@ class ProductService:
                 source_preference_person_id = preference_person_id
             filtered_property_type_for_source = 0
             filtered_area_for_source = 0
+            filtered_availability_for_source = 0
             filtered_floorplan_for_source = 0
             filtered_low_fit_for_source = 0
+            provider_cache_state: dict[str, object] = {"status": "not_started", "cache_key": provider_cache_key}
 
             _report(
                 step="source_started",
@@ -17625,15 +23298,28 @@ class ProductService:
                     message=f"Fetching source page for {source_label}.",
                     status="in_progress",
                     steps_delta=1,
+                    summary_updates={
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "provider_cache_key": provider_cache_key,
+                    },
                 )
-                html = _property_scout_fetch_html(source_url)
+                listing_urls, provider_cache_state = _property_scout_listing_urls_for_source(
+                    source_url=source_url,
+                    source_spec=source_spec,
+                    force_refresh=effective_force_refresh,
+                )
+                cache_status = str(provider_cache_state.get("status") or "").strip()
+                if cache_status in {"hit", "stale_fallback"}:
+                    provider_cache_hit_total += 1
+                elif cache_status in {"miss", "refresh"}:
+                    provider_cache_refresh_total += 1
                 _report(
                     step="source_extracting",
                     message=f"Extracting listing candidates from {source_label}.",
                     status="in_progress",
                     steps_delta=1,
+                    summary_updates={"provider_cache": provider_cache_state},
                 )
-                listing_urls = _property_scout_extract_listing_urls(source_url=source_url, html=html)
             except Exception as exc:
                 failed_total += 1
                 source_summaries.append(
@@ -17641,6 +23327,8 @@ class ProductService:
                         "source_url": source_url,
                         "source_label": source_label,
                         "preference_person_id": source_preference_person_id,
+                        "provider_filter_pushdown": provider_filter_pushdown,
+                        "provider_cache": {**provider_cache_state, "status": "failed"},
                         "listing_total": 0,
                         "review_created_total": 0,
                         "review_existing_total": 0,
@@ -17668,9 +23356,14 @@ class ProductService:
                     "raw_listing_total": raw_listing_count,
                     "scan_cap_per_source": scan_cap,
                     "scan_truncated": scan_truncated,
+                    "provider_cache": provider_cache_state,
+                    "provider_filter_pushdown": provider_filter_pushdown,
+                    "provider_cache_hit_total": provider_cache_hit_total,
+                    "provider_cache_refresh_total": provider_cache_refresh_total,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                    "available_within_years": available_within_years,
                 },
                 stages_total_override=2 + (len(specs) * max(8, (max(1, len(listing_urls)) * 2) + 6)),
             )
@@ -17697,6 +23390,17 @@ class ProductService:
                     facts=preview_facts,
                     source_url=source_url,
                     source_label=source_label,
+                )
+                preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
+                preview_facts = _property_enrich_future_change_research(
+                    preview_facts,
+                    investment_research_mode=investment_research_mode,
+                    available_within_years=available_within_years,
                 )
                 preview["property_facts_json"] = preview_facts
                 preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
@@ -17739,6 +23443,12 @@ class ProductService:
                                 source_url=source_url,
                                 source_label=source_label,
                             )
+                            preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                            preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                            preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                            preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                            preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                             preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
@@ -17764,6 +23474,23 @@ class ProductService:
                         },
                     )
                     continue
+                if available_within_years > 0 and not _property_candidate_matches_availability_horizon(
+                    available_within_years=available_within_years,
+                    property_facts=preview_facts,
+                ):
+                    filtered_availability_total += 1
+                    filtered_availability_for_source += 1
+                    _report(
+                        step="source_availability_filter",
+                        message=f"Skipped candidate {ordinal} of {len(listing_urls)} outside the move-in horizon for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_availability_total": filtered_availability_total,
+                            "available_within_years": available_within_years,
+                        },
+                    )
+                    continue
                 if require_floorplan and not _property_candidate_has_floorplan(
                     property_url=property_url,
                     title=preview_title,
@@ -17785,6 +23512,12 @@ class ProductService:
                                 source_url=source_url,
                                 source_label=source_label,
                             )
+                            preview_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                            preview_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                            preview_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                            preview_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                            preview_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                            preview_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
                             preview["property_facts_json"] = preview_facts
                             preview_title = compact_text(str(preview.get("title") or property_url).strip(), fallback=property_url, limit=160)
                             preview_summary = compact_text(str(preview.get("summary") or "").strip(), fallback="", limit=240)
@@ -17853,6 +23586,7 @@ class ProductService:
                     preliminary_rows = preliminary_matching_rows
             analysis_limit = len(preliminary_rows)
             ranked_rows: list[dict[str, object]] = []
+            top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:analysis_limit], start=1):
                 if len(ranked_rows) >= max_results:
                     break
@@ -17881,6 +23615,22 @@ class ProductService:
                     facts=detailed_facts,
                     source_url=source_url,
                     source_label=source_label,
+                )
+                detailed_facts["source_platform"] = str(source_spec.get("platform") or "").strip().lower()
+                detailed_facts["source_family"] = str(source_spec.get("provider_family") or "").strip().lower()
+                detailed_facts["source_trust_tier"] = str(source_spec.get("provider_trust_tier") or "").strip().lower()
+                detailed_facts["source_access_level"] = str(source_spec.get("source_access_level") or "").strip().lower()
+                detailed_facts["verification_required"] = bool(source_spec.get("verification_required"))
+                detailed_facts["apply_flatbee_reputation_penalty"] = bool(request_preferences.get("use_flatbee_reputation_penalty", True))
+                detailed_facts = _property_enrich_future_change_research(
+                    detailed_facts,
+                    investment_research_mode=investment_research_mode,
+                    available_within_years=available_within_years,
+                )
+                detailed_facts = _merge_property_facts_with_source_research(
+                    property_url=property_url,
+                    property_facts=detailed_facts,
+                    image_urls=tuple(_property_nonempty_sequence(preview.get("media_urls_json"))),
                 )
                 preview["property_facts_json"] = detailed_facts
                 detailed_title = str(preview.get("title") or property_url).strip() or property_url
@@ -17921,6 +23671,179 @@ class ProductService:
                             "min_area_m2": request_preferences.get("min_area_m2") or 0,
                         },
                     )
+                    continue
+                if available_within_years > 0 and not _property_candidate_matches_availability_horizon(
+                    available_within_years=available_within_years,
+                    property_facts=detailed_facts,
+                ):
+                    filtered_availability_total += 1
+                    filtered_availability_for_source += 1
+                    _report(
+                        step="source_availability_filter",
+                        message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the move-in horizon for {source_label}.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={
+                            "filtered_availability_total": filtered_availability_total,
+                            "available_within_years": available_within_years,
+                        },
+                    )
+                    continue
+                max_distance_to_starbucks_m = int(request_preferences.get("max_distance_to_starbucks_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_starbucks_m > 0:
+                    try:
+                        nearest_starbucks_m = float(detailed_facts.get("nearest_starbucks_m") or 0.0)
+                    except Exception:
+                        nearest_starbucks_m = 0.0
+                    if nearest_starbucks_m <= 0.0 or nearest_starbucks_m > float(max_distance_to_starbucks_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the Starbucks radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_fitness_center_m = int(request_preferences.get("max_distance_to_fitness_center_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_fitness_center_m > 0:
+                    try:
+                        nearest_fitness_center_m = float(detailed_facts.get("nearest_fitness_center_m") or 0.0)
+                    except Exception:
+                        nearest_fitness_center_m = 0.0
+                    if nearest_fitness_center_m <= 0.0 or nearest_fitness_center_m > float(max_distance_to_fitness_center_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the fitness radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_cinema_m = int(request_preferences.get("max_distance_to_cinema_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_cinema_m > 0:
+                    try:
+                        nearest_cinema_m = float(detailed_facts.get("nearest_cinema_m") or 0.0)
+                    except Exception:
+                        nearest_cinema_m = 0.0
+                    if nearest_cinema_m <= 0.0 or nearest_cinema_m > float(max_distance_to_cinema_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the cinema radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_bouldering_m = int(request_preferences.get("max_distance_to_bouldering_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_bouldering_m > 0:
+                    try:
+                        nearest_bouldering_m = float(detailed_facts.get("nearest_bouldering_m") or 0.0)
+                    except Exception:
+                        nearest_bouldering_m = 0.0
+                    if nearest_bouldering_m <= 0.0 or nearest_bouldering_m > float(max_distance_to_bouldering_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the bouldering radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_dog_park_m = int(request_preferences.get("max_distance_to_dog_park_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_dog_park_m > 0:
+                    try:
+                        nearest_dog_park_m = float(detailed_facts.get("nearest_dog_park_m") or 0.0)
+                    except Exception:
+                        nearest_dog_park_m = 0.0
+                    if nearest_dog_park_m <= 0.0 or nearest_dog_park_m > float(max_distance_to_dog_park_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the dog park radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_good_cafe_m = int(request_preferences.get("max_distance_to_good_cafe_m") or 0) if enable_lifestyle_research else 0
+                if enable_lifestyle_research and max_distance_to_good_cafe_m > 0:
+                    try:
+                        nearest_good_cafe_m = float(detailed_facts.get("nearest_good_cafe_m") or 0.0)
+                    except Exception:
+                        nearest_good_cafe_m = 0.0
+                    if nearest_good_cafe_m <= 0.0 or nearest_good_cafe_m > float(max_distance_to_good_cafe_m):
+                        _report(
+                            step="source_lifestyle_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the cafe radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_library_m = int(request_preferences.get("max_distance_to_library_m") or 0) if enable_family_mode else 0
+                if enable_family_mode and max_distance_to_library_m > 0:
+                    try:
+                        nearest_library_m = float(detailed_facts.get("nearest_library_m") or 0.0)
+                    except Exception:
+                        nearest_library_m = 0.0
+                    if nearest_library_m <= 0.0 or nearest_library_m > float(max_distance_to_library_m):
+                        _report(
+                            step="source_family_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the library radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                max_distance_to_zoo_m = int(request_preferences.get("max_distance_to_zoo_m") or 0) if enable_family_mode else 0
+                if enable_family_mode and max_distance_to_zoo_m > 0:
+                    try:
+                        nearest_zoo_m = float(detailed_facts.get("nearest_zoo_m") or 0.0)
+                    except Exception:
+                        nearest_zoo_m = 0.0
+                    if nearest_zoo_m <= 0.0 or nearest_zoo_m > float(max_distance_to_zoo_m):
+                        _report(
+                            step="source_family_filter",
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the zoo radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        continue
+                for preference_key, fact_key, label, report_step in (
+                    ("max_distance_to_market_m", "nearest_market_m", "market", "source_location_filter"),
+                    ("max_distance_to_hardware_store_m", "nearest_hardware_store_m", "Baumarkt", "source_location_filter"),
+                    ("max_distance_to_shopping_center_m", "nearest_shopping_center_m", "shopping-center", "source_location_filter"),
+                    ("max_distance_to_shopping_street_m", "nearest_shopping_street_m", "shopping-street", "source_location_filter"),
+                    ("max_distance_to_theatre_m", "nearest_theatre_m", "theatre", "source_location_filter"),
+                    ("max_distance_to_public_pool_m", "nearest_public_pool_m", "public-pool", "source_location_filter"),
+                    ("max_distance_to_medical_care_m", "nearest_medical_care_m", "medical-care", "source_location_filter"),
+                ):
+                    limit_m = int(request_preferences.get(preference_key) or 0)
+                    if limit_m <= 0:
+                        continue
+                    try:
+                        actual_m = float(detailed_facts.get(fact_key) or 0.0)
+                    except Exception:
+                        actual_m = 0.0
+                    if actual_m <= 0.0 or actual_m > float(limit_m):
+                        _report(
+                            step=report_step,
+                            message=f"Skipped shortlist candidate {ordinal} of {analysis_limit} outside the {label} radius for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                        )
+                        break
+                else:
+                    pass
+                if any(
+                    int(request_preferences.get(preference_key) or 0) > 0
+                    and (
+                        not isinstance(detailed_facts.get(fact_key), (int, float))
+                        or float(detailed_facts.get(fact_key) or 0.0) <= 0.0
+                        or float(detailed_facts.get(fact_key) or 0.0) > float(int(request_preferences.get(preference_key) or 0))
+                    )
+                    for preference_key, fact_key in (
+                        ("max_distance_to_market_m", "nearest_market_m"),
+                        ("max_distance_to_hardware_store_m", "nearest_hardware_store_m"),
+                        ("max_distance_to_shopping_center_m", "nearest_shopping_center_m"),
+                        ("max_distance_to_shopping_street_m", "nearest_shopping_street_m"),
+                        ("max_distance_to_theatre_m", "nearest_theatre_m"),
+                        ("max_distance_to_public_pool_m", "nearest_public_pool_m"),
+                        ("max_distance_to_medical_care_m", "nearest_medical_care_m"),
+                    )
+                ):
                     continue
                 if require_floorplan and not _property_candidate_has_floorplan(
                     property_url=property_url,
@@ -17969,6 +23892,10 @@ class ProductService:
                         ),
                     }
                 )
+                assessment_fit_score = max(
+                    0.0,
+                    float(dict(assessment or {}).get("fit_score") or 0.0),
+                )
                 ranked_rows[-1]["fit_score"] = max(
                     0.0,
                     _property_scout_rank_score(
@@ -17978,7 +23905,31 @@ class ProductService:
                         ordinal=int(row.get("ordinal") or ordinal),
                     ) - (30.0 if location_hints and not bool(ranked_rows[-1].get("location_match")) else 0.0)
                 )
-                if float(ranked_rows[-1].get("fit_score") or 0.0) <= min_match_score:
+                if apply_unknowns_penalty:
+                    ranked_rows[-1]["fit_score"] = max(
+                        0.0,
+                        float(ranked_rows[-1].get("fit_score") or 0.0)
+                        - _property_candidate_unknowns_penalty(assessment=assessment, property_facts=detailed_facts),
+                    )
+                ranked_rows[-1]["assessment_fit_score"] = assessment_fit_score
+                score_below_min = assessment_fit_score < float(min_match_score)
+                is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
+                if score_below_min:
+                    if bool(policy.get("notify_top_watch_hit_when_no_good_fit")) and is_watch_fit:
+                        candidate_source_ref = (
+                            f"property-scout:{str(preview.get('listing_id') or property_url).strip() or property_url}"
+                        )
+                        if top_watch_candidate_for_source is None or assessment_fit_score > float(
+                            top_watch_candidate_for_source.get("fit_score") or 0.0
+                        ):
+                            top_watch_candidate_for_source = {
+                                "title": compact_text(detailed_title, fallback=property_url, limit=160),
+                                "summary": compact_text(detailed_summary, fallback="", limit=240),
+                                "property_url": property_url,
+                                "source_ref": candidate_source_ref,
+                                "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
+                                "fit_score": assessment_fit_score,
+                            }
                     filtered_low_fit_total += 1
                     filtered_low_fit_for_source += 1
                     ranked_rows.pop()
@@ -18050,7 +24001,11 @@ class ProductService:
             tour_existing_for_source = 0
             high_fit_for_source = 0
             watch_notified_for_source = 0
-            top_watch_candidate: dict[str, object] | None = None
+            top_watch_candidate: dict[str, object] | None = (
+                dict(top_watch_candidate_for_source)
+                if isinstance(top_watch_candidate_for_source, dict) and top_watch_candidate_for_source
+                else None
+            )
             top_candidates_for_source: list[dict[str, object]] = []
 
             for row_index, row in enumerate(ranked_rows, start=1):
@@ -18060,20 +24015,23 @@ class ProductService:
                 summary = str(row.get("summary") or "").strip()
                 assessment = dict(row.get("assessment") or {})
                 fit_score = float(row.get("fit_score") or 0.0)
+                assessment_fit_score = _property_alert_fit_score(assessment)
                 source_ref = f"property-scout:{listing_id}"
                 is_good_fit = _property_alert_is_good_fit(assessment, policy=policy)
                 is_watch_fit = _property_alert_is_watch_fit(assessment, policy=policy)
                 if is_good_fit:
                     high_fit_for_source += 1
                     high_fit_total += 1
-                elif is_watch_fit and top_watch_candidate is None:
+                elif is_watch_fit and (
+                    top_watch_candidate is None or assessment_fit_score > float(top_watch_candidate.get("fit_score") or 0.0)
+                ):
                     top_watch_candidate = {
                         "title": title,
                         "summary": summary,
                         "property_url": property_url,
                         "source_ref": source_ref,
                         "assessment": assessment,
-                        "fit_score": fit_score,
+                        "fit_score": assessment_fit_score,
                     }
 
                 tour_result: dict[str, object] = {"status": "skipped", "tour_url": "", "blocked_reason": ""}
@@ -18182,7 +24140,18 @@ class ProductService:
                         "fit_score": fit_score,
                         "fit_summary": _property_alert_fit_summary(assessment),
                         "recommendation": str(assessment.get("recommendation") or "").strip(),
+                        "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                        "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                        "source_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                        "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower(),
+                        "verification_required": bool(source_spec.get("verification_required")),
                         "review_url": str(opened.get("editor_url") or "").strip(),
+                        "review_status": str(opened.get("status") or "").strip(),
+                        "review_task_id": str(opened.get("human_task_id") or "").strip(),
+                        "review_task_status": str(opened.get("review_task_status") or "").strip(),
+                        "review_reused": bool(opened.get("review_reused")),
+                        "queue_item_ref": str(opened.get("queue_item_ref") or "").strip(),
+                        "recommended_task_key": str(opened.get("recommended_task_key") or "").strip(),
                         "tour_url": str(tour_result.get("tour_url") or "").strip(),
                         "tour_status": str(tour_result.get("status") or "").strip(),
                         "blocked_reason": str(tour_result.get("blocked_reason") or "").strip(),
@@ -18201,12 +24170,48 @@ class ProductService:
                     }
                 )
 
+            sorted_top_candidates_for_source = sorted(
+                top_candidates_for_source,
+                key=lambda item: float(item.get("fit_score") or 0.0),
+                reverse=True,
+            )
+            for index, candidate in enumerate(sorted_top_candidates_for_source):
+                candidate["compare_reason"] = _property_candidate_choice_reason(
+                    candidate,
+                    tuple(sorted_top_candidates_for_source[index + 1 :]),
+                    top_choice=index == 0,
+                )
+
             if (
                 notify_telegram
                 and high_fit_for_source == 0
                 and bool(policy.get("notify_top_watch_hit_when_no_good_fit"))
                 and top_watch_candidate is not None
             ):
+                if not str(top_watch_candidate.get("review_url") or "").strip():
+                    opened = self._open_property_alert_review(
+                        principal_id=principal_id,
+                        title=str(top_watch_candidate.get("title") or "").strip(),
+                        summary=str(top_watch_candidate.get("summary") or "").strip(),
+                        source_ref=str(top_watch_candidate.get("source_ref") or "").strip(),
+                        external_id=str(top_watch_candidate.get("property_url") or "").strip(),
+                        counterparty=source_label,
+                        account_email=account_email,
+                        property_url=str(top_watch_candidate.get("property_url") or "").strip(),
+                        actor=actor,
+                        notify_telegram=False,
+                        candidate_properties=candidate_properties,
+                        personal_fit_assessment=dict(top_watch_candidate.get("assessment") or {}),
+                        preference_person_id=source_preference_person_id,
+                        tour_url="",
+                    )
+                    if str(opened.get("status") or "").strip() == "opened":
+                        created_for_source += 1
+                        review_created_total += 1
+                    else:
+                        existing_for_source += 1
+                        review_existing_total += 1
+                    top_watch_candidate["review_url"] = str(opened.get("editor_url") or "").strip()
                 notify_result = self._send_property_scout_hit_telegram(
                     principal_id=principal_id,
                     actor=actor,
@@ -18232,18 +24237,47 @@ class ProductService:
                 {
                     "source_url": source_url,
                     "source_label": source_label,
+                    "platform": str(source_spec.get("platform") or "").strip().lower(),
+                    "provider_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                    "provider_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                    "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower() or property_provider_access_level(source_spec.get("platform")),
+                    "verification_required": bool(source_spec.get("verification_required")),
                     "preference_person_id": source_preference_person_id,
+                    "provider_filter_pushdown": provider_filter_pushdown,
+                    "provider_cache": provider_cache_state,
                     "listing_total": len(ranked_rows),
                     "duplicate_listing_total": duplicate_for_source,
                     "filtered_property_type_total": filtered_property_type_for_source,
                     "filtered_area_total": filtered_area_for_source,
+                    "filtered_availability_total": filtered_availability_for_source,
                     "filtered_floorplan_total": filtered_floorplan_for_source,
                     "filtered_low_fit_total": filtered_low_fit_for_source,
                     "high_match_min_score": min_match_score,
                     "max_match_score": match_score_cap,
                     "min_area_m2": request_preferences.get("min_area_m2") or 0,
+                    "available_within_years": available_within_years,
                     "require_floorplan": require_floorplan,
+                    "investment_research_mode": investment_research_mode,
                     "use_stored_feedback_preferences": use_stored_feedback_preferences,
+                    "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
+                    "include_community_signals": bool(request_preferences.get("include_community_signals")),
+                    "require_manual_validation_for_community": bool(request_preferences.get("require_manual_validation_for_community")),
+                    "include_developer_project_signals": bool(request_preferences.get("include_developer_project_signals")),
+                    "include_public_housing_signals": bool(request_preferences.get("include_public_housing_signals")),
+                    "include_distressed_sale_signals": bool(request_preferences.get("include_distressed_sale_signals")),
+                    "enable_building_risk_research": bool(request_preferences.get("enable_building_risk_research")),
+                    "enable_market_supply_research": bool(request_preferences.get("enable_market_supply_research")),
+                    "enable_location_risk_research": bool(request_preferences.get("enable_location_risk_research")),
+                    "enable_trust_risk_scoring": bool(request_preferences.get("enable_trust_risk_scoring")),
+                    "enable_family_mode": enable_family_mode,
+                    "enable_commute_research": enable_commute_research,
+                    "commute_destination": commute_destination,
+                    "max_commute_minutes_transit": int(request_preferences.get("max_commute_minutes_transit") or 0),
+                    "max_commute_minutes_drive": int(request_preferences.get("max_commute_minutes_drive") or 0),
+                    "max_commute_minutes_bike": int(request_preferences.get("max_commute_minutes_bike") or 0),
+                    "desired_project_stages": desired_project_stages,
+                    "apply_unknowns_penalty": apply_unknowns_penalty,
+                    "enable_action_readiness_research": enable_action_readiness_research,
                     "raw_listing_total": raw_listing_count,
                     "scanned_listing_total": len(listing_urls),
                     "scan_truncated": scan_truncated,
@@ -18255,8 +24289,9 @@ class ProductService:
                     "tour_existing_total": tour_existing_for_source,
                     "high_fit_total": high_fit_for_source,
                     "watch_notified_total": watch_notified_for_source,
-                    "top_fit_score": max((float(item.get("fit_score") or 0.0) for item in ranked_rows), default=0.0),
-                    "top_candidates": top_candidates_for_source[:5],
+                    "top_fit_score": max((_property_alert_fit_score(dict(item.get("assessment") or {})) for item in ranked_rows), default=0.0),
+                    "top_candidates": sorted_top_candidates_for_source[:5],
+                    "research_candidates": sorted_top_candidates_for_source,
                 }
             )
             _report(
@@ -18275,13 +24310,37 @@ class ProductService:
             "duplicate_listing_total": duplicate_listing_total,
             "filtered_property_type_total": filtered_property_type_total,
             "filtered_area_total": filtered_area_total,
+            "filtered_availability_total": filtered_availability_total,
             "filtered_floorplan_total": filtered_floorplan_total,
             "filtered_low_fit_total": filtered_low_fit_total,
+            "provider_cache_hit_total": provider_cache_hit_total,
+            "provider_cache_refresh_total": provider_cache_refresh_total,
             "high_match_min_score": min_match_score,
             "max_match_score": match_score_cap,
             "min_area_m2": request_preferences.get("min_area_m2") or 0,
+            "available_within_years": available_within_years,
             "require_floorplan": require_floorplan,
+            "investment_research_mode": investment_research_mode,
             "use_stored_feedback_preferences": use_stored_feedback_preferences,
+            "include_broker_direct_sources": bool(request_preferences.get("include_broker_direct_sources")),
+            "include_community_signals": bool(request_preferences.get("include_community_signals")),
+            "require_manual_validation_for_community": bool(request_preferences.get("require_manual_validation_for_community")),
+            "include_developer_project_signals": bool(request_preferences.get("include_developer_project_signals")),
+            "include_public_housing_signals": bool(request_preferences.get("include_public_housing_signals")),
+            "include_distressed_sale_signals": bool(request_preferences.get("include_distressed_sale_signals")),
+            "enable_building_risk_research": bool(request_preferences.get("enable_building_risk_research")),
+            "enable_market_supply_research": bool(request_preferences.get("enable_market_supply_research")),
+            "enable_location_risk_research": bool(request_preferences.get("enable_location_risk_research")),
+            "enable_trust_risk_scoring": bool(request_preferences.get("enable_trust_risk_scoring")),
+            "enable_family_mode": enable_family_mode,
+            "enable_commute_research": enable_commute_research,
+            "commute_destination": commute_destination,
+            "max_commute_minutes_transit": int(request_preferences.get("max_commute_minutes_transit") or 0),
+            "max_commute_minutes_drive": int(request_preferences.get("max_commute_minutes_drive") or 0),
+            "max_commute_minutes_bike": int(request_preferences.get("max_commute_minutes_bike") or 0),
+            "desired_project_stages": desired_project_stages,
+            "apply_unknowns_penalty": apply_unknowns_penalty,
+            "enable_action_readiness_research": enable_action_readiness_research,
             "review_created_total": review_created_total,
             "review_existing_total": review_existing_total,
             "notified_total": notified_total,
@@ -18399,6 +24458,619 @@ class ProductService:
             "timeout_in": session.timeout_in,
             "media_items_set": session.media_items_set,
         }
+
+    def _property_magic_fit_scene_event_rows(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str,
+        limit: int = 400,
+    ) -> list[object]:
+        normalized_ref = str(property_ref or "").strip()
+        if not normalized_ref:
+            return []
+        rows: list[object] = []
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=max(1, min(int(limit or 400), 4000)),
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() != "property_magic_fit_scene_created":
+                continue
+            payload = dict(getattr(row, "payload", None) or {})
+            if str(payload.get("property_ref") or "").strip() != normalized_ref:
+                continue
+            rows.append(row)
+        rows.sort(key=lambda item: str(getattr(item, "created_at", "") or ""), reverse=True)
+        return rows
+
+    def latest_property_magic_fit_scene(
+        self,
+        *,
+        principal_id: str,
+        property_ref: str,
+    ) -> dict[str, object]:
+        rows = self._property_magic_fit_scene_event_rows(principal_id=principal_id, property_ref=property_ref, limit=400)
+        if not rows:
+            return {}
+        payload = dict(getattr(rows[0], "payload", None) or {})
+        payload.setdefault("generated_at", str(getattr(rows[0], "created_at", "") or ""))
+        payload.setdefault("status", "created")
+        return payload
+
+    def _property_visual_quota_window_start(self, period: str) -> datetime | None:
+        normalized = str(period or "").strip().lower()
+        now = datetime.now(timezone.utc)
+        if normalized == "day":
+            return now - timedelta(days=1)
+        if normalized == "week":
+            return now - timedelta(days=7)
+        return None
+
+    def _property_visual_quota_usage(
+        self,
+        *,
+        principal_id: str,
+        event_types: tuple[str, ...],
+        period: str,
+    ) -> int:
+        window_start = self._property_visual_quota_window_start(period)
+        if window_start is None:
+            return 0
+        accepted = {str(value or "").strip() for value in event_types if str(value or "").strip()}
+        if not accepted:
+            return 0
+        total = 0
+        for row in self._container.channel_runtime.list_recent_observations(limit=4000, principal_id=principal_id):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            if str(getattr(row, "event_type", "") or "").strip() not in accepted:
+                continue
+            created_at = _parse_iso(str(getattr(row, "created_at", "") or "").strip())
+            if created_at is None or created_at < window_start:
+                continue
+            total += 1
+        return total
+
+    def _enforce_property_visual_quota(
+        self,
+        *,
+        principal_id: str,
+        property_preferences: dict[str, object] | None,
+        quota_kind: str,
+    ) -> None:
+        commercial = property_commercial_snapshot(dict(property_preferences or {}))
+        plan_key = str(commercial.get("current_plan_key") or "free").strip().lower() or "free"
+        if quota_kind == "scene":
+            limit = max(int(commercial.get("magic_fit_scene_limit") or 0), 0)
+            period = str(commercial.get("magic_fit_scene_period") or "none").strip().lower()
+            event_types = ("property_magic_fit_scene_created",)
+            error_prefix = "property_magic_fit_upgrade_required"
+        elif quota_kind == "video":
+            limit = max(int(commercial.get("magic_fit_video_limit") or 0), 0)
+            period = str(commercial.get("magic_fit_video_period") or "none").strip().lower()
+            event_types = ("willhaben_property_tour_created", "generic_property_tour_created")
+            error_prefix = "property_tour_upgrade_required"
+        else:
+            return
+        if limit <= 0 or period == "none":
+            return
+        usage = self._property_visual_quota_usage(
+            principal_id=principal_id,
+            event_types=event_types,
+            period=period,
+        )
+        if usage < limit:
+            return
+        if plan_key == "free":
+            raise ValueError(f"{error_prefix}:plus")
+        raise ValueError(f"{error_prefix}:agent")
+
+    def _property_magic_fit_reference_urls(
+        self,
+        *,
+        principal_id: str,
+        google_photos_session_id: str = "",
+        google_photos_account_email: str = "",
+        reference_urls: list[str] | tuple[str, ...] | None = None,
+    ) -> list[str]:
+        urls = [str(item or "").strip() for item in list(reference_urls or []) if str(item or "").strip()]
+        session_id = str(google_photos_session_id or "").strip()
+        if session_id:
+            packet = google_oauth_service.sync_google_photos_picker_session(
+                container=self._container,
+                principal_id=principal_id,
+                session_id=session_id,
+                account_email_filter=str(google_photos_account_email or "").strip().lower(),
+                max_items=3,
+            )
+            for row in list(packet.signals or []):
+                payload = dict(row.payload or {})
+                preview_url = str(payload.get("preview_url") or payload.get("content_url") or "").strip()
+                if preview_url:
+                    urls.append(preview_url)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            if url in seen:
+                continue
+            seen.add(url)
+            deduped.append(url)
+        return deduped[:3]
+
+    def _recent_property_magic_fit_reference_urls(
+        self,
+        *,
+        principal_id: str,
+        limit: int = 3,
+        recency_days: int = 0,
+        preferred_keywords: list[str] | tuple[str, ...] | None = None,
+    ) -> list[str]:
+        token = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in str(principal_id or "").strip()).strip("-._")[:120] or "principal"
+        root = Path(str(self._container.settings.storage.artifacts_dir)).resolve() / "magic_fit_refs" / token
+        if not root.exists():
+            return []
+        normalized_keywords = tuple(
+            str(item or "").strip().lower()
+            for item in list(preferred_keywords or [])
+            if str(item or "").strip()
+        )
+        cutoff_timestamp = 0.0
+        if int(recency_days or 0) > 0:
+            cutoff_timestamp = (datetime.now(timezone.utc) - timedelta(days=max(1, int(recency_days)))).timestamp()
+        rows: list[dict[str, object]] = []
+        for meta_path in root.glob("magicfitref_*.json"):
+            try:
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            reference_id = str(metadata.get("reference_id") or meta_path.stem).strip()
+            file_name_on_disk = str(metadata.get("file_name_on_disk") or "").strip()
+            file_path = root / file_name_on_disk if file_name_on_disk else None
+            if not reference_id or file_path is None or not file_path.exists():
+                continue
+            modified_at = 0.0
+            try:
+                modified_at = max(meta_path.stat().st_mtime, file_path.stat().st_mtime)
+            except Exception:
+                modified_at = 0.0
+            file_name = str(metadata.get("file_name") or "").strip().lower()
+            rows.append(
+                {
+                    "modified_at": modified_at,
+                    "url": f"/app/api/property/magic-fit-reference-files/{reference_id}",
+                    "matches_keywords": bool(normalized_keywords) and any(keyword in file_name for keyword in normalized_keywords),
+                    "is_recent": modified_at >= cutoff_timestamp if cutoff_timestamp > 0.0 else True,
+                }
+            )
+        rows.sort(
+            key=lambda item: (
+                1 if bool(item.get("matches_keywords")) else 0,
+                1 if bool(item.get("is_recent")) else 0,
+                float(item.get("modified_at") or 0.0),
+            ),
+            reverse=True,
+        )
+        urls: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            url = str(row.get("url") or "").strip()
+            if url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+            if len(urls) >= max(1, int(limit or 3)):
+                break
+        return urls
+
+    def _default_property_person_motion_hint(
+        self,
+        *,
+        principal_id: str,
+        person_id: str = "self",
+    ) -> str:
+        normalized_person_id = str(person_id or "").strip() or "self"
+        profile_text = ""
+        with contextlib.suppress(Exception):
+            profile = self.get_person(principal_id=principal_id, person_id=normalized_person_id)
+            if profile is not None:
+                profile_text = " ".join(
+                    [
+                        str(profile.display_name or ""),
+                        str(profile.role_or_company or ""),
+                        *[str(item or "") for item in profile.themes],
+                        *[str(item or "") for item in profile.risks],
+                    ]
+                ).lower()
+        scanned_report_present = False
+        scanned_root = Path("/mnt/onedrive/Documents/Scanned Documents")
+        if scanned_root.exists():
+            with contextlib.suppress(Exception):
+                scanned_report_present = any(
+                    path.exists()
+                    for path in (
+                        scanned_root / "20260325 Physiotherapiebericht NRZ Tibor.pdf",
+                        scanned_root / "20250510AKH Ergotherapeutischer Bericht.pdf",
+                    )
+                )
+        if any(token in profile_text for token in ("hemipleg", "hemipare", "halbseiten", "schlaganfall", "stroke recovery")):
+            return (
+                "depict the resident with dignified left-sided hemiplegia or hemiparesis: reduced left arm swing, "
+                "protective left hand and shoulder posture, slight left-right gait asymmetry, and slower deliberate turns"
+            )
+        if normalized_person_id == "self" and scanned_report_present:
+            return (
+                "depict Tibor with dignified left-sided hemiplegia: reduced left arm swing, protective left hand posture, "
+                "subtle stance and gait asymmetry, and calm deliberate turns"
+            )
+        return ""
+
+    def _property_magic_fit_reference_sheet_data_url(
+        self,
+        *,
+        principal_id: str,
+        reference_urls: list[str] | tuple[str, ...],
+    ) -> str:
+        if Image is None:
+            return ""
+        token = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in str(principal_id or "").strip()).strip("-._")[:120] or "principal"
+        root = Path(str(self._container.settings.storage.artifacts_dir)).resolve() / "magic_fit_refs" / token
+        images: list[Image.Image] = []
+        try:
+            for url in list(reference_urls or [])[:3]:
+                parsed = urllib.parse.urlparse(str(url or "").strip())
+                reference_id = str((parsed.path or "").rsplit("/", 1)[-1] or "").strip()
+                if not reference_id:
+                    continue
+                meta_path = root / f"{reference_id}.json"
+                if not meta_path.exists():
+                    continue
+                metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+                file_name_on_disk = str(metadata.get("file_name_on_disk") or "").strip()
+                file_path = root / file_name_on_disk if file_name_on_disk else None
+                if file_path is None or not file_path.exists():
+                    continue
+                with Image.open(file_path) as image:
+                    images.append(image.convert("RGB").copy())
+        except Exception:
+            return ""
+        if not images:
+            return ""
+        canvas = Image.new("RGB", (1100, 720), "#f4efe7")
+        if len(images) == 1:
+            tile = images[0].copy()
+            tile.thumbnail((860, 600), Image.Resampling.LANCZOS)
+            canvas.paste(tile, ((canvas.width - tile.width) // 2, (canvas.height - tile.height) // 2))
+        elif len(images) == 2:
+            slots = [(70, 90, 410, 540), (620, 90, 410, 540)]
+            for image, (x, y, w, h) in zip(images, slots):
+                tile = image.copy()
+                tile.thumbnail((w, h), Image.Resampling.LANCZOS)
+                canvas.paste(tile, (x + (w - tile.width) // 2, y + (h - tile.height) // 2))
+        else:
+            slots = [(55, 90, 520, 520), (650, 70, 350, 250), (650, 400, 350, 250)]
+            for image, (x, y, w, h) in zip(images[:3], slots):
+                tile = image.copy()
+                tile.thumbnail((w, h), Image.Resampling.LANCZOS)
+                canvas.paste(tile, (x + (w - tile.width) // 2, y + (h - tile.height) // 2))
+        buffer = io.BytesIO()
+        canvas.save(buffer, format="JPEG", quality=76, optimize=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{encoded}"
+
+    def _maybe_auto_create_property_magic_fit_scene_for_packet(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        property_ref: str,
+        property_title: str,
+        property_url: str,
+        property_facts: dict[str, object],
+        reference_urls: list[str] | tuple[str, ...],
+        scene_type: str = "family_evening",
+        room_hint: str = "main living room or open living kitchen",
+        styling_hint: str = "warm, realistic, lived-in premium family home editorial; tasteful clutter; the resident may appear naturally if the references support it",
+        household_roles: list[str] | tuple[str, ...] | None = None,
+        include_child_reference: bool = False,
+        guardian_confirmed_for_children: bool = False,
+    ) -> dict[str, object]:
+        normalized_refs = [str(item or "").strip() for item in list(reference_urls or []) if str(item or "").strip()]
+        with contextlib.suppress(Exception):
+            existing = self.latest_property_magic_fit_scene(
+                principal_id=principal_id,
+                property_ref=property_ref,
+            )
+            if isinstance(existing, dict) and existing and bool(existing.get("share_with_packet_pdf")):
+                return dict(existing)
+        if not normalized_refs:
+            try:
+                normalized_roles = [
+                    compact_text(str(value or "").strip(), fallback="", limit=40)
+                    for value in list(household_roles or [])
+                    if compact_text(str(value or "").strip(), fallback="", limit=40)
+                ][:6]
+                prompt, summary = self._property_magic_fit_scene_prompt(
+                    property_title=property_title,
+                    property_facts=dict(property_facts or {}),
+                    scene_type=scene_type,
+                    room_hint=room_hint,
+                    styling_hint=styling_hint,
+                    household_roles=normalized_roles,
+                    include_child_reference=False,
+                )
+                image_url, provider_key = self._property_magic_fit_scene_image_url(
+                    principal_id=principal_id,
+                    prompt=prompt,
+                )
+                return {
+                    "scene_id": f"magicfit_{uuid4().hex}",
+                    "property_ref": str(property_ref or "").strip(),
+                    "property_title": compact_text(property_title, fallback="", limit=240),
+                    "property_url": compact_text(property_url, fallback="", limit=2000),
+                    "scene_type": compact_text(scene_type, fallback="breakfast", limit=80),
+                    "room_hint": compact_text(room_hint, fallback="", limit=160),
+                    "styling_hint": compact_text(styling_hint, fallback="", limit=240),
+                    "image_url": image_url,
+                    "prompt": compact_text(prompt, fallback="", limit=2000),
+                    "summary": summary,
+                    "reference_urls": [],
+                    "reference_total": 0,
+                    "household_roles": normalized_roles,
+                    "include_child_reference": False,
+                    "consent_personal_photos": False,
+                    "guardian_confirmed_for_children": bool(guardian_confirmed_for_children),
+                    "share_with_packet_pdf": True,
+                    "visual_simulation": True,
+                    "note": "Auto-generated architecture diorama preview without personal reference photos.",
+                    "provider_key": provider_key,
+                    "generated_at": _now_iso(),
+                    "status": "created",
+                }
+            except Exception:
+                return {}
+        try:
+            return self.create_property_magic_fit_scene(
+                principal_id=principal_id,
+                actor=actor,
+                property_ref=property_ref,
+                property_title=property_title,
+                property_url=property_url,
+                scene_type=scene_type,
+                room_hint=room_hint,
+                styling_hint=styling_hint,
+                property_facts=dict(property_facts or {}),
+                reference_urls=normalized_refs,
+                household_roles=list(household_roles or ["resident"]),
+                include_child_reference=bool(include_child_reference),
+                consent_personal_photos=True,
+                guardian_confirmed_for_children=bool(guardian_confirmed_for_children),
+                share_with_packet_pdf=True,
+                note="Auto-generated for a private PropertyQuarry dossier packet.",
+            )
+        except Exception:
+            return {}
+
+    def _property_magic_fit_scene_prompt(
+        self,
+        *,
+        property_title: str,
+        property_facts: dict[str, object],
+        scene_type: str,
+        room_hint: str,
+        styling_hint: str,
+        household_roles: list[str],
+        include_child_reference: bool,
+    ) -> tuple[str, str]:
+        facts = dict(property_facts or {})
+        title = compact_text(property_title, fallback="this property", limit=160)
+        room = compact_text(room_hint, fallback="main living area", limit=80)
+        style = compact_text(styling_hint, fallback="warm, realistic, lived-in, tasteful European staging", limit=160)
+        scene = compact_text(scene_type.replace("_", " "), fallback="breakfast", limit=60)
+        role_text = ", ".join(compact_text(value, fallback="", limit=40) for value in household_roles if compact_text(value, fallback="", limit=40))
+        feature_parts = [
+            compact_text(str(facts.get("rooms") or facts.get("room_count") or ""), fallback="", limit=40),
+            compact_text(str(facts.get("area_sqm") or facts.get("area_m2") or facts.get("living_area_m2") or ""), fallback="", limit=40),
+            "balcony" if bool(facts.get("balcony") or facts.get("terrace")) else "",
+            compact_text(str(facts.get("heating_type") or ""), fallback="", limit=40),
+        ]
+        feature_text = ", ".join(part for part in feature_parts if part)
+        summary = compact_text(
+            f"Visual simulation of {scene} in {room} for {title}. "
+            f"Use the reference portraits only as soft likeness guidance. "
+            f"Show the property fully furnished and believable, with a natural family-home atmosphere.",
+            fallback="Visual simulation for the property packet.",
+            limit=320,
+        )
+        prompt = (
+            f"Create a photorealistic interior lifestyle still for a property decision dossier. "
+            f"Scene: {scene}. Room: {room}. Property: {title}. "
+            f"Render the space fully staged, furnished, and coherent with the architecture. "
+            f"Style: {style}. "
+            f"{'Include a child in the family scene with guardian-approved soft likeness guidance. ' if include_child_reference else ''}"
+            f"{'Household roles present: ' + role_text + '. ' if role_text else ''}"
+            f"{'Known property cues: ' + feature_text + '. ' if feature_text else ''}"
+            f"Use reference photos as inspiration for family presence only, not as an exact face clone. "
+            f"Output must look like a premium architectural lifestyle editorial still, natural light, realistic proportions, no text, no watermark."
+        )
+        return prompt, summary
+
+    def _property_magic_fit_scene_image_url(
+        self,
+        *,
+        principal_id: str,
+        prompt: str,
+    ) -> tuple[str, str]:
+        def _asset_urls(output_json: dict[str, object]) -> list[str]:
+            urls: list[str] = []
+            raw = output_json.get("asset_urls")
+            if isinstance(raw, list):
+                urls.extend(str(item or "").strip() for item in raw if str(item or "").strip())
+            for key in ("image_url", "url"):
+                value = str(output_json.get(key) or "").strip()
+                if value:
+                    urls.append(value)
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for url in urls:
+                if url in seen:
+                    continue
+                seen.add(url)
+                deduped.append(url)
+            return deduped
+
+        comfy_state = self._container.provider_registry.binding_state("comfyui", principal_id=principal_id)
+        comfy_eligible = comfy_state is not None and str(getattr(comfy_state, "state", "") or "").strip().lower() not in {
+            "catalog_only",
+            "disabled",
+            "unconfigured",
+        }
+        attempts: list[tuple[str, dict[str, object]]] = []
+        if comfy_eligible:
+            attempts.append(
+                (
+                    "provider.comfyui.image_generate",
+                    {
+                        "prompt": prompt,
+                        "width": 1536,
+                        "height": 1024,
+                        "steps": 30,
+                    },
+                )
+            )
+        attempts.append(
+            (
+                "provider.onemin.image_generate",
+                {
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1536x1024",
+                    "quality": "high",
+                },
+            )
+        )
+        last_error = "image_generation_unavailable"
+        for tool_name, payload_json in attempts:
+            try:
+                invocation = ToolInvocationRequest(
+                    session_id=f"property-magic-fit:{uuid4()}",
+                    step_id=f"property-magic-fit-step:{uuid4()}",
+                    tool_name=tool_name,
+                    action_kind="image.generate",
+                    payload_json=payload_json,
+                    context_json={"principal_id": principal_id},
+                )
+                result = self._container.tool_execution.execute_invocation(invocation)
+                output_json = dict(result.output_json or {})
+                urls = _asset_urls(output_json)
+                if urls:
+                    provider_key = str((result.receipt_json or {}).get("provider_key") or output_json.get("provider_backend") or "").strip()
+                    if provider_key == "1min":
+                        provider_key = "onemin"
+                    return urls[0], provider_key or tool_name
+            except Exception as exc:
+                last_error = compact_text(str(exc or "image_generation_unavailable"), fallback="image_generation_unavailable", limit=220)
+        raise RuntimeError(last_error)
+
+    def create_property_magic_fit_scene(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        property_ref: str,
+        property_title: str = "",
+        property_url: str = "",
+        scene_type: str = "breakfast",
+        room_hint: str = "",
+        styling_hint: str = "",
+        property_facts: dict[str, object] | None = None,
+        reference_urls: list[str] | tuple[str, ...] | None = None,
+        google_photos_session_id: str = "",
+        google_photos_account_email: str = "",
+        household_roles: list[str] | tuple[str, ...] | None = None,
+        include_child_reference: bool = False,
+        consent_personal_photos: bool = False,
+        guardian_confirmed_for_children: bool = False,
+        share_with_packet_pdf: bool = True,
+        note: str = "",
+    ) -> dict[str, object]:
+        normalized_ref = str(property_ref or "").strip()
+        if not normalized_ref:
+            raise ValueError("property_magic_fit_property_ref_missing")
+        if not consent_personal_photos:
+            raise ValueError("property_magic_fit_consent_required")
+        if include_child_reference and not guardian_confirmed_for_children:
+            raise ValueError("property_magic_fit_child_guardian_confirmation_required")
+        property_preferences = dict(
+            self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {}
+        )
+        self._enforce_property_visual_quota(
+            principal_id=principal_id,
+            property_preferences=property_preferences,
+            quota_kind="scene",
+        )
+        resolved_reference_urls = self._property_magic_fit_reference_urls(
+            principal_id=principal_id,
+            google_photos_session_id=google_photos_session_id,
+            google_photos_account_email=google_photos_account_email,
+            reference_urls=reference_urls,
+        )
+        if not resolved_reference_urls:
+            raise ValueError("property_magic_fit_reference_photo_required")
+        normalized_roles = [
+            compact_text(str(value or "").strip(), fallback="", limit=40)
+            for value in list(household_roles or [])
+            if compact_text(str(value or "").strip(), fallback="", limit=40)
+        ][:6]
+        prompt, summary = self._property_magic_fit_scene_prompt(
+            property_title=property_title,
+            property_facts=dict(property_facts or {}),
+            scene_type=scene_type,
+            room_hint=room_hint,
+            styling_hint=styling_hint,
+            household_roles=normalized_roles,
+            include_child_reference=include_child_reference,
+        )
+        image_url, provider_key = self._property_magic_fit_scene_image_url(
+            principal_id=principal_id,
+            prompt=prompt,
+        )
+        scene_id = f"magicfit_{uuid4().hex}"
+        payload = {
+            "scene_id": scene_id,
+            "property_ref": normalized_ref,
+            "property_title": compact_text(property_title, fallback="", limit=240),
+            "property_url": compact_text(property_url, fallback="", limit=2000),
+            "scene_type": compact_text(scene_type, fallback="breakfast", limit=80),
+            "room_hint": compact_text(room_hint, fallback="", limit=160),
+            "styling_hint": compact_text(styling_hint, fallback="", limit=240),
+            "image_url": image_url,
+            "prompt": compact_text(prompt, fallback="", limit=2000),
+            "summary": summary,
+            "reference_urls": resolved_reference_urls,
+            "reference_total": len(resolved_reference_urls),
+            "google_photos_session_id": compact_text(google_photos_session_id, fallback="", limit=200),
+            "google_photos_account_email": compact_text(google_photos_account_email, fallback="", limit=200),
+            "household_roles": normalized_roles,
+            "include_child_reference": bool(include_child_reference),
+            "consent_personal_photos": True,
+            "guardian_confirmed_for_children": bool(guardian_confirmed_for_children),
+            "share_with_packet_pdf": bool(share_with_packet_pdf),
+            "visual_simulation": True,
+            "note": compact_text(note, fallback="", limit=500),
+            "provider_key": provider_key,
+            "generated_at": _now_iso(),
+            "status": "created",
+        }
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="property_magic_fit_scene_created",
+            payload=payload,
+            source_id=f"{normalized_ref}:{scene_id}",
+            dedupe_key=f"{principal_id}|{normalized_ref}|{scene_id}",
+        )
+        return payload
 
     def get_google_photos_picker_session(
         self,
@@ -19978,6 +26650,23 @@ class ProductService:
     ) -> list[dict[str, object]]:
         normalized_kind = str(notification_kind or "").strip().lower()
         normalized_domain = str(domain or "").strip().lower()
+        if normalized_kind == "telegram_property_link_bundle":
+            return [
+                {
+                    "key": "like_property",
+                    "label": "I like it",
+                    "event_type": "listing_saved",
+                    "reply_text": "Noted. What do you like most about it? Reply with one short phrase.",
+                    "followup_kind": "like",
+                },
+                {
+                    "key": "dislike_property",
+                    "label": "I don't like it",
+                    "event_type": "listing_dismissed",
+                    "reply_text": "Noted. What do you dislike most about it? Reply with one short phrase.",
+                    "followup_kind": "dislike",
+                },
+            ]
         if normalized_kind == "property_scout_hit" or normalized_domain == "willhaben":
             options = [
                 {
@@ -20171,6 +26860,80 @@ class ProductService:
             return payload
         return None
 
+    def _record_notification_feedback_followup_prompt(
+        self,
+        *,
+        principal_id: str,
+        prompt: dict[str, object],
+        feedback_key: str,
+        followup_kind: str,
+        chat_id: str,
+    ) -> None:
+        notification_key = str(prompt.get("notification_key") or "").strip()
+        if not notification_key or not str(chat_id or "").strip():
+            return
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="notification_feedback_followup_prompted",
+            payload={
+                "notification_key": notification_key,
+                "feedback_key": str(feedback_key or "").strip(),
+                "followup_kind": str(followup_kind or "").strip(),
+                "chat_id": str(chat_id or "").strip(),
+                "notification_kind": str(prompt.get("notification_kind") or "").strip(),
+                "person_id": str(prompt.get("person_id") or "").strip(),
+                "domain": str(prompt.get("domain") or "").strip(),
+                "object_type": str(prompt.get("object_type") or "").strip(),
+                "object_id": str(prompt.get("object_id") or "").strip(),
+                "source_ref": str(prompt.get("source_ref") or "").strip(),
+                "raw_signal_json": dict(prompt.get("raw_signal_json") or {}),
+                "interpreted_signal_json": dict(prompt.get("interpreted_signal_json") or {}),
+            },
+            source_id=str(prompt.get("source_ref") or notification_key).strip() or notification_key,
+            dedupe_key=f"{principal_id}|{notification_key}|{feedback_key}|notification-feedback-followup-prompt",
+        )
+
+    def _pending_notification_feedback_followup(
+        self,
+        *,
+        principal_id: str,
+        chat_id: str,
+    ) -> dict[str, object] | None:
+        normalized_chat_id = str(chat_id or "").strip()
+        if not normalized_chat_id:
+            return None
+        received_pairs: set[tuple[str, str]] = set()
+        prompted: list[dict[str, object]] = []
+        for row in self._container.channel_runtime.list_recent_observations(
+            limit=_POCKET_SYNC_EVENT_LOOKBACK,
+            principal_id=principal_id,
+        ):
+            if str(getattr(row, "channel", "") or "").strip() != "product":
+                continue
+            event_type = str(getattr(row, "event_type", "") or "").strip()
+            payload = dict(getattr(row, "payload", {}) or {})
+            if event_type == "notification_feedback_followup_received":
+                received_pairs.add(
+                    (
+                        str(payload.get("notification_key") or "").strip(),
+                        str(payload.get("feedback_key") or "").strip(),
+                    )
+                )
+                continue
+            if event_type != "notification_feedback_followup_prompted":
+                continue
+            if str(payload.get("chat_id") or "").strip() != normalized_chat_id:
+                continue
+            prompted.append(payload)
+        for payload in prompted:
+            pair = (
+                str(payload.get("notification_key") or "").strip(),
+                str(payload.get("feedback_key") or "").strip(),
+            )
+            if pair[0] and pair not in received_pairs:
+                return payload
+        return None
+
     def record_notification_feedback(
         self,
         *,
@@ -20261,9 +27024,94 @@ class ProductService:
             source_id=str(prompt.get("source_ref") or notification_key).strip() or str(notification_key or "").strip(),
             dedupe_key=dedupe_key,
         )
+        followup_kind = str(option.get("followup_kind") or "").strip().lower()
+        if followup_kind and str(chat_id or "").strip():
+            self._record_notification_feedback_followup_prompt(
+                principal_id=principal_id,
+                prompt=prompt,
+                feedback_key=str(feedback_key or "").strip(),
+                followup_kind=followup_kind,
+                chat_id=str(chat_id or "").strip(),
+            )
         return {
             "status": "recorded",
             "reply_text": str(option.get("reply_text") or "Noted.").strip() or "Noted.",
+            "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
+        }
+
+    def record_notification_feedback_followup_response(
+        self,
+        *,
+        principal_id: str,
+        chat_id: str,
+        text: str,
+        actor: str = "",
+    ) -> dict[str, object]:
+        pending = self._pending_notification_feedback_followup(
+            principal_id=principal_id,
+            chat_id=chat_id,
+        )
+        if pending is None:
+            return {"status": "missing"}
+        normalized_text = compact_text(str(text or "").strip(), fallback="", limit=600)
+        if not normalized_text:
+            return {"status": "empty", "reply_text": "Send one short phrase so I can sharpen the property profile."}
+        notification_key = str(pending.get("notification_key") or "").strip()
+        feedback_key = str(pending.get("feedback_key") or "").strip()
+        dedupe_key = f"{principal_id}|{notification_key}|{feedback_key}|notification-feedback-followup-received"
+        if self._recent_product_event_exists(
+            principal_id=principal_id,
+            event_type="notification_feedback_followup_received",
+            dedupe_key=dedupe_key,
+        ):
+            return {"status": "duplicate", "reply_text": "Already noted. I’ll use that to sharpen future property matches."}
+        followup_kind = str(pending.get("followup_kind") or "").strip().lower()
+        interpreted_signal_json = dict(pending.get("interpreted_signal_json") or {})
+        interpreted_signal_json["followup_kind"] = followup_kind
+        interpreted_signal_json["preference_note"] = normalized_text
+        evidence_result = self.record_preference_evidence(
+            principal_id=principal_id,
+            person_id=str(pending.get("person_id") or "self").strip() or "self",
+            domain=str(pending.get("domain") or "").strip(),
+            event_type="listing_positive_detail" if followup_kind == "like" else "listing_negative_detail",
+            object_type=str(pending.get("object_type") or "").strip(),
+            object_id=str(pending.get("object_id") or "").strip(),
+            source_ref=str(pending.get("source_ref") or "").strip(),
+            raw_signal_json={
+                **dict(pending.get("raw_signal_json") or {}),
+                "followup_response": normalized_text,
+            },
+            interpreted_signal_json=interpreted_signal_json,
+            signal_strength=1.0,
+            reversible=True,
+        )
+        teable_sync = None
+        if evidence_result:
+            try:
+                teable_sync = self.request_preference_teable_sync(
+                    principal_id=principal_id,
+                    person_id=str(pending.get("person_id") or "self").strip() or "self",
+                )
+            except Exception as exc:
+                teable_sync = {"status": "failed", "blocked_reason": compact_text(str(exc or ""), fallback="teable_sync_failed", limit=160)}
+        self._record_product_event(
+            principal_id=principal_id,
+            event_type="notification_feedback_followup_received",
+            payload={
+                "notification_key": notification_key,
+                "feedback_key": feedback_key,
+                "followup_kind": followup_kind,
+                "chat_id": str(chat_id or "").strip(),
+                "response_text": normalized_text,
+                "actor": str(actor or "").strip() or "telegram_feedback_followup",
+                "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
+            },
+            source_id=str(pending.get("source_ref") or notification_key).strip() or notification_key,
+            dedupe_key=dedupe_key,
+        )
+        return {
+            "status": "recorded",
+            "reply_text": "Noted. I’ll use that to sharpen future property matches.",
             "teable_sync_status": str(dict(teable_sync or {}).get("sync_result") or dict(teable_sync or {}).get("status") or "").strip(),
         }
 
@@ -20394,6 +27242,7 @@ class ProductService:
         review_url: str = "",
         tour_result: dict[str, object] | None = None,
         candidate_properties: tuple[dict[str, object], ...] = (),
+        diorama_style_hint: str = "",
     ) -> dict[str, object]:
         dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
         dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-telegram|{dedupe_suffix}"
@@ -20407,6 +27256,22 @@ class ProductService:
         tour_url = str(tour_payload.get("tour_url") or "").strip()
         review_url = str(review_url or "").strip()
         blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=actor,
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            account_email=account_email,
+            property_url=property_url,
+            source_ref=source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=float(fit_score or 0.0),
+            preference_person_id=preference_person_id,
+            review_url=review_url,
+            tour_result=tour_payload,
+            candidate_properties=candidate_properties,
+        )
         feedback_raw_signal = {
             "title": str(title or "").strip(),
             "summary": str(summary or "").strip(),
@@ -20492,6 +27357,60 @@ class ProductService:
             "telegram_chat_ref": str(telegram_receipt.chat_id or "").strip(),
             "telegram_message_ids": list(telegram_receipt.message_ids),
         }
+        if str(dossier_render.get("status") or "").strip() == "rendered":
+            try:
+                dossier_receipt = send_telegram_document_for_principal(
+                    self._container.tool_runtime,
+                    principal_id=principal_id,
+                    document_ref=str(dossier_render.get("pdf_path") or "").strip(),
+                    caption=str(dossier_render.get("caption") or "").strip(),
+                )
+            except Exception as exc:
+                dossier_payload = {
+                    "property_url": property_url,
+                    "source_ref": source_ref,
+                    "publication_id": str(dossier_render.get("publication_id") or "").strip(),
+                    "pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+                    "actor": str(actor or "").strip() or "property_scout",
+                    "error": compact_text(str(exc or ""), fallback="telegram_document_delivery_failed", limit=160),
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_scout_hit_telegram_dossier_failed",
+                    payload=dossier_payload,
+                    source_id=source_ref,
+                    dedupe_key=dedupe_key,
+                )
+                payload["dossier_delivery_status"] = "failed"
+                payload["dossier_delivery_error"] = dossier_payload["error"]
+                payload["dossier_publication_id"] = str(dossier_render.get("publication_id") or "").strip()
+                payload["dossier_pdf_path"] = str(dossier_render.get("pdf_path") or "").strip()
+            else:
+                dossier_message_ids = [str(item or "") for item in dossier_receipt.message_ids]
+                dossier_payload = {
+                    "property_url": property_url,
+                    "source_ref": source_ref,
+                    "publication_id": str(dossier_render.get("publication_id") or "").strip(),
+                    "pdf_path": str(dossier_render.get("pdf_path") or "").strip(),
+                    "telegram_chat_ref": str(dossier_receipt.chat_id or "").strip(),
+                    "telegram_message_ids": dossier_message_ids,
+                    "actor": str(actor or "").strip() or "property_scout",
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_scout_hit_telegram_dossier_sent",
+                    payload=dossier_payload,
+                    source_id=source_ref,
+                    dedupe_key=dedupe_key,
+                )
+                payload["dossier_delivery_status"] = "sent"
+                payload["dossier_publication_id"] = str(dossier_render.get("publication_id") or "").strip()
+                payload["dossier_pdf_path"] = str(dossier_render.get("pdf_path") or "").strip()
+                payload["dossier_telegram_chat_ref"] = str(dossier_receipt.chat_id or "").strip()
+                payload["dossier_telegram_message_ids"] = dossier_message_ids
+        else:
+            payload["dossier_delivery_status"] = str(dossier_render.get("status") or "").strip() or "skipped"
+            payload["dossier_delivery_error"] = str(dossier_render.get("reason") or "").strip()
         self._record_notification_feedback_prompt(
             principal_id=principal_id,
             prompt=feedback_prompt,
@@ -20507,6 +27426,374 @@ class ProductService:
             dedupe_key=dedupe_key,
         )
         return {"status": "sent", "tour_url": tour_url, "telegram_message_ids": list(telegram_receipt.message_ids)}
+
+    def _render_property_scout_dossier(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        title: str,
+        summary: str,
+        counterparty: str,
+        account_email: str,
+        property_url: str,
+        source_ref: str,
+        assessment: dict[str, object],
+        fit_score: float,
+        preference_person_id: str,
+        review_url: str = "",
+        tour_result: dict[str, object] | None = None,
+        candidate_properties: tuple[dict[str, object], ...] = (),
+        diorama_style_hint: str = "",
+        permissive_media_gate: bool = False,
+        birthday_party_request: bool = False,
+        person_motion_hint: str = "",
+    ) -> dict[str, object]:
+        normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+        if not normalized_property_url:
+            return {"status": "skipped", "reason": "property_url_missing"}
+        tour_payload = dict(tour_result or {})
+        top_candidate = dict(candidate_properties[0] or {}) if candidate_properties else {}
+        top_facts = dict(top_candidate.get("property_facts") or top_candidate.get("property_facts_json") or {}) if isinstance(top_candidate, dict) else {}
+        top_assessment = dict(top_candidate.get("assessment") or {}) if isinstance(top_candidate.get("assessment"), dict) else {}
+        effective_assessment = dict(assessment or {}) if assessment else top_assessment
+        normalized_diorama_style_hint = _compact_diorama_style_hint(diorama_style_hint)
+        fit_summary = _property_alert_fit_summary(effective_assessment)
+        if fit_score > 0:
+            score_text = f"Personal fit {int(round(max(0.0, min(100.0, float(fit_score or 0.0))))):d}/100"
+            if fit_summary:
+                fit_summary = re.sub(r"Personal fit \d+/100", score_text, fit_summary)
+            else:
+                fit_summary = score_text
+        compare_reason = str(top_candidate.get("compare_reason") or "").strip()
+        property_title = str(top_candidate.get("listing_title") or title or "").strip() or "Property scout listing"
+        recommendation = str(
+            effective_assessment.get("recommendation")
+            or top_candidate.get("recommendation")
+            or tour_payload.get("status")
+            or "review"
+        ).strip()
+        question_lines = [str(item or "").strip() for item in list(effective_assessment.get("unknowns_json") or []) if str(item or "").strip()]
+        blocked_reason = str(tour_payload.get("blocked_reason") or "").strip()
+        if blocked_reason and not any(blocked_reason.lower() in item.lower() for item in question_lines):
+            question_lines.append(f"Tour lane blocked: {blocked_reason.replace('_', ' ')}.")
+        comparison_rows: list[dict[str, object]] = []
+        for row in candidate_properties[:3]:
+            if not isinstance(row, dict):
+                continue
+            row_facts = dict(row.get("property_facts") or row.get("property_facts_json") or {}) if isinstance(row, dict) else {}
+            comparison_rows.append(
+                {
+                    "title": str(row.get("listing_title") or row.get("title") or "").strip(),
+                    "price": row_facts.get("total_rent_eur") or row_facts.get("price_eur") or row.get("price"),
+                    "rooms": row_facts.get("rooms") or row.get("rooms"),
+                    "area_sqm": row_facts.get("area_sqm") or row.get("area_sqm"),
+                    "recommendation": str(row.get("recommendation") or "").strip(),
+                    "compare_reason": str(row.get("compare_reason") or "").strip(),
+                    "property_url": str(row.get("property_url") or "").strip(),
+                }
+            )
+        hosted_tour_url = str(
+            tour_payload.get("tour_url")
+            or tour_payload.get("vendor_tour_url")
+            or top_candidate.get("tour_url")
+            or top_candidate.get("vendor_tour_url")
+            or ""
+        ).strip()
+        source_media_urls = [
+            str(value or "").strip()
+            for value in list(
+                top_candidate.get("media_urls_json")
+                or top_facts.get("media_urls_json")
+                or []
+            )
+            if str(value or "").strip()
+        ]
+        source_virtual_tour_fallback = str(top_facts.get("source_virtual_tour_url") or top_candidate.get("source_virtual_tour_url") or "").strip()
+        preview_image_fallback = _property_link_bundle_preview_image_url(
+            media_urls=source_media_urls,
+            source_virtual_tour_url=source_virtual_tour_fallback,
+            tour_url=hosted_tour_url,
+            diorama_style_hint=normalized_diorama_style_hint,
+        )
+        if preview_image_fallback and preview_image_fallback not in source_media_urls:
+            source_media_urls.append(preview_image_fallback)
+        source_floorplan_urls = [
+            str(value or "").strip()
+            for value in list(
+                top_candidate.get("floorplan_urls_json")
+                or top_facts.get("floorplan_urls_json")
+                or []
+            )
+            if str(value or "").strip()
+        ]
+        video_delivery = _hosted_property_tour_video_delivery(hosted_tour_url) if hosted_tour_url else {}
+        flythrough_url = ""
+        if str(video_delivery.get("provider_key") or "").strip().lower() == "magicfit":
+            flythrough_url = str(video_delivery.get("video_url") or "").strip()
+            magicfit_stills = [
+                str(url or "").strip()
+                for url in _hosted_property_tour_magicfit_still_urls(hosted_tour_url, limit=3)
+                if str(url or "").strip()
+            ]
+            filtered_source_media_urls = [
+                str(url or "").strip()
+                for url in source_media_urls
+                if str(url or "").strip()
+                and not _placeholder_listing_media_url(str(url or "").strip())
+                and not _property_tour_generated_preview_url(str(url or "").strip())
+            ]
+            deduped_media_urls: list[str] = []
+            seen_media_urls: set[str] = set()
+            for url in [*magicfit_stills, *filtered_source_media_urls]:
+                normalized_url = str(url or "").strip()
+                if not normalized_url or normalized_url in seen_media_urls:
+                    continue
+                seen_media_urls.add(normalized_url)
+                deduped_media_urls.append(normalized_url)
+            source_media_urls = deduped_media_urls
+        floorplan_ref_set = {str(url or "").strip() for url in source_floorplan_urls if str(url or "").strip()}
+        if floorplan_ref_set:
+            source_media_urls = [url for url in source_media_urls if str(url or "").strip() not in floorplan_ref_set]
+        dossier_media_refs: list[str] = [*source_media_urls, *source_floorplan_urls]
+        diorama_preview_url = _hosted_property_tour_telegram_preview_image_url_for_style(
+            hosted_tour_url,
+            diorama_style_hint=normalized_diorama_style_hint,
+        ) or _hosted_property_tour_preview_image_url(hosted_tour_url)
+        source_payload: dict[str, object] = {
+            "title": property_title,
+            "property_title": property_title,
+            "property_ref": f"property-scout:{hashlib.sha256(normalized_property_url.encode('utf-8')).hexdigest()[:16]}",
+            "property_url": normalized_property_url,
+            "source_url": normalized_property_url,
+            "source_label": str(counterparty or "Property scout").strip() or "Property scout",
+            "summary": compact_text(str(summary or "").strip(), fallback="", limit=900),
+            "fit_summary": fit_summary,
+            "compare_reason": compare_reason,
+            "recommendation": recommendation,
+            "match_reasons": list(effective_assessment.get("match_reasons_json") or []),
+            "mismatch_reasons": list(effective_assessment.get("mismatch_reasons_json") or []),
+            "unknowns": question_lines[:8],
+            "viewing_questions": list(effective_assessment.get("viewing_questions_json") or effective_assessment.get("questions") or []),
+            "review_url": str(review_url or top_candidate.get("review_url") or "").strip(),
+            "tour_url": hosted_tour_url,
+            "flythrough_url": flythrough_url,
+            "vendor_tour_url": str(tour_payload.get("vendor_tour_url") or top_candidate.get("vendor_tour_url") or "").strip(),
+            "source_virtual_tour_url": str(top_facts.get("source_virtual_tour_url") or top_candidate.get("source_virtual_tour_url") or "").strip(),
+            "property_facts_json": top_facts,
+            "facts": top_facts,
+            "media_urls_json": list(source_media_urls),
+            "photo_refs": list(source_media_urls),
+            "floorplan_urls_json": list(source_floorplan_urls),
+            "floorplan_refs": list(source_floorplan_urls),
+            "comparison_candidates": comparison_rows,
+        }
+        birthday_reference_keywords = (
+            "birthday",
+            "geburtstag",
+            "party",
+            "feier",
+            "noah",
+            "son",
+            "sohn",
+        )
+        resolved_person_motion_hint = compact_text(str(person_motion_hint or "").strip(), fallback="", limit=260)
+        personal_reference_urls = self._recent_property_magic_fit_reference_urls(
+            principal_id=principal_id,
+            limit=3,
+            recency_days=730 if birthday_party_request else 0,
+            preferred_keywords=birthday_reference_keywords if birthday_party_request else (),
+        )
+        scene_type = "family_evening"
+        scene_room_hint = "main living room or open living kitchen"
+        scene_styling_hint = "warm, realistic, lived-in premium family home editorial; tasteful clutter; the resident may appear naturally if the references support it"
+        scene_household_roles: list[str] = ["resident"]
+        scene_include_child_reference = False
+        multi_floor_signal_text = " ".join(
+            str(value or "").strip()
+            for value in (
+                property_title,
+                summary,
+                top_facts.get("description"),
+                top_facts.get("headline_hook"),
+                top_facts.get("rooms_label"),
+                top_facts.get("property_type"),
+            )
+            if str(value or "").strip()
+        ).lower()
+        if any(token in multi_floor_signal_text for token in ("maisonette", "duplex", "mehrgeschoss", "mehrstöck", "split-level", "split level", "2 ebenen", "zwei ebenen")):
+            scene_styling_hint = (
+                f"{scene_styling_hint}; render the home as a premium architectural cutaway diorama with a partial open side, "
+                "showing the upper floor clearly while still exposing parts of the lower floor underneath; preserve real circulation between levels"
+            )
+        if birthday_party_request:
+            scene_type = "birthday_party"
+            scene_room_hint = "main living room, dining area, or terrace prepared for a child's birthday gathering"
+            scene_styling_hint = (
+                "recent tasteful child's birthday at home; elegant age-appropriate decorations; a small cake table; "
+                "subtle balloons; premium candid family editorial; believable real apartment staging"
+            )
+            scene_household_roles = ["resident", "child", "family"]
+            scene_include_child_reference = True
+        if resolved_person_motion_hint:
+            scene_styling_hint = f"{scene_styling_hint}; keep any visible resident physically consistent with: {resolved_person_motion_hint}"
+        latest_magic_fit_scene = self._maybe_auto_create_property_magic_fit_scene_for_packet(
+            principal_id=principal_id,
+            actor=str(actor or "").strip() or "property_scout",
+            property_ref=str(source_payload["property_ref"]),
+            property_title=property_title,
+            property_url=normalized_property_url,
+            property_facts=top_facts,
+            reference_urls=personal_reference_urls,
+            scene_type=scene_type,
+            room_hint=scene_room_hint,
+            styling_hint=scene_styling_hint,
+            household_roles=scene_household_roles,
+            include_child_reference=scene_include_child_reference,
+            guardian_confirmed_for_children=scene_include_child_reference,
+        )
+        if (not isinstance(latest_magic_fit_scene, dict) or not latest_magic_fit_scene) and personal_reference_urls:
+            reference_sheet = self._property_magic_fit_reference_sheet_data_url(
+                principal_id=principal_id,
+                reference_urls=personal_reference_urls,
+            )
+            if reference_sheet:
+                latest_magic_fit_scene = {
+                    "scene_id": f"magicfitrefsheet_{uuid4().hex}",
+                    "scene_type": "resident_reference_sheet",
+                    "image_url": reference_sheet,
+                    "summary": "Private resident reference board attached to this packet.",
+                    "share_with_packet_pdf": True,
+                    "visual_simulation": False,
+                    "provider_key": "propertyquarry",
+                }
+        if isinstance(latest_magic_fit_scene, dict) and latest_magic_fit_scene and bool(latest_magic_fit_scene.get("share_with_packet_pdf")):
+            source_payload["magic_fit_scene"] = dict(latest_magic_fit_scene)
+            magic_fit_image_url = str(latest_magic_fit_scene.get("image_url") or "").strip()
+            if magic_fit_image_url:
+                dossier_media_refs.append(magic_fit_image_url)
+                if not diorama_preview_url:
+                    diorama_preview_url = magic_fit_image_url
+        if diorama_preview_url:
+            dossier_media_refs.append(diorama_preview_url)
+            diorama_summary = "Stylised overview preview of the flat before opening the full 3D tour."
+            if normalized_diorama_style_hint:
+                diorama_summary = f"{diorama_summary} Requested style direction: {normalized_diorama_style_hint}."
+            source_payload["diorama_scene"] = {
+                "image_url": diorama_preview_url,
+                "summary": diorama_summary,
+                "video_url": flythrough_url,
+                "privacy_mode": PacketPrivacyMode.OWNER_PRIVATE.value,
+            }
+        if top_facts:
+            source_payload.update(
+                {
+                    key: value
+                    for key, value in dict(top_facts).items()
+                    if key
+                    not in {
+                        "media_urls_json",
+                        "photo_refs",
+                        "floorplan_urls_json",
+                        "floorplan_refs",
+                        "tour_url",
+                        "flythrough_url",
+                        "source_virtual_tour_url",
+                    }
+                }
+            )
+        if preference_person_id and preference_person_id != "self":
+            source_payload["fit_summary"] = f"{source_payload['fit_summary']} · profile {preference_person_id}" if source_payload["fit_summary"] else f"profile {preference_person_id}"
+        try:
+            from app.services.fliplink.service import build_fliplink_packet_service
+
+            packet_service = build_fliplink_packet_service(self._container)
+            row = packet_service.render_packet(
+                principal_id=principal_id,
+                person_id=preference_person_id or "self",
+                property_ref=str(source_payload["property_ref"]),
+                packet_kind=PropertyPacketKind.OWNER_REVIEW,
+                privacy_mode=PacketPrivacyMode.OWNER_PRIVATE,
+                fliplink_format=FlipLinkFormat.SMART_DOCUMENT,
+                search_run_id=str(top_candidate.get("search_run_id") or "").strip(),
+                include_exact_address=False,
+                include_floorplan=True,
+                include_photos=True,
+                source_payload=source_payload,
+                actor=str(actor or "").strip() or "property_scout",
+            )
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "reason": compact_text(str(exc or ""), fallback="property_scout_dossier_render_failed", limit=180),
+            }
+        pdf_path = str(row.get("source_pdf_artifact_ref") or "").strip()
+        if not pdf_path or not Path(pdf_path).is_file():
+            return {"status": "failed", "reason": "property_scout_dossier_pdf_missing"}
+        normalized_dossier_media_count = len({str(item or "").strip() for item in dossier_media_refs if str(item or "").strip()})
+        media_gate_ok, embedded_image_count, required_media_count = _pdf_media_gate_passed(
+            pdf_path=pdf_path,
+            media_ref_count=normalized_dossier_media_count,
+            required_ratio=0.0 if permissive_media_gate else 0.6,
+        )
+        if not media_gate_ok:
+            return {
+                "status": "failed",
+                "reason": "property_scout_dossier_media_gate_failed",
+                "embedded_media_count": embedded_image_count,
+                "expected_media_count": normalized_dossier_media_count,
+                "required_media_count": required_media_count,
+            }
+        caption_title = compact_text(property_title, fallback="PropertyQuarry dossier", limit=90)
+        return {
+            "status": "rendered",
+            "publication_id": str(row.get("publication_id") or "").strip(),
+            "pdf_path": pdf_path,
+            "caption": f"PropertyQuarry dossier · {caption_title}",
+            "public_pdf_url": self._public_property_packet_pdf_url(
+                publication_id=str(row.get("publication_id") or "").strip(),
+                source_pdf_sha256=str(row.get("source_pdf_sha256") or "").strip(),
+            ),
+            "property_ref": str(source_payload["property_ref"]),
+            "source_ref": str(source_ref or "").strip(),
+            "account_email": str(account_email or "").strip(),
+            "diorama_preview_url": str(diorama_preview_url or "").strip(),
+            "flythrough_url": str(flythrough_url or "").strip(),
+        }
+
+    def _sign_public_property_packet_pdf_token(
+        self,
+        *,
+        publication_id: str,
+        source_pdf_sha256: str,
+        expires_at: datetime | None = None,
+    ) -> str:
+        normalized_publication_id = str(publication_id or "").strip()
+        normalized_sha = str(source_pdf_sha256 or "").strip().lower()
+        if not normalized_publication_id or not normalized_sha:
+            return ""
+        expiry = expires_at or (datetime.now(timezone.utc) + timedelta(days=30))
+        payload = {
+            "kind": "property_packet_pdf",
+            "publication_id": normalized_publication_id,
+            "source_pdf_sha256": normalized_sha,
+            "expires_at": expiry.astimezone(timezone.utc).isoformat(),
+        }
+        payload_bytes = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
+        secret = resolve_signing_secret(self._container.settings, purpose="property-packet-pdf")
+        signature = hmac.new(secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+        return f"{payload_b64}.{signature}"
+
+    def _public_property_packet_pdf_url(self, *, publication_id: str, source_pdf_sha256: str) -> str:
+        token = self._sign_public_property_packet_pdf_token(
+            publication_id=publication_id,
+            source_pdf_sha256=source_pdf_sha256,
+        )
+        if not token:
+            return ""
+        base_url = str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "https://propertyquarry.com").strip().rstrip("/")
+        return f"{base_url}/v1/integrations/fliplink/documents/property-packets/{token}"
 
     def _send_property_scout_hit_email(
         self,
@@ -20525,6 +27812,10 @@ class ProductService:
         recipient_email = _principal_email_hint(principal_id)
         if not recipient_email or not email_delivery_enabled():
             return {"status": "suppressed", "reason": "email_delivery_not_configured"}
+        gmail_binding_candidates = self._google_delivery_binding_candidates(
+            principal_id=principal_id,
+            account_email=recipient_email,
+        )
         dedupe_suffix = datetime.now(timezone.utc).strftime("%Y%m%d")
         dedupe_key = f"{principal_id}|{source_ref}|property-scout-hit-email|{dedupe_suffix}"
         if self._recent_product_event_exists(
@@ -20535,7 +27826,23 @@ class ProductService:
             return {"status": "suppressed", "reason": "already_emailed_today"}
         tour_payload = dict(tour_result or {})
         tour_url = str(tour_payload.get("tour_url") or "").strip()
-        review_href = str(review_url or "").strip()
+        dossier_render = self._render_property_scout_dossier(
+            principal_id=principal_id,
+            actor=actor,
+            title=title,
+            summary=summary,
+            counterparty=counterparty,
+            account_email=recipient_email,
+            property_url=property_url,
+            source_ref=source_ref,
+            assessment=dict(assessment or {}) if isinstance(assessment, dict) else {},
+            fit_score=_property_alert_fit_score(dict(assessment or {}) if isinstance(assessment, dict) else {}),
+            preference_person_id="self",
+            review_url=review_url,
+            tour_result=tour_payload,
+            candidate_properties=(),
+        )
+        review_href = str(dossier_render.get("public_pdf_url") or review_url or "").strip()
         try:
             receipt = send_property_match_email(
                 recipient_email=recipient_email,
@@ -20547,24 +27854,83 @@ class ProductService:
                 fit_summary=_property_alert_fit_summary(dict(assessment or {})),
                 decision_summary_json=dict(assessment or {}),
             )
+            provider = str(receipt.provider or "").strip()
+            message_id = str(receipt.message_id or "").strip()
         except Exception as exc:
-            payload = {
-                "property_url": property_url,
-                "source_ref": source_ref,
-                "tour_url": tour_url,
-                "review_url": review_href,
-                "actor": str(actor or "").strip() or "property_scout",
-                "recipient_email": recipient_email,
-                "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
-            }
-            self._record_product_event(
-                principal_id=principal_id,
-                event_type="property_scout_hit_email_failed",
-                payload=payload,
-                source_id=source_ref,
-                dedupe_key=dedupe_key,
-            )
-            return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
+            normalized_error = compact_text(str(exc or ""), fallback="email_delivery_failed", limit=300)
+            if "Domain not verified" in normalized_error and gmail_binding_candidates:
+                gmail_subject = f"PropertyQuarry found a new match · {compact_text(title, fallback='Property scout update', limit=90)}"
+                lines = [
+                    str(summary or "").strip() or "PropertyQuarry found a new property match.",
+                    "",
+                    f"Listing: {property_url}",
+                ]
+                if review_href:
+                    lines.append(f"Dossier: {review_href}")
+                if tour_url:
+                    lines.append(f"Tour: {tour_url}")
+                recommendation = str(dict(assessment or {}).get("recommendation") or "").strip()
+                if recommendation:
+                    lines.extend(["", f"Recommendation: {recommendation}"])
+                last_gmail_error: Exception | None = None
+                for candidate_binding_id, candidate_sender_email, candidate_principal_id in gmail_binding_candidates:
+                    try:
+                        gmail_receipt = google_oauth_service.send_google_gmail_message(
+                            container=self._container,
+                            principal_id=candidate_principal_id,
+                            recipient_email=recipient_email,
+                            subject=gmail_subject,
+                            body_text="\n".join(line for line in lines if line is not None).strip(),
+                            binding_id=candidate_binding_id,
+                        )
+                        provider = "google_gmail"
+                        message_id = str(
+                            getattr(gmail_receipt, "gmail_message_id", "")
+                            or getattr(gmail_receipt, "message_id", "")
+                            or ""
+                        ).strip()
+                        break
+                    except Exception as gmail_exc:
+                        last_gmail_error = gmail_exc
+                        continue
+                else:
+                    exc = last_gmail_error or exc
+                    normalized_error = compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160)
+                    payload = {
+                        "property_url": property_url,
+                        "source_ref": source_ref,
+                        "tour_url": tour_url,
+                        "review_url": review_href,
+                        "actor": str(actor or "").strip() or "property_scout",
+                        "recipient_email": recipient_email,
+                        "error": normalized_error,
+                    }
+                    self._record_product_event(
+                        principal_id=principal_id,
+                        event_type="property_scout_hit_email_failed",
+                        payload=payload,
+                        source_id=source_ref,
+                        dedupe_key=dedupe_key,
+                    )
+                    return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
+            else:
+                payload = {
+                    "property_url": property_url,
+                    "source_ref": source_ref,
+                    "tour_url": tour_url,
+                    "review_url": review_href,
+                    "actor": str(actor or "").strip() or "property_scout",
+                    "recipient_email": recipient_email,
+                    "error": compact_text(str(exc or ""), fallback="email_delivery_failed", limit=160),
+                }
+                self._record_product_event(
+                    principal_id=principal_id,
+                    event_type="property_scout_hit_email_failed",
+                    payload=payload,
+                    source_id=source_ref,
+                    dedupe_key=dedupe_key,
+                )
+                return {"status": "failed", "reason": payload["error"], "recipient_email": recipient_email}
         payload = {
             "property_url": property_url,
             "source_ref": source_ref,
@@ -20572,8 +27938,10 @@ class ProductService:
             "review_url": review_href,
             "actor": str(actor or "").strip() or "property_scout",
             "recipient_email": recipient_email,
-            "provider": str(receipt.provider or "").strip(),
-            "message_id": str(receipt.message_id or "").strip(),
+            "provider": provider,
+            "message_id": message_id,
+            "dossier_publication_id": str(dossier_render.get("publication_id") or "").strip(),
+            "dossier_public_pdf_url": str(dossier_render.get("public_pdf_url") or "").strip(),
         }
         self._record_product_event(
             principal_id=principal_id,
@@ -20582,7 +27950,7 @@ class ProductService:
             source_id=source_ref,
             dedupe_key=dedupe_key,
         )
-        return {"status": "sent", "recipient_email": recipient_email, "message_id": str(receipt.message_id or "").strip()}
+        return {"status": "sent", "recipient_email": recipient_email, "message_id": message_id}
 
     def property_alert_policy(self, *, principal_id: str) -> dict[str, object]:
         event = self._latest_product_event(
@@ -22175,7 +29543,7 @@ class ProductService:
         access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
         resolved_default_target = str(default_target or "").strip()
         if not resolved_default_target:
-            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/today"
+            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/properties"
         payload = {
             "session_id": session_id,
             "principal_id": str(principal_id or "").strip(),
@@ -22193,6 +29561,12 @@ class ProductService:
             "access_url": f"/workspace-access/{access_token}",
             "default_target": resolved_default_target,
         }
+        launch_token = self._sign_workspace_access_launch_token(
+            session_id=session_id,
+            expires_at=str(token_payload["expires_at"]),
+        )
+        payload["access_launch_token"] = launch_token
+        payload["access_launch_url"] = f"/workspace-access/{launch_token}"
         self._record_product_event(
             principal_id=principal_id,
             event_type="workspace_access_session_issued",
@@ -22236,7 +29610,7 @@ class ProductService:
                     "expires_at": str(payload.get("expires_at") or "").strip(),
                     "access_token": str(payload.get("access_token") or "").strip(),
                     "access_url": str(payload.get("access_url") or "").strip(),
-                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/today")).strip(),
+                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/properties")).strip(),
                 }
             elif event_type == "workspace_access_session_revoked" and session_id in sessions:
                 sessions[session_id].update(
@@ -22263,10 +29637,23 @@ class ProductService:
 
     def preview_workspace_access_session(self, *, token: str) -> dict[str, object] | None:
         payload = _verify_channel_payload(secret=self._workspace_access_secret(), token=token)
-        if payload is None or str(payload.get("token_kind") or "").strip() != "workspace_access_session":
+        if payload is None:
             return None
-        principal_id = str(payload.get("principal_id") or "").strip()
-        session_id = str(payload.get("session_id") or "").strip()
+        token_kind = str(payload.get("token_kind") or payload.get("k") or "").strip()
+        if token_kind == "wa":
+            try:
+                expires_unix = int(str(payload.get("x") or "0").strip() or "0")
+            except Exception:
+                return None
+            if expires_unix > 0 and expires_unix <= int(datetime.now(timezone.utc).timestamp()):
+                return None
+            session_id = str(payload.get("s") or "").strip()
+            principal_id = self._resolve_workspace_access_session_principal(session_id=session_id)
+        elif token_kind == "workspace_access_session":
+            principal_id = str(payload.get("principal_id") or "").strip()
+            session_id = str(payload.get("session_id") or "").strip()
+        else:
+            return None
         if not principal_id or not session_id:
             return None
         current = self.get_workspace_access_session(principal_id=principal_id, session_id=session_id)
@@ -22274,6 +29661,8 @@ class ProductService:
             if str(current.get("status") or "").strip().lower() == "revoked":
                 return None
             return current
+        if token_kind == "wa":
+            return None
         normalized_role = str(payload.get("role") or "principal").strip().lower() or "principal"
         return {
             "session_id": session_id,
@@ -22290,7 +29679,7 @@ class ProductService:
             "expires_at": str(payload.get("expires_at") or "").strip(),
             "access_token": str(token or "").strip(),
             "access_url": f"/workspace-access/{token}",
-            "default_target": "/admin/office" if normalized_role == "operator" else "/app/today",
+            "default_target": "/admin/office" if normalized_role == "operator" else "/app/properties",
         }
 
     def open_workspace_access_session(self, *, token: str, actor: str = "") -> dict[str, object] | None:
@@ -26833,6 +34222,7 @@ class ProductService:
         delivery_channel: str = "email",
         expires_in_hours: int = 72,
         base_url: str = "",
+        default_target: str = "",
     ) -> dict[str, object] | None:
         normalized_digest = str(digest_key or "").strip().lower()
         normalized_email = str(recipient_email or "").strip().lower()
@@ -26883,6 +34273,7 @@ class ProductService:
             operator_id=resolved_operator_id,
             source_kind="channel_digest_delivery",
             expires_in_hours=expires_in_hours,
+            default_target=default_target,
         )
         delivery_id = f"digest_{uuid4().hex[:10]}"
         token_payload = {
@@ -26931,7 +34322,7 @@ class ProductService:
             "access_session_id": str(access_session.get("session_id") or "").strip(),
             "access_token": str(access_session.get("access_token") or "").strip(),
             "access_url": str(access_session.get("access_url") or "").strip(),
-            "default_target": str(access_session.get("default_target") or "/app/today"),
+            "default_target": str(access_session.get("default_target") or "/app/properties"),
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": plain_text,
@@ -27145,7 +34536,7 @@ class ProductService:
             "open_url": f"/app/channel-loop/{digest_key}",
             "access_token": access_token,
             "access_url": str(access_session.get("access_url") or "").strip(),
-            "default_target": str(access_session.get("default_target") or "/app/today"),
+            "default_target": str(access_session.get("default_target") or "/app/properties"),
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": self.channel_digest_text(

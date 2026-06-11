@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import re
 import socket
 import time
+import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
@@ -139,7 +140,6 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "brief",
         "scenes",
         "video_relpath",
-        "video_fallback_relpath",
         "tour_privacy_mode",
         "privacy_mode",
     }
@@ -371,6 +371,7 @@ _PUBLIC_TOUR_RESEARCH_DEFAULT_HOST_SUFFIXES = (
     "immobilienscout24.at",
     "immowelt.at",
     "immonet.de",
+    "matterport.com",
     "edikte2.justiz.gv.at",
     "sreal.at",
     "immobilien.derstandard.at",
@@ -472,7 +473,6 @@ def _public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
             refs.add(relpath)
 
     _add(payload.get("video_relpath"))
-    _add(payload.get("video_fallback_relpath"))
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -536,7 +536,6 @@ def _public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[st
             row["mime_type"] = str(mime_type).strip()
 
     _record(payload.get("video_relpath"), role="video")
-    _record(payload.get("video_fallback_relpath"), role="video")
     for scene in list(payload.get("scenes") or []):
         if not isinstance(scene, dict):
             continue
@@ -587,12 +586,16 @@ def _public_tour_manifest(payload: dict[str, object], *, only_relpath: str = "")
             candidate = (bundle_dir / relpath).resolve()
             try:
                 if bundle_dir.resolve() in candidate.parents and candidate.exists() and candidate.is_file():
-                    row["size_bytes"] = candidate.stat().st_size
-                    digest = hashlib.sha256()
-                    with candidate.open("rb") as handle:
-                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                            digest.update(chunk)
-                    row["sha256"] = digest.hexdigest()
+                    size_bytes = candidate.stat().st_size
+                    row["size_bytes"] = size_bytes
+                    mime_type = str(row.get("mime_type") or "").strip().lower()
+                    should_hash = size_bytes <= (8 * 1024 * 1024) and not mime_type.startswith("video/")
+                    if should_hash:
+                        digest = hashlib.sha256()
+                        with candidate.open("rb") as handle:
+                            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                                digest.update(chunk)
+                        row["sha256"] = digest.hexdigest()
             except OSError:
                 pass
         manifest[relpath] = row
@@ -756,7 +759,7 @@ def _redacted_public_tour_payload(
         if key == "scenes":
             rendered[key] = _redacted_public_tour_scenes(payload, expose_asset_relpaths=expose_asset_relpaths)
             continue
-        if key in {"video_relpath", "video_fallback_relpath"}:
+        if key == "video_relpath":
             relpath = _public_tour_safe_asset_relpath(payload.get(key))
             if not relpath or relpath not in _public_tour_allowed_asset_paths(payload):
                 continue
@@ -781,11 +784,18 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     manifest = _public_tour_manifest(payload, only_relpath=safe_relpath)
-    if not safe_relpath or safe_relpath not in manifest:
-        raise HTTPException(status_code=404, detail="tour_file_not_found")
     bundle_dir = _tour_bundle_dir(slug)
-    if bundle_dir is None:
+    if not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
+    if safe_relpath not in manifest:
+        generated_public_asset = (
+            safe_relpath == "tour.mp4"
+            or safe_relpath.startswith("telegram-preview")
+            or safe_relpath.startswith("diorama-preview")
+            or safe_relpath.startswith("magicfit-still-")
+        )
+        if not generated_public_asset:
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
     candidate = (bundle_dir / safe_relpath).resolve()
     if bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
@@ -819,6 +829,11 @@ def _safe_live_360_url(value: object) -> str:
 
 def _embedded_live_360_url(payload: dict[str, object]) -> str:
     normalized = dict(payload or {})
+    if str(normalized.get("scene_strategy") or "").strip() == "pure_360_cube":
+        return _safe_live_360_url(
+            normalized.get("source_virtual_tour_url")
+            or normalized.get("source_virtual_tour_origin")
+        )
     return _safe_live_360_url(
         normalized.get("source_virtual_tour_url")
         or normalized.get("source_virtual_tour_origin")
@@ -918,10 +933,40 @@ def _fetch_nearby_poi_research(lat: float, lon: float) -> dict[str, object]:
 (
   node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
   way["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="convenience"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
+  way["shop"="greengrocer"](around:5000,{lat:.8f},{lon:.8f});
   node["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
   way["amenity"="pharmacy"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
   node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
   way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="hardware"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="marketplace"](around:7000,{lat:.8f},{lon:.8f});
+  node["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  way["shop"="mall"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="pedestrian"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="theatre"](around:7000,{lat:.8f},{lon:.8f});
+  node["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  way["leisure"="swimming_pool"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="doctors"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="clinic"](around:7000,{lat:.8f},{lon:.8f});
+  node["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="hospital"](around:7000,{lat:.8f},{lon:.8f});
+  node["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
+  way["railway"="tram_stop"](around:7000,{lat:.8f},{lon:.8f});
+  node["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
+  way["highway"="bus_stop"](around:7000,{lat:.8f},{lon:.8f});
   node["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
   way["railway"="subway_entrance"](around:7000,{lat:.8f},{lon:.8f});
 );
@@ -956,15 +1001,42 @@ out center tags;
         if not isinstance(point_lat, (int, float)) or not isinstance(point_lon, (int, float)):
             continue
         distance_m = _haversine_distance_m(lat, lon, float(point_lat), float(point_lon))
-        if tags.get("shop") == "supermarket":
+        if tags.get("shop") in {"supermarket", "convenience", "greengrocer"}:
             key = "nearest_supermarket_m"
             name_key = "nearest_supermarket_name"
         elif tags.get("amenity") == "pharmacy":
             key = "nearest_pharmacy_m"
             name_key = "nearest_pharmacy_name"
+        elif tags.get("amenity") == "library":
+            key = "nearest_library_m"
+            name_key = "nearest_library_name"
         elif tags.get("leisure") == "playground":
             key = "nearest_playground_m"
             name_key = "nearest_playground_name"
+        elif tags.get("shop") in {"doityourself", "hardware"}:
+            key = "nearest_hardware_store_m"
+            name_key = "nearest_hardware_store_name"
+        elif tags.get("amenity") == "marketplace":
+            key = "nearest_market_m"
+            name_key = "nearest_market_name"
+        elif tags.get("shop") == "mall":
+            key = "nearest_shopping_center_m"
+            name_key = "nearest_shopping_center_name"
+        elif tags.get("highway") == "pedestrian":
+            key = "nearest_shopping_street_m"
+            name_key = "nearest_shopping_street_name"
+        elif tags.get("amenity") == "theatre":
+            key = "nearest_theatre_m"
+            name_key = "nearest_theatre_name"
+        elif tags.get("leisure") == "swimming_pool":
+            key = "nearest_public_pool_m"
+            name_key = "nearest_public_pool_name"
+        elif tags.get("amenity") in {"doctors", "clinic", "hospital"}:
+            key = "nearest_medical_care_m"
+            name_key = "nearest_medical_care_name"
+        elif tags.get("railway") == "tram_stop" or tags.get("highway") == "bus_stop":
+            key = "nearest_tram_bus_m"
+            name_key = "nearest_tram_bus_name"
         elif tags.get("railway") == "subway_entrance":
             key = "nearest_subway_m"
             name_key = "nearest_subway_name"
@@ -1982,9 +2054,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     hosted_brand_html = html.escape(hosted_brand_name)
     slug = str(payload.get("slug") or "").strip()
     video_relpath = str(payload.get("video_relpath") or "").strip()
-    video_fallback_relpath = str(payload.get("video_fallback_relpath") or "").strip()
     video_url = f"/tours/files/{slug}/{video_relpath}" if slug and video_relpath else ""
-    video_fallback_url = f"/tours/files/{slug}/{video_fallback_relpath}" if slug and video_fallback_relpath else ""
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -2028,6 +2098,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             ("nearest_subway_m", "Underground"),
             ("nearest_supermarket_m", "Supermarket"),
             ("nearest_pharmacy_m", "Pharmacy"),
+            ("nearest_library_m", "Library"),
+            ("nearest_medical_care_m", "Medical care"),
+            ("nearest_market_m", "Market"),
+            ("nearest_hardware_store_m", "Baumarkt"),
+            ("nearest_shopping_street_m", "Flaniermeile"),
+            ("nearest_shopping_center_m", "Shopping center"),
+            ("nearest_theatre_m", "Theatre"),
+            ("nearest_public_pool_m", "Public pool"),
             ("nearest_bakery_m", "Bakery"),
             ("nearest_bicycle_parking_m", "Bicycle parking"),
             ("nearest_cycleway_m", "Cycleway"),
@@ -2147,6 +2225,20 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         parking_monthly = facts.get("parking_monthly_eur")
         if isinstance(parking_monthly, (int, float)) and parking_monthly > 0:
             rows.append(f"The garage space is optional but adds about EUR {int(parking_monthly):d} per month.")
+        if _fact_bool("air_quality_risk"):
+            rows.append("Air quality still needs explicit validation for pollution burden and respiratory comfort.")
+        if _fact_bool("crime_risk"):
+            rows.append("Crime and safety burden still need explicit validation for this micro-location.")
+        if _fact_bool("parking_pressure_risk"):
+            rows.append("Parking pressure still needs clarification because no reliable garage fallback is confirmed.")
+        if _fact_bool("drinking_water_risk"):
+            rows.append("Drinking-water source and groundwater burden still need explicit validation.")
+        if _fact_bool("cesspit_risk"):
+            rows.append("Senkgrube or septic dependence still needs explicit validation for cost and smell burden.")
+        if _fact_bool("winter_access_risk"):
+            rows.append("Winter snow or slope access still needs explicit validation.")
+        if _fact_bool("flood_risk"):
+            rows.append("Flood and runoff exposure still need explicit validation.")
         if not _fact_bool("has_floorplan") and not rows:
             rows.append("No floor plan is stored yet.")
         if not _fact_bool("lift") and not rows:
@@ -2167,6 +2259,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         has_lift = _fact_bool("lift")
         has_balcony = _fact_bool("balcony") or _fact_bool("terrace")
         nearest_playground = livability_snapshot.get("nearest_playground_m")
+        nearest_library = livability_snapshot.get("nearest_library_m")
+        nearest_medical_care = livability_snapshot.get("nearest_medical_care_m")
         nearest_cycleway = livability_snapshot.get("nearest_cycleway_m")
         nearest_bicycle_parking = livability_snapshot.get("nearest_bicycle_parking_m")
         nearest_running = livability_snapshot.get("nearest_running_m")
@@ -2210,6 +2304,16 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
                     positive.append(f"The nearest playground is about {int(nearest_playground):d} m away.")
                 else:
                     open_questions.append("Playground distance is not stored yet.")
+            elif "library" in key:
+                if isinstance(nearest_library, (int, float)) and nearest_library > 0:
+                    positive.append(f"The nearest library is about {int(nearest_library):d} m away.")
+                else:
+                    open_questions.append("Library distance is not stored yet.")
+            elif "medical" in key or "doctor" in key or "hospital" in key:
+                if isinstance(nearest_medical_care, (int, float)) and nearest_medical_care > 0:
+                    positive.append(f"Medical care is about {int(nearest_medical_care):d} m away.")
+                else:
+                    open_questions.append("Medical-care distance is not stored yet.")
             elif "bike" in key:
                 if isinstance(nearest_cycleway, (int, float)) and nearest_cycleway > 0:
                     positive.append(f"Cycleway access is about {int(nearest_cycleway):d} m away.")
@@ -2361,6 +2465,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         "nearest_subway_m",
         "nearest_supermarket_m",
         "nearest_pharmacy_m",
+        "nearest_library_m",
+        "nearest_medical_care_m",
+        "nearest_market_m",
+        "nearest_hardware_store_m",
+        "nearest_shopping_street_m",
+        "nearest_shopping_center_m",
+        "nearest_theatre_m",
+        "nearest_public_pool_m",
         "nearest_bakery_m",
         "nearest_bicycle_parking_m",
         "nearest_cycleway_m",
@@ -2510,6 +2622,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
             ("nearest_supermarket_m", "Supermarket"),
             ("nearest_pharmacy_m", "Pharmacy"),
             ("nearest_playground_m", "Playground"),
+            ("nearest_library_m", "Library"),
+            ("nearest_medical_care_m", "Medical care"),
+            ("nearest_market_m", "Market"),
+            ("nearest_hardware_store_m", "Baumarkt"),
+            ("nearest_shopping_street_m", "Flaniermeile"),
+            ("nearest_shopping_center_m", "Shopping center"),
+            ("nearest_theatre_m", "Theatre"),
+            ("nearest_public_pool_m", "Public pool"),
             ("nearest_subway_m", "Underground"),
         )
         for key, label in evidence_specs:
@@ -2705,7 +2825,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         active_filter_html = "".join(f"<li>{html.escape(label)}</li>" for label in active_filter_labels[:8])
         filters_panel = ""
         feedback_panel = ""
-        if str(payload.get("principal_id") or "").strip():
+        if bool(payload.get("_feedback_enabled")) or str(payload.get("principal_id") or "").strip():
             feedback_panel = (
                 '<section id="feedback" class="panel">'
                 '<div class="eyebrow">Preference Feedback</div>'
@@ -2741,7 +2861,6 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname)}
-    {rybbit_head_snippet(hostname)}
     <style>
       :root {{
         --bg: #f5f2ec;
@@ -3365,6 +3484,67 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     </script>
   </body>
 </html>"""
+    pure_decision_rows_html = "".join(
+        f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+        for label, value in decision_rows
+    )
+    pure_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No strong positive pattern match is clear yet."]))
+    pure_risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in (concern_lines or ["No concrete downside has been stored yet."]))
+    pure_unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines or ["No explicit follow-up question is stored yet."]))
+    pure_feedback_panel = ""
+    if bool(payload.get("_feedback_enabled")) or str(payload.get("principal_id") or "").strip():
+        pure_feedback_panel = (
+            '<section class="card decision-card">'
+            '<div class="eyebrow">Preference Feedback</div>'
+            '<h2>Teach the system what to rank higher or lower</h2>'
+            '<p class="sub">Give a quick reaction and mark concrete reasons. Public-link feedback is captured as an external signal; sign in to apply it to a ranking profile.</p>'
+            '<button class="btn" type="button">Save feedback</button>'
+            '</section>'
+        )
+    pure_shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
+    pure_shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
+    pure_shortlist_rows = ([pure_shortlist_current] if pure_shortlist_current else []) + pure_shortlist_items
+    pure_shortlist_cards = "".join(
+        (
+            '<div class="stat">'
+            f'<span>Fit {int(round(float(row.get("score") or 0.0))):d}/100</span>'
+            f'<strong>{html.escape(str(row.get("title") or "Property").strip())}</strong>'
+            f'<p>{html.escape(str(row.get("why_now") or "No comparison note stored.").strip())}</p>'
+            f'<p><span class="shortlist-delta-better">shortlist upside</span> <span class="shortlist-delta-worse">shortlist trade-off</span></p>'
+            + ''.join(
+                f'<p><b>{html.escape(label)}:</b> {html.escape(_shortlist_metric_display(key, dict(row.get("metrics") or {}).get(key)))}</p>'
+                for key, label, _direction in _shortlist_metric_labels()
+                if key in dict(row.get("metrics") or {})
+            )
+            + '</div>'
+        )
+        for row in pure_shortlist_rows[:3]
+    )
+    pure_shortlist_panel = (
+        '<section class="card decision-card">'
+        '<div class="eyebrow">Shortlist Compare</div>'
+        '<h2>Current property against active shortlist items</h2>'
+        f'<div class="stat-grid">{pure_shortlist_cards or "<div class=\"stat\"><span>Shortlist</span><strong>No shortlist loaded</strong></div>"}</div>'
+        '</section>'
+    )
+    pure_distance_html = "".join(
+        f'<div class="stat"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>'
+        for label, value in distance_rows
+    )
+    pure_decision_panel = (
+        '<section class="card decision-card">'
+        '<div class="eyebrow">Decision Summary</div>'
+        '<h2>Decision Summary</h2>'
+        f'<div class="stat-grid">{pure_decision_rows_html}</div>'
+        '<div class="decision-grid">'
+        '<div><h3>Why it fits</h3><ul>' + pure_reasons_html + '</ul></div>'
+        '<div><h3>Decision pressure</h3><ul>' + pure_risks_html + '</ul></div>'
+        '<div><h3>Still missing</h3><ul>' + pure_unknowns_html + '</ul></div>'
+        '</div>'
+        + (f'<h2>Daily-life access</h2><div class="stat-grid">{pure_distance_html}</div>' if pure_distance_html else '')
+        + (f'<p class="sub">{html.escape(completed_research_line)}</p>' if completed_research_line else '')
+        + '</section>'
+    )
     if is_pure_360_cube:
         return f"""<!doctype html>
 <html lang="de">
@@ -3373,140 +3553,854 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname)}
-    {rybbit_head_snippet(hostname)}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core/index.min.css">
     <style>
-      html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111; color: #f8f4eb; font-family: Inter, Arial, sans-serif; }}
-      .topbar {{ position: fixed; z-index: 5; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; background: linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,0)); }}
-      .title {{ min-width: 0; }}
-      .title b {{ display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 72vw; }}
-      .title span {{ display: block; margin-top: 3px; color: rgba(248,244,235,.72); font-size: 12px; }}
-      .controls {{ display: flex; gap: 8px; align-items: center; }}
-      button, a.btn {{ min-height: 38px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: #fff; background: rgba(255,255,255,.12); padding: 0 13px; cursor: pointer; text-decoration: none; }}
-      .viewer {{ position: fixed; inset: 0; perspective: 900px; cursor: grab; overflow: hidden; touch-action: none; }}
-      .viewer.dragging {{ cursor: grabbing; }}
-      .cube {{ position: absolute; left: 50%; top: 50%; width: 1024px; height: 1024px; margin-left: -512px; margin-top: -512px; transform-style: preserve-3d; }}
-      .face {{ position: absolute; width: 1024px; height: 1024px; background-size: cover; background-position: center; backface-visibility: hidden; }}
-      .f {{ transform: translateZ(-512px) rotateY(180deg); }}
-      .b {{ transform: translateZ(512px); }}
-      .r {{ transform: rotateY(-90deg) translateZ(512px); }}
-      .l {{ transform: rotateY(90deg) translateZ(512px); }}
-      .u {{ transform: rotateX(-90deg) translateZ(512px); }}
-      .d {{ transform: rotateX(90deg) translateZ(512px); }}
-      .scene-links {{ position: absolute; inset: 0; z-index: 4; pointer-events: none; }}
-      .scene-link {{ position: absolute; top: 50%; transform: translateY(-50%); min-width: 114px; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.64); color: #fffaf2; font: 600 14px/1.2 Inter, Arial, sans-serif; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; pointer-events: auto; }}
-      .scene-link.prev {{ left: 14px; }}
-      .scene-link.next {{ right: 14px; }}
-      .scene-link.disabled {{ opacity: .45; pointer-events: none; }}
-      .filmstrip {{ position: fixed; z-index: 6; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 12px; overflow-x: auto; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.78)); }}
-      .thumb {{ flex: 0 0 112px; height: 70px; border: 2px solid transparent; border-radius: 8px; background-size: cover; background-position: center; opacity: .78; }}
-      .thumb.active {{ border-color: #fff; opacity: 1; }}
-      @media (max-width: 720px) {{ .cube {{ transform-origin: center center; }} .title b {{ max-width: 56vw; }} .thumb {{ flex-basis: 92px; height: 58px; }} }}
+      :root {{
+        --bg: #f5efe3;
+        --panel: rgba(255,255,255,0.82);
+        --ink: #1f1c18;
+        --muted: #6f665a;
+        --line: rgba(31,28,24,0.12);
+        --accent: #1f5f51;
+        --accent-soft: rgba(31,95,81,0.10);
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        color: var(--ink);
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+        background:
+          radial-gradient(circle at top left, rgba(31,95,81,0.14), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(183,132,40,0.16), transparent 28%),
+          linear-gradient(160deg, #f8f4ec 0%, #efe8db 100%);
+      }}
+      .shell {{
+        max-width: 1380px;
+        margin: 0 auto;
+        padding: 24px;
+      }}
+      .hero {{
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 18px;
+        align-items: start;
+      }}
+      .card {{
+        border-radius: 28px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+        box-shadow: 0 18px 48px rgba(31,28,24,0.08);
+      }}
+      .hero-main {{ padding: 28px; }}
+      .hero-side {{ padding: 22px; }}
+      .eyebrow {{
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }}
+      h1 {{
+        margin: 14px 0 10px;
+        font-size: clamp(2rem, 4vw, 4rem);
+        line-height: 0.95;
+      }}
+      .sub {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+        max-width: 66ch;
+      }}
+      .actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }}
+      .btn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.72);
+        color: var(--ink);
+        text-decoration: none;
+        cursor: pointer;
+      }}
+      .btn.primary {{
+        background: var(--ink);
+        color: #fff9f0;
+        border-color: transparent;
+      }}
+      .stack {{
+        display: grid;
+        gap: 12px;
+      }}
+      .kv {{
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.68);
+        border: 1px solid rgba(31,28,24,0.08);
+      }}
+      .kv b {{
+        display: block;
+        margin-bottom: 4px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+      }}
+      .stage {{
+        margin-top: 18px;
+        display: grid;
+        gap: 18px;
+      }}
+      .decision-card {{
+        padding: 22px;
+      }}
+      .decision-card h2 {{
+        margin: 8px 0 14px;
+      }}
+      .decision-grid, .stat-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }}
+      .decision-grid {{
+        margin-top: 16px;
+      }}
+      .decision-grid h3 {{
+        margin: 0 0 8px;
+      }}
+      .decision-grid ul {{
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .stat {{
+        padding: 12px 14px;
+        border-radius: 18px;
+        background: rgba(255,255,255,0.68);
+        border: 1px solid rgba(31,28,24,0.08);
+      }}
+      .stat span {{
+        display: block;
+        margin-bottom: 4px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--muted);
+      }}
+      .stat strong {{
+        display: block;
+      }}
+      .stat p {{
+        margin: 6px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }}
+      .toolbar {{
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+      }}
+      .toggle {{
+        display: inline-flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }}
+      .toggle button {{
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.74);
+        color: var(--ink);
+        cursor: pointer;
+      }}
+      .toggle button.active {{
+        background: var(--ink);
+        color: #fff8ef;
+        border-color: var(--ink);
+      }}
+      .toggle button:disabled {{
+        opacity: .4;
+        cursor: not-allowed;
+      }}
+      .stage-grid {{
+        display: grid;
+        grid-template-columns: minmax(0, 1.22fr) minmax(320px, 0.78fr);
+        gap: 18px;
+      }}
+      .viewer-shell {{
+        padding: 16px;
+      }}
+      .pane {{ display: none; }}
+      .pane.active {{ display: block; }}
+      #cube {{
+        min-height: 72vh;
+        height: 72vh;
+        border-radius: 24px;
+        overflow: hidden;
+        background: #111;
+        border: 1px solid rgba(31,28,24,0.14);
+      }}
+      .viewer-empty {{
+        min-height: 72vh;
+        height: 72vh;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        text-align: center;
+        color: #fff8ef;
+        background: radial-gradient(circle at top, rgba(31,95,81,0.42), rgba(12,12,12,0.94));
+      }}
+      .viewer-empty strong {{
+        display: block;
+        margin-bottom: 10px;
+        font-size: 1.1rem;
+      }}
+      .viewer-empty p {{
+        max-width: 32rem;
+        margin: 0 auto 16px;
+        line-height: 1.55;
+        color: rgba(255,248,239,0.82);
+      }}
+      .viewer-empty button {{
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.10);
+        color: #fff8ef;
+        cursor: pointer;
+      }}
+      .overview-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }}
+      .overview-card {{
+        padding: 16px;
+        border-radius: 22px;
+        border: 1px solid rgba(31,28,24,0.09);
+        background: rgba(255,255,255,0.74);
+      }}
+      .overview-card strong {{
+        display: block;
+        margin-bottom: 8px;
+      }}
+      .overview-card p {{
+        margin: 0 0 14px;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .overview-card button {{
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--accent-soft);
+        color: var(--accent);
+        cursor: pointer;
+      }}
+      .doc-stage {{
+        border-radius: 24px;
+        overflow: hidden;
+        border: 1px solid rgba(31,28,24,0.12);
+        background: rgba(255,255,255,0.88);
+        min-height: 72vh;
+      }}
+      .video-stage {{
+        border-radius: 24px;
+        overflow: hidden;
+        border: 1px solid rgba(31,28,24,0.12);
+        background: #0f1012;
+        min-height: 72vh;
+      }}
+      .video-stage video {{
+        width: 100%;
+        height: 72vh;
+        min-height: 72vh;
+        display: block;
+        object-fit: cover;
+        background: #0f1012;
+      }}
+      .doc-stage iframe,
+      .doc-stage img {{
+        width: 100%;
+        height: 72vh;
+        min-height: 72vh;
+        display: block;
+        border: 0;
+        background: #fff;
+      }}
+      .doc-stage img {{
+        object-fit: contain;
+      }}
+      .sidebar {{
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }}
+      .section-title {{
+        margin: 0;
+        font-size: 1rem;
+      }}
+      .note {{
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .thumbs {{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+        gap: 10px;
+      }}
+      .thumb {{
+        position: relative;
+        overflow: hidden;
+        border-radius: 18px;
+        border: 2px solid transparent;
+        background: rgba(255,255,255,0.62);
+        cursor: pointer;
+      }}
+      .thumb.active {{ border-color: var(--accent); }}
+      .thumb img {{
+        width: 100%;
+        height: 108px;
+        object-fit: cover;
+        display: block;
+      }}
+      .thumb-doc {{
+        min-height: 108px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(240,233,218,0.92));
+        color: var(--ink);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }}
+      .thumb-badge {{
+        position: absolute;
+        left: 8px;
+        top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(14,14,13,0.72);
+        color: #fffaf2;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }}
+      .scene-list {{
+        display: grid;
+        gap: 8px;
+      }}
+      .brief-list {{
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.5;
+      }}
+      .brief-list li + li {{
+        margin-top: 6px;
+      }}
+      .scene-row {{
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(31,28,24,0.08);
+        background: rgba(255,255,255,0.68);
+      }}
+      .scene-row.active {{
+        background: rgba(31,95,81,0.10);
+        border-color: rgba(31,95,81,0.28);
+      }}
+      .scene-row button {{
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: #fff;
+        cursor: pointer;
+      }}
+      .status-pill {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.74);
+        border: 1px solid var(--line);
+        color: var(--muted);
+      }}
+      .plan-preview {{
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid rgba(31,28,24,0.1);
+        background: rgba(255,255,255,0.84);
+      }}
+      .plan-preview img {{
+        width: 100%;
+        height: 148px;
+        object-fit: cover;
+        display: block;
+        background: #fff;
+      }}
+      .plan-preview-doc {{
+        min-height: 148px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(255,255,255,0.97), rgba(240,233,218,0.92));
+        color: var(--ink);
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }}
+      .plan-preview-copy {{
+        padding: 12px 14px 14px;
+        display: grid;
+        gap: 8px;
+      }}
+      .plan-preview-copy strong {{
+        display: block;
+      }}
+      .plan-preview-copy button {{
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--accent-soft);
+        color: var(--accent);
+        cursor: pointer;
+      }}
+      @media (max-width: 1040px) {{
+        .hero, .stage-grid {{ grid-template-columns: 1fr; }}
+      }}
+      @media (max-width: 640px) {{
+        .shell {{ padding: 14px; }}
+        .card {{ border-radius: 22px; }}
+        #cube, .doc-stage, .doc-stage iframe, .doc-stage img, .video-stage, .video-stage video {{
+          min-height: 56vh;
+          height: 56vh;
+        }}
+      }}
     </style>
   </head>
   <body>
-    <div class="topbar">
-      <div class="title"><b>{title_html}</b><span>Pure 360 hosted on {hosted_brand_html} · {html.escape(str(payload.get("scene_count") or len(scene_data)))} locations</span></div>
-      <div class="controls">
-        <button id="prev" type="button">Prev</button>
-        <button id="next" type="button">Next</button>
-        {listing_link}
-      </div>
+    <div class="shell">
+      <section class="hero">
+        <div class="card hero-main">
+          <div class="eyebrow">PropertyQuarry <span>•</span> Hosted 360</div>
+          <h1>{title_html}</h1>
+          <p class="sub">A white-label 360 review with an actual panorama viewer, a clear scene overview, and floorplan access on the same surface. Pure 360 hosted on {hosted_brand_html}.</p>
+          <div class="actions">
+            <a class="btn primary" href="#panorama-pane">Open panorama</a>
+            {listing_link}
+          </div>
+        </div>
+        <aside class="card hero-side">
+          <div class="stack">
+            <div class="kv"><b>Hosted by</b>{hosted_brand_html}</div>
+            <div class="kv"><b>Location</b>{address or district or 'Location under review'}</div>
+            <div class="kv"><b>Scenes</b>{html.escape(str(len([scene for scene in scene_data if scene.get('cube_faces')])))} panorama positions</div>
+            <div class="kv"><b>Floorplans</b>{html.escape(str(len([scene for scene in scene_data if str(scene.get('role') or '') == 'floorplan'])))} attached documents</div>
+            <div class="kv"><b>Review mode</b>Panorama first, then layout and packet review.</div>
+          </div>
+        </aside>
+      </section>
+      <section class="stage">
+        {pure_decision_panel}
+        {pure_feedback_panel}
+        {pure_shortlist_panel}
+      </section>
+      <section class="stage">
+        <div class="toolbar">
+          <div class="toggle" id="mode-toggle">
+            <button type="button" class="active" data-pane="panorama-pane">Panorama</button>
+            <button type="button" data-pane="overview-pane">Overview</button>
+            <button type="button" data-pane="floorplan-pane">Floorplans</button>
+            {"<button type=\"button\" data-pane=\"flythrough-pane\">Flythrough</button>" if video_url else ""}
+          </div>
+          <div class="status-pill" id="tour-status">Hosted white-label 360 review</div>
+        </div>
+        <div class="stage-grid">
+          <div class="card viewer-shell">
+            <section id="panorama-pane" class="pane active">
+              <div id="cube"></div>
+            </section>
+            <section id="overview-pane" class="pane">
+              <div class="overview-grid" id="overview-grid"></div>
+            </section>
+            <section id="floorplan-pane" class="pane">
+              <div class="doc-stage" id="floorplan-stage">
+                <img id="floorplan-image" alt="Floorplan preview" hidden referrerpolicy="no-referrer">
+                <iframe id="floorplan-frame" title="Floorplan document" hidden referrerpolicy="no-referrer"></iframe>
+              </div>
+            </section>
+            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline preload=\"metadata\"><source src=\"" + html.escape(video_url) + "\" type=\"video/mp4\"></video></div></section>" if video_url else ""}
+          </div>
+          <aside class="card sidebar">
+            <h2 class="section-title">Scene navigation</h2>
+            <p class="note">Move through the panorama for spatial feel, validate the circulation on the plan, then return to the packet with a cleaner room-by-room read.</p>
+            <h2 class="section-title">Review route</h2>
+            <ol class="brief-list">
+              <li>Open the main panorama and get the room proportions.</li>
+              <li>Switch to the floorplan to validate doors, walls, and usable edges.</li>
+              <li>Return to the dossier for risks, questions, and decision context.</li>
+            </ol>
+            <div class="actions">
+              <button class="btn" id="prev-link" type="button">Previous</button>
+              <button class="btn" id="next-link" type="button">Next</button>
+              {"<button class=\"btn\" id=\"open-flythrough\" type=\"button\">Play flythrough</button>" if video_url else ""}
+            </div>
+            <div class="scene-list" id="scene-list"></div>
+            <h2 class="section-title">Layout preview</h2>
+            <div id="layout-preview" class="plan-preview">
+              <div class="plan-preview-doc">No plan</div>
+              <div class="plan-preview-copy">
+                <strong>Layout preview unavailable</strong>
+                <p class="note">This tour currently has no stored floorplan document.</p>
+              </div>
+            </div>
+            <h2 class="section-title">Media deck</h2>
+            <div class="thumbs" id="thumbs"></div>
+          </aside>
+        </div>
+      </section>
     </div>
-    <div id="viewer" class="viewer">
-      <div id="cube" class="cube">
-        <div class="face f"></div><div class="face b"></div><div class="face r"></div>
-        <div class="face l"></div><div class="face u"></div><div class="face d"></div>
-      </div>
-      <div id="scene-links" class="scene-links">
-        <a id="prev-link" class="scene-link prev" href="#"></a>
-        <a id="next-link" class="scene-link next" href="#"></a>
-      </div>
-    </div>
-    <div id="filmstrip" class="filmstrip"></div>
     <script id="scene-data" type="application/json">{data_json}</script>
-    <script>
-      const scenes = JSON.parse(document.getElementById("scene-data").textContent).filter(s => s.cube_faces && s.cube_faces.f);
-      const viewer = document.getElementById("viewer");
-      const cube = document.getElementById("cube");
-      const filmstrip = document.getElementById("filmstrip");
-      const prevLink = document.getElementById("prev-link");
-      const nextLink = document.getElementById("next-link");
-      let active = 0, yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0;
-      const clampSceneIndex = (value) => ((value % scenes.length) + scenes.length) % scenes.length;
-      function clamp(value, min, max) {{ return Math.max(min, Math.min(max, value)); }}
-      function applyRotation() {{ cube.style.transform = `rotateX(${{pitch}}deg) rotateY(${{yaw}}deg)`; }}
-      function resolveSceneIndex(rawIndex, fallback) {{
-        const index = Number.parseInt(String(rawIndex), 10);
-        if (Number.isInteger(index)) return clampSceneIndex(index);
-        return fallback;
-      }}
-      function makeSceneHref(index) {{
-        const target = new URL(window.location.href);
-        const sceneId = scenes[index]?.scene_id || "";
-        if (sceneId && sceneId !== "1") {{
-          target.searchParams.set("scene", sceneId);
-        }} else {{
-          target.searchParams.delete("scene");
+    <script type="importmap">
+      {{
+        "imports": {{
+          "three": "https://cdn.jsdelivr.net/npm/three/build/three.module.js",
+          "@photo-sphere-viewer/core": "https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core/index.module.js",
+          "@photo-sphere-viewer/cubemap-adapter": "https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/cubemap-adapter/index.module.js"
         }}
-        target.hash = "";
-        return target.pathname + (target.search || "");
       }}
-      function setLinkState(link, index, labelSuffix) {{
-        if (!link || scenes.length === 0) return;
-        if (index < 0 || index >= scenes.length) {{
-          link.classList.add("disabled");
-          link.removeAttribute("href");
-          link.textContent = "";
+    </script>
+    <script type="module">
+      import {{ Viewer }} from '@photo-sphere-viewer/core';
+      import {{ CubemapAdapter }} from '@photo-sphere-viewer/cubemap-adapter';
+
+      const sceneData = JSON.parse(document.getElementById("scene-data").textContent);
+      const panoramaScenes = sceneData.filter((scene) => scene.cube_faces && scene.cube_faces.f);
+      const floorplanScenes = sceneData.filter((scene) => String(scene.role || "").trim() === "floorplan");
+      const thumbs = document.getElementById("thumbs");
+      const sceneList = document.getElementById("scene-list");
+      const overviewGrid = document.getElementById("overview-grid");
+      const floorplanImage = document.getElementById("floorplan-image");
+      const floorplanFrame = document.getElementById("floorplan-frame");
+      const layoutPreview = document.getElementById("layout-preview");
+      const flythroughVideo = document.getElementById("flythrough-video");
+      const modeButtons = [...document.querySelectorAll('#mode-toggle button[data-pane]')];
+      const panes = [...document.querySelectorAll('.pane')];
+      const floorplanButton = modeButtons.find((button) => button.dataset.pane === 'floorplan-pane');
+      if (floorplanButton && floorplanScenes.length === 0) {{
+        floorplanButton.disabled = true;
+      }}
+      let activePanorama = 0;
+      let activeFloorplan = 0;
+      const viewerContainer = document.querySelector('#cube');
+      let viewer = null;
+
+      function showPanoramaFallback(message) {{
+        if (!viewerContainer) return;
+        viewerContainer.innerHTML = `
+          <div class="viewer-empty">
+            <div>
+              <strong>Panorama preview unavailable on this device right now</strong>
+              <p>${{message || 'Use the overview and floorplan tabs to keep the layout review moving, then reopen the panorama after the connection or browser stabilizes.'}}</p>
+              <button type="button" id="panorama-fallback-overview">Open overview instead</button>
+            </div>
+          </div>
+        `;
+        const fallbackButton = document.getElementById('panorama-fallback-overview');
+        if (fallbackButton) {{
+          fallbackButton.addEventListener('click', () => switchPane(floorplanScenes.length ? 'floorplan-pane' : 'overview-pane'));
+        }}
+        if (panoramaScenes.length) {{
+          document.getElementById('tour-status').textContent = 'Panorama unavailable · using white-label fallback';
+        }}
+      }}
+
+      if (panoramaScenes.length) {{
+        try {{
+          viewer = new Viewer({{
+            container: viewerContainer,
+            adapter: CubemapAdapter,
+            navbar: ['zoom', 'move', 'fullscreen'],
+            mousewheel: true,
+            touchmoveTwoFingers: false,
+            defaultZoomLvl: 42,
+            panorama: {{
+              left: panoramaScenes[0].cube_faces.l,
+              front: panoramaScenes[0].cube_faces.f,
+              right: panoramaScenes[0].cube_faces.r,
+              back: panoramaScenes[0].cube_faces.b,
+              top: panoramaScenes[0].cube_faces.u,
+              bottom: panoramaScenes[0].cube_faces.d,
+            }},
+          }});
+        }} catch (error) {{
+          console.error('PropertyQuarry panorama init failed', error);
+          showPanoramaFallback('The white-label panorama viewer could not initialize here. The overview and floorplan lanes stay available so the dossier remains usable on mobile.');
+        }}
+      }}
+
+      function switchPane(name) {{
+        panes.forEach((pane) => pane.classList.toggle('active', pane.id === name));
+        modeButtons.forEach((button) => button.classList.toggle('active', button.dataset.pane === name));
+        if (name === 'flythrough-pane') {{
+          document.getElementById('tour-status').textContent = 'Flythrough · interior route';
+        }} else if (name === 'floorplan-pane' && floorplanScenes.length) {{
+          document.getElementById('tour-status').textContent = `Floorplan · ${{floorplanScenes[activeFloorplan]?.name || `Plan ${{activeFloorplan + 1}}`}}`;
+        }}
+      }}
+
+      async function autoplayFlythrough() {{
+        if (!flythroughVideo || typeof flythroughVideo.play !== 'function') return;
+        flythroughVideo.muted = true;
+        flythroughVideo.autoplay = true;
+        try {{
+          await flythroughVideo.play();
+        }} catch (_error) {{
+          flythroughVideo.controls = true;
+        }}
+      }}
+
+      function setPanoramaScene(index) {{
+        if (!panoramaScenes.length || !viewer) return;
+        activePanorama = ((index % panoramaScenes.length) + panoramaScenes.length) % panoramaScenes.length;
+        const scene = panoramaScenes[activePanorama];
+        try {{
+          viewer.setPanorama({{
+            left: scene.cube_faces.l,
+            front: scene.cube_faces.f,
+            right: scene.cube_faces.r,
+            back: scene.cube_faces.b,
+            top: scene.cube_faces.u,
+            bottom: scene.cube_faces.d,
+          }});
+        }} catch (error) {{
+          console.error('PropertyQuarry panorama scene switch failed', error);
+          showPanoramaFallback('This panorama scene could not be rendered cleanly on the current device. Use the scene overview or floorplan lane for the layout-first review.');
+          switchPane(floorplanScenes.length ? 'floorplan-pane' : 'overview-pane');
           return;
         }}
-        link.classList.remove("disabled");
-        link.dataset.index = String(index);
-        link.href = makeSceneHref(index);
-        const label = scenes[index].name || `Location ${{index + 1}}`;
-        link.textContent = `${{labelSuffix}}${{label}}`;
+        [...sceneList.children].forEach((node, sceneIndex) => node.classList.toggle('active', sceneIndex === activePanorama));
+        [...thumbs.children].forEach((node) => {{
+          const role = String(node.dataset.role || '');
+          const sceneIndex = Number.parseInt(String(node.dataset.index || '-1'), 10);
+          node.classList.toggle('active', role === 'pure_360' && sceneIndex === activePanorama);
+        }});
+        const target = new URL(window.location.href);
+        const sceneId = scene.scene_id || String(activePanorama + 1);
+        if (sceneId && sceneId !== '1') target.searchParams.set('scene', sceneId);
+        else target.searchParams.delete('scene');
+        target.hash = '';
+        history.replaceState({{}}, '', target.pathname + (target.search || ''));
+        document.getElementById('tour-status').textContent = `Panorama · ${{scene.name || `Scene ${{activePanorama + 1}}`}}`;
       }}
-      function setScene(index) {{
-        if (!scenes.length) return;
-        active = clampSceneIndex(index);
-        const faces = scenes[active].cube_faces;
-        for (const key of ["f","b","r","l","u","d"]) {{
-          const node = cube.querySelector("." + key);
-          node.style.backgroundImage = `url("${{faces[key]}}")`;
+
+      function setFloorplan(index) {{
+        if (!floorplanScenes.length) return;
+        activeFloorplan = ((index % floorplanScenes.length) + floorplanScenes.length) % floorplanScenes.length;
+        const scene = floorplanScenes[activeFloorplan];
+        const url = String(scene.image_url || '');
+        const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(url);
+        if (isPdf) {{
+          floorplanImage.hidden = true;
+          floorplanFrame.hidden = false;
+          floorplanFrame.src = url;
+        }} else {{
+          floorplanFrame.hidden = true;
+          floorplanFrame.src = '';
+          floorplanImage.hidden = false;
+          floorplanImage.src = url;
         }}
-        [...filmstrip.children].forEach((node, i) => node.classList.toggle("active", i === active));
-        const prevIndex = resolveSceneIndex(scenes[active].prev_scene_index, clampSceneIndex(active - 1));
-        const nextIndex = resolveSceneIndex(scenes[active].next_scene_index, clampSceneIndex(active + 1));
-        setLinkState(prevLink, prevIndex, "◀ ");
-        setLinkState(nextLink, nextIndex, "");
-        const currentUrl = new URL(window.location.href);
-        const sceneId = scenes[active].scene_id || String(active + 1);
-        if (sceneId && sceneId !== "1") currentUrl.searchParams.set("scene", sceneId);
-        else currentUrl.searchParams.delete("scene");
-        currentUrl.hash = "";
-        history.replaceState({{}}, "", currentUrl.pathname + (currentUrl.search || ""));
+        [...thumbs.children].forEach((node) => {{
+          const role = String(node.dataset.role || '');
+          const sceneIndex = Number.parseInt(String(node.dataset.index || '-1'), 10);
+          node.classList.toggle('active', role === 'floorplan' && sceneIndex === activeFloorplan);
+        }});
       }}
-      scenes.forEach((scene, index) => {{
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "thumb";
-        button.style.backgroundImage = `url("${{scene.image_url || scene.cube_faces.f}}")`;
-        button.title = scene.name || `Location ${{index + 1}}`;
-        button.addEventListener("click", () => setScene(index));
-        filmstrip.appendChild(button);
+
+      function renderLayoutPreview() {{
+        if (!layoutPreview) return;
+        if (!floorplanScenes.length) {{
+          layoutPreview.innerHTML = `
+            <div class="plan-preview-doc">No plan</div>
+            <div class="plan-preview-copy">
+              <strong>Layout preview unavailable</strong>
+              <p class="note">This tour currently has no stored floorplan document.</p>
+            </div>
+          `;
+          return;
+        }}
+        const scene = floorplanScenes[0];
+        const url = String(scene.image_url || '');
+        const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(url);
+        layoutPreview.innerHTML = isPdf
+          ? `
+              <div class="plan-preview-doc">PDF</div>
+              <div class="plan-preview-copy">
+                <strong>${{scene.name || 'Attached floorplan'}}</strong>
+                <p class="note">Open the plan sheet to validate room flow, circulation, and usable edges.</p>
+                <button type="button" id="layout-preview-open">Open floorplan</button>
+              </div>
+            `
+          : `
+              <img src="${{url}}" alt="${{scene.name || 'Floorplan preview'}}" referrerpolicy="no-referrer">
+              <div class="plan-preview-copy">
+                <strong>${{scene.name || 'Attached floorplan'}}</strong>
+                <p class="note">Use the layout image as a quick map while reading the panorama.</p>
+                <button type="button" id="layout-preview-open">Open floorplan</button>
+              </div>
+            `;
+        const openButton = document.getElementById('layout-preview-open');
+        if (openButton) {{
+          openButton.addEventListener('click', () => {{
+            switchPane('floorplan-pane');
+            setFloorplan(0);
+          }});
+        }}
+      }}
+
+      modeButtons.forEach((button) => {{
+        button.addEventListener('click', () => {{
+          if (button.disabled) return;
+          switchPane(String(button.dataset.pane || 'panorama-pane'));
+        }});
       }});
-      viewer.addEventListener("pointerdown", (event) => {{ dragging = true; lastX = event.clientX; lastY = event.clientY; viewer.classList.add("dragging"); viewer.setPointerCapture(event.pointerId); }});
-      viewer.addEventListener("pointermove", (event) => {{ if (!dragging) return; yaw += (event.clientX - lastX) * .12; pitch = clamp(pitch - (event.clientY - lastY) * .12, -80, 80); lastX = event.clientX; lastY = event.clientY; applyRotation(); }});
-      viewer.addEventListener("pointerup", () => {{ dragging = false; viewer.classList.remove("dragging"); }});
-      viewer.addEventListener("pointercancel", () => {{ dragging = false; viewer.classList.remove("dragging"); }});
-      prevLink.addEventListener("click", (event) => {{ event.preventDefault(); const index = Number.parseInt(String(prevLink.dataset.index || ""), 10); if (Number.isInteger(index)) setScene(index); }});
-      nextLink.addEventListener("click", (event) => {{ event.preventDefault(); const index = Number.parseInt(String(nextLink.dataset.index || ""), 10); if (Number.isInteger(index)) setScene(index); }});
-      document.getElementById("prev").addEventListener("click", () => setScene(active - 1));
-      document.getElementById("next").addEventListener("click", () => setScene(active + 1));
-      window.addEventListener("keydown", (event) => {{ if (event.key === "ArrowLeft") setScene(active - 1); if (event.key === "ArrowRight") setScene(active + 1); }});
-      const initialScene = new URLSearchParams(window.location.search).get("scene");
-      const initialSceneIndex = scenes.findIndex((scene) => String(scene.scene_id || "").trim() === String(initialScene || "").trim());
-      setScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
-      applyRotation();
+
+      document.getElementById('prev-link').addEventListener('click', () => setPanoramaScene(activePanorama - 1));
+      document.getElementById('next-link').addEventListener('click', () => setPanoramaScene(activePanorama + 1));
+      const openFlythrough = document.getElementById('open-flythrough');
+      if (openFlythrough) {{
+        openFlythrough.addEventListener('click', () => {{
+          switchPane('flythrough-pane');
+          if (flythroughVideo && typeof flythroughVideo.play === 'function') {{
+            flythroughVideo.play().catch(() => null);
+          }}
+        }});
+      }}
+      window.addEventListener('keydown', (event) => {{
+        if (event.key === 'ArrowLeft') setPanoramaScene(activePanorama - 1);
+        if (event.key === 'ArrowRight') setPanoramaScene(activePanorama + 1);
+      }});
+
+      panoramaScenes.forEach((scene, index) => {{
+        const row = document.createElement('div');
+        row.className = 'scene-row';
+        row.innerHTML = `
+          <div>
+            <strong>${{scene.name || `Scene ${{index + 1}}`}}</strong>
+            <div class="note">Panorama position ${{index + 1}}</div>
+          </div>
+          <button type="button">Open</button>
+        `;
+        row.querySelector('button').addEventListener('click', () => {{
+          switchPane('panorama-pane');
+          setPanoramaScene(index);
+        }});
+        sceneList.appendChild(row);
+
+        const card = document.createElement('article');
+        card.className = 'overview-card';
+        card.innerHTML = `
+          <strong>${{scene.name || `Scene ${{index + 1}}`}}</strong>
+          <p>Use this viewpoint for the spatial read before switching into the packet and floorplan review.</p>
+          <button type="button">View panorama</button>
+        `;
+        card.querySelector('button').addEventListener('click', () => {{
+          switchPane('panorama-pane');
+          setPanoramaScene(index);
+        }});
+        overviewGrid.appendChild(card);
+
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'thumb';
+        thumb.dataset.role = 'pure_360';
+        thumb.dataset.index = String(index);
+        thumb.innerHTML = `<span class="thumb-badge">360</span><img src="${{scene.image_url || scene.cube_faces.f}}" alt="${{scene.name || `Scene ${{index + 1}}`}}" referrerpolicy="no-referrer">`;
+        thumb.addEventListener('click', () => {{
+          switchPane('panorama-pane');
+          setPanoramaScene(index);
+        }});
+        thumbs.appendChild(thumb);
+      }});
+
+      floorplanScenes.forEach((scene, index) => {{
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'thumb';
+        thumb.dataset.role = 'floorplan';
+        thumb.dataset.index = String(index);
+        const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ''));
+        thumb.innerHTML = isPdf
+          ? `<span class="thumb-badge">Plan</span><div class="thumb-doc">PDF</div>`
+          : `<span class="thumb-badge">Plan</span><img src="${{scene.image_url || ''}}" alt="${{scene.name || `Floorplan ${{index + 1}}`}}" referrerpolicy="no-referrer">`;
+        thumb.addEventListener('click', () => {{
+          switchPane('floorplan-pane');
+          setFloorplan(index);
+        }});
+        thumbs.appendChild(thumb);
+
+        const card = document.createElement('article');
+        card.className = 'overview-card';
+        card.innerHTML = `
+          <strong>${{scene.name || `Floorplan ${{index + 1}}`}}</strong>
+          <p>Use the layout sheet to validate room flow, circulation, and usable edges before a viewing.</p>
+          <button type="button">Open floorplan</button>
+        `;
+        card.querySelector('button').addEventListener('click', () => {{
+          switchPane('floorplan-pane');
+          setFloorplan(index);
+        }});
+        overviewGrid.appendChild(card);
+      }});
+
+      const initialParams = new URLSearchParams(window.location.search);
+      const initialScene = initialParams.get('scene');
+      const initialPane = initialParams.get('pane');
+      const initialAutoplay = initialParams.get('autoplay');
+      const initialSceneIndex = panoramaScenes.findIndex((scene) => String(scene.scene_id || '').trim() === String(initialScene || '').trim());
+      if (panoramaScenes.length && viewer) {{
+        setPanoramaScene(initialSceneIndex >= 0 ? initialSceneIndex : 0);
+      }} else if (panoramaScenes.length) {{
+        showPanoramaFallback('The white-label panorama viewer is currently unavailable here. Use the overview and floorplan lanes while the 3D scene is unavailable.');
+      }} else {{
+        document.getElementById('tour-status').textContent = 'No panorama scenes stored';
+      }}
+      if (floorplanScenes.length) {{
+        setFloorplan(0);
+      }}
+      renderLayoutPreview();
+      if (initialPane === 'flythrough-pane' && flythroughVideo) {{
+        switchPane('flythrough-pane');
+        if (initialAutoplay === '1') {{
+          autoplayFlythrough();
+        }}
+      }} else if (initialPane === 'floorplan-pane' && floorplanScenes.length) {{
+        switchPane('floorplan-pane');
+      }} else if (initialPane === 'overview-pane') {{
+        switchPane('overview-pane');
+      }}
     </script>
   </body>
 </html>"""
@@ -3537,6 +4431,61 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </section>'''
         if source_virtual_tour_url
         else ""
+    )
+    legacy_decision_rows_html = "".join(
+        f'<div class="kv"><b>{html.escape(label)}</b>{html.escape(value)}</div>'
+        for label, value in decision_rows
+    )
+    legacy_reasons_html = "".join(f"<li>{html.escape(item)}</li>" for item in (highlight_lines or ["No strong positive pattern match is clear yet."]))
+    legacy_risks_html = "".join(f"<li>{html.escape(item)}</li>" for item in (concern_lines or ["No concrete downside has been stored yet."]))
+    legacy_unknowns_html = "".join(f"<li>{html.escape(item)}</li>" for item in (unknown_lines or ["No explicit follow-up question is stored yet."]))
+    feedback_negative = [dict(row) for row in list(feedback_suggestions.get("negative") or []) if isinstance(row, dict)]
+    feedback_positive = [dict(row) for row in list(feedback_suggestions.get("positive") or []) if isinstance(row, dict)]
+    legacy_feedback_chips = "".join(
+        f'<span class="chip">{html.escape(str(row.get("label") or row.get("key") or "").strip())}</span>'
+        for row in [*feedback_negative[:4], *feedback_positive[:4]]
+        if str(row.get("label") or row.get("key") or "").strip()
+    )
+    legacy_feedback_panel = ""
+    if bool(payload.get("_feedback_enabled")) or str(payload.get("principal_id") or "").strip():
+        legacy_feedback_panel = (
+            '<section class="panel">'
+            '<div class="eyebrow">Preference Feedback</div>'
+            '<h2>Teach the system what to rank higher or lower</h2>'
+            '<p class="sub">Give a quick reaction and mark concrete reasons. Public-link feedback is captured as an external signal; sign in to apply it to a ranking profile.</p>'
+            f'<div class="facts">{legacy_feedback_chips or "<span class=\"chip\">No structured feedback chips yet</span>"}</div>'
+            '</section>'
+        )
+    legacy_shortlist_items = [dict(row) for row in list(shortlist_compare.get("items") or []) if isinstance(row, dict)]
+    legacy_shortlist_current = dict(shortlist_compare.get("current") or {}) if isinstance(shortlist_compare.get("current"), dict) else {}
+    legacy_shortlist_rows = ([legacy_shortlist_current] if legacy_shortlist_current else []) + legacy_shortlist_items
+    legacy_shortlist_cards = "".join(
+        (
+            '<div class="kv">'
+            f'<b>{html.escape(str(row.get("title") or "Property").strip())}</b>'
+            f'{html.escape(str(row.get("why_now") or row.get("score_label") or "No comparison note stored.").strip())}'
+            '</div>'
+        )
+        for row in legacy_shortlist_rows[:3]
+    )
+    legacy_shortlist_panel = (
+        '<section class="panel">'
+        '<div class="eyebrow">Shortlist Compare</div>'
+        '<h2>Current property against active shortlist items</h2>'
+        f'<div class="stack">{legacy_shortlist_cards or "<div class=\"kv\"><b>No shortlist loaded</b>No other active shortlist property is currently available for side-by-side comparison.</div>"}</div>'
+        '</section>'
+    )
+    legacy_decision_panel = (
+        '<section class="panel">'
+        '<div class="eyebrow">Decision Summary</div>'
+        '<h2>Decision Summary</h2>'
+        f'<div class="stack">{legacy_decision_rows_html}</div>'
+        '<div class="stage">'
+        '<div class="panel"><h2>Why it fits</h2><ul>' + legacy_reasons_html + '</ul></div>'
+        '<div class="panel"><h2>Decision pressure</h2><ul>' + legacy_risks_html + '</ul></div>'
+        '<div class="panel"><h2>Still missing</h2><ul>' + legacy_unknowns_html + '</ul></div>'
+        '</div>'
+        '</section>'
     )
     clickrank_html = clickrank_head_snippet(hostname)
     rybbit_html = rybbit_head_snippet(hostname)
@@ -3900,12 +4849,16 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "") -> str:
         </aside>
       </section>
       <section class="stage">
+        {legacy_decision_panel}
+        {legacy_feedback_panel}
+        {legacy_shortlist_panel}
+      </section>
+      <section class="stage">
         {live_shell}
         {(
             f'''<div class="hero-video">
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(scene_data[0]["image_url"])}">
                 <source src="{html.escape(video_url)}" type="video/webm">
-                {f'<source src="{html.escape(video_fallback_url)}" type="video/mp4">' if video_fallback_url else ''}
               </video>
             </div>'''
         ) if video_url else ''}
@@ -4075,9 +5028,9 @@ def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[st
             "img-src 'self' data: https:; "
             "media-src 'self' https:; "
             "frame-src 'self' https:; "
-            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io; "
-            "style-src 'self' 'unsafe-inline'; "
-            "connect-src 'self' https://app.rybbit.io"
+            "script-src 'self' 'unsafe-inline' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "connect-src 'self' https://app.rybbit.io https://cdn.jsdelivr.net"
         ),
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
@@ -4098,6 +5051,7 @@ def public_tour_payload(slug: str) -> JSONResponse:
 
 
 @router.get("/tours/files/{slug}/{asset_path:path}")
+@router.head("/tours/files/{slug}/{asset_path:path}")
 def public_tour_file(slug: str, asset_path: str) -> FileResponse:
     payload = _load_tour(slug)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
@@ -4250,15 +5204,30 @@ def public_tour_page(
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
         rendered_facts.pop("public_preference_snapshot", None)
+        feedback_context = _live_property_feedback_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+        )
+        live_feedback_facts = dict(feedback_context.get("facts") or {}) if isinstance(feedback_context.get("facts"), dict) else {}
+        if live_feedback_facts:
+            rendered_facts.update(live_feedback_facts)
+        shortlist_compare = _public_shortlist_comparison_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+            facts=rendered_facts,
+        )
         rendered_payload["facts"] = _redacted_public_tour_facts(
             payload,
             rendered_facts,
             privacy_mode=str(rendered_payload.get("tour_privacy_mode") or "anonymous_public"),
         )
         rendered_payload["_public_research_completed"] = bool(research_snapshot)
-        rendered_payload["_feedback_suggestions"] = {}
-        rendered_payload["_learning_summary"] = {}
-        rendered_payload["_shortlist_compare"] = {"current": {}, "items": [], "metric_specs": list(_shortlist_metric_labels())}
+        rendered_payload["_feedback_enabled"] = bool(str(payload.get("principal_id") or "").strip())
+        rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
+        rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
+        rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
         return HTMLResponse(_tour_html(rendered_payload, hostname=hostname), headers=_public_tour_security_headers())
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()

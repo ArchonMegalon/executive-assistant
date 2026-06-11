@@ -33,6 +33,7 @@
 - Plans: `/v1/plans/*`
 - Policy: `/v1/policy/*`
 - Providers: `/v1/providers/*`
+- FlipLink integrations: `/v1/integrations/fliplink/*`
 - Rewrite: `/v1/rewrite/*`
 - Runtime: `/v1/runtime/*`
 - Skills: `/v1/skills/*`

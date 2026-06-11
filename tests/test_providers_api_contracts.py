@@ -8490,7 +8490,8 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "narcissistic" not in page.text.lower()
     assert "adhd" not in page.text.lower()
     assert "/memorials/manfred/chat" in page.text
-    assert "/memorials/manfred/conversation-turn" in page.text
+    assert "/memorials/manfred/realtime" in page.text
+    assert "/memorials/manfred/conversation-turn" not in page.text
     assert "memorial-conversation" in page.text
     assert "memorial-retry-button" in page.text
     assert 'id="memorial-speech-listen"' not in page.text
@@ -8501,9 +8502,22 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "MediaRecorder" in page.text
     assert "SpeechRecognition" not in page.text
     assert "SpeechSynthesisUtterance" not in page.text
+    assert "RTCPeerConnection" not in page.text
+    assert "/memorials/manfred/realtime/webrtc" not in page.text
+    assert "startLiveRealtimeSession" in page.text
+    assert "gemini_live_websocket_pcm" in page.text
+    assert "audio/pcm;rate=16000" in page.text
+    assert "ScriptProcessor" in page.text
+    assert "openai" not in page.text.lower()
     assert "beginConversationRecording" in page.text
     assert "sendConversationTurn" in page.text
-    assert "fetchWithTimeout(\"/memorials/manfred/conversation-turn\"" in page.text
+    assert "startRealtimeAudioTurn" in page.text
+    assert "activeRealtimeAudioTurn.sendBlob(event.data)" in page.text
+    assert "blob.arrayBuffer().then" in page.text
+    assert "ensureRealtimeSocket" in page.text
+    assert "user_audio_start" in page.text
+    assert "user_audio_end" in page.text
+    assert "turn_complete" in page.text
     assert "Tibor freigegebene synthetische Stimme" not in page.text
     assert "Mikrofonzugriff braucht HTTPS" not in page.text
     assert "Das Mikrofon braucht eine geschuetzte Verbindung." not in page.text
@@ -8513,7 +8527,7 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal." not in page.text
     assert "readJsonResponse" not in page.text
     assert "Ich bin da." in page.text
-    assert "recorder.start()" in page.text
+    assert "recorder.start(250)" in page.text
     assert "x-memorial-visitor-id" not in page.text
     assert "visitor_id:" not in page.text
 
@@ -8650,6 +8664,7 @@ def test_public_memorial_speech_transcribe_normalizes_json_text_payload(
     from app.product import service as product_service
     monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
 
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"fileContent": {"path": "asset/audio.webm"}})
     monkeypatch.setattr(
@@ -8697,6 +8712,7 @@ def test_public_memorial_speech_transcribe_converts_browser_webm_before_upload(
     seen: dict[str, object] = {}
     monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
     monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: b"converted-wav")
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
 
     def _upload(**kwargs):
@@ -8754,6 +8770,7 @@ def test_public_memorial_speech_transcribe_retries_with_enhanced_wav_after_empty
         return b"enhanced-wav" if kwargs.get("enhance_for_speech") else b"converted-wav"
 
     monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", _fake_convert_audio_to_wav)
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(
         product_service,
@@ -8804,6 +8821,7 @@ def test_public_memorial_speech_transcribe_reads_onemin_keys_from_manifest_slots
     from app.product import service as product_service
 
     monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(
         product_service.responses_upstream,  # type: ignore[attr-defined]
         "_onemin_secret_env_names",
@@ -8862,6 +8880,7 @@ def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_a
     from app.product import service as product_service
     monkeypatch.setattr(public_memorials, "_enforce_public_memorial_rate_limit", lambda *args, **kwargs: None)
 
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"fileContent": {"path": "asset/audio.webm"}})
 

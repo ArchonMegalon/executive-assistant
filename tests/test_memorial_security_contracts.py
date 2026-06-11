@@ -162,7 +162,16 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     assert 'id="memorial-video-call-continue-no-camera"' not in page.text
     assert 'id="memorial-video-call-avatar-video"' not in page.text
     assert "Gleich bereit" in page.text
-    assert "/memorials/manfred/conversation-turn" in page.text
+    assert "/memorials/manfred/realtime" in page.text
+    assert "/memorials/manfred/realtime/webrtc" not in page.text
+    assert "RTCPeerConnection" not in page.text
+    assert "gemini_live_websocket_pcm" in page.text
+    assert "audio/pcm;rate=16000" in page.text
+    assert "openai" not in page.text.lower()
+    assert "ensureRealtimeSocket" in page.text
+    assert "user_audio_start" in page.text
+    assert "user_audio_end" in page.text
+    assert "/memorials/manfred/conversation-turn" not in page.text
     assert "ensureMemorialReady(\"page_load\")" in page.text
     assert "requestMemorialWarmup(\"conversation_start\")" not in page.text
     assert "server_stt_cooldown" not in page.text
@@ -314,8 +323,8 @@ def test_public_memorial_speech_synthesize_uses_contact_pads_for_direct_opening(
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")
-    assert seen["lead_in_ms"] == 40
-    assert seen["tail_silence_ms"] == 120
+    assert seen["lead_in_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS
+    assert seen["tail_silence_ms"] == public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS
 
 
 def test_public_memorial_video_call_can_render_real_avatar_video_asset(
@@ -886,7 +895,16 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert "Am Handy/Desktop installieren" in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body
     assert "Bitte noch einmal sprechen" in body
-    assert "/memorials/manfred/conversation-turn" in body
+    assert "/memorials/manfred/realtime" in body
+    assert "/memorials/manfred/realtime/webrtc" not in body
+    assert "RTCPeerConnection" not in body
+    assert "gemini_live_websocket_pcm" in body
+    assert "audio/pcm;rate=16000" in body
+    assert "openai" not in body.lower()
+    assert "ensureRealtimeSocket" in body
+    assert "user_audio_start" in body
+    assert "user_audio_end" in body
+    assert "/memorials/manfred/conversation-turn" not in body
     assert "overflow-wrap: anywhere;" not in body
     assert ".hero-cta:not([disabled]):hover" in body
     assert "min-height: 100dvh;" in body

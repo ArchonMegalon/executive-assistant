@@ -106,9 +106,11 @@ Then open `http://localhost:8090/health`.
 - `bash scripts/refresh_ltds_via_api.sh --binding-id <browseract-binding-id> --service-name BrowserAct --write` can execute the `ltd_inventory_refresh` skill and rewrite the LTD discovery table through the local API.
 - `python3 scripts/verify_ltd_critical_entries.py` is the fail-closed check for the LTD lanes currently relied on in runtime (`1min.AI`, `Prompt Architects`, BrowserAct, and Teable). `scripts/hard_exit_gates.sh` now runs it before release smoke.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader flagship inventory gate. It does not claim the whole LTD catalog is verified; it enforces that the named flagship subset (`1min.AI`, `Prompt Architects`, `PayFunnels`, BrowserAct, Teable, ClickRank.ai, Emailit, Pixefy, Rafter) stays on accepted verification sources before release.
+- `python3 scripts/verify_ltd_provider_lanes.py` materializes governed provider-lane receipts for the high-value LTD lanes, including source-of-truth boundaries, off-switches, allowed/forbidden inputs, and missing proof receipts.
 - `make verify-ltd-critical-entries` runs the critical runtime LTD verifier.
 - `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
-- `make ltd-release-gates` runs both LTD release verifiers together.
+- `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
+- `make ltd-release-gates` runs all LTD release verifiers together.
 - Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](/docker/EA/docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](/docker/EA/vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](/docker/EA/scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
 
 ## Operator Shortcuts
@@ -429,7 +431,7 @@ Combined local API+Postgres parity run is available via `make ci-gates-postgres`
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
 Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper Tibor contract smoke stays in `make hard-exit-gates`.
 Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, Tibor smoke, and Pocket archive verification.
-Aggregate LTD release gates are available via `make ltd-release-gates`.
+Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.

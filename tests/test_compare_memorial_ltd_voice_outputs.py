@@ -64,3 +64,27 @@ def test_voicewave_backup_candidate_marks_ready_for_clean_rows(monkeypatch, tmp_
     candidate = report["voicewave_backup_candidate"]
     assert candidate["status"] == "ready"
     assert candidate["drift_prompts"] == []
+
+
+def test_compare_outputs_tolerates_blocked_unmixr_rows(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+
+    monkeypatch.setattr(
+        module,
+        "_compare_prompt",
+        lambda *, prompt, base_url, output_dir: {
+            "prompt": prompt,
+            "unmixr": {"similarity": 0.0, "transcript_text": "", "transcript_f1": 0.0, "status": "blocked", "detail": "Request was throttled"},
+            "voicewave": {"similarity": 0.62, "transcript_text": prompt, "transcript_f1": 0.95, "audio_path": str(output_dir / "voicewave.wav")},
+        },
+    )
+
+    report = module.compare_outputs(
+        base_url="http://127.0.0.1:8090",
+        prompts=["Ja. Ich bin da.", "Rechtlich muss man die Dinge sauber unterscheiden."],
+        output_dir=tmp_path,
+    )
+
+    assert report["unmixr_status"] == "blocked"
+    assert report["winner"] == "voicewave"
+    assert report["voicewave_backup_candidate"]["status"] == "ready"

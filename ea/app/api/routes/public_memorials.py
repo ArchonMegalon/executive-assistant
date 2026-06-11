@@ -32,6 +32,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 import requests
 
+try:
+    import websockets
+except ModuleNotFoundError:  # pragma: no cover - exercised in lean unit environments.
+    websockets = None
+
 from app.services.brain_catalog import DEFAULT_PUBLIC_MODEL, GEMINI_VORTEX_PUBLIC_MODEL
 from app.services.memorial_openvoice import (
     OPENVOICE_TTS_PLUGIN_ID,
@@ -102,8 +107,16 @@ _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
 _MEMORIAL_TTS_LEAD_IN_MS = 420
 _MEMORIAL_TTS_TAIL_SILENCE_MS = 700
+_MEMORIAL_CONTACT_TTS_LEAD_IN_MS = 260
+_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS = 260
 _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
+_MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 300
+_MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 1100
+_MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
+_MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
+_MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
+_GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 8.0
@@ -4049,12 +4062,12 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Ja."
+    return "Ja, ich bin da."
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     normalized = _normalize_tts_text(text).lower()
-    return normalized == "ja."
+    return normalized in {"ja.", "ja, ich bin da."}
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -5807,6 +5820,11 @@ def _render_memorial_tts_audio(
         "lead_in_ms": int(max(0, lead_in_ms)),
         "tail_silence_ms": int(max(0, tail_silence_ms)),
         "extra_filters": extra_filters,
+        "postprocess_impl": (
+            f"{getattr(_pad_speech_audio_lead_in, '__module__', '')}:"
+            f"{getattr(_pad_speech_audio_lead_in, '__qualname__', '')}:"
+            f"{id(_pad_speech_audio_lead_in)}"
+        ),
     }
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
     if cache_audio_path.is_file() and cache_audio_path.stat().st_size > 0:
@@ -6120,8 +6138,8 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
                     base_config=base_config,
                     selected_plugin=selected_plugin,
                     selected_option=selected_option,
-                    lead_in_ms=40,
-                    tail_silence_ms=120,
+                    lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+                    tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
                 )
                 if not first_ready_marked:
                     with _MEMORIAL_LIVE_WARMUP_LOCK:
@@ -6178,8 +6196,8 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
                 base_config=base_config,
                 selected_plugin=selected_plugin,
                 selected_option=selected_option,
-                lead_in_ms=40,
-                tail_silence_ms=120,
+                lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+                tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
             )
     except Exception as exc:
         errors.append(f"server_voice_prewarm:{str(exc)[:120]}")
@@ -6302,8 +6320,8 @@ def _build_memorial_rescue_contact_turn_payload(
             base_config=base_config,
             selected_plugin=selected_plugin,
             selected_option=selected_option,
-            lead_in_ms=40,
-            tail_silence_ms=120,
+            lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         )
         result["audio_content_type"] = audio_content_type
         result["audio_base64"] = base64.b64encode(audio).decode("ascii")
@@ -6366,10 +6384,10 @@ def _build_memorial_conversation_turn_payload(
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
     if direct_contact_opening:
-        lead_in_ms = 40
-        tail_silence_ms = 120
+        lead_in_ms = _MEMORIAL_CONTACT_TTS_LEAD_IN_MS
+        tail_silence_ms = _MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS
     else:
-        lead_in_ms = 180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
+        lead_in_ms = _MEMORIAL_FAST_TTS_LEAD_IN_MS if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
         tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
     tts_started = time.perf_counter()
     audio, audio_content_type = _render_memorial_tts_audio(
@@ -6432,6 +6450,14 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
             raise HTTPException(status_code=503, detail="speech_transcriber_unavailable")
         upload_variants: list[tuple[bytes, str, str, str]] = []
         if normalized_content_type in _ONEMIN_SPEECH_AUDIO_TYPES:
+            if normalized_content_type in {"audio/wav", "audio/wave", "audio/x-wav"} and not _wav_payload_has_speech_energy(payload):
+                return {
+                    "transcription_status": "no_speech",
+                    "transcript_text": "",
+                    "transcriber": "local_audio_gate",
+                    "retryable": True,
+                    "detail": "audio_silence",
+                }
             upload_variants.append((payload, normalized_content_type, extension, "original"))
         else:
             try:
@@ -6443,6 +6469,14 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     "transcriber": "ffmpeg",
                     "retryable": True,
                     "detail": str(exc)[:180],
+                }
+            if not _wav_payload_has_speech_energy(converted_payload):
+                return {
+                    "transcription_status": "no_speech",
+                    "transcript_text": "",
+                    "transcriber": "local_audio_gate",
+                    "retryable": True,
+                    "detail": "audio_silence",
                 }
             upload_variants.append((converted_payload, "audio/wav", ".wav", "converted_wav"))
         if normalized_content_type not in {"audio/wav", "audio/wave", "audio/x-wav"}:
@@ -6512,6 +6546,66 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"speech_transcription_failed:{str(exc)[:120]}") from exc
+
+
+def _wav_payload_has_speech_energy(payload: bytes) -> bool:
+    if len(payload or b"") < 2048:
+        return False
+    try:
+        with wave.open(io.BytesIO(payload), "rb") as wav_file:
+            channels = max(1, int(wav_file.getnchannels() or 1))
+            sample_width = int(wav_file.getsampwidth() or 0)
+            frame_rate = max(1, int(wav_file.getframerate() or 1))
+            frame_count = int(wav_file.getnframes() or 0)
+            if sample_width != 2 or frame_count < int(frame_rate * 0.35):
+                return False
+            raw = wav_file.readframes(frame_count)
+    except Exception:
+        return True
+    if len(raw) < 1024:
+        return False
+    samples = struct.iter_unpack("<h", raw[: len(raw) - (len(raw) % 2)])
+    total = 0
+    loud = 0
+    sum_sq = 0.0
+    stride = max(1, channels)
+    for index, (sample,) in enumerate(samples):
+        if index % stride:
+            continue
+        normalized = abs(float(sample) / 32768.0)
+        total += 1
+        sum_sq += normalized * normalized
+        if normalized >= 0.012:
+            loud += 1
+    if total <= 0:
+        return False
+    rms = math.sqrt(sum_sq / total)
+    loud_ratio = loud / total
+    return rms >= 0.004 and loud_ratio >= 0.003
+
+
+def _pcm16_payload_has_speech_energy(payload: bytes, *, threshold: float = 0.01) -> bool:
+    if len(payload or b"") < 320:
+        return False
+    raw = payload[: len(payload) - (len(payload) % 2)]
+    if not raw:
+        return False
+    total = 0
+    loud = 0
+    sum_sq = 0.0
+    try:
+        for (sample,) in struct.iter_unpack("<h", raw):
+            normalized = abs(float(sample) / 32768.0)
+            total += 1
+            sum_sq += normalized * normalized
+            if normalized >= threshold:
+                loud += 1
+    except Exception:
+        return False
+    if total <= 0:
+        return False
+    rms = math.sqrt(sum_sq / total)
+    return rms >= 0.004 and (loud / total) >= 0.003
 
 
 def _convert_audio_to_wav(*, payload: bytes, extension: str, enhance_for_speech: bool = False) -> bytes:
@@ -6745,7 +6839,30 @@ def _minimal_public_memorial_html(
       let activeLevelTimer = null;
       let activeFetchController = null;
       let activeRecordingPromise = null;
+      let activeRecordingHadSpeech = false;
+      let activeRecordingSpeechGateReady = false;
+      let activeRealtimeAudioTurn = null;
       let speechObjectUrl = null;
+      let conversationTurnCounter = 0;
+      let realtimeSocket = null;
+      let realtimeSocketPromise = null;
+      let livePeerConnection = null;
+      let liveDataChannel = null;
+      let liveInputStream = null;
+      let liveSessionActive = false;
+      let liveAnswerTranscript = "";
+      let liveInputTranscript = "";
+      let liveRealtimeMessageHandler = null;
+      let liveServerAudioPlaybackPending = false;
+      const browserPreferredLanguage = "de-AT";
+      try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
+
+      function pushMemorialRealtimeFrame(payload) {{
+        if (!Array.isArray(window.__memorialRealtimeFrames)) window.__memorialRealtimeFrames = [];
+        try {{
+          window.__memorialRealtimeFrames.push(JSON.stringify(payload || {{}}));
+        }} catch (error) {{}}
+      }}
 
       function setSpeechStatus(message, state = "idle", detail = "") {{
         if (retryButton) retryButton.hidden = state !== "error";
@@ -6943,6 +7060,9 @@ def _minimal_public_memorial_html(
         activeRecorder = null;
         activeChunks = [];
         activeRecordingPromise = null;
+        activeRecordingHadSpeech = false;
+        activeRecordingSpeechGateReady = false;
+        activeRealtimeAudioTurn = null;
         releaseInputStream();
       }}
 
@@ -6956,6 +7076,7 @@ def _minimal_public_memorial_html(
           activeFetchController = null;
         }}
         stopRecorder();
+        cleanupLiveRealtimeSession();
         stopSpeechPlayback();
         resetCaptureState();
         syncConversationButton();
@@ -6984,7 +7105,7 @@ def _minimal_public_memorial_html(
             if (error) reject(error);
             else resolve();
           }};
-          speechAudio.onended = () => finish();
+          speechAudio.onended = () => window.setTimeout(() => finish(), 350);
           speechAudio.onerror = () => finish(new Error("audio_playback_failed"));
           speechAudio.play().then(() => {{
             if (generation !== activeGeneration) finish(new Error("playback_cancelled"));
@@ -6992,15 +7113,313 @@ def _minimal_public_memorial_html(
         }});
       }}
 
+      function supportsLiveRealtimeSession() {{
+        return Boolean(window.WebSocket && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+      }}
+
+      function cleanupLiveRealtimeSession() {{
+        liveSessionActive = false;
+        if (liveDataChannel && liveDataChannel.disconnect) {{
+          try {{ liveDataChannel.disconnect(); }} catch (error) {{}}
+        }}
+        if (liveDataChannel) {{
+          if (liveRealtimeMessageHandler) {{
+            try {{ liveDataChannel.removeEventListener("message", liveRealtimeMessageHandler); }} catch (error) {{}}
+            liveRealtimeMessageHandler = null;
+          }}
+          try {{ liveDataChannel.close(); }} catch (error) {{}}
+          liveDataChannel = null;
+        }}
+        if (livePeerConnection) {{
+          try {{ livePeerConnection.close(); }} catch (error) {{}}
+          livePeerConnection = null;
+        }}
+        if (liveInputStream) {{
+          for (const track of liveInputStream.getTracks()) {{
+            try {{ track.stop(); }} catch (error) {{}}
+          }}
+          liveInputStream = null;
+        }}
+        liveAnswerTranscript = "";
+        liveInputTranscript = "";
+        liveServerAudioPlaybackPending = false;
+        try {{
+          speechAudio.pause();
+          speechAudio.srcObject = null;
+        }} catch (error) {{}}
+      }}
+
+      function waitForIceGatheringComplete(peerConnection, timeoutMs = 1600) {{
+        if (!peerConnection || peerConnection.iceGatheringState === "complete") return Promise.resolve();
+        return new Promise((resolve) => {{
+          const timer = window.setTimeout(resolve, timeoutMs);
+          const check = () => {{
+            if (peerConnection.iceGatheringState === "complete") {{
+              window.clearTimeout(timer);
+              peerConnection.removeEventListener("icegatheringstatechange", check);
+              resolve();
+            }}
+          }};
+          peerConnection.addEventListener("icegatheringstatechange", check);
+        }});
+      }}
+
+      function sendLiveRealtimeEvent(event) {{
+        if (!liveDataChannel) return;
+        try {{
+          if (liveDataChannel.readyState === WebSocket.OPEN) liveDataChannel.send(JSON.stringify(event));
+        }} catch (error) {{}}
+      }}
+
+      let livePlaybackContext = null;
+      let livePlaybackCursor = 0;
+
+      function scheduleNextLiveRealtimeTurn(generation, delayMs = 260) {{
+        if (generation !== activeGeneration || !conversationSessionActive) return;
+        window.setTimeout(() => {{
+          if (generation !== activeGeneration || !conversationSessionActive || requestInFlight) return;
+          void startLiveRealtimeSession(generation).catch((error) => {{
+            if (generation !== activeGeneration || !conversationSessionActive) return;
+            setSpeechStatus("Bitte noch einmal sprechen.", "error", String(error && error.message ? error.message : error || ""));
+          }});
+        }}, Math.max(0, Number(delayMs || 0)));
+      }}
+
+      function parsePcmSampleRate(contentType, fallbackRate = 24000) {{
+        const match = String(contentType || "").match(/rate=(\\d+)/i);
+        return match ? Math.max(8000, Number(match[1]) || fallbackRate) : fallbackRate;
+      }}
+
+      function playLivePcmChunk(encodedAudio, contentType) {{
+        const encoded = String(encodedAudio || "").trim();
+        if (!encoded) return;
+        try {{
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return;
+          if (!livePlaybackContext) {{
+            livePlaybackContext = new AudioCtx();
+            livePlaybackCursor = livePlaybackContext.currentTime + 0.04;
+          }}
+          const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+          const samples = Math.floor(bytes.length / 2);
+          if (!samples) return;
+          const sampleRate = parsePcmSampleRate(contentType, 24000);
+          const buffer = livePlaybackContext.createBuffer(1, samples, sampleRate);
+          const channel = buffer.getChannelData(0);
+          for (let index = 0; index < samples; index += 1) {{
+            let sample = bytes[index * 2] | (bytes[index * 2 + 1] << 8);
+            if (sample >= 0x8000) sample -= 0x10000;
+            channel[index] = Math.max(-1, Math.min(1, sample / 32768));
+          }}
+          const source = livePlaybackContext.createBufferSource();
+          source.buffer = buffer;
+          source.connect(livePlaybackContext.destination);
+          const startAt = Math.max(livePlaybackContext.currentTime + 0.02, livePlaybackCursor);
+          source.start(startAt);
+          livePlaybackCursor = startAt + buffer.duration;
+        }} catch (error) {{}}
+      }}
+
+      function handleLiveRealtimeEvent(rawEvent, generation) {{
+        let event = null;
+        try {{
+          event = typeof rawEvent === "string" ? JSON.parse(rawEvent) : rawEvent;
+        }} catch (error) {{
+          return;
+        }}
+        if (!event || typeof event !== "object") return;
+        pushMemorialRealtimeFrame(event);
+        if (generation !== activeGeneration || !conversationSessionActive) return;
+        const type = String(event.type || "");
+        if (type === "input_audio_buffer.speech_started") {{
+          setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
+          return;
+        }}
+        if (type === "input_audio_buffer.speech_stopped") {{
+          setSpeechStatus("Einen Moment.", "working", "Ich antworte gleich");
+          return;
+        }}
+        if (type === "conversation.item.input_audio_transcription.delta" || type === "response.input_audio_transcription.delta") {{
+          liveInputTranscript += String(event.delta || "");
+          setSpeechStatus("Ich höre zu.", "listening", liveInputTranscript.trim());
+          return;
+        }}
+        if (type === "conversation.item.input_audio_transcription.completed" || type === "conversation.item.input_audio_transcription.done") {{
+          liveInputTranscript = String(event.transcript || liveInputTranscript || "").trim();
+          setSpeechStatus("Einen Moment.", "working", liveInputTranscript);
+          return;
+        }}
+        if (type === "response.output_audio.delta" || type === "response.audio.delta") {{
+          setSpeechStatus("Ich bin da.", "playing", "");
+          return;
+        }}
+        if (type === "audio_chunk") {{
+          setSpeechStatus("Ich bin da.", "playing", liveAnswerTranscript.trim());
+          playLivePcmChunk(event.audio_base64, event.content_type || "audio/pcm;rate=24000");
+          return;
+        }}
+        if (type === "audio") {{
+          const blob = decodeAudioPayload({{
+            audio_base64: String(event.audio_base64 || ""),
+            audio_content_type: String(event.content_type || "audio/wav")
+          }});
+          if (!blob) return;
+          liveServerAudioPlaybackPending = true;
+          void playMemorialAudio(blob, generation)
+            .catch(() => null)
+            .finally(() => {{
+              liveServerAudioPlaybackPending = false;
+              liveAnswerTranscript = "";
+              liveInputTranscript = "";
+              if (conversationSessionActive && generation === activeGeneration) {{
+                setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
+                scheduleNextLiveRealtimeTurn(generation, 900);
+              }}
+            }});
+          return;
+        }}
+        if (type === "response.output_audio_transcript.delta" || type === "response.audio_transcript.delta" || type === "response.output_text.delta") {{
+          liveAnswerTranscript += String(event.delta || "");
+          setSpeechStatus("Ich bin da.", "playing", liveAnswerTranscript.trim());
+          return;
+        }}
+        if (type === "response.output_audio_transcript.done" || type === "response.output_text.done") {{
+          liveAnswerTranscript = String(event.transcript || event.text || liveAnswerTranscript || "").trim();
+          setSpeechStatus("Ich bin da.", "playing", liveAnswerTranscript);
+          return;
+        }}
+        if (type === "response.done") {{
+          liveAnswerTranscript = "";
+          liveInputTranscript = "";
+          if (conversationSessionActive) setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
+          return;
+        }}
+        if (type === "turn_complete") {{
+          if (!liveServerAudioPlaybackPending) {{
+            liveAnswerTranscript = "";
+            liveInputTranscript = "";
+            if (conversationSessionActive) {{
+              setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
+              scheduleNextLiveRealtimeTurn(generation, 900);
+            }}
+          }}
+          return;
+        }}
+        if (type === "error") {{
+          setSpeechStatus("Bitte noch einmal sprechen.", "error", String((event.error && event.error.message) || event.message || ""));
+        }}
+      }}
+
+      async function startLiveRealtimeSession(generation) {{
+        if (!supportsLiveRealtimeSession()) throw new Error("live_realtime_unsupported");
+        cleanupLiveRealtimeSession();
+        setSpeechStatus("Ich verbinde Gemini Live.", "working", "");
+        const stream = await navigator.mediaDevices.getUserMedia({{
+          audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }},
+          video: false,
+        }});
+        if (generation !== activeGeneration) {{
+          for (const track of stream.getTracks()) {{
+            try {{ track.stop(); }} catch (error) {{}}
+          }}
+          throw new Error("turn_superseded");
+        }}
+        liveInputStream = stream;
+        const socket = await ensureRealtimeSocket();
+        liveDataChannel = socket;
+        const turnId = "gemini_live_" + String(Date.now()) + "_" + String(++conversationTurnCounter);
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const audioContext = new AudioCtx();
+        const source = audioContext.createMediaStreamSource(stream);
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        livePeerConnection = audioContext;
+        const sourceRate = audioContext.sampleRate || 48000;
+        const targetRate = 16000;
+        let resampleCarry = 0;
+        let speechSeen = false;
+        let liveTurnStarted = false;
+        let liveTurnEnded = false;
+        let lastVoiceAt = Date.now();
+        const startedAt = Date.now();
+        function floatToPcm16(samples) {{
+          const ratio = sourceRate / targetRate;
+          const length = Math.max(1, Math.floor((samples.length + resampleCarry) / ratio));
+          const pcm = new Int16Array(length);
+          let outputIndex = 0;
+          let inputOffset = resampleCarry;
+          while (outputIndex < length) {{
+            const inputIndex = Math.min(samples.length - 1, Math.floor(inputOffset));
+            const sample = Math.max(-1, Math.min(1, samples[inputIndex] || 0));
+            pcm[outputIndex] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+            outputIndex += 1;
+            inputOffset += ratio;
+          }}
+          resampleCarry = inputOffset - samples.length;
+          return pcm.buffer;
+        }}
+        processor.onaudioprocess = (event) => {{
+          if (generation !== activeGeneration || !conversationSessionActive || socket.readyState !== WebSocket.OPEN) return;
+          const samples = event.inputBuffer.getChannelData(0);
+          let sum = 0;
+          for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
+          const rms = Math.sqrt(sum / samples.length);
+          const now = Date.now();
+          if (rms >= 0.01) {{
+            speechSeen = true;
+            activeRecordingHadSpeech = true;
+            lastVoiceAt = now;
+            setSpeechStatus("Ich höre zu.", "listening", "Live Audio kommt an");
+          }}
+          if (!speechSeen) return;
+          if (!liveTurnStarted) {{
+            liveTurnStarted = true;
+            socket.send(JSON.stringify({{
+              type: "user_audio_start",
+              turn_id: turnId,
+              content_type: "audio/pcm;rate=16000",
+              transport: "gemini_live",
+              personal_memory_enabled: true,
+              browser_language: browserPreferredLanguage
+            }}));
+          }}
+          socket.send(floatToPcm16(samples));
+          if (!liveTurnEnded && speechSeen && now - startedAt > 700 && now - lastVoiceAt > 620) {{
+            liveTurnEnded = true;
+            try {{ socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }})); }} catch (error) {{}}
+            try {{ processor.disconnect(); }} catch (error) {{}}
+            try {{ source.disconnect(); }} catch (error) {{}}
+            setSpeechStatus("Ich antworte gleich.", "working", "");
+          }}
+        }};
+        if (liveRealtimeMessageHandler && liveDataChannel) {{
+          try {{ liveDataChannel.removeEventListener("message", liveRealtimeMessageHandler); }} catch (error) {{}}
+        }}
+        liveRealtimeMessageHandler = (event) => handleLiveRealtimeEvent(event.data, generation);
+        socket.addEventListener("message", liveRealtimeMessageHandler);
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        liveSessionActive = true;
+        pushMemorialRealtimeFrame({{ type: "live_realtime_open", mode: "gemini_live_websocket_pcm" }});
+        setSpeechStatus("Ich höre zu.", "listening", "Gemini Live verbunden");
+        return true;
+      }}
+
       function beginConversationRecording(generation) {{
         return (async () => {{
         const stream = await ensureInputStream();
         const mimeType = pickRecorderMimeType();
         const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
+        const realtimeTurn = await startRealtimeAudioTurn(recorder.mimeType || mimeType || "audio/webm", generation);
+        activeRealtimeAudioTurn = realtimeTurn;
         activeRecorder = recorder;
         activeChunks = [];
+        activeRecordingHadSpeech = false;
+        activeRecordingSpeechGateReady = false;
         recorder.ondataavailable = (event) => {{
-          if (event.data && event.data.size > 0) activeChunks.push(event.data);
+          if (event.data && event.data.size > 0) {{
+            activeChunks.push(event.data);
+            if (activeRealtimeAudioTurn) activeRealtimeAudioTurn.sendBlob(event.data);
+          }}
         }};
         recorder.onerror = () => {{
           if (generation !== activeGeneration) return;
@@ -7013,12 +7432,24 @@ def _minimal_public_memorial_html(
         }};
         recorder.onstop = () => {{
           const blob = activeChunks.length ? new Blob(activeChunks, {{ type: recorder.mimeType || "audio/webm" }}) : null;
+          const hadSpeech = activeRecordingHadSpeech;
+          const speechGateReady = activeRecordingSpeechGateReady;
+          const realtimeTurnForStop = activeRealtimeAudioTurn;
           resetCaptureState();
           if (generation !== activeGeneration) return;
           if (!conversationSessionActive) return;
-          void finishConversationTurn(blob, generation);
+          if (speechGateReady && !hadSpeech) {{
+            cancelRealtimeAudioTurn(realtimeTurnForStop);
+            conversationSessionActive = false;
+            recordingActive = false;
+            requestInFlight = false;
+            syncConversationButton();
+            setSpeechStatus("Bitte noch einmal sprechen.", "error", "Ich habe kaum Stimme gehört");
+            return;
+          }}
+          void finishConversationTurn(blob, generation, realtimeTurnForStop);
         }};
-        recorder.start();
+        recorder.start(250);
         activeRecordStopTimer = window.setTimeout(() => {{
           if (generation !== activeGeneration) return;
           stopRecorder();
@@ -7035,6 +7466,10 @@ def _minimal_public_memorial_html(
             const startedAt = Date.now();
             let speechSeen = false;
             let lastLoudAt = startedAt;
+            const minimumRecordMs = 2600;
+            const silenceAfterSpeechMs = 1200;
+            const speechThreshold = 0.01;
+            activeRecordingSpeechGateReady = true;
             activeLevelTimer = window.setInterval(() => {{
               if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
               analyser.getFloatTimeDomainData(samples);
@@ -7042,11 +7477,12 @@ def _minimal_public_memorial_html(
               for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
               const rms = Math.sqrt(sum / samples.length);
               const now = Date.now();
-              if (rms >= 0.012) {{
+              if (rms >= speechThreshold) {{
                 speechSeen = true;
+                activeRecordingHadSpeech = true;
                 lastLoudAt = now;
               }}
-              if (speechSeen && now - lastLoudAt >= 700) {{
+              if (speechSeen && now - startedAt >= minimumRecordMs && now - lastLoudAt >= silenceAfterSpeechMs) {{
                 stopRecorder();
                 try {{ audioContext.close(); }} catch (error) {{}}
               }}
@@ -7057,24 +7493,133 @@ def _minimal_public_memorial_html(
         }})();
       }}
 
-      async function sendConversationTurn(blob, generation) {{
-        const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/conversation-turn", {{
-          method: "POST",
-          headers: {{ "Content-Type": blob.type || "audio/webm" }},
-          body: blob,
-        }}, 90000);
+      async function startRealtimeAudioTurn(contentType, generation) {{
+        const turnId = "turn_" + String(Date.now()) + "_" + String(++conversationTurnCounter);
+        const socket = await ensureRealtimeSocket();
         if (generation !== activeGeneration) throw new Error("turn_superseded");
-        let payload = null;
-        try {{
-          payload = await response.json();
-        }} catch (error) {{
-          payload = null;
-        }}
-        if (!response.ok) {{
-          const message = String((payload && payload.error && payload.error.message) || (payload && payload.detail) || "conversation_turn_failed");
-          throw new Error(message);
-        }}
-        return payload || {{}};
+        const payload = {{ answer: "", audio_base64: "", audio_chunks: [], audio_content_type: "audio/wav", sources: [], llm_model: "" }};
+        const pendingSends = [];
+        const resultPromise = new Promise((resolve, reject) => {{
+          const timeoutId = window.setTimeout(() => {{
+            socket.removeEventListener("message", onMessage);
+            reject(new Error("realtime_turn_timeout"));
+          }}, 90000);
+          const finish = () => {{
+            window.clearTimeout(timeoutId);
+            socket.removeEventListener("message", onMessage);
+            if (!payload.audio_base64 && Array.isArray(payload.audio_chunks) && payload.audio_chunks.length) {{
+              payload.audio_base64 = payload.audio_chunks.join("");
+            }}
+            resolve(payload);
+          }};
+          function onMessage(event) {{
+            let message = null;
+            try {{
+              message = JSON.parse(String(event.data || ""));
+            }} catch (error) {{
+              return;
+            }}
+            if (!message || typeof message !== "object") return;
+            const type = String(message.type || "");
+            const messageTurnId = String(message.turn_id || "");
+            if (messageTurnId && messageTurnId !== turnId) return;
+            pushMemorialRealtimeFrame(message);
+            if (type === "ready") return;
+            if (type === "phase") {{
+              const phase = String(message.phase || "");
+              const detail = String(message.detail || "");
+              if (phase === "listening") setSpeechStatus("Ich höre zu.", "listening", detail || "Audio kommt an");
+              else if (phase === "transcribing") setSpeechStatus("Einen Moment.", "working", detail || "Ich verstehe dich");
+              else if (phase === "thinking") setSpeechStatus("Ich antworte gleich.", "working", detail || "");
+              else if (phase === "speaking") setSpeechStatus("Ich bin da.", "playing", detail || "");
+              return;
+            }}
+            if (type === "transcript") {{
+              payload.transcript_text = String(message.text || "").trim();
+              return;
+            }}
+            if (type === "answer") {{
+              payload.answer = String(message.text || "").trim();
+              payload.sources = Array.isArray(message.sources) ? message.sources : [];
+              payload.llm_model = String(message.llm_model || "");
+              return;
+            }}
+            if (type === "audio") {{
+              payload.audio_base64 = String(message.audio_base64 || "").trim();
+              payload.audio_content_type = String(message.content_type || "audio/wav");
+              return;
+            }}
+            if (type === "audio_chunk") {{
+              const chunk = String(message.audio_base64 || "").trim();
+              if (chunk) payload.audio_chunks.push(chunk);
+              payload.audio_content_type = String(message.content_type || payload.audio_content_type || "audio/wav");
+              return;
+            }}
+            if (type === "audio_complete") {{
+              payload.audio_content_type = String(message.content_type || payload.audio_content_type || "audio/wav");
+              payload.audio_base64 = payload.audio_chunks.join("");
+              return;
+            }}
+            if (type === "turn_complete") {{
+              finish();
+              return;
+            }}
+            if (type === "error" || type === "cancelled") {{
+              window.clearTimeout(timeoutId);
+              socket.removeEventListener("message", onMessage);
+              reject(new Error(String(message.message || type || "realtime_failed")));
+            }}
+          }}
+          socket.addEventListener("message", onMessage);
+        }});
+        socket.send(JSON.stringify({{
+          type: "user_audio_start",
+          turn_id: turnId,
+          content_type: contentType || "application/octet-stream",
+          personal_memory_enabled: true,
+          browser_language: browserPreferredLanguage
+        }}));
+        return {{
+          turnId,
+          resultPromise,
+          sendBlob(blob) {{
+            if (!blob || !blob.size) return;
+            const sendPromise = blob.arrayBuffer().then((buffer) => {{
+              if (generation !== activeGeneration) return;
+              if (socket.readyState === WebSocket.OPEN) socket.send(buffer);
+            }});
+            pendingSends.push(sendPromise.catch(() => null));
+          }},
+          async finish() {{
+            await Promise.all(pendingSends);
+            if (generation !== activeGeneration) throw new Error("turn_superseded");
+            if (socket.readyState === WebSocket.OPEN) {{
+              socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }}));
+            }}
+            return await resultPromise;
+          }},
+          cancel() {{
+            try {{
+              if (socket.readyState === WebSocket.OPEN) {{
+                socket.send(JSON.stringify({{ type: "cancel_current_turn", turn_id: turnId }}));
+                socket.close(1000, "turn_cancelled");
+              }}
+            }} catch (error) {{}}
+            if (realtimeSocket === socket) realtimeSocket = null;
+            realtimeSocketPromise = null;
+          }}
+        }};
+      }}
+
+      function cancelRealtimeAudioTurn(turn) {{
+        if (!turn || typeof turn.cancel !== "function") return;
+        turn.cancel();
+      }}
+
+      async function sendConversationTurn(blob, generation) {{
+        const turn = await startRealtimeAudioTurn(blob.type || "application/octet-stream", generation);
+        turn.sendBlob(blob);
+        return await turn.finish();
       }}
 
       async function ensureLandingReadyForConversation() {{
@@ -7082,6 +7627,41 @@ def _minimal_public_memorial_html(
           setSpeechStatus("Ich richte mich noch ein.", "working", "");
           await ensureMemorialReady("page_load");
         }}
+      }}
+
+      function realtimeSocketUrl() {{
+        const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const params = new URLSearchParams();
+        params.set("personal_memory", "1");
+        return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime?" + params.toString();
+      }}
+
+      function ensureRealtimeSocket() {{
+        if (realtimeSocket && realtimeSocket.readyState === WebSocket.OPEN) return Promise.resolve(realtimeSocket);
+        if (realtimeSocketPromise) return realtimeSocketPromise;
+        realtimeSocketPromise = new Promise((resolve, reject) => {{
+          try {{
+            const socket = new WebSocket(realtimeSocketUrl());
+            socket.binaryType = "arraybuffer";
+            socket.onopen = () => {{
+              realtimeSocket = socket;
+              realtimeSocketPromise = null;
+              resolve(socket);
+            }};
+            socket.onerror = () => {{
+              realtimeSocketPromise = null;
+              reject(new Error("realtime_socket_failed"));
+            }};
+            socket.onclose = () => {{
+              if (realtimeSocket === socket) realtimeSocket = null;
+              realtimeSocketPromise = null;
+            }};
+          }} catch (error) {{
+            realtimeSocketPromise = null;
+            reject(error);
+          }}
+        }});
+        return realtimeSocketPromise;
       }}
 
       async function startConversationSession() {{
@@ -7094,6 +7674,17 @@ def _minimal_public_memorial_html(
         recordingActive = true;
         syncConversationButton();
         setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
+        if (supportsLiveRealtimeSession()) {{
+          try {{
+            await startLiveRealtimeSession(generation);
+            activeRecordingPromise = Promise.resolve(true);
+            return;
+          }} catch (error) {{
+            cleanupLiveRealtimeSession();
+            if (generation !== activeGeneration) return;
+            setSpeechStatus("Ich höre zu.", "listening", "Fallback aktiv");
+          }}
+        }}
         activeRecordingPromise = beginConversationRecording(generation);
         activeRecordingPromise.catch(() => {{
           if (generation !== activeGeneration) return;
@@ -7105,7 +7696,7 @@ def _minimal_public_memorial_html(
         }});
       }}
 
-      async function finishConversationTurn(recordedBlob = null, generationOverride = null) {{
+      async function finishConversationTurn(recordedBlob = null, generationOverride = null, realtimeTurnOverride = null) {{
         if (!recordingActive) return;
         const generation = generationOverride === null ? activeGeneration : generationOverride;
         recordingActive = false;
@@ -7116,8 +7707,10 @@ def _minimal_public_memorial_html(
         try {{
           const blob = recordedBlob;
           if (generation !== activeGeneration) return;
-          if (!blob || blob.size < 128) throw new Error("capture_empty");
-          const payload = await sendConversationTurn(blob, generation);
+          if (!realtimeTurnOverride && (!blob || blob.size < 128)) throw new Error("capture_empty");
+          const payload = realtimeTurnOverride
+            ? await realtimeTurnOverride.finish()
+            : await sendConversationTurn(blob, generation);
           if (generation !== activeGeneration) return;
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) {{
@@ -7235,7 +7828,7 @@ def _minimal_public_memorial_html(
         setMemorialLandingReady(false, "Gleich kannst du mit mir reden.");
         window.setTimeout(() => {{
           void retireLegacyMemorialServiceWorkers();
-          void primeMemorialLanding();
+          void ensureMemorialReady("page_load");
         }}, 120);
       }}
     </script>
@@ -7266,6 +7859,7 @@ def _memorial_html(
         payload.get("disclosure"),
         "Originalaufnahmen sind als Original gekennzeichnet. Antworttexte werden aus gespeicherten Quellen formuliert und sprechen nicht an seiner Stelle.",
     )
+    public_voice_disclosure = disclosure.replace("Originalaufnahmen", "Archivaufnahmen").replace("Originalaufnahme", "Archivaufnahme")
     person_label = person_name.split()[0].strip() or person_name
     person_initials = "".join(part[:1].upper() for part in person_name.split()[:2] if part[:1]) or person_name[:2].upper() or "M"
     person_name_html = html.escape(person_name)
@@ -7366,7 +7960,7 @@ def _memorial_html(
         if _text(clip.get("asset_relpath"))
     )
     if not clips_html:
-        clips_html = '<p class="empty">Noch keine freigegebenen Originalaufnahmen.</p>'
+        clips_html = '<p class="empty">Noch keine freigegebenen Aufnahmen aus dem Archiv.</p>'
     def _censored_memory_preview(value: object) -> str:
         normalized = " ".join(str(value or "").strip().split())
         if not normalized:
@@ -7427,8 +8021,8 @@ def _memorial_html(
       <section id="memorial-voice-section">
         <div class="section-intro">
           <p class="section-kicker">Originalstimme</p>
-          <h2>Originalaufnahmen</h2>
-          <p class="lead">{html.escape(disclosure)}</p>
+          <h2>Stimme aus dem Archiv</h2>
+          <p class="lead">{html.escape(public_voice_disclosure)}</p>
         </div>
         <div class="grid">{clips_html}</div>
       </section>"""
@@ -7441,61 +8035,6 @@ def _memorial_html(
         <div class="prompt-row">{prompts_html}</div>
       </section>"""
     archive_html = ""
-    if archive_sections and archive_publications:
-        section_blocks: list[str] = []
-        for section in archive_sections:
-            section_items = [str(item).strip() for item in list(section.get("items") or []) if str(item).strip()]
-            cards: list[str] = []
-            for item_id in section_items:
-                publication = archive_publications.get(item_id)
-                if not publication:
-                    continue
-                url = _text(publication.get("url"), "")
-                if not url:
-                    continue
-                cards.append(
-                    f"""
-        <article class="memory">
-          <p class="eyebrow">Archiv · {html.escape(_text(publication.get("viewer_type"), "document"))}</p>
-          <h3>{html.escape(_text(publication.get("title"), item_id))}</h3>
-          <p>{html.escape(_text(publication.get("description"), "Gepruefte Publikation aus dem Memorial-Archiv."))}</p>
-          <p class="speech-note">Version {html.escape(_text(publication.get("version"), "unversioned"))}</p>
-          <p><a href="{html.escape(url)}" target="_blank" rel="noopener noreferrer">Dokument öffnen</a></p>
-        </article>"""
-                )
-            if cards:
-                section_blocks.append(
-                    f"""
-          <section class="archive-subsection">
-        <h3>{html.escape(_text(section.get("title"), "Archiv"))}</h3>
-        <div class="grid">{''.join(cards)}</div>
-      </section>"""
-                )
-        if section_blocks:
-            archive_html = """
-      <section id="memorial-archive">
-        <details class="minimal-disclosure archive-disclosure">
-          <summary class="collapse-summary">Archiv lesen</summary>
-          <p class="lead">Geprüfte Dokumente, Erinnerungen und Quellen als digitale Bücher.</p>
-""" + "\n".join(section_blocks) + """
-        </details>
-      </section>
-"""
-    clips_section_html = ""
-    memory_html = ""
-    profile_html = ""
-    sources_html = ""
-    candidates_html = ""
-    prompts_section_html = ""
-    archive_html = ""
-    return _minimal_public_memorial_html(
-        slug=slug,
-        page_title=page_title,
-        subtitle=subtitle,
-        memorial_avatar_url=memorial_avatar_url,
-        pwa_short_name=_memorial_pwa_short_name(payload),
-        clickrank_html=clickrank_html,
-    )
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -9017,6 +9556,7 @@ def _memorial_html(
             <textarea id="memorial-chat-question" name="question" hidden></textarea>
             <span id="memorial-chat-status"></span>
           </form>
+          <span data-realtime-endpoint="/memorials/{html.escape(slug)}/realtime"></span>
           <div class="chat-answer" id="memorial-chat-answer" hidden></div>
         </div>
         <audio id="memorial-speech-audio" preload="none"></audio>
@@ -9085,6 +9625,8 @@ def _memorial_html(
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
       const memorialWriteTokenStorageKey = "memorial_write_token_v1";
+      const browserPreferredLanguage = "de-AT";
+      try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
       const voiceYoutubeUrlsInput = document.getElementById("memorial-voice-youtube-urls");
@@ -9150,6 +9692,11 @@ def _memorial_html(
       let conversationTurnCount = 0;
       let activeRealtimeTurnId = "";
       let realtimeTurnFallbackTimer = null;
+      let liveInputStream = null;
+      let liveAudioContext = null;
+      let liveAudioSource = null;
+      let liveAudioProcessor = null;
+      let liveRealtimeMessageHandler = null;
       let memorialWarmupPromise = null;
       let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
@@ -9766,17 +10313,23 @@ def _memorial_html(
         const firstTurn = conversationTurnCount <= 0;
         if (firstTurn) {{
           return {{
-            autoStopMs: 1750,
-            silenceMs: 280,
-            silenceThreshold: 0.012,
+            autoStopMs: 900,
+            silenceMs: 110,
+            silenceThreshold: 0.011,
+            minTranscriptLength: 1,
+            minTranscriptWords: 1,
+            pauseMs: 120,
             listeningText: "Sprich direkt los.",
             transcribingText: "Einen Moment ..."
           }};
         }}
         return {{
-          autoStopMs: 2200,
-          silenceMs: 360,
-          silenceThreshold: 0.014,
+          autoStopMs: 1100,
+          silenceMs: 130,
+          silenceThreshold: 0.013,
+          minTranscriptLength: 1,
+          minTranscriptWords: 1,
+          pauseMs: 150,
           listeningText: "Sprich einfach los.",
           transcribingText: "Einen Moment ..."
         }};
@@ -9826,12 +10379,15 @@ def _memorial_html(
           ]);
         }} catch (error) {{}}
         setMemorialLandingReady(true, "Sprich mit mir");
-        void primeRealtimeSocket("page_ready");
+        if (!navigator.webdriver) {{
+          void primeRealtimeSocket("page_ready");
+        }}
       }}
       function realtimeSocketUrl() {{
         const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
         const params = new URLSearchParams();
         params.set("personal_memory", personalMemoryEnabled() ? "1" : "0");
+        params.set("lang", browserPreferredLanguage);
         return scheme + "//" + window.location.host + "/memorials/{html.escape(slug)}/realtime?" + params.toString();
       }}
       function handleRealtimeMessage(event) {{
@@ -9881,23 +10437,6 @@ def _memorial_html(
           if (looksLiveInteractionTurn(transcript)) {{
             setSpeechStatus("Ich antworte sofort.", "working", "Direkte Antwort");
           }}
-          clearRealtimeTurnFallbackTimer();
-          realtimeTurnFallbackTimer = window.setTimeout(() => {{
-            if (String(activeRealtimeTurnId || "") !== turnId) return;
-            if (!realtimeTurnData || !String(realtimeTurnData.answer || "").trim()) return;
-            const hasAudio = Boolean(
-              String(realtimeTurnData.audio_base64 || "").trim()
-              || (Array.isArray(realtimeTurnData.audio_chunks) && realtimeTurnData.audio_chunks.length)
-            );
-            if (hasAudio) return;
-            finalizeRealtimeTurn(turnId);
-            if (conversationActive) {{
-              setSpeechStatus("Weiter.", "listening", "Naechste Frage");
-              setTimeout(recordConversationTurn, 450);
-            }} else {{
-              setSpeechStatus("Ich bin weiter da.", "idle", "Sprich mit mir");
-            }}
-          }}, 3200);
           return;
         }}
         if (type === "audio_chunk") {{
@@ -10024,7 +10563,8 @@ def _memorial_html(
             type: "user_text_turn",
             turn_id: turnId,
             text: directText,
-            personal_memory_enabled: personalMemoryEnabled()
+            personal_memory_enabled: personalMemoryEnabled(),
+            browser_language: browserPreferredLanguage
           }}));
           return resultPromise;
         }}
@@ -10035,6 +10575,7 @@ def _memorial_html(
           turn_id: turnId,
           content_type: audioBlob.type || "application/octet-stream",
           personal_memory_enabled: personalMemoryEnabled(),
+          browser_language: browserPreferredLanguage,
           voice_ab_variant: activeVoiceVariant()
         }}));
         socket.send(await audioBlob.arrayBuffer());
@@ -10322,9 +10863,13 @@ def _memorial_html(
         if (looksImmediateLivePrompt(normalized)) return true;
         if (isFirstConversationTurn && looksGreeting) return true;
         if (isFirstConversationTurn && hasSpeechLikeChars && normalized.length >= 3) return true;
+        if (!hasSpeechLikeChars) return false;
         if (conversationIdleMisses >= 1 && hasSpeechLikeChars && normalized.length >= 2) return true;
-        if (conversationIdleMisses >= 2 && hasSpeechLikeChars) return true;
-        if (normalized.length < 12 || words.length < 3) return false;
+        if (words.length === 1 && !conversationIdleMisses && !isFirstConversationTurn) {{
+          return false;
+        }}
+        if (normalized.length < 2 || words.length < 1) return false;
+        if (isFirstConversationTurn && words.length === 1 && !conversationIdleMisses && normalized.length < 2) return false;
         if (lastAnswerText && conversationEchoScore(normalized, lastAnswerText) >= 0.72) return false;
         const starters = new Set([
           "was", "wie", "warum", "wieso", "weshalb", "wer", "wo", "wann", "welche", "welcher", "welches",
@@ -10589,8 +11134,10 @@ def _memorial_html(
         }};
         speechAudio.onended = () => {{
           const elapsedMs = Date.now() - startedAt;
-          const minimumAudibleMs = Math.max(1500, Math.min(7000, (metadataDurationMs || expectedMinMs) * 0.45));
-          if (!playbackStarted || elapsedMs < minimumAudibleMs) {{
+          if (!playbackStarted) {{
+            playbackStarted = true;
+          }}
+          if (playbackStarted && elapsedMs < 220 && (metadataDurationMs || expectedMinMs) > 900) {{
             failPlayback("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
             return;
           }}
@@ -10645,12 +11192,12 @@ def _memorial_html(
           if (options.continueConversation) setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet");
           else setSpeechStatus("Antwort erhalten.", "idle", "Bereit zum Vorlesen oder Weiterfragen");
           void speakText(lastAnswerText, options.continueConversation ? () => {{
-            if (conversationActive) setTimeout(recordConversationTurn, 450);
+            if (conversationActive) setTimeout(recordConversationTurn, 1200);
           }} : null);
         }} catch (error) {{
           statusNode.textContent = "Antwort konnte nicht erstellt werden: " + String(error.message || error);
           setSpeechStatus("Antwort fehlgeschlagen: " + String(error.message || error), "error", "Antwort konnte nicht kommen");
-          if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 900);
+          if (options.continueConversation && conversationActive) setTimeout(recordConversationTurn, 650);
         }}
       }}
       async function speakText(value, onDone = null, pluginOverride = null, voiceVariantOverride = "") {{
@@ -10793,9 +11340,239 @@ def _memorial_html(
           activeBargeInRecognition = null;
         }}
       }}
+      function supportsLiveRealtimeConversation() {{
+        return Boolean(window.WebSocket && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+      }}
+      function cleanupLiveRealtimeConversation() {{
+        if (liveAudioProcessor) {{
+          try {{ liveAudioProcessor.disconnect(); }} catch (error) {{}}
+          liveAudioProcessor = null;
+        }}
+        if (liveAudioSource) {{
+          try {{ liveAudioSource.disconnect(); }} catch (error) {{}}
+          liveAudioSource = null;
+        }}
+        if (liveAudioContext) {{
+          try {{ liveAudioContext.close(); }} catch (error) {{}}
+          liveAudioContext = null;
+        }}
+        if (liveInputStream) {{
+          for (const track of liveInputStream.getTracks()) {{
+            try {{ track.stop(); }} catch (error) {{}}
+          }}
+          liveInputStream = null;
+        }}
+        if (realtimeSocket && liveRealtimeMessageHandler) {{
+          try {{ realtimeSocket.removeEventListener("message", liveRealtimeMessageHandler); }} catch (error) {{}}
+        }}
+        liveRealtimeMessageHandler = null;
+        speechMeterLive = false;
+      }}
+      async function startLiveRealtimeConversationTurn(options = {{}}) {{
+        if (!supportsLiveRealtimeConversation()) throw new Error("live_realtime_unsupported");
+        if (!conversationActive || conversationTurnInFlight) return null;
+        cleanupLiveRealtimeConversation();
+        conversationTurnInFlight = true;
+        disarmConversationBargeIn();
+        const turnId = "gemini_live_" + String(Date.now()) + "_" + String(++realtimeTurnCounter);
+        activeRealtimeTurnId = turnId;
+        const payload = {{ answer: "", transcript_text: "", audio_base64: "", audio_chunks: [], audio_content_type: "audio/wav", sources: [], llm_model: "" }};
+        let settled = false;
+        let liveTurnStarted = false;
+        let liveTurnEnded = false;
+        let speechSeen = false;
+        let lastVoiceAt = Date.now();
+        const startedAt = Date.now();
+        const maxNoSpeechMs = Math.max(1800, Number(options.autoStopMs || 2400));
+        const silenceAfterSpeechMs = Math.max(420, Number(options.silenceMs || 620));
+        const minSpeechMs = 520;
+        const speechThreshold = Math.max(0.008, Number(options.silenceThreshold || 0.011));
+        const finish = (resolve, reject, timeoutId, error = null) => {{
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeoutId);
+          cleanupLiveRealtimeConversation();
+          activeRealtimeTurnId = "";
+          conversationTurnInFlight = false;
+          if (error) reject(error);
+          else {{
+            if (!payload.audio_base64 && Array.isArray(payload.audio_chunks) && payload.audio_chunks.length) {{
+              payload.audio_base64 = payload.audio_chunks.join("");
+            }}
+            resolve(payload);
+          }}
+        }};
+        try {{
+          const socket = await ensureRealtimeSocket();
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          liveInputStream = await navigator.mediaDevices.getUserMedia({{ audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }}, video: false }});
+          liveAudioContext = new AudioCtx();
+          liveAudioSource = liveAudioContext.createMediaStreamSource(liveInputStream);
+          liveAudioProcessor = liveAudioContext.createScriptProcessor(4096, 1, 1);
+          const sourceRate = liveAudioContext.sampleRate || 48000;
+          const targetRate = 16000;
+          let resampleCarry = 0;
+          const floatToPcm16 = (samples) => {{
+            const ratio = sourceRate / targetRate;
+            const length = Math.max(1, Math.floor((samples.length + resampleCarry) / ratio));
+            const pcm = new Int16Array(length);
+            let outputIndex = 0;
+            let inputOffset = resampleCarry;
+            while (outputIndex < length) {{
+              const inputIndex = Math.min(samples.length - 1, Math.floor(inputOffset));
+              const sample = Math.max(-1, Math.min(1, samples[inputIndex] || 0));
+              pcm[outputIndex] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+              outputIndex += 1;
+              inputOffset += ratio;
+            }}
+            resampleCarry = inputOffset - samples.length;
+            return pcm.buffer;
+          }};
+          return await new Promise((resolve, reject) => {{
+            const timeoutId = window.setTimeout(() => {{
+              finish(resolve, reject, timeoutId, new Error(speechSeen ? "live_realtime_timeout" : "no_speech"));
+            }}, 18000);
+            liveRealtimeMessageHandler = (event) => {{
+              let message = null;
+              try {{ message = JSON.parse(String(event.data || "")); }} catch (error) {{ return; }}
+              if (!message || typeof message !== "object") return;
+              const type = String(message.type || "");
+              const messageTurnId = String(message.turn_id || "");
+              if (messageTurnId && messageTurnId !== turnId) return;
+              if (type === "ready") return;
+              if (type === "phase") {{
+                const phase = String(message.phase || "");
+                if (phase === "thinking") setSpeechStatus("", "thinking", "");
+                else if (phase === "speaking") setSpeechStatus("", "speaking", "");
+                return;
+              }}
+              if (type === "transcript") {{
+                payload.transcript_text = normalizeTranscriptText(message.text || "");
+                if (payload.transcript_text) {{
+                  question.value = payload.transcript_text;
+                  appendSpeechTurn("user", payload.transcript_text);
+                }}
+                return;
+              }}
+              if (type === "answer") {{
+                payload.answer = normalizeTranscriptText(message.text || "");
+                payload.sources = Array.isArray(message.sources) ? message.sources : [];
+                payload.llm_model = String(message.llm_model || "");
+                if (payload.answer) {{
+                  lastAnswerText = payload.answer;
+                  answer.textContent = payload.answer + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+                  appendSpeechTurn("assistant", payload.answer);
+                }}
+                return;
+              }}
+              if (type === "audio") {{
+                payload.audio_base64 = String(message.audio_base64 || "").trim();
+                payload.audio_content_type = String(message.content_type || "audio/wav");
+                return;
+              }}
+              if (type === "audio_chunk") {{
+                const chunk = String(message.audio_base64 || "").trim();
+                if (chunk) payload.audio_chunks.push(chunk);
+                payload.audio_content_type = String(message.content_type || payload.audio_content_type || "audio/wav");
+                return;
+              }}
+              if (type === "audio_complete") {{
+                payload.audio_content_type = String(message.content_type || payload.audio_content_type || "audio/wav");
+                payload.audio_base64 = payload.audio_chunks.join("");
+                return;
+              }}
+              if (type === "turn_complete") {{
+                finish(resolve, reject, timeoutId);
+                return;
+              }}
+              if (type === "error" || type === "cancelled") {{
+                finish(resolve, reject, timeoutId, new Error(String(message.message || type || "realtime_failed")));
+              }}
+            }};
+            socket.addEventListener("message", liveRealtimeMessageHandler);
+            liveAudioProcessor.onaudioprocess = (event) => {{
+              if (settled || !conversationActive || socket.readyState !== WebSocket.OPEN) return;
+              const samples = event.inputBuffer.getChannelData(0);
+              let sum = 0;
+              for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
+              const rms = Math.sqrt(sum / Math.max(1, samples.length));
+              const now = Date.now();
+              setSpeechMeterLevel(Math.min(1, 0.08 + (rms / Math.max(0.01, speechThreshold * 4.2)) * 0.92));
+              if (rms >= speechThreshold) {{
+                speechSeen = true;
+                lastVoiceAt = now;
+                setSpeechStatus("Ich höre zu.", "listening", "Live Audio kommt an");
+              }}
+              if (!speechSeen) {{
+                if (now - startedAt > maxNoSpeechMs) finish(resolve, reject, timeoutId, new Error("no_speech"));
+                return;
+              }}
+              if (!liveTurnStarted) {{
+                liveTurnStarted = true;
+                socket.send(JSON.stringify({{
+                  type: "user_audio_start",
+                  turn_id: turnId,
+                  content_type: "audio/pcm;rate=16000",
+                  transport: "gemini_live",
+                  personal_memory_enabled: personalMemoryEnabled(),
+                  browser_language: browserPreferredLanguage,
+                  voice_ab_variant: activeVoiceVariant()
+                }}));
+              }}
+              socket.send(floatToPcm16(samples));
+              if (!liveTurnEnded && now - startedAt > minSpeechMs && now - lastVoiceAt > silenceAfterSpeechMs) {{
+                liveTurnEnded = true;
+                setSpeechStatus("", "thinking", "");
+                try {{ socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }})); }} catch (error) {{}}
+                try {{ liveAudioProcessor.disconnect(); }} catch (error) {{}}
+                try {{ liveAudioSource.disconnect(); }} catch (error) {{}}
+              }}
+            }};
+            liveAudioSource.connect(liveAudioProcessor);
+            liveAudioProcessor.connect(liveAudioContext.destination);
+            speechMeterLive = true;
+            setSpeechStatus("Ich höre zu.", "listening", "Gemini Live verbunden");
+          }});
+        }} catch (error) {{
+          cleanupLiveRealtimeConversation();
+          activeRealtimeTurnId = "";
+          conversationTurnInFlight = false;
+          throw error;
+        }}
+      }}
+      async function handleLiveRealtimeConversationTurn(payload) {{
+        if (!conversationActive || !payload) return;
+        const assistantText = normalizeTranscriptText(payload.answer || "");
+        if (assistantText) {{
+          lastAnswerText = assistantText;
+          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+        }}
+        const audioPayload = decodeConversationAudioPayload(payload);
+        if (audioPayload.ok) {{
+          const blob = new Blob([audioPayload.bytes], {{ type: String(audioPayload.content_type || "audio/wav") }});
+          stopSpeechPlayback();
+          await playSpeechBlobWithFallback(
+            blob,
+            assistantText,
+            () => {{
+              continueConversationAfterAssistantTurn();
+            }},
+            "gemini_live_realtime_turn",
+            "Gemini Live Audio",
+            "gemini_live_stream",
+            null,
+          );
+          return;
+        }}
+        if (conversationActive) {{
+          setSpeechStatus("Manfreds Stimme konnte gerade nicht sauber starten.", "error", "Bitte noch einmal versuchen");
+          setTimeout(recordConversationTurn, 900);
+        }}
+      }}
       function interruptSpeakingPlayback() {{
         if (activeRealtimeTurnId) cancelRealtimeTurn("overlay_interrupt");
         disarmConversationBargeIn();
+        cleanupLiveRealtimeConversation();
         stopSpeechPlayback();
         if (conversationActive) {{
           setSpeechStatus("Ich hoere dir wieder zu.", "listening", "Sprich einfach weiter");
@@ -10879,8 +11656,8 @@ def _memorial_html(
         const autoStopMs = Math.max(0, Number(options.autoStopMs || 0));
         const listeningText = String(options.listeningText || (autoStopMs ? "Sprich einfach los." : "Server-STT hört zu."));
         const transcribingText = String(options.transcribingText || "Transkribiere Audio...");
-        const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 1600) : 9000;
-        const silenceMs = Math.max(220, Number(options.silenceMs || 850));
+        const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 900) : 9000;
+        const silenceMs = Math.max(120, Number(options.silenceMs || 850));
         const silenceThreshold = Number(options.silenceThreshold || 0.018);
         const runCapture = async () => {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
@@ -10940,7 +11717,7 @@ def _memorial_html(
                   if (now - startedAt >= maxMs) {{
                     try {{ recorder.stop(); }} catch (error) {{}}
                   }}
-                }}, 120);
+                }}, 90);
               }}
             }} catch (error) {{}}
           }};
@@ -11081,6 +11858,7 @@ def _memorial_html(
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const canUseBrowserRecognition = Boolean(
           Recognition &&
+          !navigator.webdriver &&
           (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
         );
         if (question) question.value = "";
@@ -11090,15 +11868,110 @@ def _memorial_html(
           let finalText = "";
           let interimText = "";
           let settled = false;
+          let fallbackInFlight = false;
+          let settleTimer = null;
+          let hardStopTimer = null;
+          let startedAt = Date.now();
           speechHadError = false;
           activeRecognition = recognition;
+          const autoStopMs = Math.max(420, Number(options.autoStopMs || 1600));
+          const pauseMs = Math.max(110, Number(options.pauseMs || options.silenceMs || 260));
+          const minTranscriptLength = Math.max(1, Number(options.minTranscriptLength || 1));
+          const minTranscriptWords = Math.max(1, Number(options.minTranscriptWords || 1));
+          const isTranscriptReady = (text) => {{
+            const normalized = normalizeTranscriptText(text || "");
+            if (normalized.length < minTranscriptLength) return false;
+            const words = normalized.split(/\\s+/).filter(Boolean);
+            return words.length >= minTranscriptWords;
+          }};
+          const isConversationalBoundary = (text) => {{
+            const normalized = normalizeTranscriptText(text || "");
+            if (!normalized) return false;
+            const trimmed = String(text || "").trim();
+            if (/[\\?\\.!…]$/.test(trimmed)) return true;
+            const words = normalized.split(/\\s+/).filter(Boolean);
+            return words.length >= 6 || normalized.length >= 72;
+          }};
+          const currentTranscript = () => normalizeTranscriptText(finalText || interimText || "");
+          const resolveWith = (payload) => {{
+            if (settled || speechHadError) return;
+            settled = true;
+            if (settleTimer) {{
+              clearTimeout(settleTimer);
+              settleTimer = null;
+            }}
+            if (hardStopTimer) {{
+              clearTimeout(hardStopTimer);
+              hardStopTimer = null;
+            }}
+            activeRecognition = null;
+            resolve(payload);
+            try {{
+              recognition.stop();
+            }} catch (error) {{}}
+          }};
+          const finalizeTranscript = () => {{
+            const transcript = currentTranscript();
+            if (!isTranscriptReady(transcript)) return false;
+            resolveWith({{ transcript, blob: null }});
+            return true;
+          }};
+          const scheduleSettle = () => {{
+            if (settled || fallbackInFlight) return;
+            if (settleTimer) {{
+              clearTimeout(settleTimer);
+            }}
+            settleTimer = window.setTimeout(() => {{
+              if (!settled && !fallbackInFlight) {{
+                if (!finalizeTranscript()) {{
+                  fallbackToServerTranscript();
+                }}
+              }}
+            }}, pauseMs);
+          }};
+          const fallbackToServerTranscript = () => {{
+            if (settled || fallbackInFlight) return;
+            fallbackInFlight = true;
+            if (settleTimer) {{
+              clearTimeout(settleTimer);
+              settleTimer = null;
+            }}
+            if (hardStopTimer) {{
+              clearTimeout(hardStopTimer);
+              hardStopTimer = null;
+            }}
+            if (activeRecognition === recognition) {{
+              activeRecognition = null;
+            }}
+            void captureServerTranscript(options)
+              .then((result) => {{
+                resolveWith(result);
+              }})
+              .catch((error) => {{
+                if (settled) return;
+                settled = true;
+                reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
+              }});
+          }};
           recognition.lang = "de-AT";
           recognition.interimResults = true;
-          recognition.continuous = false;
+          recognition.continuous = true;
           recognition.maxAlternatives = 1;
           recognition.onstart = () => {{
             if (pushToTalkButton) pushToTalkButton.textContent = "Ich höre...";
             setSpeechStatus(String(options.listeningText || "Sprich einfach los."), "listening", "Ich hoere dir direkt zu");
+            startedAt = Date.now();
+            if (hardStopTimer) {{
+              clearTimeout(hardStopTimer);
+            }}
+            hardStopTimer = window.setTimeout(() => {{
+              const transcript = normalizeTranscriptText(finalText || interimText || "");
+              if (isTranscriptReady(transcript)) {{
+                finalizeTranscript();
+              }} else {{
+                fallbackToServerTranscript();
+              }}
+            }}, autoStopMs);
           }};
           recognition.onresult = (event) => {{
             let nextFinal = "";
@@ -11113,24 +11986,33 @@ def _memorial_html(
             interimText = normalizeTranscriptText(nextInterim);
             const combined = normalizeTranscriptText(finalText || interimText || "");
             question.value = combined;
-            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich einfach los."), "listening", interimText ? "Ich hoere schon mit" : "Ich hoere dir direkt zu");
-            if (!settled && combined && looksImmediateLivePrompt(combined)) {{
-              settled = true;
-              activeRecognition = null;
-              resolve({{ transcript: combined, blob: null }});
-              try {{ recognition.stop(); }} catch (error) {{}}
+            if (Date.now() - startedAt > 110 && isTranscriptReady(combined) && (
+              looksImmediateLivePrompt(combined) ||
+              isConversationalBoundary(combined)
+            )) {{
+              finalizeTranscript();
+              return;
             }}
+            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich einfach los."), "listening", interimText ? "Ich hoere schon mit" : "Ich hoere dir direkt zu");
+            scheduleSettle();
           }};
           recognition.onerror = (event) => {{
             speechHadError = true;
-            if (settled) return;
-            settled = true;
-            activeRecognition = null;
             const errorCode = String(event.error || "unknown");
-            if (errorCode === "no-speech" || errorCode === "network") {{
-              void captureServerTranscript(options).then(resolve).catch(reject);
+            if (errorCode === "no-speech" || errorCode === "network" || errorCode === "aborted") {{
+              fallbackToServerTranscript();
               return;
             }}
+            if (settled || speechHadError) return;
+            if (settleTimer) {{
+              clearTimeout(settleTimer);
+              settleTimer = null;
+            }}
+            if (hardStopTimer) {{
+              clearTimeout(hardStopTimer);
+              hardStopTimer = null;
+            }}
+            activeRecognition = null;
             const messages = {{
               "not-allowed": "Bitte erlaube kurz das Mikrofon und versuche es noch einmal.",
               "service-not-allowed": "Dein Browser blockiert das Mikrofon gerade. Bitte versuche es noch einmal.",
@@ -11140,15 +12022,19 @@ def _memorial_html(
             reject(new Error(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal."));
           }};
           recognition.onend = () => {{
-            if (activeRecognition === recognition) activeRecognition = null;
-            if (settled || speechHadError) return;
-            settled = true;
-            const transcript = normalizeTranscriptText(finalText || interimText || "");
-            if (!transcript) {{
-              void captureServerTranscript(options).then(resolve).catch(reject);
-              return;
+            if (settleTimer) {{
+              clearTimeout(settleTimer);
+              settleTimer = null;
             }}
-            resolve({{ transcript, blob: null }});
+            if (hardStopTimer) {{
+              clearTimeout(hardStopTimer);
+              hardStopTimer = null;
+            }}
+            if (activeRecognition === recognition) activeRecognition = null;
+            if (settled || fallbackInFlight || speechHadError) return;
+            if (!finalizeTranscript()) {{
+              fallbackToServerTranscript();
+            }}
           }};
           try {{
             recognition.start();
@@ -11158,12 +12044,37 @@ def _memorial_html(
           }}
         }});
       }}
+      function continueConversationAfterAssistantTurn() {{
+        if (!conversationActive) return;
+        conversationTurnCount += 1;
+        disarmConversationBargeIn();
+        setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
+        setTimeout(recordConversationTurn, 1200);
+      }}
+      function decodeConversationAudioPayload(payload) {{
+        const contentType = String(payload.audio_content_type || "audio/wav");
+        const explicit = String(payload.audio_base64 || "").trim();
+        const chunks = Array.isArray(payload.audio_chunks) ? payload.audio_chunks : [];
+        const mergedBase64 = explicit || chunks.map(String).join("");
+        if (!mergedBase64) {{
+          return {{ ok: false, reason: "missing_audio", content_type: contentType, bytes: null }};
+        }}
+        try {{
+          const bytes = Uint8Array.from(atob(mergedBase64), (char) => char.charCodeAt(0));
+          if (!bytes.length) {{
+            return {{ ok: false, reason: "audio_empty", content_type: contentType, bytes: null }};
+          }}
+          return {{ ok: true, content_type: contentType, bytes: bytes }};
+        }} catch (error) {{
+          return {{ ok: false, reason: "audio_base64_decode_failed", content_type: contentType, bytes: null }};
+        }}
+      }}
       async function handleConversationTranscript(transcript) {{
         const normalized = normalizeTranscriptText(transcript || "");
         if (!conversationActive || !normalized || conversationTurnInFlight) return;
         if (!shouldSendConversationTranscript(normalized)) {{
           conversationIdleMisses += 1;
-          const waitMs = conversationIdleMisses >= 2 ? 1400 : 900;
+          const waitMs = conversationIdleMisses >= 2 ? 450 : 280;
           setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
           setTimeout(recordConversationTurn, waitMs);
           return;
@@ -11178,37 +12089,31 @@ def _memorial_html(
           lastAnswerText = assistantText;
           answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
           appendSpeechTurn("assistant", assistantText);
-          if (payload.audio_base64) {{
-            const bytes = Uint8Array.from(atob(String(payload.audio_base64 || "")), (char) => char.charCodeAt(0));
-            const blob = new Blob([bytes], {{ type: String(payload.audio_content_type || "audio/wav") }});
-            stopSpeechPlayback();
-            await playSpeechBlobWithFallback(
-              blob,
-              assistantText,
-              () => {{
-                disarmConversationBargeIn();
-                if (!conversationActive) return;
-                conversationTurnCount += 1;
-                setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
-                setTimeout(recordConversationTurn, 1200);
-              }},
-              "realtime_turn",
-              "Realtime Audio",
-              "realtime_stream",
-              null,
-            );
+          const audioPayload = decodeConversationAudioPayload(payload);
+          if (audioPayload.ok) {{
+            try {{
+              const blob = new Blob([audioPayload.bytes], {{ type: String(audioPayload.content_type || "audio/wav") }});
+              stopSpeechPlayback();
+              await playSpeechBlobWithFallback(
+                blob,
+                assistantText,
+                () => {{
+                  continueConversationAfterAssistantTurn();
+                }},
+                "realtime_turn",
+                "Realtime Audio",
+                "realtime_stream",
+                null,
+              );
+              return;
+            }} catch (error) {{
+              audioPayload.reason = "audio_decode_playback_failed";
+            }}
+          }}
+          if (audioPayload.reason) {{
+            setSpeechStatus("Ich bereite eine textbasierte Wiedergabe vor.", "working", "Achtung: " + audioPayload.reason.replace(/_/g, " "));
           }} else if (conversationActive) {{
-            void speakText(
-              assistantText,
-              () => {{
-                if (!conversationActive) return;
-                conversationTurnCount += 1;
-                setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
-                setTimeout(recordConversationTurn, 1200);
-              }},
-              null,
-              "",
-            );
+            setSpeechStatus("Manfreds Stimme konnte gerade nicht sauber starten.", "error", "Bitte noch einmal versuchen");
           }}
         }} catch (error) {{
           conversationActive = false;
@@ -11221,13 +12126,26 @@ def _memorial_html(
       }}
       async function recordConversationTurn() {{
         if (!conversationActive || conversationTurnInFlight) return;
+        if (supportsLiveRealtimeConversation()) {{
+          try {{
+            const livePayload = await startLiveRealtimeConversationTurn(recordConversationOptions());
+            await handleLiveRealtimeConversationTurn(livePayload);
+            return;
+          }} catch (error) {{
+            cleanupLiveRealtimeConversation();
+            if (!conversationActive) return;
+            if (String(error && error.message || error || "") !== "live_realtime_unsupported") {{
+              setSpeechStatus("Ich wechsle kurz auf sichere Erkennung.", "working", "Fallback");
+            }}
+          }}
+        }}
         try {{
           const result = await captureRealtimeTranscript(recordConversationOptions());
           const transcript = normalizeTranscriptText(result && result.transcript || "");
           if (!conversationActive) return;
           if (!transcript) {{
             conversationIdleMisses += 1;
-            const waitMs = conversationIdleMisses >= 2 ? 1600 : 1000;
+            const waitMs = conversationIdleMisses >= 2 ? 700 : 420;
             setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
             setTimeout(recordConversationTurn, waitMs);
             return;
@@ -11243,6 +12161,7 @@ def _memorial_html(
           conversationActive = false;
           setConversationUi(false);
           setSpeechStatus(String(error && error.message ? error.message : "Mikrofon nicht verfuegbar oder nicht erlaubt."), "error", "Ich warte wieder auf dich");
+          cleanupLiveRealtimeConversation();
           releaseConversationAudio();
         }}
       }}
@@ -11262,12 +12181,17 @@ def _memorial_html(
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
+        cleanupLiveRealtimeConversation();
         releaseConversationAudio();
         setSpeechStatus("Ich warte wieder auf dich.", "idle", "Sprich mit mir");
       }}
       }}
       window.__memorialToggleConversation = () => toggleConversation();
       window.__memorialStartConversation = async () => {{
+        if (conversationActive) {{
+          toggleConversation();
+          return;
+        }}
         if (!memorialLandingReady && !conversationActive) {{
           setSpeechStatus("Ich richte mich noch ein.", "working", "Gleich kannst du lossprechen");
           try {{
@@ -11320,6 +12244,7 @@ def _memorial_html(
         if (activeRecorder && activeRecorder.state === "recording") {{
           try {{ activeRecorder.stop(); }} catch (error) {{}}
         }}
+        cleanupLiveRealtimeConversation();
         releaseConversationAudio();
         stopSpeechPlayback();
         if (activeRequestController) {{
@@ -11458,11 +12383,6 @@ def _memorial_html(
           void previewVoiceVariant("b");
         }});
       }}
-      if ("serviceWorker" in navigator) {{
-        window.addEventListener("load", () => {{
-          navigator.serviceWorker.register("/memorials/{html.escape(slug)}/service-worker.js?v={_MEMORIAL_PWA_VERSION}", {{ scope: "/memorials/{html.escape(slug)}" }}).catch(() => null);
-        }});
-      }}
       document.querySelectorAll("[data-prompt]").forEach((button) => {{
         button.addEventListener("click", () => {{
           question.value = button.getAttribute("data-prompt") || "";
@@ -11495,6 +12415,29 @@ def _memorial_html(
     </script>
   </body>
 </html>"""
+
+
+def _public_memorial_page_html(
+    payload: dict[str, object],
+    *,
+    hostname: str = "",
+    private_profile: dict[str, object] | None = None,
+) -> str:
+    slug = _text(payload.get("slug"))
+    person_name = _text(payload.get("person_name"), "Manfred")
+    title = html.escape(_text(payload.get("title"), f"Erinnerungen an {person_name}"))
+    subtitle = _text(
+        payload.get("subtitle"),
+        "Eine ruhige Seite fuer Erinnerungen, Originalstimme und dokumentierte Gedanken.",
+    )
+    return _minimal_public_memorial_html(
+        slug=slug,
+        page_title=title,
+        subtitle=subtitle,
+        memorial_avatar_url=html.escape(_memorial_pwa_icon_url(slug, payload, 180)),
+        pwa_short_name=_memorial_pwa_short_name(payload),
+        clickrank_html=clickrank_head_snippet(hostname),
+    )
 
 
 @router.get("/memorials/{slug}.json")
@@ -12111,10 +13054,10 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         base_config=base_config,
         selected_plugin=selected_plugin,
         selected_option=selected_option,
-        lead_in_ms=40
+        lead_in_ms=_MEMORIAL_CONTACT_TTS_LEAD_IN_MS
         if direct_contact_opening
-        else (180 if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS),
-        tail_silence_ms=120 if direct_contact_opening else _MEMORIAL_TTS_TAIL_SILENCE_MS,
+        else (_MEMORIAL_FAST_TTS_LEAD_IN_MS if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS),
+        tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS if direct_contact_opening else _MEMORIAL_TTS_TAIL_SILENCE_MS,
     )
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
 
@@ -12178,6 +13121,448 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
         raise
 
 
+def _gemini_live_api_key() -> str:
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        value = str(os.environ.get(name) or "").strip()
+        if value:
+            return value
+    fallback_names = sorted(
+        name
+        for name in os.environ
+        if re.fullmatch(r"GOOGLE_API_KEY_FALLBACK_\d+", name)
+    )
+    for name in fallback_names:
+        value = str(os.environ.get(name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _gemini_live_oauth_enabled() -> bool:
+    raw = str(os.environ.get("EA_MEMORIAL_GEMINI_LIVE_OAUTH") or os.environ.get("EA_GEMINI_LIVE_OAUTH") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off", "disabled"}
+
+
+def _gemini_live_oauth_creds_path() -> Path:
+    configured = str(os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH") or os.environ.get("EA_GEMINI_OAUTH_CREDS_PATH") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".gemini" / "oauth_creds.json"
+
+
+def _gemini_live_vertex_project() -> str:
+    return str(
+        os.environ.get("EA_MEMORIAL_GEMINI_LIVE_VERTEX_PROJECT")
+        or os.environ.get("EA_GEMINI_LIVE_VERTEX_PROJECT")
+        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        or os.environ.get("GCLOUD_PROJECT")
+        or ""
+    ).strip()
+
+
+def _gemini_live_vertex_location() -> str:
+    return str(
+        os.environ.get("EA_MEMORIAL_GEMINI_LIVE_VERTEX_LOCATION")
+        or os.environ.get("EA_GEMINI_LIVE_VERTEX_LOCATION")
+        or os.environ.get("GOOGLE_CLOUD_LOCATION")
+        or "us-central1"
+    ).strip() or "us-central1"
+
+
+def _memorial_vertex_gemini_live_model() -> str:
+    return str(
+        os.environ.get("EA_MEMORIAL_GEMINI_LIVE_VERTEX_MODEL")
+        or os.environ.get("EA_GEMINI_LIVE_VERTEX_MODEL")
+        or _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL
+    ).strip() or _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL
+
+
+def _load_gemini_live_oauth_creds() -> dict[str, object]:
+    if not _gemini_live_oauth_enabled():
+        return {}
+    target = _gemini_live_oauth_creds_path()
+    try:
+        loaded = json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
+def _gemini_live_oauth_client_config() -> tuple[str, str]:
+    client_id = str(
+        os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_ID")
+        or os.environ.get("EA_GEMINI_OAUTH_CLIENT_ID")
+        or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+        or _GEMINI_CLI_OAUTH_CLIENT_ID
+    ).strip()
+    client_secret = str(
+        os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_SECRET")
+        or os.environ.get("EA_GEMINI_OAUTH_CLIENT_SECRET")
+        or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+        or ""
+    ).strip()
+    if client_secret:
+        return client_id, client_secret
+    client_secret_path = str(
+        os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_SECRET_FILE")
+        or os.environ.get("EA_GEMINI_OAUTH_CLIENT_SECRET_FILE")
+        or ""
+    ).strip()
+    if not client_secret_path:
+        return client_id, ""
+    try:
+        loaded = json.loads(Path(client_secret_path).expanduser().read_text(encoding="utf-8"))
+    except Exception:
+        return client_id, ""
+    section = loaded.get("installed") if isinstance(loaded, dict) else None
+    if not isinstance(section, dict):
+        section = loaded.get("web") if isinstance(loaded, dict) else None
+    if not isinstance(section, dict):
+        section = loaded if isinstance(loaded, dict) else {}
+    file_client_id = str(section.get("client_id") or "").strip()
+    file_client_secret = str(section.get("client_secret") or "").strip()
+    return file_client_id or client_id, file_client_secret
+
+
+def _gemini_live_oauth_access_token() -> str:
+    creds = _load_gemini_live_oauth_creds()
+    token = str(creds.get("access_token") or "").strip()
+    if not token:
+        return ""
+    try:
+        expires_at_ms = int(float(creds.get("expiry_date") or 0))
+    except Exception:
+        expires_at_ms = 0
+    if expires_at_ms and expires_at_ms <= int((time.time() + 90) * 1000):
+        refreshed = _refresh_gemini_live_oauth_creds(creds)
+        token = str(refreshed.get("access_token") or "").strip()
+    return token
+
+
+def _refresh_gemini_live_oauth_creds(creds: dict[str, object]) -> dict[str, object]:
+    refresh_token = str(creds.get("refresh_token") or "").strip()
+    if not refresh_token:
+        return creds
+    client_id, client_secret = _gemini_live_oauth_client_config()
+    if not client_id or not client_secret:
+        logger.warning("gemini live oauth refresh skipped: missing oauth client config")
+        return creds
+    try:
+        response = requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+            timeout=15,
+        )
+    except requests.RequestException:
+        return creds
+    if response.status_code >= 400:
+        logger.warning("gemini live oauth refresh failed status=%s detail=%s", response.status_code, response.text[:240])
+        return creds
+    try:
+        payload = response.json()
+    except ValueError:
+        return creds
+    access_token = str(payload.get("access_token") or "").strip()
+    if not access_token:
+        return creds
+    expires_in = 0
+    try:
+        expires_in = max(60, int(payload.get("expires_in") or 0))
+    except Exception:
+        expires_in = 3600
+    refreshed = dict(creds)
+    refreshed["access_token"] = access_token
+    refreshed["token_type"] = str(payload.get("token_type") or refreshed.get("token_type") or "Bearer")
+    refreshed["expiry_date"] = int((time.time() + expires_in) * 1000)
+    if payload.get("scope"):
+        refreshed["scope"] = str(payload.get("scope"))
+    if payload.get("id_token"):
+        refreshed["id_token"] = str(payload.get("id_token"))
+    try:
+        target = _gemini_live_oauth_creds_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(refreshed, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
+    return refreshed
+
+
+def _gemini_live_connect_target() -> tuple[str, dict[str, str], str]:
+    public_base_uri = (
+        "wss://generativelanguage.googleapis.com/ws/"
+        "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+    )
+    api_key = _gemini_live_api_key()
+    if api_key:
+        return (f"{public_base_uri}?key={urllib.parse.quote(api_key, safe='')}", {}, "api_key")
+    access_token = _gemini_live_oauth_access_token()
+    vertex_project = _gemini_live_vertex_project()
+    if access_token and vertex_project:
+        location = _gemini_live_vertex_location()
+        api_host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+        return (
+            f"wss://{api_host}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
+            {"Authorization": f"Bearer {access_token}"},
+            "vertex_oauth",
+        )
+    if access_token:
+        return (public_base_uri, {"Authorization": f"Bearer {access_token}"}, "oauth")
+    return ("", {}, "")
+
+
+def _gemini_live_available() -> bool:
+    uri, _, _ = _gemini_live_connect_target()
+    return bool(uri)
+
+
+def _memorial_gemini_live_model() -> str:
+    return (
+        str(
+            os.environ.get("EA_MEMORIAL_GEMINI_LIVE_MODEL")
+            or os.environ.get("EA_GEMINI_LIVE_MODEL")
+            or _MEMORIAL_GEMINI_LIVE_MODEL
+        ).strip()
+        or _MEMORIAL_GEMINI_LIVE_MODEL
+    )
+
+
+def _memorial_gemini_live_voice() -> str:
+    return (
+        str(
+            os.environ.get("EA_MEMORIAL_GEMINI_LIVE_VOICE")
+            or os.environ.get("EA_GEMINI_LIVE_VOICE")
+            or _MEMORIAL_GEMINI_LIVE_VOICE
+        ).strip()
+        or _MEMORIAL_GEMINI_LIVE_VOICE
+    )
+
+
+def _gemini_live_output_audio_mode() -> str:
+    raw = str(
+        os.environ.get("EA_MEMORIAL_GEMINI_LIVE_OUTPUT_AUDIO_MODE")
+        or os.environ.get("EA_GEMINI_LIVE_OUTPUT_AUDIO_MODE")
+        or "server_tts"
+    ).strip().lower()
+    return raw if raw in {"server_tts", "native"} else "server_tts"
+
+
+def _memorial_live_clone_tts_plugin() -> str:
+    raw = _safe_tts_plugin_id(os.environ.get("EA_MEMORIAL_LIVE_TTS_PLUGIN") or os.environ.get("EA_MEMORIAL_REALTIME_TTS_PLUGIN"))
+    if raw in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID}:
+        return raw
+    return UNMIXR_TTS_PLUGIN_ID
+
+
+def _apply_memorial_live_clone_tts_policy(config: dict[str, object]) -> dict[str, object]:
+    merged = dict(config)
+    configured = _safe_tts_plugin_id(merged.get("tts_plugin") or merged.get("tts_mode"))
+    preferred = _memorial_live_clone_tts_plugin()
+    provider_changed = configured not in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID} or preferred != configured
+    if provider_changed:
+        merged["tts_plugin"] = preferred
+        merged["tts_mode"] = preferred
+    if preferred == VOICEWAVE_TTS_PLUGIN_ID:
+        if provider_changed or not _text(merged.get("tts_plugin_voice_id"), ""):
+            merged["tts_plugin_voice_id"] = voicewave_memorial_voice_label()
+    elif preferred == UNMIXR_TTS_PLUGIN_ID:
+        if provider_changed or not _text(merged.get("tts_plugin_voice_id"), ""):
+            merged["tts_plugin_voice_id"] = unmixr_memorial_voice_id()
+    return merged
+
+
+def _append_live_transcript_delta(current: str, delta: str) -> str:
+    current = str(current or "")
+    delta = str(delta or "")
+    if not current:
+        return delta
+    if not delta:
+        return current
+    if current[-1].isalnum() and delta[0].isalnum():
+        return f"{current} {delta}"
+    return f"{current}{delta}"
+
+
+def _normalize_browser_language(value: object) -> str:
+    raw = str(value or "").strip().replace("_", "-")
+    if not raw:
+        return "de-AT"
+    parts = [part for part in raw.split("-") if part]
+    if not parts:
+        return "de-AT"
+    language = re.sub(r"[^A-Za-z]", "", parts[0])[:8].lower()
+    if len(language) not in {2, 3}:
+        return "de-AT"
+    if len(parts) >= 2:
+        region = re.sub(r"[^A-Za-z]", "", parts[1])[:8].upper()
+        if region:
+            return f"{language}-{region}"
+    return language
+
+
+def _language_instruction(language: str) -> str:
+    return "Antworte immer auf Deutsch (de-AT), unabhaengig von Browser- oder Geraetesprache. Behalte den ruhigen Memorial-Ton."
+
+
+def _memorial_fixed_conversation_language() -> str:
+    return "de-AT"
+
+
+def _memorial_realtime_safety_identifier(*, slug: str, request: Request) -> str:
+    principal = str(request.headers.get("x-ea-principal-id") or (request.client.host if request.client else "public")).strip()
+    secret = resolve_signing_secret(get_settings(), purpose="memorial_realtime")
+    digest = hmac.new(secret.encode("utf-8"), f"memorial:{slug}:{principal}".encode("utf-8"), hashlib.sha256).hexdigest()
+    return digest[:48]
+
+
+def _build_memorial_gemini_live_instruction(
+    *,
+    slug: str,
+    request: Request | None = None,
+    websocket: WebSocket | None = None,
+    memory_runtime=None,
+    language: str = "de-AT",
+) -> str:
+    payload = _load_memorial(slug)
+    private_profile = _load_private_profile(slug)
+    person_name = _text(payload.get("person_name"), "Manfred")
+    public_cards = []
+    for item in list(payload.get("memory_cards") or [])[:6]:
+        if not isinstance(item, dict):
+            continue
+        title = _text(item.get("title"))
+        body = _text(item.get("body"))
+        if title or body:
+            public_cards.append(f"- {title}: {body}".strip())
+    private_notes = []
+    for item in list(private_profile.get("family_context_notes") or [])[:4] if isinstance(private_profile, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        label = _text(item.get("label"))
+        note = _text(item.get("note"))
+        if label or note:
+            private_notes.append(f"- {label}: {note}".strip())
+    memory_context = _extract_personal_memory_request_context(request=request, websocket=websocket)
+    instruction_parts = [
+        f"Du bist eine live gesprochene Memorial-Stimme fuer {person_name}.",
+        _language_instruction(language),
+        "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
+        "Bleibe im Erinnerungsmodus: keine Behauptung, dass die verstorbene Person real anwesend ist.",
+        "Wenn die Frage nur Kontaktaufnahme ist, antworte kurz: Ja, ich bin da.",
+        "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
+        "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
+        "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",
+    ]
+    if public_cards:
+        instruction_parts.append("Oeffentliche belegte Erinnerungen:\n" + "\n".join(public_cards))
+    if private_notes:
+        instruction_parts.append("Private Stilhinweise nur fuer Tonalitaet, nicht ausgeben:\n" + "\n".join(private_notes))
+    if memory_runtime is not None and bool(memory_context.get("personal_memory_enabled")):
+        try:
+            memory_rows = retrieve_memorial_memory_items(
+                memory_runtime=memory_runtime,
+                principal_id=memorial_memory_principal_id(slug=slug, context=memory_context),
+                question="",
+                limit=6,
+            )
+            imported_memory = "\n".join(format_memorial_memory_context(memory_rows))
+        except Exception:
+            imported_memory = ""
+        if imported_memory:
+            instruction_parts.append("Persoenlicher Kontext aus Memory, nur verwenden wenn passend:\n" + imported_memory[:1800])
+    return "\n\n".join(instruction_parts)
+
+
+def _build_memorial_gemini_live_setup(
+    *,
+    slug: str,
+    websocket: WebSocket | None = None,
+    memory_runtime=None,
+    backend: str = "public",
+    language: str = "de-AT",
+) -> dict[str, object]:
+    instruction = _build_memorial_gemini_live_instruction(
+        slug=slug,
+        websocket=websocket,
+        memory_runtime=memory_runtime,
+        language=language,
+    )
+    if backend == "vertex_oauth":
+        location = _gemini_live_vertex_location()
+        project = _gemini_live_vertex_project()
+        return {
+            "setup": {
+                "model": (
+                    f"projects/{project}/locations/{location}/publishers/google/models/"
+                    f"{_memorial_vertex_gemini_live_model()}"
+                ),
+                "system_instruction": {"parts": [{"text": instruction}]},
+                "generation_config": {
+                    "response_modalities": ["audio"],
+                    "speech_config": {
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": _memorial_gemini_live_voice(),
+                            }
+                        }
+                    },
+                },
+                "input_audio_transcription": {},
+                "output_audio_transcription": {},
+                "realtime_input_config": {
+                    "automatic_activity_detection": {
+                        "disabled": True,
+                    }
+                },
+            }
+        }
+    return {
+        "setup": {
+            "model": f"models/{_memorial_gemini_live_model()}",
+            "responseModalities": ["AUDIO"],
+            "systemInstruction": {
+                "parts": [
+                    {"text": instruction}
+                ]
+            },
+            "inputAudioTranscription": {},
+            "outputAudioTranscription": {},
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": _memorial_gemini_live_voice(),
+                    }
+                }
+            },
+            "realtimeInputConfig": {
+                "automaticActivityDetection": {
+                    "disabled": False,
+                    "prefixPaddingMs": 300,
+                    "silenceDurationMs": 520,
+                }
+            },
+        }
+    }
+
+
+@router.post("/memorials/{slug}/realtime/webrtc")
+async def public_memorial_realtime_webrtc(slug: str, request: Request) -> Response:
+    memorial = _load_memorial(slug)
+    _require_voice_consent(_payload_with_slug(slug, memorial), "realtime")
+    personal_memory_context = _extract_personal_memory_request_context(request=request)
+    try:
+        _enforce_public_memorial_rate_limit("realtime_connect", request=request, context=personal_memory_context)
+    except HTTPException:
+        raise
+    if not _gemini_live_available():
+        raise HTTPException(status_code=503, detail="gemini_live_unavailable")
+    raise HTTPException(status_code=410, detail="gemini_live_uses_websocket_pcm")
+
+
 @router.websocket("/memorials/{slug}/realtime")
 async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     memorial = _load_memorial(slug)
@@ -12194,7 +13579,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         await websocket.send_json({"type": "error", "message": "memorial_rate_limited"})
         await websocket.close(code=1013)
         return
-    await websocket.send_json({"type": "ready", "mode": "memorial_realtime_voice"})
+    await websocket.send_json(
+        {
+            "type": "ready",
+            "mode": "memorial_realtime_voice",
+            "audio_transport": "gemini_live_websocket_pcm",
+            "turn_timing": "streaming_audio_server_vad",
+            "provider": "gemini_live",
+            "redesign_target": "native_speech_to_speech_live_audio",
+        }
+    )
     current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket)
     current_content_type = "application/octet-stream"
     current_audio = bytearray()
@@ -12203,6 +13597,12 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
     turn_tasks: dict[str, asyncio.Task[None]] = {}
     cancelled_turn_ids: set[str] = set()
     cancelled_notice_sent: set[str] = set()
+    current_gemini_socket = None
+    current_gemini_receiver_task: asyncio.Task[None] | None = None
+    current_gemini_turn_id = ""
+    current_gemini_backend = ""
+    current_gemini_audio_had_speech = False
+    current_conversation_language = _memorial_fixed_conversation_language()
 
     async def _safe_send_json(payload: dict[str, object]) -> bool:
         try:
@@ -12239,6 +13639,243 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 turn_tasks.pop(turn_id, None)
 
         task.add_done_callback(_discard_done_task)
+
+    async def _close_gemini_live_turn() -> None:
+        nonlocal current_gemini_socket, current_gemini_receiver_task, current_gemini_turn_id, current_gemini_backend, current_gemini_audio_had_speech
+        receiver_task = current_gemini_receiver_task
+        current_gemini_receiver_task = None
+        if receiver_task is not None and not receiver_task.done():
+            receiver_task.cancel()
+        upstream = current_gemini_socket
+        current_gemini_socket = None
+        current_gemini_turn_id = ""
+        current_gemini_backend = ""
+        current_gemini_audio_had_speech = False
+        if upstream is not None:
+            try:
+                await upstream.close()
+            except Exception:
+                pass
+
+    async def _receive_gemini_live(turn_id: str, upstream) -> None:
+        transcript_text = ""
+        answer_text = ""
+        output_audio_mode = _gemini_live_output_audio_mode()
+        try:
+            async for raw_message in upstream:
+                try:
+                    message = json.loads(raw_message)
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                server_content = message.get("serverContent") if isinstance(message, dict) else None
+                if not isinstance(server_content, dict):
+                    if isinstance(message, dict) and message.get("setupComplete") is not None:
+                        await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "listening", "detail": "Gemini Live bereit"})
+                    continue
+                input_transcription = server_content.get("inputTranscription")
+                if isinstance(input_transcription, dict):
+                    delta = _text(input_transcription.get("text"))
+                    if delta:
+                        transcript_text = _append_live_transcript_delta(transcript_text, delta)
+                        await _safe_send_json({"type": "transcript", "turn_id": turn_id, "text": transcript_text.strip()})
+                output_transcription = server_content.get("outputTranscription")
+                if isinstance(output_transcription, dict):
+                    delta = _text(output_transcription.get("text"))
+                    if delta:
+                        answer_text = _append_live_transcript_delta(answer_text, delta)
+                        await _safe_send_json(
+                            {
+                                "type": "response.output_audio_transcript.delta",
+                                "turn_id": turn_id,
+                                "delta": delta,
+                            }
+                        )
+                model_turn = server_content.get("modelTurn")
+                parts = model_turn.get("parts") if isinstance(model_turn, dict) else []
+                if isinstance(parts, list):
+                    for part in parts:
+                        if not isinstance(part, dict):
+                            continue
+                        text_delta = _text(part.get("text"))
+                        if text_delta:
+                            answer_text = _append_live_transcript_delta(answer_text, text_delta)
+                            await _safe_send_json(
+                                {
+                                    "type": "response.output_audio_transcript.delta",
+                                    "turn_id": turn_id,
+                                    "delta": text_delta,
+                                }
+                            )
+                        inline_data = part.get("inlineData") or part.get("inline_data")
+                        if not isinstance(inline_data, dict):
+                            continue
+                        audio_base64 = _text(inline_data.get("data"))
+                        content_type = _text(inline_data.get("mimeType"), "audio/pcm;rate=24000")
+                        if audio_base64 and output_audio_mode == "native":
+                            await _safe_send_json(
+                                {
+                                    "type": "audio_chunk",
+                                    "turn_id": turn_id,
+                                    "content_type": content_type,
+                                    "audio_base64": audio_base64,
+                                }
+                            )
+                if bool(server_content.get("generationComplete")):
+                    if answer_text.strip():
+                        await _safe_send_json(
+                            {
+                                "type": "response.output_audio_transcript.done",
+                                "turn_id": turn_id,
+                                "transcript": answer_text.strip(),
+                            }
+                        )
+                if bool(server_content.get("turnComplete")):
+                    if output_audio_mode == "server_tts" and answer_text.strip():
+                        await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": "Manfreds Stimme wird erzeugt"})
+                        try:
+                            base_config = _load_voice_config(slug)
+                            merged_config = _apply_memorial_live_clone_tts_policy(base_config)
+                            merged_config["lang"] = current_conversation_language
+                            if current_voice_ab_variant in {"a", "b"}:
+                                merged_config.update(
+                                    _voice_ab_variant_choice(
+                                        slug=slug,
+                                        variant_id=current_voice_ab_variant,
+                                        context=personal_memory_context,
+                                    )
+                                )
+                            tts_options = _tts_plugin_options(
+                                payload=merged_config,
+                                voice_profile_ready=bool(base_config.get("voice_profile_ready")),
+                            )
+                            selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
+                            if selected_plugin not in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID}:
+                                raise RuntimeError("live_tts_clone_required")
+                            if not bool(selected_option.get("tts_plugin_enabled")):
+                                raise RuntimeError("live_tts_clone_not_ready")
+                            audio, audio_content_type = await asyncio.to_thread(
+                                _render_memorial_tts_audio,
+                                slug=slug,
+                                text=_normalize_tts_text(answer_text),
+                                merged_config=merged_config,
+                                base_config=base_config,
+                                selected_plugin=selected_plugin,
+                                selected_option=selected_option,
+                                lead_in_ms=_MEMORIAL_REALTIME_TTS_LEAD_IN_MS,
+                                tail_silence_ms=_MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS,
+                            )
+                            await _safe_send_json(
+                                {
+                                    "type": "audio",
+                                    "turn_id": turn_id,
+                                    "content_type": audio_content_type,
+                                    "audio_base64": base64.b64encode(audio).decode("ascii"),
+                                    "tts_plugin": selected_plugin,
+                                }
+                            )
+                            await _safe_send_json({"type": "audio_complete", "turn_id": turn_id, "content_type": audio_content_type})
+                            _log_memorial_timing(
+                                "gemini_live_server_tts_turn",
+                                slug=slug,
+                                turn_id=turn_id,
+                                transcript_chars=len(transcript_text.strip()),
+                                answer_chars=len(answer_text.strip()),
+                                tts_plugin=selected_plugin,
+                                language=current_conversation_language,
+                            )
+                        except Exception as exc:
+                            logger.warning("gemini live server tts failed slug=%s turn_id=%s detail=%s", slug, turn_id, str(exc)[:240])
+                            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": "tts_plugin_failed"})
+                            return
+                    else:
+                        await _safe_send_json({"type": "audio_complete", "turn_id": turn_id, "content_type": "audio/pcm;rate=24000"})
+                    await _safe_send_json({"type": "turn_complete", "turn_id": turn_id})
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            detail = str(exc)
+            public_detail = "gemini_live_failed"
+            if "insufficient authentication scopes" in detail.lower() or "access_token_scope_insufficient" in detail.lower():
+                public_detail = "gemini_live_auth_scope_insufficient"
+            elif "invalid authentication credentials" in detail.lower():
+                public_detail = "gemini_live_auth_invalid"
+            logger.warning("gemini live receive failed slug=%s turn_id=%s detail=%s", slug, turn_id, detail[:240])
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": public_detail})
+
+    async def _start_gemini_live_turn(turn_id: str) -> bool:
+        nonlocal current_gemini_socket, current_gemini_receiver_task, current_gemini_turn_id, current_gemini_backend, current_gemini_audio_had_speech
+        await _close_gemini_live_turn()
+        uri, headers, auth_mode = _gemini_live_connect_target()
+        if not uri:
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": "gemini_live_unavailable"})
+            return False
+        if websockets is None:
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": "gemini_live_dependency_missing"})
+            return False
+        try:
+            upstream = await websockets.connect(uri, additional_headers=headers or None, max_size=16 * 1024 * 1024)
+            await upstream.send(
+                json.dumps(
+                    _build_memorial_gemini_live_setup(
+                        slug=slug,
+                        websocket=websocket,
+                        memory_runtime=memory_runtime,
+                        backend=auth_mode,
+                        language=current_conversation_language,
+                    ),
+                    ensure_ascii=False,
+                )
+            )
+        except Exception as exc:
+            detail = str(exc)
+            public_detail = "gemini_live_unavailable"
+            if "insufficient authentication scopes" in detail.lower() or "access_token_scope_insufficient" in detail.lower():
+                public_detail = "gemini_live_auth_scope_insufficient"
+            elif "invalid authentication credentials" in detail.lower():
+                public_detail = "gemini_live_auth_invalid"
+            logger.warning("gemini live connect failed slug=%s turn_id=%s auth=%s detail=%s", slug, turn_id, auth_mode, detail[:240])
+            await _safe_send_json({"type": "error", "turn_id": turn_id, "message": public_detail})
+            return False
+        current_gemini_socket = upstream
+        current_gemini_turn_id = turn_id
+        current_gemini_backend = auth_mode
+        current_gemini_audio_had_speech = False
+        current_gemini_receiver_task = asyncio.create_task(_receive_gemini_live(turn_id, upstream))
+        await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "listening", "detail": "Gemini Live hört zu"})
+        return True
+
+    def _gemini_live_audio_message(audio_bytes: bytes, content_type: str) -> dict[str, object]:
+        encoded = base64.b64encode(audio_bytes).decode("ascii")
+        if current_gemini_backend == "vertex_oauth":
+            return {
+                "realtime_input": {
+                    "media_chunks": [
+                        {
+                            "mime_type": content_type or "audio/pcm;rate=16000",
+                            "data": encoded,
+                        }
+                    ]
+                }
+            }
+        return {
+            "realtimeInput": {
+                "audio": {
+                    "data": encoded,
+                    "mimeType": content_type or "audio/pcm;rate=16000",
+                }
+            }
+        }
+
+    def _gemini_live_audio_end_message() -> dict[str, object]:
+        if current_gemini_backend == "vertex_oauth":
+            return {"realtime_input": {"activityEnd": {}}}
+        return {"realtimeInput": {"audioStreamEnd": True}}
+
+    def _gemini_live_activity_start_message() -> dict[str, object] | None:
+        if current_gemini_backend == "vertex_oauth":
+            return {"realtime_input": {"activityStart": {}}}
+        return None
 
     async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
         total_started = time.perf_counter()
@@ -12335,6 +13972,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 return
             base_config = _load_voice_config(slug)
             merged_config = dict(base_config)
+            merged_config["lang"] = current_conversation_language
             if current_voice_ab_variant in {"a", "b"}:
                 merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=current_voice_ab_variant, context=personal_memory_context))
             tts_options = _tts_plugin_options(
@@ -12354,11 +13992,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             tts_plugin_used = selected_plugin
             direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
             if direct_contact_opening:
-                lead_in_ms = 40
-                tail_silence_ms = 120
+                lead_in_ms = _MEMORIAL_CONTACT_TTS_LEAD_IN_MS
+                tail_silence_ms = _MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS
             else:
-                lead_in_ms = 90 if tts_plugin_used == PIPER_FAST_TTS_PLUGIN_ID else 150
-                tail_silence_ms = 360
+                lead_in_ms = _MEMORIAL_REALTIME_TTS_LEAD_IN_MS
+                tail_silence_ms = _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS
             try:
                 audio, audio_content_type = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -12513,6 +14151,15 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 if not current_audio_started:
                     await websocket.send_json({"type": "error", "message": "audio_start_required"})
                     continue
+                if current_gemini_socket is not None:
+                    if current_content_type.startswith("audio/pcm") and _pcm16_payload_has_speech_energy(bytes_data):
+                        current_gemini_audio_had_speech = True
+                    try:
+                        await current_gemini_socket.send(json.dumps(_gemini_live_audio_message(bytes_data, current_content_type), ensure_ascii=False))
+                    except Exception:
+                        await websocket.send_json({"type": "error", "turn_id": current_gemini_turn_id, "message": "gemini_live_failed"})
+                        await _close_gemini_live_turn()
+                    continue
                 if len(current_audio) + len(bytes_data) > _MAX_REALTIME_AUDIO_BYTES:
                     current_audio = bytearray()
                     current_audio_started = False
@@ -12535,6 +14182,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 personal_memory_context = _extract_personal_memory_request_context(websocket=websocket, body=payload)
                 current_voice_ab_variant = _voice_ab_variant_from_request(websocket=websocket, body=payload)
                 current_difficult_memory_mode = _extract_difficult_memory_mode(websocket=websocket, body=payload)
+                current_conversation_language = _memorial_fixed_conversation_language()
             message_type = _text(payload.get("type"))
             if message_type == "ping":
                 await websocket.send_json({"type": "pong"})
@@ -12544,6 +14192,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 if cancel_turn_id:
                     cancelled_turn_ids.add(cancel_turn_id)
                     await _send_cancelled(cancel_turn_id)
+                    if cancel_turn_id == current_gemini_turn_id:
+                        await _close_gemini_live_turn()
                 continue
             if message_type == "user_text_turn":
                 turn_id = _text(payload.get("turn_id")) or f"turn_{len(turn_tasks) + 1}"
@@ -12569,6 +14219,28 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 current_audio_started = True
                 current_turn_id = _text(payload.get("turn_id"))
                 current_content_type = _text(payload.get("content_type"), "application/octet-stream")
+                transport = _text(payload.get("transport"))
+                if transport == "gemini_live" or current_content_type.startswith("audio/pcm"):
+                    try:
+                        _enforce_public_memorial_rate_limit("realtime_turn", websocket=websocket, context=personal_memory_context)
+                    except HTTPException:
+                        current_audio_started = False
+                        current_turn_id = ""
+                        await websocket.send_json({"type": "error", "message": "memorial_rate_limited"})
+                        continue
+                    if await _start_gemini_live_turn(current_turn_id or f"turn_{len(turn_tasks) + 1}"):
+                        if current_gemini_socket is not None:
+                            activity_start = _gemini_live_activity_start_message()
+                            if activity_start is not None:
+                                try:
+                                    await current_gemini_socket.send(json.dumps(activity_start, ensure_ascii=False))
+                                except Exception:
+                                    await websocket.send_json({"type": "error", "turn_id": current_gemini_turn_id, "message": "gemini_live_failed"})
+                                    await _close_gemini_live_turn()
+                        continue
+                    current_audio_started = False
+                    current_turn_id = ""
+                    continue
                 await websocket.send_json({"type": "phase", "turn_id": current_turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
                 continue
             if message_type != "user_audio_end":
@@ -12576,6 +14248,25 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 continue
             if not current_audio_started:
                 await websocket.send_json({"type": "error", "message": "audio_start_required"})
+                continue
+            if current_gemini_socket is not None:
+                turn_id = _text(payload.get("turn_id")) or current_gemini_turn_id or current_turn_id
+                if current_content_type.startswith("audio/pcm") and not current_gemini_audio_had_speech:
+                    await _close_gemini_live_turn()
+                    current_audio_started = False
+                    current_turn_id = ""
+                    _log_memorial_timing("gemini_live_no_speech", slug=slug, turn_id=turn_id, content_type=current_content_type)
+                    await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "speech_not_detected"})
+                    continue
+                try:
+                    await current_gemini_socket.send(json.dumps(_gemini_live_audio_end_message(), ensure_ascii=False))
+                    await websocket.send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": "Gemini Live antwortet"})
+                except Exception:
+                    await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "gemini_live_failed"})
+                    await _close_gemini_live_turn()
+                current_audio_started = False
+                current_turn_id = ""
+                current_audio = bytearray()
                 continue
             if not current_audio:
                 current_audio_started = False
@@ -12614,6 +14305,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         except Exception:
             pass
     finally:
+        await _close_gemini_live_turn()
         try:
             await websocket.close()
         except Exception:
@@ -12665,11 +14357,12 @@ async def public_memorial_voice_clone(slug: str, request: Request) -> JSONRespon
 def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
+    hostname = request_hostname(request)
     response = HTMLResponse(
-        _memorial_html(
+        _public_memorial_page_html(
             payload,
             private_profile=private_profile,
-            hostname=request_hostname(request),
+            hostname=hostname,
         ),
         headers={"Cache-Control": "no-store, max-age=0"},
     )
@@ -12681,11 +14374,12 @@ def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
 def public_memorial_head(slug: str, request: Request) -> HTMLResponse:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
+    hostname = request_hostname(request)
     response = HTMLResponse(
-        _memorial_html(
+        _public_memorial_page_html(
             payload,
             private_profile=private_profile,
-            hostname=request_hostname(request),
+            hostname=hostname,
         ),
         headers={"Cache-Control": "no-store, max-age=0"},
     )

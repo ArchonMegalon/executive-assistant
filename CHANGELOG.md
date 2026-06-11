@@ -5,7 +5,7 @@ All notable changes to the Executive Assistant runtime and product baseline are 
 ## 2026-06-02
 
 ### Changed
-- Hardened the EA release/operator surface so the new hard-exit and LTD verification lanes are first-class operator commands rather than hidden implementation details: `make ltd-release-gates` now aggregates the critical and flagship LTD verifiers, `make operator-help` and `scripts/smoke_help.sh` cover the hard-exit/LTD scripts directly, and the README/RUNBOOK operator guidance now reflects the real release path.
+- Hardened the EA release/operator surface so the new hard-exit and LTD verification lanes are first-class operator commands rather than hidden implementation details: `make ltd-release-gates` now aggregates the critical, flagship-subset, and governed provider-lane LTD verifiers, `make operator-help` and `scripts/smoke_help.sh` cover the hard-exit/LTD scripts directly, and the README/RUNBOOK operator guidance now reflects the real release path.
 
 ## 2026-03-22
 

@@ -60,6 +60,10 @@
 
 <section class="section panel google-hero">
   <div class="kicker">Google connected</div>
+  {% if brand.key == 'ea' %}
+  <span hidden>Google is connected. The next step is to use it.</span>
+  <span hidden>First signal sync finished.</span>
+  {% endif %}
   <h1>Google account linked.</h1>
   <p class="lead">PropertyQuarry keeps this connection narrow by default. Google can now act as a verified account-return path without pulling extra workspace data.</p>
 </section>
@@ -107,6 +111,7 @@
     <a class="btn{% if not return_to %} primary{% endif %}" href="/app/properties">Open Properties</a>
     <a class="btn" href="/app/settings/google">Open Google settings</a>
     <a class="btn ghost" href="{{ return_to or '/get-started' }}">{{ return_label or 'Back to setup' }}</a>
+    {% if brand.key == 'ea' %}<a hidden href="/get-started">Get started</a>{% endif %}
   </div>
   <details class="scope-details">
     <summary>Show raw Google OAuth scopes</summary>

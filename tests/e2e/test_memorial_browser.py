@@ -222,7 +222,7 @@ def _install_fake_audio_runtime(context) -> None:
             }
             start() {
               this.state = "recording";
-              setTimeout(() => this.stop(), 40);
+              setTimeout(() => this.stop(), 250);
             }
             stop() {
               if (this.state === "inactive") return;
@@ -242,17 +242,81 @@ def _install_fake_audio_runtime(context) -> None:
           }
 
           window.MediaRecorder = FakeMediaRecorder;
+          window.__memorialRealtimeFrames = [];
+          const OriginalWebSocket = window.WebSocket;
+          if (typeof OriginalWebSocket === "function") {
+            window.WebSocket = function(url, protocols) {
+              const socket = protocols != null ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
+              socket.addEventListener("message", (event) => {
+                window.__memorialRealtimeFrames.push(String((event && event.data) || ""));
+              });
+              return socket;
+            };
+            window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+            window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+            window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+            window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            window.WebSocket.prototype = OriginalWebSocket.prototype;
+          }
           HTMLMediaElement.prototype.play = function play() {
             return new Promise((resolve) => {
               setTimeout(() => {
                 this.dispatchEvent(new Event("ended"));
                 resolve();
-              }, 40);
+              }, 1750);
             });
           };
         })();
         """
     )
+
+
+def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int = 7000) -> dict[str, object]:
+    state: dict[str, object] = {
+        "done": False,
+        "turn_id": "",
+        "answer": "",
+        "audio_seen": False,
+        "action_error": "",
+    }
+    try:
+        try:
+            action()
+        except Exception as exc:
+            state["action_error"] = str(exc)
+            raise
+        deadline = time.perf_counter() + (timeout_ms / 1000.0)
+        while time.perf_counter() < deadline:
+            raw_frames = page.evaluate("() => Array.isArray(window.__memorialRealtimeFrames) ? window.__memorialRealtimeFrames.slice() : []")
+            for payload in raw_frames:
+                if payload is None:
+                    continue
+                try:
+                    parsed = json.loads(str(payload))
+                except Exception:
+                    continue
+                if not isinstance(parsed, dict):
+                    continue
+                turn_id = str(parsed.get("turn_id", "") or "")
+                if turn_id and slug and f"turn_" not in turn_id and not state.get("turn_id"):
+                    continue
+                event_type = str(parsed.get("type", "")).strip()
+                if event_type == "turn_complete":
+                    state["done"] = True
+                if event_type == "answer":
+                    state["answer"] = str(parsed.get("text") or "").strip()
+                if event_type in {"audio", "audio_chunk", "audio_complete"}:
+                    state["audio_seen"] = True
+                if event_type in {"turn_complete", "error", "cancelled"} and not state.get("turn_id"):
+                    state["turn_id"] = turn_id
+            if bool(state.get("done")):
+                break
+            time.sleep(0.05)
+        if not bool(state.get("done")):
+            raise AssertionError(f"timeout waiting for realtime turn completion for {slug}")
+    finally:
+        pass
+    return state
 
 
 def test_memorial_public_page_ships_only_the_minimal_safe_surface(
@@ -358,11 +422,12 @@ def test_memorial_public_page_finishes_one_browser_turn_without_followup_overlap
             "() => !document.getElementById('memorial-conversation').disabled",
             timeout=5000,
         )
-        with page.expect_response(
-            lambda response: response.url.endswith(f"/memorials/{slug}/conversation-turn") and response.status == 200,
-            timeout=7000,
-        ):
-            page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
+        _await_realtime_turn_complete(
+            page,
+            slug,
+            lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
+            timeout_ms=7000,
+        )
         page.wait_for_function(
             """() => {
               const audio = document.getElementById("memorial-speech-audio");

@@ -306,7 +306,7 @@ def main() -> int:
             showtime_command.extend(["--questions", args.questions])
         if args.skip_exit_gates:
             showtime_command.append("--skip-exit-gates")
-        if args.optional_exit_gates:
+        if args.optional_exit_gates and not args.launch_mode:
             showtime_command.append("--optional-exit-gates")
         if args.launch_mode:
             showtime_command.append("--launch-mode")
@@ -381,12 +381,12 @@ def main() -> int:
                 report.results.append(probe_result)
                 report.notes.append(f"Audio probe target: {fresh_audio}")
 
-    if args.optional_exit_gates and not args.skip_avatar_video_check:
+    if (args.optional_exit_gates or args.avatar_optional or args.avatar_required) and not args.skip_avatar_video_check:
         avatar_result = run(
             "avatar_video_call_status",
             avatar_video_check_command(slug=args.slug, base_url=args.base_url),
             cwd=EA_DIR,
-            gate="warning",
+            gate="required" if args.avatar_required else "warning",
             timeout=120,
         )
         report.results.append(avatar_result)

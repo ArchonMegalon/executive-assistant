@@ -345,22 +345,25 @@ def build_steps(args: argparse.Namespace, output_dir: Path) -> list[ShowtimeStep
         )
 
         voice_loop_output = output_dir / "voice_loop_report.json"
+        voice_loop_command = [
+            py,
+            "scripts/validate_memorial_voice_loop.py",
+            "--slug",
+            args.slug,
+            "--base-url",
+            base_url,
+            "--output-dir",
+            str(output_dir / "voice_loop"),
+            "--json",
+            "--output",
+            str(voice_loop_output),
+        ]
+        if not bool(getattr(args, "allow_missing_stt", False)):
+            voice_loop_command.append("--require-stt")
         steps.append(
             ShowtimeStep(
                 "voice_roundtrip_validation",
-                [
-                    py,
-                    "scripts/validate_memorial_voice_loop.py",
-                    "--slug",
-                    args.slug,
-                    "--base-url",
-                    base_url,
-                    "--output-dir",
-                    str(output_dir / "voice_loop"),
-                    "--json",
-                    "--output",
-                    str(voice_loop_output),
-                ],
+                voice_loop_command,
                 EA_DIR,
                 gate="required",
                 timeout=360,
@@ -440,6 +443,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-snapshot", action="store_true")
     parser.add_argument("--skip-exit-gates", action="store_true")
     parser.add_argument("--optional-exit-gates", action="store_true", help="Treat root exit-gate runner failure as warning rather than hard fail.")
+    parser.add_argument("--allow-missing-stt", action="store_true", help="Allow offline rehearsals to skip STT transcript proof.")
     parser.add_argument("--launch-mode", action="store_true")
     parser.add_argument("--avatar-required", action="store_true")
     parser.add_argument("--avatar-optional", action="store_true")
@@ -451,10 +455,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.launch_mode:
         if not str(args.base_url or "").strip():
             parser.error("--launch-mode requires --base-url")
-        if args.skip_tts or args.skip_chat or args.skip_unit_contracts or args.skip_snapshot or args.skip_exit_gates:
+        if args.skip_tts or args.skip_chat or args.skip_unit_contracts or args.skip_snapshot:
             parser.error("--launch-mode forbids skip flags")
         if args.optional_exit_gates:
             parser.error("--launch-mode forbids --optional-exit-gates")
+        if args.allow_missing_stt:
+            parser.error("--launch-mode forbids --allow-missing-stt")
         if not args.avatar_required and not args.avatar_optional:
             parser.error("--launch-mode requires explicit avatar gate mode via --avatar-required or --avatar-optional")
 

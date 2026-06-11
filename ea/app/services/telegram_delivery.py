@@ -23,6 +23,11 @@ _VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")
 _AUDIO_SUFFIXES = (".mp3", ".m4a", ".wav", ".ogg", ".flac", ".aac", ".opus")
 _DOCUMENT_SUFFIXES = (".pdf", ".txt", ".md", ".json", ".csv", ".rtf", ".doc", ".docx")
 _TELEGRAM_REMOTE_MEDIA_TIMEOUT = 30
+_TELEGRAM_FEEDBACK_KEY_ALIASES = {
+    "like_property": "lp",
+    "dislike_property": "dp",
+}
+_TELEGRAM_FEEDBACK_KEY_BY_ALIAS = {value: key for key, value in _TELEGRAM_FEEDBACK_KEY_ALIASES.items()}
 
 
 def _telegram_max_attempts() -> int:
@@ -357,12 +362,64 @@ def resolve_primary_telegram_binding(tool_runtime: ToolRuntimeService, *, princi
     return None
 
 
+def send_telegram_chat_action_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    action: str = "typing",
+) -> TelegramDeliveryReceipt:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        raise RuntimeError("telegram_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    bot_handle = str(metadata.get("bot_handle") or "").strip()
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    if not chat_id:
+        raise RuntimeError("telegram_chat_ref_missing")
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("telegram_bot_token_missing")
+    if not bot_handle:
+        bot_handle = str(config.get("handle") or "").strip()
+    normalized_action = str(action or "typing").strip().lower() or "typing"
+    allowed_actions = {
+        "typing",
+        "upload_photo",
+        "record_video",
+        "upload_video",
+        "record_voice",
+        "upload_voice",
+        "upload_document",
+        "choose_sticker",
+        "find_location",
+        "record_video_note",
+        "upload_video_note",
+    }
+    if normalized_action not in allowed_actions:
+        raise RuntimeError("telegram_chat_action_invalid")
+    _telegram_send_json(
+        token=token,
+        method="sendChatAction",
+        payload={"chat_id": chat_id, "action": normalized_action},
+    )
+    return TelegramDeliveryReceipt(
+        principal_id=str(principal_id or "").strip(),
+        chat_id=chat_id,
+        bot_key=bot_key,
+        bot_handle=bot_handle,
+        message_ids=(),
+    )
+
+
 def send_telegram_message_for_principal(
     tool_runtime: ToolRuntimeService,
     *,
     principal_id: str,
     text: str,
     inline_buttons: list[list[tuple[str, str]]] | None = None,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
     if binding is None:
@@ -382,18 +439,25 @@ def send_telegram_message_for_principal(
     message_ids: list[str] = []
     for chunk in _chunk_telegram_text(text):
         payload: dict[str, object] = {"chat_id": chat_id, "text": chunk}
-        if inline_buttons:
-            payload["reply_markup"] = {
-                "inline_keyboard": [
-                    [
-                        {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
-                        for label, callback_data in row
-                        if str(label or "").strip() and str(callback_data or "").strip()
-                    ]
-                    for row in inline_buttons
-                    if row
-                ]
-            }
+        keyboard_rows: list[list[dict[str, str]]] = []
+        for row in list(inline_buttons or []):
+            buttons = [
+                {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+                for label, callback_data in row
+                if str(label or "").strip() and str(callback_data or "").strip()
+            ]
+            if buttons:
+                keyboard_rows.append(buttons)
+        for row in list(url_buttons or []):
+            buttons = [
+                {"text": str(label or "").strip(), "url": str(url or "").strip()}
+                for label, url in row
+                if str(label or "").strip() and str(url or "").strip()
+            ]
+            if buttons:
+                keyboard_rows.append(buttons)
+        if keyboard_rows:
+            payload["reply_markup"] = {"inline_keyboard": keyboard_rows}
         result = _telegram_send_json(
             token=token,
             method="sendMessage",
@@ -406,6 +470,87 @@ def send_telegram_message_for_principal(
         bot_key=bot_key,
         bot_handle=bot_handle,
         message_ids=tuple(value for value in message_ids if value),
+    )
+
+
+def send_telegram_photo_for_principal(
+    tool_runtime: ToolRuntimeService,
+    *,
+    principal_id: str,
+    photo_ref: str,
+    caption: str = "",
+    inline_buttons: list[list[tuple[str, str]]] | None = None,
+    url_buttons: list[list[tuple[str, str]]] | None = None,
+) -> TelegramDeliveryReceipt:
+    binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
+    if binding is None:
+        raise RuntimeError("telegram_binding_not_found")
+    metadata = dict(binding.auth_metadata_json or {})
+    bot_key = str(metadata.get("bot_key") or "default").strip() or "default"
+    bot_handle = str(metadata.get("bot_handle") or "").strip()
+    chat_id = str(metadata.get("default_chat_ref") or binding.external_account_ref or "").strip()
+    if not chat_id:
+        raise RuntimeError("telegram_chat_ref_missing")
+    config = dict(_telegram_bot_registry().get(bot_key) or {})
+    token = str(config.get("token") or "").strip()
+    if not token:
+        raise RuntimeError("telegram_bot_token_missing")
+    if not bot_handle:
+        bot_handle = str(config.get("handle") or "").strip()
+    normalized_photo_ref = str(photo_ref or "").strip()
+    if not normalized_photo_ref:
+        raise RuntimeError("telegram_photo_ref_missing")
+    keyboard_rows: list[list[dict[str, str]]] = []
+    for row in list(inline_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "callback_data": str(callback_data or "").strip()}
+            for label, callback_data in row
+            if str(label or "").strip() and str(callback_data or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    for row in list(url_buttons or []):
+        buttons = [
+            {"text": str(label or "").strip(), "url": str(url or "").strip()}
+            for label, url in row
+            if str(label or "").strip() and str(url or "").strip()
+        ]
+        if buttons:
+            keyboard_rows.append(buttons)
+    reply_markup = {"inline_keyboard": keyboard_rows} if keyboard_rows else None
+    if Path(normalized_photo_ref).is_file():
+        fields = {"chat_id": chat_id, "caption": _telegram_caption(caption)}
+        if reply_markup:
+            fields["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False)
+        result = _telegram_send_multipart(
+            token=token,
+            method="sendPhoto",
+            fields=fields,
+            file_field="photo",
+            file_path=normalized_photo_ref,
+            content_type=_guess_content_type(normalized_photo_ref, fallback="image/jpeg"),
+        )
+    else:
+        if not _telegram_remote_ref_reachable(normalized_photo_ref):
+            raise RuntimeError("telegram_photo_unreachable")
+        payload: dict[str, object] = {
+            "chat_id": chat_id,
+            "photo": normalized_photo_ref,
+            "caption": _telegram_caption(caption),
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        result = _telegram_send_json(
+            token=token,
+            method="sendPhoto",
+            payload=payload,
+        )
+    return TelegramDeliveryReceipt(
+        principal_id=str(principal_id or "").strip(),
+        chat_id=chat_id,
+        bot_key=bot_key,
+        bot_handle=bot_handle,
+        message_ids=tuple(value for value in (str(result.get("message_id") or ""),) if value),
     )
 
 
@@ -455,14 +600,15 @@ def build_telegram_feedback_callback_data_for_principal(
     secret = _telegram_feedback_secret(bot_token=token)
     if not secret or not chat_id:
         return ""
+    encoded_feedback_key = str(_TELEGRAM_FEEDBACK_KEY_ALIASES.get(str(feedback_key or "").strip(), str(feedback_key or "").strip())).strip()
     signature = _telegram_feedback_signature(
         secret=secret,
         notification_key=notification_key,
-        feedback_key=feedback_key,
+        feedback_key=encoded_feedback_key,
         chat_id=chat_id,
         expires_at=int(expires_at),
     )
-    return f"fb|{str(notification_key or '').strip()}|{str(feedback_key or '').strip()}|{chat_id}|{int(expires_at)}|{signature}"
+    return f"fb|{str(notification_key or '').strip()}|{encoded_feedback_key}|{chat_id}|{int(expires_at)}|{signature}"
 
 
 def decode_telegram_feedback_callback_data(
@@ -475,7 +621,7 @@ def decode_telegram_feedback_callback_data(
     parts = normalized.split("|")
     if len(parts) != 6 or parts[0] != "fb":
         return {"ok": False, "reason": "invalid_format"}
-    _, notification_key, feedback_key, encoded_chat_id, expires_at_raw, signature = parts
+    _, notification_key, encoded_feedback_key, encoded_chat_id, expires_at_raw, signature = parts
     if str(encoded_chat_id or "").strip() != str(chat_id or "").strip():
         return {"ok": False, "reason": "chat_mismatch"}
     try:
@@ -490,12 +636,13 @@ def decode_telegram_feedback_callback_data(
     expected_signature = _telegram_feedback_signature(
         secret=secret,
         notification_key=notification_key,
-        feedback_key=feedback_key,
+        feedback_key=encoded_feedback_key,
         chat_id=str(chat_id or "").strip(),
         expires_at=expires_at,
     )
     if not hmac.compare_digest(str(signature or "").strip(), expected_signature):
         return {"ok": False, "reason": "invalid_signature"}
+    feedback_key = str(_TELEGRAM_FEEDBACK_KEY_BY_ALIAS.get(str(encoded_feedback_key or "").strip(), str(encoded_feedback_key or "").strip())).strip()
     return {
         "ok": True,
         "notification_key": str(notification_key or "").strip(),

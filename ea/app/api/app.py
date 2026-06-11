@@ -71,6 +71,7 @@ def _include_authenticated_routes(
     product_api_workspace_router: APIRouter,
     product_api_router: APIRouter,
     fliplink_authenticated_router: APIRouter,
+    human_router: APIRouter,
     runtime_router: APIRouter,
 ) -> None:
     app.include_router(onboarding_router, dependencies=auth_dependency)
@@ -81,6 +82,7 @@ def _include_authenticated_routes(
     app.include_router(product_api_workspace_router, dependencies=auth_dependency)
     app.include_router(product_api_router, dependencies=auth_dependency)
     app.include_router(fliplink_authenticated_router, dependencies=auth_dependency)
+    app.include_router(human_router, dependencies=auth_dependency)
     app.include_router(runtime_router, dependencies=auth_dependency)
 
 
@@ -89,7 +91,6 @@ def _include_legacy_authenticated_routes(
     *,
     auth_dependency: list,
     channels_router: APIRouter,
-    human_router: APIRouter,
     memory_router: APIRouter,
     evidence_router: APIRouter,
     observations_router: APIRouter,
@@ -105,7 +106,6 @@ def _include_legacy_authenticated_routes(
     responses_router: APIRouter,
 ) -> None:
     app.include_router(channels_router, dependencies=auth_dependency)
-    app.include_router(human_router, dependencies=auth_dependency)
     app.include_router(memory_router, dependencies=auth_dependency)
     app.include_router(evidence_router, dependencies=auth_dependency)
     app.include_router(observations_router, dependencies=auth_dependency)
@@ -163,8 +163,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
-    if s.legacy_runtime_surfaces_enabled:
-        app.router.on_startup.append(_prewarm_provider_health_cache)
+    app.router.on_startup.append(_prewarm_provider_health_cache)
     _include_public_routes(
         app,
         settings=s,
@@ -192,28 +191,27 @@ def create_app() -> FastAPI:
         product_api_workspace_router=product_api_workspace_router,
         product_api_router=product_api_router,
         fliplink_authenticated_router=fliplink_authenticated_router,
+        human_router=human_router,
         runtime_router=runtime_router,
     )
-    if s.legacy_runtime_surfaces_enabled:
-        from app.api.routes.responses import router as responses_router
+    from app.api.routes.responses import router as responses_router
 
-        _include_legacy_authenticated_routes(
-            app,
-            auth_dependency=auth_dependency,
-            channels_router=channels_router,
-            human_router=human_router,
-            memory_router=memory_router,
-            evidence_router=evidence_router,
-            observations_router=observations_router,
-            delivery_router=delivery_router,
-            connectors_router=connectors_router,
-            policy_router=policy_router,
-            ltd_runtime_router=ltd_runtime_router,
-            plans_router=plans_router,
-            rewrite_router=rewrite_router,
-            skills_router=skills_router,
-            task_contracts_router=task_contracts_router,
-            tools_router=tools_router,
-            responses_router=responses_router,
-        )
+    _include_legacy_authenticated_routes(
+        app,
+        auth_dependency=auth_dependency,
+        channels_router=channels_router,
+        memory_router=memory_router,
+        evidence_router=evidence_router,
+        observations_router=observations_router,
+        delivery_router=delivery_router,
+        connectors_router=connectors_router,
+        policy_router=policy_router,
+        ltd_runtime_router=ltd_runtime_router,
+        plans_router=plans_router,
+        rewrite_router=rewrite_router,
+        skills_router=skills_router,
+        task_contracts_router=task_contracts_router,
+        tools_router=tools_router,
+        responses_router=responses_router,
+    )
     return app

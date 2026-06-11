@@ -12,6 +12,8 @@ ea/third_party/**
 .venv/**
 .pytest_cache/
 .smoke_tmp/
+.tools/
+.tools/**
 .codex-design/
 .codex-studio/
 _completion/
@@ -20,3 +22,7 @@ skills/
 scripts/bootstrap_chummer6_guide_skill.py
 artifacts/
 logs/
+memorial_data/
+memorial_data/**
+config/*client_secret*.json
+config/*oauth*secret*.json

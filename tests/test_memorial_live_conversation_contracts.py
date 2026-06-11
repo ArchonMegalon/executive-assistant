@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import io
 import json
 import logging
@@ -78,6 +79,22 @@ def _generated_wav_bytes(*, textish_seed: str, duration_seconds: float = 0.35) -
     return buffer.getvalue()
 
 
+def _silent_wav_bytes(*, duration_seconds: float = 1.0) -> bytes:
+    sample_rate = 16_000
+    total_frames = max(1, int(sample_rate * duration_seconds))
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(b"\x00\x00" * total_frames)
+    return buffer.getvalue()
+
+
+def _pcm16_speech_bytes(*, samples: int = 400, sample: int = 8192) -> bytes:
+    return struct.pack("<" + "h" * samples, *([sample] * samples))
+
+
 def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     slug = "manfred"
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
@@ -99,6 +116,34 @@ def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
     _patch_memorial_runtime_roots(tmp_path)
     return slug
+
+
+def test_memorial_audio_energy_gate_rejects_silent_or_tiny_wav() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._wav_payload_has_speech_energy(_generated_wav_bytes(textish_seed="Hallo", duration_seconds=0.8))
+    assert not public_memorials._wav_payload_has_speech_energy(_silent_wav_bytes(duration_seconds=1.0))
+    assert not public_memorials._wav_payload_has_speech_energy(b"RIFF")
+
+
+def test_memorial_speech_transcribe_rejects_silent_wav_before_provider_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+
+    def _unexpected_upload(**kwargs):
+        raise AssertionError("silent audio should not be uploaded to speech provider")
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _unexpected_upload)
+
+    result = public_memorials._memorial_transcribe_audio_blob(payload=_silent_wav_bytes(), content_type="audio/wav")
+
+    assert result["transcription_status"] == "no_speech"
+    assert result["transcriber"] == "local_audio_gate"
+    assert result["detail"] == "audio_silence"
 
 
 @pytest.mark.parametrize(
@@ -183,7 +228,7 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["llm_fallback_used"] is False
     assert body["fallback_reason"] == "direct_contact_opening"
-    assert body["answer"] == "Ja."
+    assert body["answer"] == "Ja, ich bin da."
 
 
 def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
@@ -350,7 +395,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["llm_fallback_used"] is False
     assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
     assert body["sources"] == []
-    assert body["answer"] == "Ja."
+    assert body["answer"] == "Ja, ich bin da."
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
     decoded_audio = base64.b64decode(body["audio_base64"])
@@ -358,7 +403,12 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     assert body["audio_content_type"] == "audio/wav"
     assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert body["tts_fast_path"] is False
-    assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
+    assert seen_pad_calls == [
+        {
+            "silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+        }
+    ]
     assert any(
         "memorial_timing event=conversation_turn" in record.getMessage()
         and "requested_model=ea-gemini-flash" in record.getMessage()
@@ -439,7 +489,7 @@ def test_memorial_conversation_turn_canonicalizes_short_contact_openings(
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "direct_contact_opening"
     assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
-    assert body["answer"] == "Ja."
+    assert body["answer"] == "Ja, ich bin da."
 
 
 def test_memorial_conversation_turn_current_weather_short_circuits_to_present_world_answer(
@@ -982,25 +1032,25 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     assert seen_render_calls == [
         {
-            "text": "Ja.",
+            "text": "Ja, ich bin da.",
             "slug": slug,
             "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
+            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         },
         {
-            "text": "Ja.",
+            "text": "Ja, ich bin da.",
             "slug": slug,
             "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
+            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         },
         {
-            "text": "Ja.",
+            "text": "Ja, ich bin da.",
             "slug": slug,
             "selected_plugin": public_memorials.VOICEWAVE_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
+            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         },
     ]
 
@@ -1067,25 +1117,25 @@ def test_memorial_warmup_primes_unmixr_contact_openings(
 
     assert seen_render_calls == [
         {
-            "text": "Ja.",
+            "text": "Ja, ich bin da.",
             "slug": slug,
             "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
+            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         },
         {
-            "text": "Ja.",
+            "text": "Ja, ich bin da.",
             "slug": slug,
             "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
+            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         },
         {
-            "text": "Ja.",
+            "text": "Ja, ich bin da.",
             "slug": slug,
             "selected_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
-            "lead_in_ms": 40,
-            "tail_silence_ms": 120,
+            "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
         },
     ]
 
@@ -1202,6 +1252,41 @@ def test_memorial_realtime_rejects_audio_bytes_before_start(
         websocket.send_bytes(b"unexpected-audio")
         error = websocket.receive_json()
         assert error == {"type": "error", "message": "audio_start_required"}
+
+
+def test_memorial_realtime_ready_declares_current_fallback_and_live_audio_target(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    client = _client(principal_id="exec-memorial-live-realtime-mode")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+
+    assert ready["type"] == "ready"
+    assert ready["mode"] == "memorial_realtime_voice"
+    assert ready["audio_transport"] == "gemini_live_websocket_pcm"
+    assert ready["turn_timing"] == "streaming_audio_server_vad"
+    assert ready["provider"] == "gemini_live"
+    assert ready["redesign_target"] == "native_speech_to_speech_live_audio"
 
 
 def test_memorial_realtime_text_turn_falls_back_when_llm_times_out(
@@ -1371,9 +1456,14 @@ def test_memorial_realtime_contact_opening_uses_short_reply_and_small_audio_pad(
         message for message in messages if message.get("type") == "phase" and message.get("phase") == "speaking"
     )
 
-    assert answer_message["text"] == "Ja."
+    assert answer_message["text"] == "Ja, ich bin da."
     assert speaking_phase["detail"] == ""
-    assert seen_pad_calls == [{"silence_ms": 40, "tail_silence_ms": 120}]
+    assert seen_pad_calls == [
+        {
+            "silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+            "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+        }
+    ]
 
 
 def test_memorial_realtime_latest_turn_replaces_active_turn_instead_of_too_many_error(
@@ -1977,7 +2067,7 @@ def test_memorial_warmup_snapshot_tracks_voicewave_contact_readiness(monkeypatch
     assert snapshot["voice_ready"] is False
 
 
-def test_memorial_live_page_uses_minimal_conversation_turn_client(
+def test_memorial_live_page_uses_minimal_realtime_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1989,7 +2079,26 @@ def test_memorial_live_page_uses_minimal_conversation_turn_client(
     source = response.text
 
     assert "(payload.voice_required === false || payload.voice_ready === true)" in source
-    assert "/memorials/manfred/conversation-turn" in source
+    assert "/memorials/manfred/realtime" in source
+    assert "/memorials/manfred/conversation-turn" not in source
+    assert "startLiveRealtimeSession" in source
+    assert "gemini_live_websocket_pcm" in source
+    assert "audio/pcm;rate=16000" in source
+    assert "ScriptProcessor" in source
+    assert "RTCPeerConnection" not in source
+    assert "/memorials/manfred/realtime/webrtc" not in source
+    assert "openai" not in source.lower()
+    assert "live_realtime_unsupported" in source
+    assert "ensureRealtimeSocket" in source
+    assert "startRealtimeAudioTurn" in source
+    assert "recorder.start(250)" in source
+    assert "activeRealtimeAudioTurn.sendBlob(event.data)" in source
+    assert "blob.arrayBuffer().then" in source
+    assert "user_audio_start" in source
+    assert "user_audio_end" in source
+    assert "turn_complete" in source
+    assert "activeRecordingHadSpeech" in source
+    assert "Ich habe kaum Stimme gehört" in source
     assert 'ensureMemorialReady("page_load")' in source
     assert 'requestMemorialWarmup("conversation_start")' not in source
     assert "ensureMemorialReady(" in source
@@ -2005,6 +2114,746 @@ def test_memorial_live_page_uses_minimal_conversation_turn_client(
     assert "navigator.serviceWorker.register" not in source
     assert "primeRealtimeSocket" not in source
     assert "cancelRealtimeTurn" not in source
+
+
+def test_memorial_gemini_live_fails_closed_without_server_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "0")
+    client = _client(principal_id="exec-memorial-live-gemini-no-key")
+
+    response = client.post(
+        f"/memorials/{slug}/realtime/webrtc",
+        content="v=0\r\n",
+        headers={"content-type": "application/sdp"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "gemini_live_unavailable"
+
+
+def test_memorial_gemini_live_uses_websocket_pcm_not_webrtc_sdp(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_MODEL", "gemini-live-test")
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_VOICE", "Kore")
+    client = _client(principal_id="exec-memorial-live-gemini")
+
+    response = client.post(
+        f"/memorials/{slug}/realtime/webrtc?personal_memory=1",
+        content="v=0\r\no=browser 0 0 IN IP4 127.0.0.1\r\n",
+        headers={"content-type": "application/sdp"},
+    )
+
+    assert response.status_code == 410
+    assert response.json()["error"]["code"] == "gemini_live_uses_websocket_pcm"
+    setup = public_memorials._build_memorial_gemini_live_setup(slug=slug)
+    assert setup["setup"]["model"] == "models/gemini-live-test"
+    assert setup["setup"]["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Kore"
+    assert setup["setup"]["responseModalities"] == ["AUDIO"]
+    assert setup["setup"]["inputAudioTranscription"] == {}
+    assert "Ja, ich bin da" in setup["setup"]["systemInstruction"]["parts"][0]["text"]
+    assert "test-gemini-key" not in json.dumps(setup)
+
+
+def test_memorial_gemini_live_setup_is_pinned_to_german(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    setup = public_memorials._build_memorial_gemini_live_setup(slug=slug, language="en-US")
+    instruction = setup["setup"]["systemInstruction"]["parts"][0]["text"]
+
+    assert public_memorials._normalize_browser_language("de_AT") == "de-AT"
+    assert public_memorials._normalize_browser_language("<script>") == "de-AT"
+    assert "Antworte immer auf Deutsch (de-AT)" in instruction
+    assert "browser language" not in instruction
+    assert "Antworte auf Deutsch" not in instruction
+
+
+def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setenv("EA_GEMINI_LIVE_OUTPUT_AUDIO_MODE", "native")
+    seen: dict[str, object] = {}
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "inputTranscription": {"text": "Hallo Manfred."},
+                            "modelTurn": {
+                                "parts": [
+                                    {
+                                        "inlineData": {
+                                            "mimeType": "audio/pcm;rate=24000",
+                                            "data": base64.b64encode(b"\x00\x00\x01\x00").decode("ascii"),
+                                        }
+                                    }
+                                ]
+                            },
+                            "outputTranscription": {"text": "Ja, ich bin da."},
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["uri"] = uri
+        seen["kwargs"] = kwargs
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    client = _client(principal_id="exec-memorial-live-gemini-ws")
+    speech_pcm = _pcm16_speech_bytes()
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        ready = websocket.receive_json()
+        assert ready["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_pcm",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+                "personal_memory_enabled": True,
+            }
+        )
+        websocket.send_bytes(speech_pcm)
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_pcm"})
+        messages = []
+        for _ in range(12):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    fake_socket = seen["socket"]
+    assert "test-gemini-key" in seen["uri"]
+    assert all("test-gemini-key" not in json.dumps(payload) for payload in fake_socket.sent)
+    assert fake_socket.sent[0]["setup"]["responseModalities"] == ["AUDIO"]
+    audio_payloads = [
+        payload
+        for payload in fake_socket.sent
+        if isinstance(payload.get("realtimeInput"), dict)
+        and isinstance(payload["realtimeInput"].get("audio"), dict)
+    ]
+    assert audio_payloads
+    assert audio_payloads[0]["realtimeInput"]["audio"]["mimeType"] == "audio/pcm;rate=16000"
+    assert audio_payloads[0]["realtimeInput"]["audio"]["data"] == base64.b64encode(speech_pcm).decode("ascii")
+    assert any(message.get("type") == "transcript" and "Hallo Manfred" in message.get("text", "") for message in messages)
+    assert any(message.get("type") == "audio_chunk" and message.get("content_type") == "audio/pcm;rate=24000" for message in messages)
+    assert any(message.get("type") == "turn_complete" for message in messages)
+
+
+def test_memorial_gemini_live_defaults_to_server_tts_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "live-unmixr-id")
+    monkeypatch.delenv("EA_GEMINI_LIVE_OUTPUT_AUDIO_MODE", raising=False)
+    monkeypatch.setattr(public_memorials, "_require_voice_consent", lambda *args, **kwargs: None)
+    seen: dict[str, object] = {}
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "outputTranscription": {"text": "Ja, ich"},
+                            "generationComplete": False,
+                        }
+                    }
+                )
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "outputTranscription": {"text": "bin da."},
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    monkeypatch.setattr(
+        public_memorials,
+        "_load_voice_config",
+        lambda slug: {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "stale-openvoice-id",
+            "voice_profile_ready": True,
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_tts_plugin_options",
+        lambda *, payload, voice_profile_ready: [{"tts_plugin": "unmixr_clone", "tts_plugin_enabled": True}],
+    )
+
+    def _fake_resolve_server_tts_plugin(*, payload, options):
+        seen["resolved_tts_plugin"] = payload.get("tts_plugin")
+        seen["resolved_voice_id"] = payload.get("tts_plugin_voice_id")
+        return "unmixr_clone", {"tts_plugin": "unmixr_clone", "tts_plugin_enabled": True}
+
+    monkeypatch.setattr(public_memorials, "_resolve_server_tts_plugin", _fake_resolve_server_tts_plugin)
+
+    def _fake_render(**kwargs):
+        seen["tts_text"] = kwargs["text"]
+        seen["tts_lang"] = kwargs["merged_config"].get("lang")
+        return b"fake-wav-audio", "audio/wav"
+
+    monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", _fake_render)
+    client = _client(principal_id="exec-memorial-live-server-tts")
+    speech_pcm = _pcm16_speech_bytes()
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        assert websocket.receive_json()["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_server_tts",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+                "browser_language": "en-US",
+            }
+        )
+        websocket.send_bytes(speech_pcm)
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_server_tts"})
+        messages = []
+        for _ in range(12):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    assert seen["tts_text"] == "Ja, ich bin da."
+    assert seen["tts_lang"] == "de-AT"
+    assert seen["resolved_tts_plugin"] == "unmixr_clone"
+    assert seen["resolved_voice_id"] == "live-unmixr-id"
+    assert any(message.get("type") == "audio" and message.get("content_type") == "audio/wav" for message in messages)
+    assert not any(message.get("type") == "audio_chunk" for message in messages)
+    assert any(message.get("type") == "turn_complete" for message in messages)
+
+
+def test_memorial_gemini_live_rejects_silent_pcm_before_model_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setattr(public_memorials, "_require_voice_consent", lambda *args, **kwargs: None)
+    seen: dict[str, object] = {}
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                raise AssertionError("silent pcm must not complete a Gemini Live model turn")
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    client = _client(principal_id="exec-memorial-live-silent-pcm")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        assert websocket.receive_json()["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_silent_pcm",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(b"\x00\x00" * 800)
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_silent_pcm"})
+        messages = []
+        for _ in range(6):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "error":
+                break
+
+    fake_socket = seen["socket"]
+    assert any(message.get("type") == "error" and message.get("message") == "speech_not_detected" for message in messages)
+    assert not any(
+        isinstance(payload.get("realtimeInput"), dict) and payload["realtimeInput"].get("audioStreamEnd") is True
+        for payload in fake_socket.sent
+    )
+    assert not any(message.get("type") in {"audio", "audio_chunk", "turn_complete"} for message in messages)
+
+
+def test_memorial_gemini_live_reports_oauth_scope_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "oauth-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+
+    async def _fake_connect(uri: str, **kwargs):
+        raise RuntimeError("Request had insufficient authentication scopes.")
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    client = _client(principal_id="exec-memorial-live-gemini-scope")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        ready = websocket.receive_json()
+        assert ready["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_scope",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+                "personal_memory_enabled": True,
+            }
+        )
+        error = websocket.receive_json()
+
+    assert error == {"type": "error", "turn_id": "turn_scope", "message": "gemini_live_auth_scope_insufficient"}
+
+
+def test_memorial_gemini_live_reports_oauth_scope_errors_after_open(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "oauth-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+
+    class _ScopeClosingGeminiSocket:
+        async def send(self, raw: str) -> None:
+            return None
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("received 1008 policy violation Request had insufficient authentication scopes.")
+
+        async def close(self) -> None:
+            return None
+
+    async def _fake_connect(uri: str, **kwargs):
+        return _ScopeClosingGeminiSocket()
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    client = _client(principal_id="exec-memorial-live-gemini-scope-open")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        ready = websocket.receive_json()
+        assert ready["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_scope_open",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+                "personal_memory_enabled": True,
+            }
+        )
+        phase = websocket.receive_json()
+        error = websocket.receive_json()
+
+    assert phase["phase"] == "listening"
+    assert error == {"type": "error", "turn_id": "turn_scope_open", "message": "gemini_live_auth_scope_insufficient"}
+
+
+def test_memorial_gemini_live_uses_mounted_oauth_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "oauth-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+
+    uri, headers, auth_mode = public_memorials._gemini_live_connect_target()
+
+    assert auth_mode == "oauth"
+    assert uri == "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+    assert headers == {"Authorization": "Bearer oauth-access-token"}
+
+
+def test_memorial_gemini_live_prefers_vertex_oauth_when_project_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "oauth-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+    monkeypatch.setenv("EA_GEMINI_LIVE_VERTEX_PROJECT", "openclaw-concierge")
+    monkeypatch.setenv("EA_GEMINI_LIVE_VERTEX_LOCATION", "us-central1")
+    monkeypatch.setenv("EA_GEMINI_LIVE_VERTEX_MODEL", "gemini-live-2.5-flash-native-audio")
+
+    uri, headers, auth_mode = public_memorials._gemini_live_connect_target()
+    setup = public_memorials._build_memorial_gemini_live_setup(slug=slug, backend=auth_mode)
+
+    assert auth_mode == "vertex_oauth"
+    assert uri == "wss://us-central1-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
+    assert headers == {"Authorization": "Bearer oauth-access-token"}
+    assert setup["setup"]["model"] == (
+        "projects/openclaw-concierge/locations/us-central1/publishers/google/models/"
+        "gemini-live-2.5-flash-native-audio"
+    )
+    assert setup["setup"]["generation_config"]["response_modalities"] == ["audio"]
+    assert setup["setup"]["generation_config"]["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"] == "Kore"
+    assert setup["setup"]["input_audio_transcription"] == {}
+    assert setup["setup"]["realtime_input_config"]["automatic_activity_detection"] == {"disabled": True}
+    assert "Ja, ich bin da" in setup["setup"]["system_instruction"]["parts"][0]["text"]
+
+
+def test_memorial_gemini_live_websocket_streams_vertex_pcm_schema(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "oauth-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+    monkeypatch.setenv("EA_GEMINI_LIVE_VERTEX_PROJECT", "openclaw-concierge")
+    seen: dict[str, object] = {}
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtime_input")
+            if isinstance(realtime_input, dict) and realtime_input.get("activityEnd") == {}:
+                await self._queue.put({"serverContent": {"turnComplete": True}})
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["uri"] = uri
+        seen["kwargs"] = kwargs
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    client = _client(principal_id="exec-memorial-live-vertex-ws")
+    speech_pcm = _pcm16_speech_bytes()
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        ready = websocket.receive_json()
+        assert ready["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_vertex",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(speech_pcm)
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_vertex"})
+        messages = []
+        for _ in range(8):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "turn_complete":
+                break
+
+    fake_socket = seen["socket"]
+    assert seen["uri"] == "wss://us-central1-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
+    assert seen["kwargs"]["additional_headers"] == {"Authorization": "Bearer oauth-access-token"}
+    assert fake_socket.sent[0]["setup"]["model"].startswith("projects/openclaw-concierge/locations/us-central1/")
+    audio_payloads = [
+        payload
+        for payload in fake_socket.sent
+        if isinstance(payload.get("realtime_input"), dict)
+        and isinstance(payload["realtime_input"].get("media_chunks"), list)
+    ]
+    assert any(
+        isinstance(payload.get("realtime_input"), dict)
+        and payload["realtime_input"].get("activityStart") == {}
+        for payload in fake_socket.sent
+    )
+    assert audio_payloads
+    assert audio_payloads[0]["realtime_input"]["media_chunks"][0]["mime_type"] == "audio/pcm;rate=16000"
+    assert audio_payloads[0]["realtime_input"]["media_chunks"][0]["data"] == base64.b64encode(speech_pcm).decode("ascii")
+    assert any(
+        isinstance(payload.get("realtime_input"), dict)
+        and payload["realtime_input"].get("activityEnd") == {}
+        for payload in fake_socket.sent
+    )
+    assert any(message.get("type") == "turn_complete" for message in messages)
+
+
+def test_memorial_gemini_live_refreshes_expired_oauth_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "expired-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() - 60) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_ID", "test-oauth-client-id")
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_SECRET", "test-oauth-client-secret")
+    seen: dict[str, object] = {}
+
+    class _RefreshResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"access_token": "fresh-access-token", "expires_in": 3600, "token_type": "Bearer"}
+
+    def _fake_post(url, *, data, timeout):
+        seen["url"] = url
+        seen["data"] = dict(data)
+        seen["timeout"] = timeout
+        return _RefreshResponse()
+
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    uri, headers, auth_mode = public_memorials._gemini_live_connect_target()
+
+    assert auth_mode == "oauth"
+    assert headers == {"Authorization": "Bearer fresh-access-token"}
+    assert seen["url"] == "https://oauth2.googleapis.com/token"
+    assert seen["data"]["client_id"] == "test-oauth-client-id"
+    assert seen["data"]["client_secret"] == "test-oauth-client-secret"
+    assert seen["data"]["refresh_token"] == "oauth-refresh-token"
+    assert seen["data"]["grant_type"] == "refresh_token"
+    refreshed = json.loads(creds_path.read_text(encoding="utf-8"))
+    assert refreshed["access_token"] == "fresh-access-token"
+    assert uri.startswith("wss://generativelanguage.googleapis.com/ws/")
 
 
 def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(

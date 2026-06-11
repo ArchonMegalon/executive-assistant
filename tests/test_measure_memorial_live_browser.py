@@ -50,12 +50,108 @@ def test_transcribe_stub_payload_returns_expected_browser_contract() -> None:
     }
 
 
+def test_count_context_matches_returns_distinct_hits() -> None:
+    module = _load_module()
+
+    count, matches = module._count_context_matches(
+        "Ja, ich bin da. Sag mir einfach, was dich beschaeftigt, dann reagiere ich direkt darauf.",
+        module.DEFAULT_EXIT_GATE_CONTEXT_TOKENS,
+    )
+
+    assert count >= 4
+    assert "ja" in matches
+    assert "da" in matches
+    assert "sag" in matches
+    assert "reagiere" in matches
+
+
+def test_semantic_profile_for_prompt_prefers_decision_lane() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt(
+        "Kannst du mir in zwei Sätzen sagen, was in dir bei schwierigen Entscheidungen immer die wichtigste Frage war?"
+    )
+
+    assert profile["id"] == "decision_reflection"
+
+
+def test_answer_satisfies_semantic_profile_requires_group_structure() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt(
+        "Wie hast du damals für mich entschieden, wenn es einen moralischen Konflikt gab?"
+    )
+    passed, details = module._answer_satisfies_semantic_profile(
+        "Da widerspreche ich. Nachgeben nur um des Friedens willen war nie meine Art. Wenn ich die Sache fuer falsch hielt, blieb ich bei meiner Haltung.",
+        profile,
+    )
+
+    assert passed is True
+    assert details["profile_id"] == "moral_conflict"
+    assert details["group_match_count"] >= 2
+    assert "widerspreche" in details["context_matches"]
+
+
+def test_answer_satisfies_semantic_profile_rejects_generic_answer() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt(
+        "Wie hast du damals fuer mich entschieden, wenn es einen moralischen Konflikt gab?"
+    )
+    passed, details = module._answer_satisfies_semantic_profile(
+        "Ich bin da und antworte dir direkt darauf.",
+        profile,
+    )
+
+    assert passed is False
+    assert details["group_match_count"] < details["required_group_matches"]
+
+
 def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     source = Path("/docker/EA/scripts/measure_memorial_live_browser.py").read_text(encoding="utf-8")
 
     assert 'wait_until="domcontentloaded"' in source
     assert 'page.wait_for_load_state("networkidle", timeout=5000)' in source
     assert "speech_transcribe_mode" in source
-    assert 'window.sendRealtimeTurn({ text: String(promptText || "") })' in source
+    assert "_realtime_stub_turn_init_script(prompt_text)" in source
+    assert 'new MessageEvent("message"' in source
+    assert '"turn_complete"' in source
+    assert '"/realtime"' in source
+    assert '"/conversation-turn"' not in source
+    assert '"conversation_turn_payload"' in source
+    assert '"audio_ready_for_ui"' in source
+    assert '"ui_audio_play_calls"' in source
+    assert '"ui_audio_play_ended"' in source
+    assert '"ui_audio_play_error"' in source
+    assert '"answer_context_match_count"' in source
+    assert '"answer_context_matches"' in source
+    assert '"semantic_profile_id"' in source
+    assert '"answer_semantic_group_match_count"' in source
+    assert '"answer_semantic_matched_groups"' in source
+    assert '"answer_semantic_passed"' in source
+    assert '"first_answer_too_slow"' in source
+    assert '"answer_semantics_failed"' in source
+    assert '"--exit-gate"' in source
     assert '"turn_error": turn_error[:240]' in source
     assert '--real-stt' in source
+
+
+def test_wait_for_realtime_turn_tolerates_contexts_without_off() -> None:
+    module = _load_module()
+
+    class FakeSocket:
+        url = "ws://127.0.0.1/memorials/manfred/realtime"
+
+        def on(self, event_name, callback):
+            assert event_name == "framereceived"
+            callback(type("Frame", (), {"payload": '{"type":"turn_complete","turn_id":"turn_1"}'})())
+
+    class FakeContext:
+        def on(self, event_name, callback):
+            assert event_name == "websocket"
+            callback(FakeSocket())
+
+    result = module._wait_for_realtime_turn(FakeContext(), "manfred", lambda: None, timeout_seconds=0.01)
+
+    assert result["done"] is True
+    assert result["turn_id"] == "turn_1"

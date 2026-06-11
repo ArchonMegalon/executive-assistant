@@ -41,6 +41,8 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout: float = 90.0) -> t
         except Exception:
             payload_dict = {"detail": body}
         return int(exc.code), payload_dict
+    except (TimeoutError, urllib.error.URLError, OSError) as exc:
+        return 0, {"detail": f"request_failed:{type(exc).__name__}:{str(exc)[:180]}"}
 
 
 def _post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0) -> tuple[int, dict[str, Any]]:
@@ -61,6 +63,8 @@ def _post_binary(url: str, payload: bytes, *, content_type: str, timeout: float 
         except Exception:
             payload_dict = {"detail": body}
         return int(exc.code), payload_dict
+    except (TimeoutError, urllib.error.URLError, OSError) as exc:
+        return 0, {"detail": f"request_failed:{type(exc).__name__}:{str(exc)[:180]}"}
 
 
 def _post_json_binary_response(url: str, payload: dict[str, Any], *, timeout: float = 120.0) -> tuple[int, bytes, str]:
@@ -70,12 +74,17 @@ def _post_json_binary_response(url: str, payload: dict[str, Any], *, timeout: fl
         headers={"Content-Type": "application/json", "Accept": "audio/wav,application/octet-stream"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return (
-            int(getattr(response, "status", 0) or 0),
-            response.read(),
-            str(response.headers.get("Content-Type") or "application/octet-stream"),
-        )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return (
+                int(getattr(response, "status", 0) or 0),
+                response.read(),
+                str(response.headers.get("Content-Type") or "application/octet-stream"),
+            )
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), exc.read(), str(exc.headers.get("Content-Type") or "application/json")
+    except (TimeoutError, urllib.error.URLError, OSError) as exc:
+        return 0, f"request_failed:{type(exc).__name__}:{str(exc)[:180]}".encode("utf-8"), "text/plain"
 
 
 def _normalize_compare_text(value: str) -> str:
@@ -114,6 +123,19 @@ def _token_overlap(expected: str, actual: str) -> dict[str, float]:
     else:
         f1 = (2.0 * precision * recall) / (precision + recall)
     return {"precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4)}
+
+
+def _speech_transcriber_unavailable(status_code: int, payload: dict[str, Any]) -> bool:
+    if int(status_code) != 503:
+        return False
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    values = [
+        payload.get("detail"),
+        error.get("code") if isinstance(error, dict) else "",
+        error.get("message") if isinstance(error, dict) else "",
+        error.get("details") if isinstance(error, dict) else "",
+    ]
+    return any(str(value or "").strip() == "speech_transcriber_unavailable" for value in values)
 
 
 @dataclass
@@ -185,6 +207,18 @@ def _evaluate_similarity(report: ValidationReport, *, code_prefix: str, expected
     if not _normalize_compare_text(actual):
         report.add("fail", f"{code_prefix}_transcript_empty", "No transcript came back from speech-to-text.", expected=expected, actual=actual)
         return
+    expected_tokens = _normalize_compare_text(expected).split()
+    actual_tokens = set(_normalize_compare_text(actual).split())
+    if 0 < len(expected_tokens) <= 2 and all(token in actual_tokens for token in expected_tokens):
+        report.add(
+            "pass",
+            f"{code_prefix}_short_phrase_ok",
+            "Transcript contains the complete expected short phrase.",
+            expected=expected,
+            actual=actual,
+            **overlap,
+        )
+        return
     if overlap["f1"] >= 0.82:
         report.add("pass", f"{code_prefix}_similarity_ok", "Transcript matches the expected spoken content closely.", expected=expected, actual=actual, **overlap)
         return
@@ -202,6 +236,7 @@ def validate_memorial_voice_loop(
     direct_text: str,
     conversation_question: str,
     present_world_question: str = "Welches Wetter haben wir heute?",
+    require_stt: bool = False,
 ) -> ValidationReport:
     normalized_base_url = _normalize_base_url(base_url)
     report = ValidationReport(slug=slug, base_url=normalized_base_url, output_dir=str(output_dir))
@@ -235,17 +270,30 @@ def validate_memorial_voice_loop(
     else:
         report.add("pass", "direct_tts_audio_ok", "Synthesized audio passed signal checks.")
 
+    transcriber_available = True
     transcribe_status, transcribe_payload = _post_binary(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-transcribe",
         synth_audio,
         content_type=synth_content_type,
     )
     if transcribe_status != 200:
-        report.add("fail", "direct_tts_transcribe_failed", "Speech-to-text could not read synthesized output.", status_code=transcribe_status, payload=transcribe_payload)
-        return report
-    direct_transcript = str(transcribe_payload.get("transcript_text") or "")
-    report.metrics["direct_tts_transcriber"] = str(transcribe_payload.get("transcriber") or "")
-    _evaluate_similarity(report, code_prefix="direct_tts", expected=direct_text, actual=direct_transcript)
+        if _speech_transcriber_unavailable(transcribe_status, transcribe_payload):
+            transcriber_available = False
+            status = "fail" if require_stt else "info"
+            report.add(
+                status,
+                "direct_tts_transcriber_unavailable",
+                "Speech-to-text is not configured; synthesized output transcript proof cannot be completed.",
+                status_code=transcribe_status,
+                payload=transcribe_payload,
+            )
+        else:
+            report.add("fail", "direct_tts_transcribe_failed", "Speech-to-text could not read synthesized output.", status_code=transcribe_status, payload=transcribe_payload)
+            return report
+    else:
+        direct_transcript = str(transcribe_payload.get("transcript_text") or "")
+        report.metrics["direct_tts_transcriber"] = str(transcribe_payload.get("transcriber") or "")
+        _evaluate_similarity(report, code_prefix="direct_tts", expected=direct_text, actual=direct_transcript)
 
     chat_status, chat_payload = _post_json(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/chat",
@@ -377,7 +425,15 @@ def validate_memorial_voice_loop(
     else:
         report.add("pass", "conversation_turn_audio_ok", "Conversation-turn answer audio passed signal checks.")
 
-    if _normalize_compare_text(answer_text) == _normalize_compare_text(reference_answer):
+    if not transcriber_available:
+        report.add(
+            "info",
+            "conversation_answer_text_reference_skipped",
+            "Conversation answer text was not compared with the chat reference because speech-to-text is not configured.",
+            reference_answer=reference_answer,
+            answer_text=answer_text,
+        )
+    elif _normalize_compare_text(answer_text) == _normalize_compare_text(reference_answer):
         report.add("pass", "conversation_answer_text_ok", "Conversation-turn answer text matches the reference chat answer.")
     else:
         _evaluate_similarity(report, code_prefix="conversation_answer_text", expected=reference_answer, actual=answer_text)
@@ -388,7 +444,17 @@ def validate_memorial_voice_loop(
         content_type=str(turn_payload.get("audio_content_type") or "audio/wav"),
     )
     if answer_transcribe_status != 200:
-        report.add("fail", "conversation_turn_transcribe_failed", "Speech-to-text could not read the returned conversation audio.", status_code=answer_transcribe_status, payload=answer_transcribe_payload)
+        if _speech_transcriber_unavailable(answer_transcribe_status, answer_transcribe_payload):
+            status = "fail" if require_stt else "info"
+            report.add(
+                status,
+                "conversation_turn_transcriber_unavailable",
+                "Speech-to-text is not configured; conversation answer transcript proof cannot be completed.",
+                status_code=answer_transcribe_status,
+                payload=answer_transcribe_payload,
+            )
+        else:
+            report.add("fail", "conversation_turn_transcribe_failed", "Speech-to-text could not read the returned conversation audio.", status_code=answer_transcribe_status, payload=answer_transcribe_payload)
         return report
     answer_transcript = str(answer_transcribe_payload.get("transcript_text") or "")
     report.metrics["conversation_turn_transcriber"] = str(answer_transcribe_payload.get("transcriber") or "")
@@ -407,9 +473,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--slug", default="manfred")
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--output-dir", default="")
-    parser.add_argument("--direct-text", default="Ja. Ich bin da.")
+    parser.add_argument("--direct-text", default="Ja, ich bin da.")
     parser.add_argument("--conversation-question", default="Hallo Manfred, kannst du direkt mit mir reden?")
     parser.add_argument("--present-world-question", default="Welches Wetter haben wir heute?")
+    parser.add_argument("--require-stt", action="store_true", help="Fail when live speech-to-text is unavailable.")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", default="")
     parser.add_argument("--json-output", default="")
@@ -424,6 +491,7 @@ def main(argv: list[str] | None = None) -> int:
         direct_text=args.direct_text,
         conversation_question=args.conversation_question,
         present_world_question=args.present_world_question,
+        require_stt=args.require_stt,
     )
     payload = json.dumps(report.as_dict(), ensure_ascii=False, indent=2)
     markdown = "\n".join(

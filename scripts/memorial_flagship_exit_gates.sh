@@ -3,9 +3,14 @@ set -euo pipefail
 
 ROOT="/docker/EA"
 TMPDIR="${TMPDIR:-/tmp}"
+PYTHON_BIN="$ROOT/.venv/bin/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="python3"
+fi
 export TMPDIR
 
 cd "$ROOT"
+export MEMORIAL_FLAGSHIP_EXIT_GATES_RUNNING=1
 pytest -q \
   tests/test_memorial_archive_registry_public.py \
   tests/test_memorial_audio_probe_contracts.py \
@@ -62,4 +67,10 @@ effective = str(voice_step.get("effective_status") or "")
 if effective != "pass":
     raise SystemExit(f"voice_roundtrip_validation_not_pass:{effective}")
 PY
+
+  "$PYTHON_BIN" "$ROOT/scripts/measure_memorial_live_browser.py" \
+    --base-url "$MEMORIAL_FLAGSHIP_BASE_URL" \
+    --slug manfred \
+    --output "$TMPDIR/manfred_room_ready_exit_gate/memorial_live_turn_gate.json" \
+    --exit-gate
 fi

@@ -43,10 +43,11 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
 
 
 def _generated_wav_bytes(*, seed: str) -> bytes:
-    del seed
     sample_rate = 16000
+    seed_value = sum((seed or "seed").encode("utf-8", errors="ignore")) or 1
+    frequency = 180 + (seed_value % 120)
     lead = [0.0] * int(sample_rate * 0.2)
-    tone = [0.18 * math.sin(2 * math.pi * 220 * i / sample_rate) for i in range(int(sample_rate * 1.0))]
+    tone = [0.18 * math.sin(2 * math.pi * frequency * i / sample_rate) for i in range(int(sample_rate * 1.0))]
     tail = [0.0] * int(sample_rate * 0.3)
     pcm = b"".join(
         struct.pack("<h", int(max(-1.0, min(1.0, value)) * 32767))
@@ -181,6 +182,7 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    transcript_lookup: dict[bytes, str] = {}
 
     def _fake_generate_text(*, messages, requested_model, max_output_tokens):
         prompt = str(messages[-1]["content"] or "").lower()
@@ -195,11 +197,25 @@ def memorial_flagship_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         return SimpleNamespace(text=text, provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
-    monkeypatch.setattr(
-        public_memorials,
-        "piper_fast_synthesize_request",
-        lambda **kwargs: (_generated_wav_bytes(seed=str(kwargs.get("text") or "audio")), "audio/wav"),
-    )
+
+    def _fake_piper_fast_synthesize_request(**kwargs):
+        text = str(kwargs.get("text") or "audio")
+        payload = _generated_wav_bytes(seed=text)
+        transcript_lookup[payload] = text
+        return payload, "audio/wav"
+
+    def _fake_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
+        text = transcript_lookup.get(bytes(payload or b""), "")
+        if not text:
+            text = "Ich antworte dir direkt und bleibe bei der Sache."
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": text,
+            "transcriber": "fixture_stub",
+        }
+
+    monkeypatch.setattr(public_memorials, "piper_fast_synthesize_request", _fake_piper_fast_synthesize_request)
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe_audio_blob)
     monkeypatch.setattr(
         public_memorials,
         "_pad_speech_audio_lead_in",
@@ -276,6 +292,8 @@ def test_memorial_flagship_exit_gate_script_accepts_optional_avatar_warn(
     memorial_flagship_server: dict[str, object],
     tmp_path: Path,
 ) -> None:
+    if os.getenv("MEMORIAL_FLAGSHIP_EXIT_GATES_RUNNING", "").strip():
+        pytest.skip("Avoid recursive memorial_flagship_exit_gates.sh self-invocation while the script is the active top-level gate.")
     env = dict(os.environ)
     env["EA_PUBLIC_MEMORIAL_DIR"] = str(memorial_flagship_server["public_root"])
     env["EA_PRIVATE_MEMORIAL_PROFILE_DIR"] = str(memorial_flagship_server["private_root"])

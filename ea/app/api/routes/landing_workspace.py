@@ -1829,12 +1829,14 @@ async def app_issue_workspace_access_session(
     product = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
     try:
+        default_target = str(request_brand(request).get("app_home") or "/app/today")
         product.issue_workspace_access_session(
             principal_id=context.principal_id,
             email=email,
             role=role,
             display_name=display_name,
             source_kind="settings_access",
+            default_target=default_target,
         )
     except Exception as exc:
         error_value = urllib.parse.quote(str(exc or "workspace_access_issue_failed"), safe="")

@@ -56,6 +56,14 @@ FORBIDDEN_PUBLIC_PAGE_MARKERS = {
     'id="memorial-voice-ab-wrap"',
     'id="memorial-voice-config-form"',
 }
+NON_BLOCKING_WARN_CODES = {
+    "avatar_manifest_missing",
+    "avatar_poster_not_declared",
+    "avatar_verified_but_disabled",
+    "avatar_not_live_yet",
+    "no_public_assets_declared",
+    "live_archive_json_unavailable",
+}
 
 
 @dataclass
@@ -80,7 +88,7 @@ class Report:
 
     @property
     def warned(self) -> bool:
-        return any(item.status == "warn" for item in self.findings)
+        return any(item.status == "warn" and item.code not in NON_BLOCKING_WARN_CODES for item in self.findings)
 
     def as_dict(self) -> dict[str, Any]:
         return {

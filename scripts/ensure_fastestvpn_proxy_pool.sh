@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${PROPERTYQUARRY_ROOT:-/docker/property}"
 ENV_FILE="${ROOT_DIR}/.env"
 POOL_SIZE="${1:-${FASTESTVPN_PROXY_POOL_SIZE:-20}}"
-POOL_NETWORK="${EA_PROXY_POOL_NETWORK:-ea_default}"
+POOL_NETWORK="${PROPERTYQUARRY_PROXY_POOL_NETWORK:-${EA_PROXY_POOL_NETWORK:-property_default}}"
 POOL_PROXY_PORT="${FASTESTVPN_PROXY_PORT:-3128}"
 STATE_ROOT="${ROOT_DIR}/state/fastestvpn-proxy-pool"
-IMAGE_NAME="${FASTESTVPN_PROXY_IMAGE:-ea-fastestvpn-proxy:latest}"
+IMAGE_NAME="${PROPERTYQUARRY_FASTESTVPN_PROXY_IMAGE:-${FASTESTVPN_PROXY_IMAGE:-property-fastestvpn-proxy:latest}}"
 
 [[ -f "${ENV_FILE}" ]] || {
   printf '[ensure-fastestvpn-proxy-pool] missing env file: %s\n' "${ENV_FILE}" >&2
@@ -49,7 +49,7 @@ mapfile -t CONFIG_FILES < <(
   python3 - <<'PY'
 from pathlib import Path
 
-root = Path("/docker/EA/vpn/fastestvpn")
+root = Path("/docker/property/vpn/fastestvpn")
 selected = []
 seen = set()
 for path in sorted(root.glob("*-tcp.ovpn")):

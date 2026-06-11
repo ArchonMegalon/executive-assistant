@@ -1122,9 +1122,10 @@ def workspace_access_session(
             secondary_action_label="Create account",
             status_code=404,
         )
+    session_default_target = str(session.get("default_target") or "").strip() or str(brand.get("app_home") or "/app/today")
     target = _normalize_browser_return_to(
-        request.query_params.get("return_to") or str(session.get("default_target") or "").strip(),
-        default=str(brand.get("app_home") or "/app/today"),
+        request.query_params.get("return_to") or session_default_target,
+        default=session_default_target,
     )
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(
@@ -2438,7 +2439,25 @@ def app_shell(
     nav_groups = app_nav_groups_for_brand(brand["key"])
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}
     if property_brand:
-        allowed.update({"properties", "shortlist", "research", "profile", "alerts", "billing", "settings"})
+        allowed.update(
+            {
+                "properties",
+                "shortlist",
+                "research",
+                "profile",
+                "alerts",
+                "billing",
+                "settings",
+                "briefing",
+                "inbox",
+                "follow-ups",
+                "memory",
+                "contacts",
+                "activity",
+                "channels",
+                "automations",
+            }
+        )
     else:
         allowed.update(
             {

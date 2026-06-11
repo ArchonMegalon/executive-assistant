@@ -23,6 +23,8 @@ data-*/
 config/*.local.yml
 config/onemin_api_keys.local.json
 config/onemin_slot_owners.local.json
+config/*client_secret*.json
+config/*oauth*secret*.json
 artifacts/
 _completion/
 ea/.venv-openvoice/
@@ -51,6 +53,7 @@ feedback/*github-review-pr.md
 
 # Local smoke/test scratch
 .smoke_tmp/
+.tools/
 api_rewrite_artifact_details.json
 combined_sort_seed.json
 multi_priority_filter_seed.json

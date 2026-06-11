@@ -1374,11 +1374,6 @@ def _onemin_owner_ledger_path() -> Path | None:
         if normalized in seen:
             continue
         seen.add(normalized)
-        if default_owner_ledger and normalized.name == "onemin_slot_owners.json":
-            local_candidate = normalized.with_name("onemin_slot_owners.local.json")
-            local_normalized = local_candidate.resolve(strict=False)
-            if local_normalized not in seen and local_normalized.exists():
-                return local_normalized
         if normalized.exists():
             return normalized
     return None

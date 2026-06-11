@@ -34,7 +34,7 @@ def build_product_client(*, principal_id: str = "exec-product-api") -> TestClien
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = ""
-    os.environ.setdefault("PROPERTYQUARRY_DEFAULT_BRAND", "0")
+    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     os.environ.pop("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", None)
     os.environ.pop("EA_ENABLE_PUBLIC_SIDE_SURFACES", None)
     os.environ.pop("EA_ENABLE_PUBLIC_RESULTS", None)
@@ -63,7 +63,7 @@ def build_operator_product_client(*, principal_id: str = "exec-product-api", ope
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ["EA_API_TOKEN"] = "test-token"
-    os.environ.setdefault("PROPERTYQUARRY_DEFAULT_BRAND", "0")
+    os.environ["PROPERTYQUARRY_DEFAULT_BRAND"] = "0"
     os.environ.pop("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", None)
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
     os.environ["EA_OPERATOR_PRINCIPAL_IDS"] = principal_id

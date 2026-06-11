@@ -1289,7 +1289,7 @@ else
 fi
 
 if grep -Fq "exports OpenAPI and verifies paused session-step dependency examples" "scripts/smoke_postgres.sh" && \
-   grep -Fq -- "--force-recreate ea-api" "scripts/smoke_postgres.sh" && \
+   grep -Fq -- '--force-recreate "${API_SERVICE}"' "scripts/smoke_postgres.sh" && \
    grep -Fq "bash scripts/export_openapi.sh" "scripts/smoke_postgres.sh" && \
    grep -Fq "step-artifact-save-waiting-approval" "scripts/smoke_postgres.sh" && \
    grep -Fq "step-artifact-save-blocked-human" "scripts/smoke_postgres.sh" && \

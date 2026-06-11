@@ -89,6 +89,94 @@ def test_ltd_runtime_catalog_route_lists_profiles(monkeypatch: pytest.MonkeyPatc
     }
 
 
+def test_ltd_provider_lanes_route_lists_governed_lane_receipts(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="ops-ltd-lanes")
+    from app.api.routes import ltd_runtime as ltd_runtime_route
+
+    monkeypatch.setattr(
+        ltd_runtime_route,
+        "build_ltd_provider_governance_receipt",
+        lambda: {
+            "status": "pass",
+            "lane_count": 2,
+            "lanes": [
+                {
+                    "lane_key": "fliplink_document_portal",
+                    "status": "pass",
+                    "not_source_of_truth": True,
+                    "runtime_enabled": False,
+                    "missing_checks": ["first_publication_receipt"],
+                },
+                {
+                    "lane_key": "release_quality_gates",
+                    "status": "pass",
+                    "not_source_of_truth": True,
+                    "runtime_enabled": True,
+                    "missing_checks": [],
+                },
+            ],
+        },
+    )
+
+    response = client.get("/v1/ltds/runtime-catalog/provider-lanes")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "pass"
+    assert body["lane_count"] == 2
+    assert {lane["lane_key"] for lane in body["lanes"]} == {
+        "fliplink_document_portal",
+        "release_quality_gates",
+    }
+
+
+def test_ltd_provider_lane_route_returns_one_receipt(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="ops-ltd-lane")
+    from app.api.routes import ltd_runtime as ltd_runtime_route
+
+    monkeypatch.setattr(
+        ltd_runtime_route,
+        "build_ltd_provider_governance_receipt",
+        lambda: {
+            "status": "pass",
+            "lanes": [
+                {
+                    "lane_key": "unmixr_voice_runtime",
+                    "status": "pass",
+                    "not_source_of_truth": True,
+                    "runtime_enabled": False,
+                    "missing_checks": ["voice_roundtrip_validation"],
+                },
+            ],
+        },
+    )
+
+    response = client.get("/v1/ltds/runtime-catalog/provider-lanes/unmixr-voice-runtime")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["lane_key"] == "unmixr_voice_runtime"
+    assert body["not_source_of_truth"] is True
+    assert body["runtime_enabled"] is False
+    assert body["missing_checks"] == ["voice_roundtrip_validation"]
+
+
+def test_ltd_provider_lane_route_404s_unknown_lane(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client(principal_id="ops-ltd-lane-missing")
+    from app.api.routes import ltd_runtime as ltd_runtime_route
+
+    monkeypatch.setattr(
+        ltd_runtime_route,
+        "build_ltd_provider_governance_receipt",
+        lambda: {"status": "pass", "lanes": []},
+    )
+
+    response = client.get("/v1/ltds/runtime-catalog/provider-lanes/missing")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "ltd_provider_lane_not_found"
+
+
 def test_ltd_runtime_discover_account_executes_browseract_extract(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

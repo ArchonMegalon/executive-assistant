@@ -266,14 +266,18 @@ def _evaluate_candidate_prompt(
             if not feature_only
             else ""
         )
+        candidate_metrics = dict(_OPTIMIZER._wav_metrics_from_bytes(wav_bytes) or {})
+        duration_seconds = _wav_duration_seconds(wav_bytes)
+        candidate_metrics.setdefault("duration_seconds", duration_seconds)
+        scored_reference_metrics = dict(reference_metrics or {})
+        scored_reference_metrics.setdefault("duration_seconds", 0.0)
         feature_similarity = float(
             _OPTIMIZER._voice_feature_similarity(
-                reference_metrics,
-                _OPTIMIZER._wav_metrics_from_bytes(wav_bytes),
+                scored_reference_metrics,
+                candidate_metrics,
             )
         )
         text_similarity = _text_overlap(prompt, transcript_text) if transcript_text else 0.0
-        duration_seconds = _wav_duration_seconds(wav_bytes)
         score = feature_similarity if feature_only else ((feature_similarity * 0.85) + (text_similarity * 0.15))
         return {
             "prompt": prompt,
@@ -289,11 +293,12 @@ def _evaluate_candidate_prompt(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_work)
+        effective_timeout = max(0.001, float(timeout_seconds or 0.0))
         try:
-            return future.result(timeout=max(1.0, float(timeout_seconds or 0.0)))
+            return future.result(timeout=effective_timeout)
         except concurrent.futures.TimeoutError as exc:
             future.cancel()
-            raise TimeoutError(f"candidate_prompt_timeout:{int(max(1.0, float(timeout_seconds or 0.0)))}s") from exc
+            raise TimeoutError(f"candidate_prompt_timeout:{effective_timeout:g}s") from exc
 
 
 def compare_unmixr_clones(

@@ -30,6 +30,7 @@ from app.services.provider_registry import CapabilityRoute
 from app.services.replanning import ReplanningService
 from app.services.style_reflection import ReflectionRequest, StyleReflectionService
 from app.services.task_contracts import TaskContractService
+from app.services.tool_execution_common import ToolExecutionError
 
 
 def _memory_runtime() -> MemoryRuntimeService:
@@ -106,6 +107,46 @@ def test_proactive_horizon_scans_and_dedupes_successful_launches() -> None:
     second = service.run_once(now=now)
     assert second == ()
     assert len(orchestrator.requests) == 3
+
+
+def test_proactive_horizon_falls_back_to_rewrite_text_on_gemini_capacity() -> None:
+    runtime = _memory_runtime()
+    now = datetime.now(timezone.utc)
+    runtime.upsert_decision_window(
+        principal_id="exec-1",
+        title="Board packet",
+        context="Need a decision on launch timing",
+        closes_at=(now + timedelta(hours=2)).isoformat(),
+    )
+    observations = InMemoryObservationEventRepository()
+    channel_runtime = ChannelRuntimeService(observations=observations, outbox=InMemoryDeliveryOutboxRepository())
+    task_contracts = TaskContractService(InMemoryTaskContractRepository())
+
+    class _CapacityThenSuccessOrchestrator(_FakeOrchestrator):
+        def execute_task_artifact(self, request):  # type: ignore[no-untyped-def]
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                raise ToolExecutionError("gemini_vortex_failed:Attempt 1 failed with status 429. No capacity available")
+            return Artifact(
+                artifact_id="artifact-fallback",
+                kind="rewrite_note",
+                content=str((request.input_json or {}).get("source_text") or ""),
+                execution_session_id="session-fallback",
+                principal_id=request.principal_id,
+            )
+
+    orchestrator = _CapacityThenSuccessOrchestrator()
+    service = ProactiveHorizonService(
+        memory_runtime=runtime,
+        orchestrator=orchestrator,  # type: ignore[arg-type]
+        task_contracts=task_contracts,
+        channel_runtime=channel_runtime,
+    )
+
+    launched = service.run_once(now=now)
+
+    assert len(launched) == 1
+    assert [request.task_key for request in orchestrator.requests] == ["decision_briefing", "rewrite_text"]
 
 
 def test_builtin_groundwork_contracts_default_to_groundwork_and_review_light() -> None:

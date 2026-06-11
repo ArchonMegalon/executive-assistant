@@ -52,7 +52,9 @@ INCLUDE_PRODUCT_CONTROL="${SUPPORT_INCLUDE_PRODUCT_CONTROL:-1}"
 INCLUDE_GROUNDING="${SUPPORT_INCLUDE_GROUNDING:-1}"
 DB_SIZE_LIMIT="${SUPPORT_DB_SIZE_LIMIT:-10}"
 INCLUDE_QUEUE="${SUPPORT_INCLUDE_QUEUE:-1}"
-DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
+API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
+DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
+DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
 
 redact() {
   sed -E \
@@ -253,7 +255,7 @@ PY
 
   if [[ "${INCLUDE_API}" == "1" ]]; then
     echo "-- ea-api logs (tail ${TAIL_LINES}) --"
-    "${DC[@]}" logs --tail "${TAIL_LINES}" ea-api 2>&1 | redact || true
+    "${DC[@]}" logs --tail "${TAIL_LINES}" "${API_SERVICE}" 2>&1 | redact || true
     echo
   else
     echo "-- ea-api logs --"
@@ -263,7 +265,7 @@ PY
 
   if [[ "${INCLUDE_DB}" == "1" ]]; then
     echo "-- ea-db logs (tail ${TAIL_LINES}) --"
-    "${DC[@]}" logs --tail "${TAIL_LINES}" ea-db 2>&1 | redact || true
+    "${DC[@]}" logs --tail "${TAIL_LINES}" "${DB_SERVICE}" 2>&1 | redact || true
     echo
   else
     echo "-- ea-db logs --"

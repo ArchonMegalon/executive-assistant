@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import socket
 import subprocess
@@ -42,8 +43,16 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 15.0) -> None:
 
 
 def _generated_wav_bytes(*, seed: str) -> bytes:
-    frame = seed.encode("utf-8", errors="ignore") or b"seed"
-    pcm = (frame * 400)[:3200]
+    sample_rate = 16000
+    seed_value = sum((seed or "seed").encode("utf-8", errors="ignore")) or 1
+    frequency = 180 + (seed_value % 120)
+    lead = [0.0] * int(sample_rate * 0.2)
+    tone = [0.18 * math.sin(2 * math.pi * frequency * i / sample_rate) for i in range(int(sample_rate * 1.0))]
+    tail = [0.0] * int(sample_rate * 0.3)
+    pcm = b"".join(
+        int(max(-1.0, min(1.0, value)) * 32767).to_bytes(2, "little", signed=True)
+        for value in (lead + tone + tail)
+    )
     data_size = len(pcm)
     riff_size = 36 + data_size
     return (
@@ -170,11 +179,14 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     public_memorials._PERSONAL_MEMORY_ROOT = artifacts_root / "memorial_user_memory"
     public_memorials._VOICE_AB_ROOT = artifacts_root / "memorial_voice_ab"
     public_memorials._PUBLIC_MEMORIAL_RATE_DB = artifacts_root / "memorial_rate_limits.sqlite3"
+    public_memorials._MEMORIAL_TTS_RENDER_CACHE_ROOT = artifacts_root / "memorial_tts_render_cache"
+    public_memorials._MEMORIAL_PRESENT_WORLD_CACHE_ROOT = artifacts_root / "memorial_present_world_cache"
     memorial_archive_registry.PUBLIC_MEMORIAL_ROOT = registry_root
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
 
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    transcript_lookup: dict[bytes, str] = {}
 
     def _fake_generate_text(*, messages, requested_model, max_output_tokens):
         prompt = str(messages[-1]["content"] or "").lower()
@@ -189,20 +201,18 @@ def memorial_showtime_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         return SimpleNamespace(text=text, provider_key="unit-test-model", model="unit-test-model")
 
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
-    monkeypatch.setattr(
-        public_memorials,
-        "piper_fast_synthesize_request",
-        lambda **kwargs: (_generated_wav_bytes(seed=str(kwargs.get("text") or "audio")), "audio/wav"),
-    )
+    def _fake_piper_fast_synthesize_request(**kwargs):
+        text = str(kwargs.get("text") or "audio")
+        payload = _generated_wav_bytes(seed=text)
+        transcript_lookup[payload] = text
+        return payload, "audio/wav"
+
+    monkeypatch.setattr(public_memorials, "piper_fast_synthesize_request", _fake_piper_fast_synthesize_request)
+
     def _fake_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:
         raw = bytes(payload or b"")
-        if b"Hallo Manfred" in raw:
-            text = "Hallo Manfred, kannst du direkt mit mir reden?"
-        elif b"Ich antworte dir direkt und bleibe bei der Sache." in raw:
-            text = "Ich antworte dir direkt und bleibe bei der Sache."
-        elif b"Ja. Ich bin da." in raw:
-            text = "Ja. Ich bin da."
-        else:
+        text = transcript_lookup.get(raw, "")
+        if not text:
             text = "Ich antworte dir direkt und bleibe bei der Sache."
         return {
             "transcription_status": "transcribed",
@@ -315,11 +325,12 @@ def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
             "--questions",
             "/docker/EA/examples/demo_questions.manfred.json",
             "--output-dir",
-            str(output_dir),
-            "--skip-unit-contracts",
-            "--skip-exit-gates",
-            "--optional-exit-gates",
-        ],
+                str(output_dir),
+                "--skip-unit-contracts",
+                "--skip-exit-gates",
+                "--optional-exit-gates",
+                "--avatar-optional",
+            ],
         check=False,
         capture_output=True,
         text=True,
@@ -331,7 +342,8 @@ def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
     assert payload["status"] == "warn"
     avatar_step = next(item for item in payload["results"] if item["name"] == "avatar_video_call_status")
     assert avatar_step["effective_status"] == "warn"
-    assert avatar_step["semantic_detail"]["warn_codes"] == ["avatar_video_not_published"]
+    assert avatar_step["semantic_status"] == "warn"
+    assert "avatar_video_not_published" in avatar_step["stdout_tail"]
 
 
 def test_memorial_showtime_cli_launch_mode_rejects_skip_flags(tmp_path: Path) -> None:

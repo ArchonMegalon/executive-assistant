@@ -55,7 +55,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-DB_CONTAINER="${EA_DB_CONTAINER:-ea-db}"
+DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
+DB_CONTAINER="${EA_DB_CONTAINER:-${DB_SERVICE}}"
 DB_USER="${POSTGRES_USER:-}"
 if [[ -z "${DB_USER}" && -n "${env_file}" ]]; then
   DB_USER="$(grep -E '^POSTGRES_USER=' "${env_file}" | tail -n1 | cut -d= -f2- || true)"
@@ -82,7 +83,7 @@ if [[ -z "${DB_PASSWORD}" ]]; then
 fi
 
 echo "== postgres contract tests =="
-"${DC[@]}" up -d ea-db >/dev/null
+"${DC[@]}" up -d "${DB_SERVICE}" >/dev/null
 
 wait_for_postgres_sql() {
   local attempts="${1:-90}"
@@ -123,6 +124,7 @@ fi
 DB_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${TEST_DB}"
 
 echo "db_container=${DB_CONTAINER}"
+echo "compose DB service container=${DB_SERVICE}"
 echo "db_host=${DB_HOST}"
 echo "db_name=${TEST_DB}"
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import hashlib
 import mimetypes
 import os
 import re
@@ -2858,9 +2859,19 @@ class BrowserActToolAdapter:
         return str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "https://myexternalbrain.com/tours").strip().rstrip("/")
 
     @staticmethod
-    def _crezlo_public_tour_slug(value: object) -> str:
+    def _crezlo_public_tour_slug(
+        value: object,
+        *,
+        variant_key: str = "",
+        digest_seed: str = "",
+    ) -> str:
         lowered = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
-        return lowered or "tour"
+        if not str(digest_seed or "").strip():
+            return lowered or "tour"
+        normalized_variant = re.sub(r"[^a-z0-9]+", "-", str(variant_key or "layout-first").lower()).strip("-") or "layout-first"
+        material = str(digest_seed or value or "").strip().encode("utf-8")
+        digest = hashlib.sha256(material).hexdigest()[:10]
+        return f"{lowered or 'tour'}-{normalized_variant}-{digest}"
 
     @staticmethod
     def _crezlo_public_asset_url(value: object) -> str:
@@ -3092,12 +3103,38 @@ class BrowserActToolAdapter:
         workflow_output = cls._crezlo_json_dict(structured.get("workflow_output_json"))
         detail = cls._crezlo_json_dict(workflow_output.get("tour_detail_json") or structured.get("tour_detail_json"))
         property_facts = cls._crezlo_json_dict(requested_inputs.get("property_facts_json"))
-        slug = cls._crezlo_public_tour_slug(
-            normalized.get("slug")
-            or detail.get("slug")
-            or normalized.get("tour_title")
-            or requested_inputs.get("tour_title")
-        )
+        variant_key = str(
+            requested_inputs.get("variant_key")
+            or requested_inputs.get("scene_strategy")
+            or workflow_output.get("variant_key")
+            or ""
+        ).strip()
+        source_virtual_tour_url = str(requested_inputs.get("source_virtual_tour_url") or "").strip()
+        listing_id = str(requested_inputs.get("listing_id") or "").strip()
+        property_url = str(
+            requested_inputs.get("property_url")
+            or requested_inputs.get("listing_url")
+            or ""
+        ).strip()
+        explicit_slug = str(normalized.get("slug") or detail.get("slug") or "").strip()
+        if explicit_slug:
+            slug = cls._crezlo_public_tour_slug(explicit_slug)
+        else:
+            slug = cls._crezlo_public_tour_slug(
+                normalized.get("tour_title") or requested_inputs.get("tour_title"),
+                variant_key=variant_key,
+                digest_seed="|".join(
+                    value
+                    for value in (
+                        property_url,
+                        listing_id,
+                        source_virtual_tour_url,
+                        str(normalized.get("tour_id") or ""),
+                        str(detail.get("id") or ""),
+                    )
+                    if value
+                ),
+            )
         output_dir = cls._crezlo_public_tour_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
         target_dir = output_dir / slug
@@ -3127,10 +3164,11 @@ class BrowserActToolAdapter:
                 )
             if not published_rows:
                 return ""
-            source_virtual_tour_url = str(requested_inputs.get("source_virtual_tour_url") or "").strip()
             hosted_url = f"{cls._crezlo_public_tour_base_url()}/{slug}"
             if source_virtual_tour_url:
                 hosted_url = f"{hosted_url}#live-360"
+            if not normalized.get("slug"):
+                normalized["slug"] = slug
             title = str(
                 normalized.get("tour_title")
                 or detail.get("title")
@@ -3143,12 +3181,6 @@ class BrowserActToolAdapter:
                 or property_facts.get("listing_title")
                 or title
             ).strip() or title
-            variant_key = str(
-                requested_inputs.get("variant_key")
-                or requested_inputs.get("scene_strategy")
-                or workflow_output.get("variant_key")
-                or ""
-            ).strip()
             payload = {
                 "slug": slug,
                 "hosted_url": hosted_url,

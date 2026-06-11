@@ -42,7 +42,7 @@ def test_token_overlap_treats_jo_like_ja() -> None:
     import scripts.validate_memorial_voice_loop as validator
 
     overlap = validator._token_overlap(
-        "Ja. Ich bin da.",
+        "Ja, ich bin da.",
         "Jo, ich bin da.",
     )
 
@@ -52,7 +52,7 @@ def test_token_overlap_treats_jo_like_ja() -> None:
 def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    direct_wav = _generated_wav(b"Ja. Ich bin da. ")
+    direct_wav = _generated_wav(b"Ja, ich bin da. ")
     answer_wav = _generated_wav(b"Ich antworte dir direkt und bleibe bei der Sache. ")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
@@ -68,8 +68,8 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
-            if b"Ja. Ich bin da." in raw:
-                return 200, {"transcript_text": "Ja. Ich bin da.", "transcriber": "stub"}
+            if b"Ja, ich bin da." in raw:
+                return 200, {"transcript_text": "Ja, ich bin da.", "transcriber": "stub"}
             return 200, {
                 "transcript_text": "Ich antworte dir direkt und bleibe bei der Sache.",
                 "transcriber": "stub",
@@ -85,7 +85,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         raise AssertionError(url)
 
     def fake_post_json_binary_response(url: str, payload: dict[str, object], *, timeout: float = 120.0):
-        if payload.get("text") == "Ja. Ich bin da.":
+        if payload.get("text") == "Ja, ich bin da.":
             return 200, direct_wav, "audio/wav"
         return 200, _generated_wav(str(payload.get("text") or "").encode("utf-8") or b"question"), "audio/wav"
 
@@ -97,7 +97,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Ich bin da.",
+        direct_text="Ja, ich bin da.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -112,7 +112,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
 def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    direct_wav = _generated_wav(b"Ja. Ich bin da. ")
+    direct_wav = _generated_wav(b"Ja, ich bin da. ")
     answer_wav = _generated_wav(b"Ich ordne dir das aus aktuellen Quellen ein. ")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
@@ -129,8 +129,8 @@ def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
-            if b"Ja. Ich bin da." in raw:
-                return 200, {"transcript_text": "Ja. Ich bin da.", "transcriber": "stub"}
+            if b"Ja, ich bin da." in raw:
+                return 200, {"transcript_text": "Ja, ich bin da.", "transcriber": "stub"}
             return 200, {"transcript_text": "Ich ordne dir das aus aktuellen Quellen ein.", "transcriber": "stub"}
         if url.endswith("/conversation-turn"):
             import base64
@@ -154,7 +154,7 @@ def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Ich bin da.",
+        direct_text="Ja, ich bin da.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -198,7 +198,7 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Ich bin da.",
+        direct_text="Ja, ich bin da.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -206,10 +206,118 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
     assert any(item.code == "direct_tts_transcript_empty" for item in report.checks)
 
 
+def test_validate_memorial_voice_loop_accepts_short_phrase_with_stt_filler(tmp_path: Path) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    report = validator.ValidationReport(slug="manfred", base_url="https://example.test", output_dir=str(tmp_path))
+
+    validator._evaluate_similarity(report, code_prefix="short_audio", expected="Ja.", actual="Ja, okay.")
+
+    assert report.status == "pass"
+    assert any(item.code == "short_audio_short_phrase_ok" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unavailable(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Ja, ich bin da. ")
+    answer_wav = _generated_wav(b"Ich antworte dir direkt und bleibe bei der Sache. ")
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if url.endswith("/chat"):
+            if payload.get("question") == "Welches Wetter haben wir heute?":
+                return 200, {
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "fallback_reason": "present_world_guardrail",
+                }
+            return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
+        raise AssertionError(url)
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/speech-transcribe"):
+            return 503, {"error": {"code": "speech_transcriber_unavailable", "message": "speech_transcriber_unavailable"}}
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Ich antworte dir direkt und bleibe bei der Sache.",
+                "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(
+        validator,
+        "_post_json_binary_response",
+        lambda *args, **kwargs: (200, direct_wav, "audio/wav"),
+    )
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Ja, ich bin da.",
+        conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+    )
+
+    assert report.status == "pass"
+    assert any(item.code == "direct_tts_transcriber_unavailable" for item in report.checks)
+    assert any(item.code == "conversation_turn_transcriber_unavailable" for item in report.checks)
+    assert any(item.code == "conversation_answer_text_reference_skipped" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Ja, ich bin da. ")
+    answer_wav = _generated_wav(b"Ich antworte dir direkt und bleibe bei der Sache. ")
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if url.endswith("/chat"):
+            if payload.get("question") == "Welches Wetter haben wir heute?":
+                return 200, {
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "fallback_reason": "present_world_guardrail",
+                }
+            return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
+        raise AssertionError(url)
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/speech-transcribe"):
+            return 503, {"error": {"code": "speech_transcriber_unavailable", "message": "speech_transcriber_unavailable"}}
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Ich antworte dir direkt und bleibe bei der Sache.",
+                "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(validator, "_post_json_binary_response", lambda *args, **kwargs: (200, direct_wav, "audio/wav"))
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Ja, ich bin da.",
+        conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
+        require_stt=True,
+    )
+
+    assert report.status == "fail"
+    assert any(item.status == "fail" and item.code == "direct_tts_transcriber_unavailable" for item in report.checks)
+
+
 def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    wav_bytes = _generated_wav(b"Ja. Ich bin da.")
+    wav_bytes = _generated_wav(b"Ja, ich bin da.")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
         if payload.get("question") == "Welches Wetter haben wir heute?":
@@ -239,7 +347,7 @@ def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(t
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Ich bin da.",
+        direct_text="Ja, ich bin da.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 

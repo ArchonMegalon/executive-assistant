@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import base64
+import asyncio
+import difflib
 import socket
+import struct
 import threading
 import time
 import urllib.request
@@ -66,6 +70,22 @@ def _wav_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _spoken_pcm16_bytes(*, seconds: float = 0.75, sample_rate: int = 16_000) -> bytes:
+    total_samples = int(sample_rate * seconds)
+    # Square-ish voiced test signal: enough energy to pass the live speech gate without relying on a host microphone.
+    values = []
+    period = max(1, sample_rate // 180)
+    for index in range(total_samples):
+        values.append(9000 if (index // period) % 2 == 0 else -9000)
+    return struct.pack("<" + "h" * len(values), *values)
+
+
+def _text_similarity(left: str, right: str) -> float:
+    normalized_left = " ".join(str(left or "").lower().split())
+    normalized_right = " ".join(str(right or "").lower().split())
+    return difflib.SequenceMatcher(None, normalized_left, normalized_right).ratio()
+
+
 @pytest.fixture()
 def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
     from app.api.routes import public_memorials
@@ -74,6 +94,9 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.setenv("EA_API_TOKEN", "")
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "playwright-gemini-live-key")
+    monkeypatch.setenv("UNMIXR_API_KEY", "playwright-unmixr-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "playwright-unmixr-voice")
     monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
     monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
     monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
@@ -149,20 +172,65 @@ def memorial_minimal_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
             "voice_required": True,
         },
     )
-    monkeypatch.setattr(
-        public_memorials,
-        "_memorial_transcribe_audio_blob",
-        lambda **kwargs: {
+    def _fake_transcribe_audio_blob(**kwargs):
+        content_type = str(kwargs.get("content_type") or "")
+        payload = bytes(kwargs.get("payload") or b"")
+        if content_type.startswith("audio/wav") and b"memorial-answer-audio" in payload:
+            transcript_text = "Ja, ich bin da."
+        else:
+            transcript_text = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+        return {
             "transcription_status": "transcribed",
-            "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "transcript_text": transcript_text,
             "transcriber": "playwright_stub",
-        },
-    )
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_transcribe_audio_blob", _fake_transcribe_audio_blob)
     monkeypatch.setattr(
         public_memorials,
         "_render_memorial_tts_audio",
-        lambda **kwargs: (_wav_bytes(), "audio/wav"),
+        lambda **kwargs: (_wav_bytes() + b"memorial-answer-audio", "audio/wav"),
     )
+
+    class _FakeGeminiLiveSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "inputTranscription": {"text": "Hallo Manfred, kannst du mich hoeren?"},
+                            "outputTranscription": {"text": "Ja, ich bin da."},
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_gemini_connect(uri: str, **kwargs):
+        return _FakeGeminiLiveSocket()
+
+    monkeypatch.setattr(public_memorials, "websockets", type("_FakeWebsockets", (), {"connect": _fake_gemini_connect}))
 
     app = create_app()
     port = _free_port()
@@ -222,7 +290,7 @@ def _install_fake_audio_runtime(context) -> None:
             }
             start() {
               this.state = "recording";
-              setTimeout(() => this.stop(), 40);
+              setTimeout(() => this.stop(), 250);
             }
             stop() {
               if (this.state === "inactive") return;
@@ -242,17 +310,81 @@ def _install_fake_audio_runtime(context) -> None:
           }
 
           window.MediaRecorder = FakeMediaRecorder;
+          window.__memorialRealtimeFrames = [];
+          const OriginalWebSocket = window.WebSocket;
+          if (typeof OriginalWebSocket === "function") {
+            window.WebSocket = function(url, protocols) {
+              const socket = protocols != null ? new OriginalWebSocket(url, protocols) : new OriginalWebSocket(url);
+              socket.addEventListener("message", (event) => {
+                window.__memorialRealtimeFrames.push(String((event && event.data) || ""));
+              });
+              return socket;
+            };
+            window.WebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+            window.WebSocket.OPEN = OriginalWebSocket.OPEN;
+            window.WebSocket.CLOSING = OriginalWebSocket.CLOSING;
+            window.WebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            window.WebSocket.prototype = OriginalWebSocket.prototype;
+          }
           HTMLMediaElement.prototype.play = function play() {
             return new Promise((resolve) => {
               setTimeout(() => {
                 this.dispatchEvent(new Event("ended"));
                 resolve();
-              }, 40);
+              }, 1750);
             });
           };
         })();
         """
     )
+
+
+def _await_realtime_turn_complete(page: Page, slug: str, action, timeout_ms: int = 7000) -> dict[str, object]:
+    state: dict[str, object] = {
+        "done": False,
+        "turn_id": "",
+        "answer": "",
+        "audio_seen": False,
+        "action_error": "",
+    }
+    try:
+        try:
+            action()
+        except Exception as exc:
+            state["action_error"] = str(exc)
+            raise
+        deadline = time.perf_counter() + (timeout_ms / 1000.0)
+        while time.perf_counter() < deadline:
+            raw_frames = page.evaluate("() => Array.isArray(window.__memorialRealtimeFrames) ? window.__memorialRealtimeFrames.slice() : []")
+            for payload in raw_frames:
+                if payload is None:
+                    continue
+                try:
+                    parsed = json.loads(str(payload))
+                except Exception:
+                    continue
+                if not isinstance(parsed, dict):
+                    continue
+                turn_id = str(parsed.get("turn_id", "") or "")
+                if turn_id and slug and f"turn_" not in turn_id and not state.get("turn_id"):
+                    continue
+                event_type = str(parsed.get("type", "")).strip()
+                if event_type == "turn_complete":
+                    state["done"] = True
+                if event_type == "answer":
+                    state["answer"] = str(parsed.get("text") or "").strip()
+                if event_type in {"audio", "audio_chunk", "audio_complete"}:
+                    state["audio_seen"] = True
+                if event_type in {"turn_complete", "error", "cancelled"} and not state.get("turn_id"):
+                    state["turn_id"] = turn_id
+            if bool(state.get("done")):
+                break
+            time.sleep(0.05)
+        if not bool(state.get("done")):
+            raise AssertionError(f"timeout waiting for realtime turn completion for {slug}")
+    finally:
+        pass
+    return state
 
 
 @pytest.mark.parametrize(
@@ -312,15 +444,19 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
             "() => !document.getElementById('memorial-conversation').disabled",
             timeout=5000,
         )
-        with page.expect_response(lambda response: response.url.endswith(f"/memorials/{slug}/conversation-turn") and response.status == 200, timeout=7000):
-            page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()")
-            page.wait_for_function(
-                """() => {
-                  const button = document.getElementById("memorial-conversation");
-                  return Boolean(button && button.textContent && button.textContent.includes("Gespräch stoppen"));
-                }""",
-                timeout=3000,
-            )
+        _await_realtime_turn_complete(
+            page,
+            slug,
+            lambda: page.evaluate("window.__memorialStartConversation && window.__memorialStartConversation()"),
+            timeout_ms=7000,
+        )
+        page.wait_for_function(
+            """() => {
+              const button = document.getElementById("memorial-conversation");
+              return Boolean(button && button.textContent && button.textContent.includes("Gespräch stoppen"));
+            }""",
+            timeout=3000,
+        )
         page.wait_for_function(
             """() => {
               const audio = document.getElementById("memorial-speech-audio");
@@ -341,5 +477,139 @@ def test_memorial_minimal_page_completes_one_browser_conversation_turn(
         assert "Bitte noch einmal" not in phase_text
         assert "Bitte noch einmal" not in message_text
         assert page.locator("#memorial-retry-button").is_hidden()
+    finally:
+        context.close()
+
+
+def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
+    browser: Browser,
+    memorial_minimal_server: dict[str, object],
+) -> None:
+    base_url = str(memorial_minimal_server["base_url"])
+    slug = str(memorial_minimal_server["slug"])
+    spoken_pcm_base64 = base64.b64encode(_spoken_pcm16_bytes()).decode("ascii")
+    context = browser.new_context(
+        viewport={"width": 430, "height": 932},
+        locale="en-US",
+        extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+    )
+    _install_fake_audio_runtime(context)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/memorials/{slug}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.wait_for_function(
+            "() => !document.getElementById('memorial-conversation').disabled",
+            timeout=5000,
+        )
+        result = page.evaluate(
+            """async ({ slug, spokenPcmBase64 }) => {
+              const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+              const wsUrl = `${wsProtocol}//${window.location.host}/memorials/${slug}/realtime?personal_memory=1&lang=en-US`;
+              const websocket = new WebSocket(wsUrl);
+              websocket.binaryType = "arraybuffer";
+              const events = [];
+              let assistantText = "";
+              let audioBase64 = "";
+              let audioContentType = "";
+              let ttsPlugin = "";
+              let error = "";
+
+              const waitForEvent = (predicate, timeoutMs) => new Promise((resolve, reject) => {
+                const deadline = window.setTimeout(() => {
+                  cleanup();
+                  reject(new Error("timeout"));
+                }, timeoutMs);
+                const cleanup = () => {
+                  window.clearTimeout(deadline);
+                  websocket.removeEventListener("message", onMessage);
+                  websocket.removeEventListener("error", onError);
+                };
+                const onError = () => {
+                  cleanup();
+                  reject(new Error("websocket_error"));
+                };
+                const onMessage = (event) => {
+                  const payload = JSON.parse(String(event.data || "{}"));
+                  events.push(payload);
+                  if (payload.type === "response.output_audio_transcript.done" || payload.type === "answer") {
+                    assistantText = String(payload.transcript || payload.text || assistantText || "");
+                  }
+                  if (payload.type === "audio") {
+                    audioBase64 = String(payload.audio_base64 || payload.audio || "");
+                    audioContentType = String(payload.content_type || payload.mime_type || "");
+                    ttsPlugin = String(payload.tts_plugin || "");
+                  }
+                  if (payload.type === "error") {
+                    error = String(payload.message || payload.detail || "error");
+                  }
+                  if (predicate(payload)) {
+                    cleanup();
+                    resolve(payload);
+                  }
+                };
+                websocket.addEventListener("message", onMessage);
+                websocket.addEventListener("error", onError);
+              });
+
+              await new Promise((resolve, reject) => {
+                websocket.addEventListener("open", resolve, { once: true });
+                websocket.addEventListener("error", () => reject(new Error("websocket_open_error")), { once: true });
+              });
+              await waitForEvent((payload) => payload.type === "ready" || payload.type === "setup_complete", 5000);
+
+              websocket.send(JSON.stringify({
+                type: "user_audio_start",
+                turn_id: "exit_gate_browser_voice",
+                content_type: "audio/pcm;rate=16000",
+                transport: "gemini_live",
+                browser_language: "en-US"
+              }));
+              const binary = atob(spokenPcmBase64);
+              const bytes = new Uint8Array(binary.length);
+              for (let index = 0; index < binary.length; index += 1) {
+                bytes[index] = binary.charCodeAt(index);
+              }
+              websocket.send(bytes.buffer);
+              websocket.send(JSON.stringify({
+                type: "user_audio_end",
+                turn_id: "exit_gate_browser_voice",
+                content_type: "audio/pcm;rate=16000",
+                transport: "gemini_live",
+                browser_language: "en-US"
+              }));
+              await waitForEvent((payload) => payload.type === "turn_complete" || payload.type === "error", 8000);
+              websocket.close();
+
+              let stt = null;
+              if (audioBase64) {
+                const audioBinary = atob(audioBase64);
+                const audioBytes = new Uint8Array(audioBinary.length);
+                for (let index = 0; index < audioBinary.length; index += 1) {
+                  audioBytes[index] = audioBinary.charCodeAt(index);
+                }
+                const sttResponse = await fetch(`/memorials/${slug}/speech-transcribe`, {
+                  method: "POST",
+                  headers: { "Content-Type": audioContentType || "audio/wav" },
+                  body: new Blob([audioBytes], { type: audioContentType || "audio/wav" })
+                });
+                stt = await sttResponse.json();
+              }
+
+              return { events, assistantText, audioBase64, audioContentType, ttsPlugin, error, stt };
+            }""",
+            {"slug": slug, "spokenPcmBase64": spoken_pcm_base64},
+        )
+        assert not result["error"]
+        assert result["audioBase64"]
+        assert result["audioContentType"] == "audio/wav"
+        assert result["ttsPlugin"] == "unmixr_clone"
+        assert result["assistantText"] == "Ja, ich bin da."
+        stt = result["stt"]
+        assert isinstance(stt, dict)
+        transcript = str(stt.get("transcript_text") or "")
+        assert stt.get("transcription_status") == "transcribed"
+        assert _text_similarity(transcript, "Ja, ich bin da.") >= 0.9
+        assert any(event.get("type") == "turn_complete" for event in result["events"])
     finally:
         context.close()

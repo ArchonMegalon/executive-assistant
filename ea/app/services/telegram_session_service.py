@@ -16,6 +16,9 @@ class TelegramTurnDecision:
     schedule_async: bool = False
     async_text: str = ""
     async_message_id: str = ""
+    async_payload: dict[str, object] | None = None
+    suppress_async_ack: bool = False
+    retry_budget: int = 2
 
 
 @dataclasses.dataclass(frozen=True)
@@ -129,6 +132,20 @@ def resolve_telegram_message_payload(*, payload: dict[str, object], bot_token: s
     resolved = dict(payload or {})
     kind = str(resolved.get("kind") or "").strip().lower()
     metadata = dict(resolved.get("message_metadata") or {})
+    if kind == "document":
+        file_id = str(metadata.get("file_id") or "").strip()
+        if file_id and str(bot_token or "").strip():
+            try:
+                resolved["message_metadata"] = {
+                    **metadata,
+                    "download_url": _telegram_file_download_url(bot_token=bot_token, file_id=file_id),
+                }
+            except Exception as exc:
+                raw_error = str(exc or "").strip()
+                error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "document_resolve_failed"
+                resolved["document_resolve_status"] = "failed"
+                resolved["document_resolve_error_code"] = error_code[:80]
+        return resolved
     if kind == "photo":
         file_id = str(metadata.get("file_id") or "").strip()
         caption = str(metadata.get("caption") or resolved.get("text") or "").strip()

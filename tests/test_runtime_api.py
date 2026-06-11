@@ -6,6 +6,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from app.domain.models import Artifact
+
 
 def _client(*, principal_id: str) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
@@ -19,8 +21,25 @@ def _client(*, principal_id: str) -> TestClient:
     return client
 
 
-def test_runtime_cognitive_load_and_proactive_horizon_visibility() -> None:
+class _FakeProactiveHorizonOrchestrator:
+    def __init__(self) -> None:
+        self.requests = []
+
+    def execute_task_artifact(self, request):  # type: ignore[no-untyped-def]
+        self.requests.append(request)
+        return Artifact(
+            artifact_id=f"artifact-{len(self.requests)}",
+            kind="rewrite_note",
+            content=str((request.input_json or {}).get("source_text") or ""),
+            execution_session_id=f"session-{len(self.requests)}",
+            principal_id=request.principal_id,
+        )
+
+
+def test_runtime_cognitive_load_and_proactive_horizon_visibility(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="exec-1")
+    fake_orchestrator = _FakeProactiveHorizonOrchestrator()
+    monkeypatch.setattr(client.app.state.container.proactive_horizon, "_orchestrator", fake_orchestrator)
 
     budget = client.post(
         "/v1/memory/interruption-budgets",
@@ -94,6 +113,7 @@ def test_runtime_cognitive_load_and_proactive_horizon_visibility() -> None:
     launched_body = launched.json()
     assert launched_body["principal_id"] == "exec-1"
     assert launched_body["launched_count"] >= 1
+    assert fake_orchestrator.requests
 
 
 def test_runtime_lane_telemetry_endpoint_surfaces_codex_status(monkeypatch: pytest.MonkeyPatch) -> None:

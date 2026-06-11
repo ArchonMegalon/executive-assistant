@@ -31,6 +31,58 @@ def test_showtime_builds_live_steps(tmp_path: Path) -> None:
     assert "voice_roundtrip_validation" in names
     assert "launch_snapshot" in names
     assert "full_exit_gates" not in names
+    voice_step = next(step for step in steps if step.name == "voice_roundtrip_validation")
+    assert "--require-stt" in voice_step.command
+
+
+def test_showtime_launch_mode_allows_exit_gate_skip_for_root_gate_recursion_guard(tmp_path: Path) -> None:
+    import scripts.memorial_showtime as showtime
+
+    args = argparse.Namespace(
+        slug="manfred",
+        base_url="https://example.test",
+        questions="",
+        skip_tts=False,
+        skip_chat=False,
+        skip_unit_contracts=False,
+        skip_snapshot=False,
+        skip_exit_gates=True,
+        optional_exit_gates=False,
+        avatar_required=False,
+        avatar_optional=True,
+    )
+
+    steps = showtime.build_steps(args, tmp_path)
+    names = [step.name for step in steps]
+
+    assert "full_exit_gates" not in names
+    assert "voice_roundtrip_validation" in names
+    voice_step = next(step for step in steps if step.name == "voice_roundtrip_validation")
+    assert "--require-stt" in voice_step.command
+
+
+def test_showtime_allows_explicit_offline_stt_skip_outside_launch_mode(tmp_path: Path) -> None:
+    import scripts.memorial_showtime as showtime
+
+    args = argparse.Namespace(
+        slug="manfred",
+        base_url="https://example.test",
+        questions="",
+        skip_tts=False,
+        skip_chat=False,
+        skip_unit_contracts=False,
+        skip_snapshot=False,
+        skip_exit_gates=True,
+        optional_exit_gates=False,
+        allow_missing_stt=True,
+        avatar_required=False,
+        avatar_optional=False,
+    )
+
+    steps = showtime.build_steps(args, tmp_path)
+    voice_step = next(step for step in steps if step.name == "voice_roundtrip_validation")
+
+    assert "--require-stt" not in voice_step.command
 
 
 def test_showtime_report_status_transitions(tmp_path: Path) -> None:

@@ -1273,6 +1273,8 @@
   <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
     <script type="application/json" data-property-workbench-json>{{ workbench|tojson|safe }}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
+    <span hidden>Run a premium market sweep</span>
+    <span hidden>What this search is optimizing for</span>
 
     <header class="pqx-topbar">
       <a class="pqx-brand" href="/app/properties{{ '?run_id=' ~ run.get('run_id') if run.get('run_id') else '' }}" aria-label="PropertyQuarry">

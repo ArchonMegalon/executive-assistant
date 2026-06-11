@@ -513,9 +513,10 @@ def load_horizon_canon() -> dict[str, dict[str, object]]:
     root = design_root()
     catalog: dict[str, dict[str, object]] = {}
     foundation_code_re = re.compile(r"^[A-Z]\d+$")
+    retired_ids = {"ghostwire", "knowledge-fabric", "local-co-processor", "rule-x-ray", "heat-web"}
     for row in _public_horizon_rows():
         slug = str(row.get("id") or "").strip()
-        if not slug:
+        if not slug or slug in retired_ids:
             continue
         canon_doc = root / str(row.get("canon_doc") or "").replace("products/chummer/", "", 1)
         title = str(row.get("title") or slug.replace("-", " ").title()).strip()

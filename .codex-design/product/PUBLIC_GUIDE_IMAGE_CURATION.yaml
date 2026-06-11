@@ -1,0 +1,17 @@
+assets:
+  assets/parts/ui.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: ../../tests/e2e/visual_baselines/admin-audit-trail-page.png
+  assets/horizons/runsite.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: ../../tests/e2e/visual_baselines/admin-audit-trail-page.png
+  assets/pages/parts-index.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: ../../tests/e2e/visual_baselines/admin-audit-trail-page.png
+  assets/hero/chummer6-hero.png:
+    review_status: editorial_cover
+    embed_policy: manual
+    source_override: ../../tests/e2e/visual_baselines/admin-audit-trail-page.png

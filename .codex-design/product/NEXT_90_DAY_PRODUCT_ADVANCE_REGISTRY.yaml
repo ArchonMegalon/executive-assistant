@@ -374,7 +374,7 @@ milestones:
         evidence:
           - /docker/chummercomplete/chummer-design/products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml keeps the public copy rails explicit: Avalonia is the flagship desktop head, Blazor Desktop is bounded fallback only when labeled that way, public claims must stay inside FLAGSHIP_RELEASE_ACCEPTANCE, and the public shelf must not overclaim readiness from internal proof alone.
           - /docker/chummercomplete/chummer-design/products/chummer/FLAGSHIP_RELEASE_ACCEPTANCE.yaml fail-closes release language that blurs fallback and flagship posture by requiring bounded preview explanations, forbidding fallback heads from satisfying flagship readiness by association, and requiring explicit fallback-versus-flagship truth on public desktop claims.
-          - /docker/chummercomplete/chummer-design/products/chummer/public-guide/DOWNLOAD.md materializes the tightened copy into the public guide by telling users to start with Avalonia, use Blazor only when directed, treat archive packages as fallback, and read the current shelf as a usable preview rather than a gold claim.
+          - /docker/chummercomplete/chummer-design/products/chummer/public-guide/DOWNLOAD.md materializes the tightened copy into the public guide by telling users to start with Avalonia, use Blazor only when directed, treat archive packages as fallback, and read the current downloads page as a usable preview rather than a gold claim.
 
   - id: 102
     title: Desktop-native claim, update, rollback, and support followthrough
@@ -1302,7 +1302,7 @@ milestones:
           - /docker/chummercomplete/chummer-design/scripts/ai/publish_local_mirrors.py remains the pruning and mirror-parity authority for repo-local `.codex-design` subsets, and the refreshed mirror publish keeps Fleet and sibling repos on the same successor-wave canon without reopening unrelated architecture-cleanup debt.
 
   - id: 107
-    title: Artifact factory and public proof shelf
+    title: Artifact factory and public proof gallery
     wave: W9
     owners:
       - chummer6-hub
@@ -3565,7 +3565,7 @@ milestones:
     - 102
     - 127
     exit_criteria:
-    - UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json reports passing status for the promoted Windows flagship tuple, and its startup-smoke
+    - UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json reports passing status for the promoted Windows flagship desktop build, and its startup-smoke
       receipt version, artifactDigest, bytes, and readyCheckpoint all match the currently promoted installer bytes; any mismatch, stale
       receipt, or carried-forward proof blocks closeout.
     - DESKTOP_EXECUTABLE_EXIT_GATE.generated.json reports passing status with `local_blocking_findings_count = 0`; any local blocking

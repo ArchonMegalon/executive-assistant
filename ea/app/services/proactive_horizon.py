@@ -122,7 +122,7 @@ class ProactiveHorizonService:
             try:
                 self._execute_candidate(candidate, task_key=candidate.task_key)
             except ToolExecutionError as exc:
-                if "brain_profile_provider_unavailable:" not in str(exc) or candidate.task_key == "rewrite_text":
+                if not self._should_retry_with_rewrite_text(exc) or candidate.task_key == "rewrite_text":
                     self._log.exception(
                         "failed to enqueue proactive horizon candidate kind=%s principal=%s record=%s",
                         candidate.kind,
@@ -154,6 +154,20 @@ class ProactiveHorizonService:
             self._release_dedupe_key(candidate.dedupe_key)
             launched.append(candidate)
         return tuple(launched)
+
+    @staticmethod
+    def _should_retry_with_rewrite_text(exc: ToolExecutionError) -> bool:
+        detail = str(exc)
+        if "brain_profile_provider_unavailable:" in detail:
+            return True
+        if "gemini_vortex_failed:" in detail and (
+            "status 429" in detail
+            or '"code": 429' in detail
+            or "No capacity available" in detail
+            or "RESOURCE_EXHAUSTED" in detail
+        ):
+            return True
+        return False
 
     def _execute_candidate(self, candidate: HorizonCandidate, *, task_key: str) -> None:
         self._orchestrator.execute_task_artifact(

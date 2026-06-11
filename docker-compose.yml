@@ -95,6 +95,7 @@ services:
       - EA_PUBLIC_MEMORIAL_REDIS_URL=${EA_PUBLIC_MEMORIAL_REDIS_URL:-redis://ea-redis:6379/0}
       - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
       - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
+      - EA_MEMORIAL_LIVE_TTS_PLUGIN=${EA_MEMORIAL_LIVE_TTS_PLUGIN:-unmixr_clone}
       - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/mnt/pcloud/EA/browseract_ui_worker_shared}
       - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/mnt/pcloud/EA/voicewave_runtime_tmp}
@@ -279,5 +280,7 @@ volumes:
   ea_memorial_data: {}
   ea_openvoice_data: {}
   ea_pgdata: {}
-  ea_public_tours: {}
+  ea_public_tours:
+    external: true
+    name: property_propertyquarry_public_tours
   ea_provider_ledger: {}

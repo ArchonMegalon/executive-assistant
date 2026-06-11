@@ -134,19 +134,35 @@ def _ensure_wav_bytes(*, payload: bytes, content_type: str) -> bytes:
 def _compare_prompt(*, prompt: str, base_url: str, output_dir: Path) -> dict[str, object]:
     reference = Path("/docker/EA/memorial_data/private_memorial_profiles/manfred/voice_profile/optimization/candidates/oSQ9FhFc4YI-01440s-28.wav")
     reference_metrics = _OPTIMIZER._wav_metrics_from_bytes(reference.read_bytes())
-    unmixr_audio, unmixr_content_type = unmixr_synthesize_request(
-        text=prompt,
-        voice_id="558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
-        lang="de-AT",
-        speaking_rate="medium",
-        speaking_pitch="medium",
-        speaking_volume="low",
-    )
-    unmixr_wav = _ensure_wav_bytes(payload=unmixr_audio, content_type=unmixr_content_type)
-    unmixr_transcript = _OPTIMIZER._transcribe_audio_bytes(unmixr_wav, content_type="audio/wav", slug="manfred", base_url=base_url)
-    unmixr_similarity = _OPTIMIZER._voice_feature_similarity(reference_metrics, _OPTIMIZER._wav_metrics_from_bytes(unmixr_wav))
-    unmixr_transcript_text = str(unmixr_transcript.get("transcript_text") or unmixr_transcript.get("text") or "").strip()
-    unmixr_overlap = _OPTIMIZER._token_overlap(prompt, unmixr_transcript_text)
+    unmixr_row: dict[str, object]
+    try:
+        unmixr_audio, unmixr_content_type = unmixr_synthesize_request(
+            text=prompt,
+            voice_id="558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+            lang="de-AT",
+            speaking_rate="medium",
+            speaking_pitch="medium",
+            speaking_volume="low",
+        )
+        unmixr_wav = _ensure_wav_bytes(payload=unmixr_audio, content_type=unmixr_content_type)
+        unmixr_transcript = _OPTIMIZER._transcribe_audio_bytes(unmixr_wav, content_type="audio/wav", slug="manfred", base_url=base_url)
+        unmixr_similarity = _OPTIMIZER._voice_feature_similarity(reference_metrics, _OPTIMIZER._wav_metrics_from_bytes(unmixr_wav))
+        unmixr_transcript_text = str(unmixr_transcript.get("transcript_text") or unmixr_transcript.get("text") or "").strip()
+        unmixr_overlap = _OPTIMIZER._token_overlap(prompt, unmixr_transcript_text)
+        unmixr_row = {
+            "similarity": round(float(unmixr_similarity), 4),
+            "transcript_text": unmixr_transcript_text,
+            "transcript_f1": round(float(unmixr_overlap.get("f1") or 0.0), 4),
+            "status": "ok",
+        }
+    except Exception as exc:
+        unmixr_row = {
+            "similarity": 0.0,
+            "transcript_text": "",
+            "transcript_f1": 0.0,
+            "status": "blocked",
+            "detail": str(exc)[:300],
+        }
 
     voicewave_audio_path = output_dir / f"voicewave-{_OPTIMIZER._normalize_text(prompt).replace(' ', '_') or 'sample'}.wav"
     voicewave_json_path = output_dir / f"{voicewave_audio_path.stem}.json"
@@ -163,11 +179,7 @@ def _compare_prompt(*, prompt: str, base_url: str, output_dir: Path) -> dict[str
     voicewave_overlap = _OPTIMIZER._token_overlap(prompt, voicewave_transcript_text)
     return {
         "prompt": prompt,
-        "unmixr": {
-            "similarity": round(float(unmixr_similarity), 4),
-            "transcript_text": unmixr_transcript_text,
-            "transcript_f1": round(float(unmixr_overlap.get("f1") or 0.0), 4),
-        },
+        "unmixr": unmixr_row,
         "voicewave": {
             "similarity": round(float(voicewave_similarity), 4),
             "transcript_text": voicewave_transcript_text,
@@ -211,10 +223,12 @@ def _voicewave_backup_candidate(rows: list[dict[str, object]]) -> dict[str, obje
 def compare_outputs(*, base_url: str, prompts: list[str], output_dir: Path) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     rows = [_compare_prompt(prompt=prompt, base_url=base_url, output_dir=output_dir) for prompt in prompts]
-    unmixr_average = sum(float(item["unmixr"]["similarity"]) for item in rows) / float(len(rows) or 1)
+    unmixr_available_rows = [item for item in rows if str((item.get("unmixr") or {}).get("status") or "ok") == "ok"]
+    unmixr_average = sum(float(item["unmixr"]["similarity"]) for item in unmixr_available_rows) / float(len(unmixr_available_rows) or 1)
     voicewave_average = sum(float(item["voicewave"]["similarity"]) for item in rows) / float(len(rows) or 1)
-    unmixr_transcript_average = sum(float(item["unmixr"]["transcript_f1"]) for item in rows) / float(len(rows) or 1)
+    unmixr_transcript_average = sum(float(item["unmixr"]["transcript_f1"]) for item in unmixr_available_rows) / float(len(unmixr_available_rows) or 1)
     voicewave_transcript_average = sum(float(item["voicewave"]["transcript_f1"]) for item in rows) / float(len(rows) or 1)
+    unmixr_status = "ok" if unmixr_available_rows else "blocked"
     return {
         "base_url": base_url,
         "prompts": rows,
@@ -224,7 +238,8 @@ def compare_outputs(*, base_url: str, prompts: list[str], output_dir: Path) -> d
             "unmixr_transcript_f1": round(unmixr_transcript_average, 4),
             "voicewave_transcript_f1": round(voicewave_transcript_average, 4),
         },
-        "winner": "unmixr" if unmixr_average >= voicewave_average else "voicewave",
+        "unmixr_status": unmixr_status,
+        "winner": "unmixr" if unmixr_status == "ok" and unmixr_average >= voicewave_average else ("voicewave" if voicewave_average > 0 else "unavailable"),
         "voicewave_backup_candidate": _voicewave_backup_candidate(rows),
     }
 
