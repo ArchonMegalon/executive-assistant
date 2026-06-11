@@ -117,6 +117,7 @@ _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
 _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
 _GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
+_MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS = 600
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 30.0
@@ -13264,6 +13265,15 @@ def _load_gemini_live_oauth_creds() -> dict[str, object]:
     return dict(loaded) if isinstance(loaded, dict) else {}
 
 
+def _save_gemini_live_oauth_creds(creds: dict[str, object]) -> None:
+    try:
+        target = _gemini_live_oauth_creds_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(dict(creds), ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _gemini_live_oauth_client_config() -> tuple[str, str]:
     client_id = str(
         os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_ID")
@@ -13307,13 +13317,20 @@ def _gemini_live_oauth_access_token() -> str:
     token = str(creds.get("access_token") or "").strip()
     if not token:
         return ""
+    now = time.time()
     try:
         expires_at_ms = int(float(creds.get("expiry_date") or 0))
     except Exception:
         expires_at_ms = 0
     force_refresh = str(os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_FORCE_REFRESH") or "").strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        last_failed_at = float(creds.get("ea_memorial_live_refresh_failed_at") or 0.0)
+    except Exception:
+        last_failed_at = 0.0
+    if not force_refresh and last_failed_at and now - last_failed_at < _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS:
+        return ""
     needs_first_memorial_refresh = bool(str(creds.get("refresh_token") or "").strip()) and not bool(creds.get("ea_memorial_live_refreshed_at"))
-    if force_refresh or needs_first_memorial_refresh or (expires_at_ms and expires_at_ms <= int((time.time() + 90) * 1000)):
+    if force_refresh or needs_first_memorial_refresh or (expires_at_ms and expires_at_ms <= int((now + 90) * 1000)):
         refreshed = _refresh_gemini_live_oauth_creds(creds)
         if not refreshed.get("ea_memorial_live_refreshed_at"):
             return ""
@@ -13341,17 +13358,29 @@ def _refresh_gemini_live_oauth_creds(creds: dict[str, object]) -> dict[str, obje
             timeout=15,
         )
     except requests.RequestException:
-        return creds
+        failed = dict(creds)
+        failed["ea_memorial_live_refresh_failed_at"] = time.time()
+        failed["ea_memorial_live_refresh_failed_reason"] = "request_exception"
+        _save_gemini_live_oauth_creds(failed)
+        return failed
     if response.status_code >= 400:
         logger.warning("gemini live oauth refresh failed status=%s detail=%s", response.status_code, response.text[:240])
-        return creds
+        failed = dict(creds)
+        failed["ea_memorial_live_refresh_failed_at"] = time.time()
+        failed["ea_memorial_live_refresh_failed_reason"] = f"http_{response.status_code}"
+        _save_gemini_live_oauth_creds(failed)
+        return failed
     try:
         payload = response.json()
     except ValueError:
         return creds
     access_token = str(payload.get("access_token") or "").strip()
     if not access_token:
-        return creds
+        failed = dict(creds)
+        failed["ea_memorial_live_refresh_failed_at"] = time.time()
+        failed["ea_memorial_live_refresh_failed_reason"] = "missing_access_token"
+        _save_gemini_live_oauth_creds(failed)
+        return failed
     expires_in = 0
     try:
         expires_in = max(60, int(payload.get("expires_in") or 0))
@@ -13362,14 +13391,14 @@ def _refresh_gemini_live_oauth_creds(creds: dict[str, object]) -> dict[str, obje
     refreshed["token_type"] = str(payload.get("token_type") or refreshed.get("token_type") or "Bearer")
     refreshed["expiry_date"] = int((time.time() + expires_in) * 1000)
     refreshed["ea_memorial_live_refreshed_at"] = datetime.now(timezone.utc).isoformat()
+    refreshed.pop("ea_memorial_live_refresh_failed_at", None)
+    refreshed.pop("ea_memorial_live_refresh_failed_reason", None)
     if payload.get("scope"):
         refreshed["scope"] = str(payload.get("scope"))
     if payload.get("id_token"):
         refreshed["id_token"] = str(payload.get("id_token"))
     try:
-        target = _gemini_live_oauth_creds_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(refreshed, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+        _save_gemini_live_oauth_creds(refreshed)
     except Exception:
         pass
     return refreshed

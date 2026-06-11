@@ -3199,6 +3199,55 @@ def test_memorial_gemini_live_rejects_stale_oauth_when_required_refresh_fails(
     assert uri == ""
     assert headers == {}
     assert auth_mode == ""
+    failed = json.loads(creds_path.read_text(encoding="utf-8"))
+    assert failed["ea_memorial_live_refresh_failed_at"]
+    assert failed["ea_memorial_live_refresh_failed_reason"] == "http_401"
+
+
+def test_memorial_gemini_live_oauth_refresh_failure_cooldown_skips_repeated_http(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "EA_GEMINI_API_KEY", "EA_GOOGLE_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "stale-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+                "ea_memorial_live_refresh_failed_at": time.time(),
+                "ea_memorial_live_refresh_failed_reason": "http_401",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "existing-google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "existing-google-secret")
+    seen = {"post": 0}
+
+    def _fake_post(*args, **kwargs):
+        seen["post"] += 1
+        raise AssertionError("cooldown should skip oauth refresh http call")
+
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    uri, headers, auth_mode = public_memorials._gemini_live_connect_target()
+
+    assert uri == ""
+    assert headers == {}
+    assert auth_mode == ""
+    assert seen["post"] == 0
 
 
 def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(
