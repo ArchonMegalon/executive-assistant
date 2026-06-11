@@ -107,12 +107,12 @@ _MAX_REALTIME_TEXT_CHARS = 600
 _MAX_REALTIME_CONCURRENT_TURNS = 2
 _MEMORIAL_TTS_LEAD_IN_MS = 420
 _MEMORIAL_TTS_TAIL_SILENCE_MS = 700
-_MEMORIAL_CONTACT_TTS_LEAD_IN_MS = 260
-_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS = 260
+_MEMORIAL_CONTACT_TTS_LEAD_IN_MS = 420
+_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
-_MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 300
-_MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 1100
+_MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 560
+_MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 620
 _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
 _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
@@ -3476,22 +3476,22 @@ def _memorial_present_world_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("wetter", "regnet", "regen", "sonnig", "sonne", "temperatur", "grad", "draussen", "draußen")):
         return (
-            "Beim Wetter wuerde ich es schlicht ordnen: zuerst Ort und Zeitfenster, dann Regen, Temperatur und Wind. "
-            "Ich sehe das aktuelle Wetter hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann ordnen wir es nuechtern."
+            "Das aktuelle Wetter sehe ich hier nicht direkt. "
+            "Sag mir den Ort, dann ordnen wir Regen, Temperatur und Wind."
         )
     if any(token in lowered for token in ("uhrzeit", "wie spaet", "wie spät", "wieviel uhr", "wie viel uhr")):
         return (
-            "Bei der Uhrzeit zaehlt nur der klare Stand. Ich sehe sie hier nicht direkt. "
-            "Schau kurz auf die Uhr, dann ordnen wir den naechsten Schritt."
+            "Die Uhrzeit sehe ich hier nicht direkt. "
+            "Schau kurz nach, dann ordnen wir den naechsten Schritt."
         )
     if any(token in lowered for token in ("welcher tag", "welches datum", "welchen tag haben wir")):
         return (
-            "Beim Datum wuerde ich erst den Stand festhalten und dann die Bedeutung klaeren. "
-            "Den heutigen Tag sehe ich hier nicht direkt. Sag ihn mir kurz, dann ordnen wir es gemeinsam."
+            "Den heutigen Tag sehe ich hier nicht direkt. "
+            "Sag ihn mir kurz, dann ordnen wir es gemeinsam."
         )
     return (
-        "Beim Aktuellen wuerde ich erst den Stand sauber festhalten und dann urteilen. "
-        "Ich sehe die Lage hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf."
+        "Die aktuelle Lage sehe ich hier nicht direkt. "
+        "Sag mir den konkreten Stand, dann antworte ich dir darauf."
     )
 
 
@@ -5757,28 +5757,28 @@ def _compact_memorial_realtime_answer(value: object) -> str:
             .replace("schriftlich pruefen, Zahlen vergleichen, erst dann entscheiden", "schriftlich pruefen, vergleichen, dann entscheiden")
             .replace(".. ", ". ")
         )
-        if len(compact) <= 300:
+        if len(compact) <= 260:
             return compact
-        shortened = compact[:300].rsplit(" ", 1)[0].strip()
-        return (shortened or compact[:300].strip()).rstrip(",;:")
+        shortened = compact[:260].rsplit(" ", 1)[0].strip()
+        return (shortened or compact[:260].strip()).rstrip(",;:")
     compact_parts: list[str] = []
     total_length = 0
-    for sentence in sentences[:3]:
+    for sentence in sentences[:2]:
         sentence = sentence.strip()
         if not sentence:
             continue
         next_length = total_length + (1 if compact_parts else 0) + len(sentence)
-        if compact_parts and next_length > 300:
+        if compact_parts and next_length > 220:
             break
         compact_parts.append(sentence)
         total_length = next_length
-        if total_length >= 240:
+        if total_length >= 180:
             break
     compact = " ".join(compact_parts).strip() or sentences[0].strip()
-    if len(compact) <= 300:
+    if len(compact) <= 220:
         return compact
-    shortened = compact[:300].rsplit(" ", 1)[0].strip()
-    return (shortened or compact[:300].strip()).rstrip(",;:")
+    shortened = compact[:220].rsplit(" ", 1)[0].strip()
+    return (shortened or compact[:220].strip()).rstrip(",;:")
 
 
 def _pad_speech_audio_lead_in(
@@ -5987,6 +5987,18 @@ def _speech_postprocess_filters_for_config(tts_plugin: str, payload: dict[str, o
                     "equalizer=f=2600:t=q:w=1.0:g=-0.8",
                     "lowpass=f=7000",
                     "alimiter=limit=0.94",
+                ]
+            )
+        if profile in {"unmixr_realtime_clear", "realtime_clear", "live_clear"}:
+            return ",".join(
+                [
+                    "highpass=f=38",
+                    "equalizer=f=160:t=q:w=1.0:g=0.7",
+                    "equalizer=f=900:t=q:w=1.1:g=0.3",
+                    "equalizer=f=2700:t=q:w=1.0:g=-0.4",
+                    "lowpass=f=7200",
+                    "atempo=0.92",
+                    "alimiter=limit=0.95",
                 ]
             )
         return ",".join(
@@ -11233,7 +11245,7 @@ def _memorial_html(
         setSpeakingOverlayPreview(normalizedText);
         setSpeechStatus("", "thinking", "");
         try {{
-          await primeMemorialAudioOutput(350);
+          await primeMemorialAudioOutput(650);
           await speechAudio.play();
         }} catch (error) {{
           failPlayback("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
@@ -13484,6 +13496,10 @@ def _apply_memorial_live_clone_tts_policy(config: dict[str, object]) -> dict[str
     elif preferred == UNMIXR_TTS_PLUGIN_ID:
         if provider_changed or not _text(merged.get("tts_plugin_voice_id"), ""):
             merged["tts_plugin_voice_id"] = unmixr_memorial_voice_id()
+        if not _text(merged.get("tts_postprocess_profile"), ""):
+            merged["tts_postprocess_profile"] = "unmixr_realtime_clear"
+        if not _text(merged.get("unmixr_speaking_rate"), ""):
+            merged["unmixr_speaking_rate"] = "0.90"
     return merged
 
 
@@ -14151,7 +14167,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if not await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "speaking", "detail": speaking_detail}):
                 return
             base_config = _load_voice_config(slug)
-            merged_config = dict(base_config)
+            merged_config = _apply_memorial_live_clone_tts_policy(base_config)
             merged_config["lang"] = current_conversation_language
             if current_voice_ab_variant in {"a", "b"}:
                 merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=current_voice_ab_variant, context=personal_memory_context))

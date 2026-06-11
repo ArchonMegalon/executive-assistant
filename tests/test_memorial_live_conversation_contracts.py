@@ -1865,7 +1865,7 @@ def test_memorial_live_page_source_primes_audio_output_before_playback() -> None
 
     assert "async function primeMemorialAudioOutput(durationMs = 900)" in source
     assert "gain.gain.value = 0.0008;" in source
-    assert "await primeMemorialAudioOutput(350);" in source
+    assert "await primeMemorialAudioOutput(650);" in source
     assert "void primeMemorialAudioOutput(1200);" in source
     assert "void primeMemorialAudioOutput(900);" in source
 
@@ -1911,6 +1911,22 @@ def test_memorial_unmixr_minimal_postprocess_profile_is_available() -> None:
     assert "alimiter=limit=0.97" in filters
     assert "acompressor" not in filters
     assert "afftdn" not in filters
+
+
+def test_memorial_unmixr_realtime_clear_profile_slows_and_preserves_start() -> None:
+    from app.api.routes import public_memorials
+
+    filters = public_memorials._speech_postprocess_filters_for_config(
+        public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        {"tts_postprocess_profile": "unmixr_realtime_clear"},
+    )
+
+    assert "highpass=f=38" in filters
+    assert "lowpass=f=7200" in filters
+    assert "atempo=0.92" in filters
+    assert "alimiter=limit=0.95" in filters
+    assert "afftdn" not in filters
+    assert "acompressor" not in filters
 
 
 def test_memorial_unmixr_raw_preserve_profile_is_available() -> None:
@@ -2205,6 +2221,33 @@ def test_memorial_unmixr_defaults_to_natural_minimal_postprocess(
     assert "afftdn" not in filters
     assert "acompressor" not in filters
     assert "lowpass=f=7600" in filters
+
+
+def test_memorial_live_unmixr_policy_uses_clear_slow_profile() -> None:
+    from app.api.routes import public_memorials
+
+    merged = public_memorials._apply_memorial_live_clone_tts_policy(
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "voice-123",
+        }
+    )
+
+    assert merged["tts_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID
+    assert merged["tts_postprocess_profile"] == "unmixr_realtime_clear"
+    assert merged["unmixr_speaking_rate"] == "0.90"
+
+
+def test_memorial_realtime_answer_compaction_keeps_live_voice_short() -> None:
+    from app.api.routes import public_memorials
+
+    compact = public_memorials._compact_memorial_realtime_answer(
+        "Erstens ordnen wir die Sache ruhig und ohne Theater. "
+        "Zweitens bleiben wir bei dem, was belegt ist. "
+        "Drittens reden wir erst weiter, wenn der konkrete Punkt klar ist."
+    )
+
+    assert compact == "Erstens ordnen wir die Sache ruhig und ohne Theater. Zweitens bleiben wir bei dem, was belegt ist."
 
 
 def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(
@@ -2510,6 +2553,9 @@ def test_memorial_gemini_live_falls_back_to_stable_stt_when_input_transcript_is_
     def _fake_render(**kwargs):
         seen["tts_text"] = kwargs["text"]
         seen["tts_content_type"] = kwargs["selected_option"].get("tts_plugin")
+        seen["tts_postprocess_profile"] = kwargs["merged_config"].get("tts_postprocess_profile")
+        seen["unmixr_speaking_rate"] = kwargs["merged_config"].get("unmixr_speaking_rate")
+        seen["lead_in_ms"] = kwargs["lead_in_ms"]
         return b"fake-wav-audio", "audio/wav"
 
     monkeypatch.setattr(public_memorials, "_render_memorial_tts_audio", _fake_render)
@@ -2537,6 +2583,9 @@ def test_memorial_gemini_live_falls_back_to_stable_stt_when_input_transcript_is_
     assert any(message.get("type") == "transcript" and message.get("text") == "Wie ist das Wetter heute?" for message in messages)
     assert "Wetter" in seen["tts_text"]
     assert seen["tts_text"] not in CONTACT_REPLY_VARIANTS
+    assert seen["tts_postprocess_profile"] == "unmixr_realtime_clear"
+    assert seen["unmixr_speaking_rate"] == "0.90"
+    assert seen["lead_in_ms"] == public_memorials._MEMORIAL_REALTIME_TTS_LEAD_IN_MS
     assert any(message.get("type") == "audio_chunk" and message.get("content_type") == "audio/wav" for message in messages)
     assert any(message.get("type") == "audio_complete" and message.get("content_type") == "audio/wav" for message in messages)
     assert any(message.get("type") == "turn_complete" for message in messages)
