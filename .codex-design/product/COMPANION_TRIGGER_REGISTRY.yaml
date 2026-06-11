@@ -1,0 +1,686 @@
+product: chummer
+surface: companion
+version: 1
+global_rules:
+  trigger_truth_owner: chummer_owned_state
+  ea_position: downstream_compile_only
+  default_runtime_path: first_party_local_fallback
+  default_render_modes:
+    - micro_bark
+    - bark_with_chips
+    - evidence_drawer
+  companion_scene_default: rare_only
+  default_cooldown_scope: trigger_class_per_surface
+  default_max_impressions_per_day: 2
+  evidence_drawer_required_for:
+    - caution
+    - blocking
+  runtime_blockers:
+    - ea_unavailable_must_not_block_runtime
+    - media_unavailable_must_not_block_runtime
+    - llm_unavailable_must_not_block_runtime
+trigger_classes:
+  - id: build_archetype_drift
+    event_type: build_role_mismatch
+    owning_domain: build_lab
+    summary: Flags when stated archetype and actual build direction drift apart.
+    source_facts:
+      - build_variant_role_projection
+      - selected_archetype
+      - weighted_capability_profile
+    allowed_surfaces:
+      - build_lab
+      - compare_view
+    mask_id: analyst
+    severity: caution
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: medium
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_why
+      - compare_variants
+      - suggest_safer_route
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_build
+      cooldown_seconds: 14400
+      max_impressions_per_day: 2
+      requires_material_change: true
+
+  - id: build_trap_choice_intercept
+    event_type: build_trap_warning
+    owning_domain: build_lab
+    summary: Intercepts legal-but-bad choices that create a predictable future failure.
+    source_facts:
+      - trap_choice_detection
+      - rules_legality_receipt
+      - downstream_cost_projection
+    allowed_surfaces:
+      - build_lab
+      - compare_view
+    mask_id: analyst
+    severity: caution
+    urgency: interrupting
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_why
+      - fix_it
+      - keep_the_chaos
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_build
+      cooldown_seconds: 21600
+      max_impressions_per_day: 2
+      requires_material_change: true
+
+  - id: campaign_rules_changed
+    event_type: campaign_drift_alert
+    owning_domain: campaign_workspace
+    summary: Announces that the campaign or rules environment changed for the current runner or crew.
+    source_facts:
+      - campaign_rule_environment_revision
+      - what_changed_for_me_packet
+      - amend_package_activation_receipt
+    allowed_surfaces:
+      - home_cockpit
+      - campaign_workspace
+      - runboard
+    mask_id: handler
+    severity: caution
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_diff
+      - review_impacts
+      - open_campaign_workspace
+    evidence_drawer_required: true
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_campaign
+      cooldown_seconds: 43200
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: preview_scout_warning
+    event_type: update_ready
+    owning_domain: update
+    summary: Warns when a preview-scout or risky install posture makes continuation unsafe or intentionally risky.
+    source_facts:
+      - install_role
+      - release_channel
+      - restore_or_update_risk_receipt
+    allowed_surfaces:
+      - home_cockpit
+      - update_flow
+      - install_continuation
+    mask_id: concierge
+    severity: caution
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_risk
+      - continue_anyway
+      - open_safe_install
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_install
+      cooldown_seconds: 21600
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: support_fix_confirmation
+    event_type: fix_closure
+    owning_domain: support
+    summary: Celebrates only when a reported issue is fixed on the user's actual release channel.
+    source_facts:
+      - support_case_status
+      - release_channel_confirmation
+      - install_linking_truth
+    allowed_surfaces:
+      - home_cockpit
+      - support_case_detail
+      - install_continuation
+    mask_id: concierge
+    severity: celebration
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+      - companion_scene
+    cta_families:
+      - update_now
+      - show_fix_receipt
+      - open_support_case
+    evidence_drawer_required: true
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack_and_rare_media_brief
+    suppression:
+      cooldown_scope: trigger_class_per_support_case
+      cooldown_seconds: 28800
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: action_budget_warning
+    event_type: action_budget_change
+    owning_domain: runboard
+    summary: Announces when a player or GM is about to spend the remaining action budget on a meaningful defensive or timing choice.
+    source_facts:
+      - action_budget_result
+      - action_affordance_projection
+      - turn_ledger_delta
+    allowed_surfaces:
+      - runboard
+      - mobile_home
+      - play_shell
+    mask_id: handler
+    severity: caution
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_why
+      - spend_now
+      - hold_action
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: false
+      mode: none
+    suppression:
+      cooldown_scope: trigger_class_per_round
+      cooldown_seconds: 900
+      max_impressions_per_day: 4
+      requires_material_change: true
+
+  - id: campaign_adoption_unknown_history
+    event_type: adoption_guidance
+    owning_domain: campaign_adoption
+    summary: Reassures the user that incomplete legacy history can stay explicit while the ledger starts from today.
+    source_facts:
+      - campaign_adoption_record
+      - migration_confidence_packet
+      - unknown_history_items
+    allowed_surfaces:
+      - campaign_workspace
+      - build_lab
+    mask_id: concierge
+    severity: info
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: none
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - start_from_today
+      - review_unknowns
+      - preserve_legacy_notes
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: false
+      mode: none
+    suppression:
+      cooldown_scope: trigger_class_per_campaign
+      cooldown_seconds: 21600
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: goal_pin_progress_update
+    event_type: goal_progress_change
+    owning_domain: living_dossier
+    summary: Calls out meaningful progress on a pinned runner goal after rewards or state changes land.
+    source_facts:
+      - goal_pin
+      - reward_receipt
+      - career_metric_delta
+    allowed_surfaces:
+      - home_cockpit
+      - mobile_home
+      - build_lab
+    mask_id: analyst
+    severity: info
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_goal
+      - show_next_safe_action
+      - review_requirements
+    evidence_drawer_required: false
+    media_eligible: false
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_goal_pin
+      cooldown_seconds: 21600
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: world_tick_consequence_ready
+    event_type: world_consequence_ready
+    owning_domain: black_ledger
+    summary: Announces that an approved run consequence has changed world posture and produced a player-safe feedback artifact.
+    source_facts:
+      - resolution_report
+      - world_tick
+      - player_safe_news_item
+    allowed_surfaces:
+      - campaign_workspace
+      - runboard
+      - mobile_home
+    mask_id: echo
+    severity: celebration
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+      - companion_scene
+    cta_families:
+      - open_news_item
+      - open_world_change
+      - review_next_session
+    evidence_drawer_required: true
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack_and_rare_media_brief
+    suppression:
+      cooldown_scope: trigger_class_per_world_tick
+      cooldown_seconds: 43200
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: calculation_report_packet_ready
+    event_type: calculation_report_ready
+    owning_domain: support
+    summary: Confirms that a report-this-calculation flow has assembled a useful packet from current explain truth.
+    source_facts:
+      - calculation_report_packet
+      - explain_trace
+      - ruleset_fingerprint
+    allowed_surfaces:
+      - build_lab
+      - compare_view
+      - support_case_detail
+    mask_id: concierge
+    severity: info
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: none
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - review_packet
+      - send_packet
+      - redact_more
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: false
+      mode: none
+    suppression:
+      cooldown_scope: trigger_class_per_support_case
+      cooldown_seconds: 14400
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: mission_brief_ready
+    event_type: mission_cold_open
+    owning_domain: publication
+    summary: Announces that a mission briefing bundle is ready for players or GMs.
+    source_facts:
+      - mission_brief_packet
+      - published_artifact_ref
+      - optional_media_ref
+    allowed_surfaces:
+      - campaign_workspace
+      - runboard
+      - mobile_home
+    mask_id: handler
+    severity: info
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+      - companion_scene
+    cta_families:
+      - watch_briefing
+      - open_packet
+      - share_to_crew
+    evidence_drawer_required: false
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack_and_rare_media_brief
+    suppression:
+      cooldown_scope: trigger_class_per_run
+      cooldown_seconds: 43200
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: campaign_primer_ready
+    event_type: campaign_primer_prompt
+    owning_domain: publication
+    summary: Announces a new-player-ready campaign primer bundle.
+    source_facts:
+      - campaign_primer_pack
+      - publication_receipt
+      - locale_ready_receipt
+    allowed_surfaces:
+      - home_cockpit
+      - campaign_workspace
+      - mobile_home
+    mask_id: handler
+    severity: info
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+      - companion_scene
+    cta_families:
+      - watch_primer
+      - open_full_primer
+      - share_to_new_player
+    evidence_drawer_required: false
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack_and_rare_media_brief
+    suppression:
+      cooldown_scope: trigger_class_per_campaign
+      cooldown_seconds: 86400
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: dossier_stale_before_session
+    event_type: dossier_stale_alert
+    owning_domain: campaign_workspace
+    summary: Warns that runner truth is stale against campaign or device context before live use.
+    source_facts:
+      - dossier_freshness_receipt
+      - campaign_state_revision
+      - install_sync_status
+    allowed_surfaces:
+      - home_cockpit
+      - campaign_workspace
+      - runboard
+    mask_id: handler
+    severity: caution
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - refresh_now
+      - show_staleness_receipt
+      - defer
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_runner
+      cooldown_seconds: 21600
+      max_impressions_per_day: 2
+      requires_material_change: true
+
+  - id: runboard_blocker_tension
+    event_type: runboard_blocker
+    owning_domain: runboard
+    summary: Calls out stacked unresolved blockers before a run starts.
+    source_facts:
+      - runboard_blocker_set
+      - readiness_threshold
+      - unresolved_dependency_count
+    allowed_surfaces:
+      - runboard
+      - campaign_workspace
+    mask_id: handler
+    severity: caution
+    urgency: suggested
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - show_blockers
+      - resolve_top_blocker
+      - keep_planning
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack
+    suppression:
+      cooldown_scope: trigger_class_per_run
+      cooldown_seconds: 14400
+      max_impressions_per_day: 2
+      requires_material_change: true
+
+  - id: restore_conflict_warning
+    event_type: restore_conflict
+    owning_domain: restore
+    summary: Warns when multiple candidates or stale grants make restore unsafe to auto-resolve.
+    source_facts:
+      - restore_conflict_receipt
+      - entitlement_sync_receipt
+      - provenance_receipt
+    allowed_surfaces:
+      - home_cockpit
+      - restore_flow
+      - install_continuation
+    mask_id: concierge
+    severity: blocking
+    urgency: interrupting
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: none
+    render_modes:
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - resolve_conflict
+      - inspect_versions
+      - cancel_restore
+    evidence_drawer_required: true
+    media_eligible: false
+    ea_compile:
+      eligible: false
+      mode: first_party_only
+    suppression:
+      cooldown_scope: trigger_class_per_restore_session
+      cooldown_seconds: 0
+      max_impressions_per_day: 6
+      requires_material_change: false
+
+  - id: player_safe_recap_offer
+    event_type: player_safe_recap_prompt
+    owning_domain: table_pulse
+    summary: Offers a player-safe recap only after a bounded post-session packet exists.
+    source_facts:
+      - approved_player_safe_recap_packet
+      - consent_receipt
+      - retention_policy
+    allowed_surfaces:
+      - campaign_workspace
+      - mobile_home
+    mask_id: echo
+    severity: info
+    urgency: ambient
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - companion_scene
+    cta_families:
+      - open_recap
+      - play_audio_recap
+      - dismiss
+    evidence_drawer_required: false
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack_and_rare_media_brief
+    suppression:
+      cooldown_scope: trigger_class_per_session
+      cooldown_seconds: 86400
+      max_impressions_per_day: 1
+      requires_material_change: true
+
+  - id: gm_private_debrief_invite
+    event_type: gm_private_debrief_prompt
+    owning_domain: table_pulse
+    summary: Offers a GM-only debrief when a private coaching packet exists.
+    source_facts:
+      - approved_gm_debrief_packet
+      - consent_receipt
+      - privacy_boundary
+    allowed_surfaces:
+      - campaign_workspace
+      - gm_private_mobile
+    mask_id: echo
+    severity: info
+    urgency: ambient
+    allowed_tone_modes:
+      - muted
+      - practical
+      - playful
+    allowed_joke_budget: light
+    render_modes:
+      - micro_bark
+      - bark_with_chips
+      - evidence_drawer
+    cta_families:
+      - open_debrief
+      - play_audio_walkthrough
+      - dismiss
+    evidence_drawer_required: false
+    media_eligible: true
+    media_modes:
+      - companion_scene
+    ea_compile:
+      eligible: true
+      mode: line_variant_pack_and_rare_media_brief
+    suppression:
+      cooldown_scope: trigger_class_per_session
+      cooldown_seconds: 86400
+      max_impressions_per_day: 1
+      requires_material_change: true
