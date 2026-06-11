@@ -2140,8 +2140,9 @@ def test_memorial_gemini_live_fails_closed_without_server_key(
 def test_memorial_full_realtime_client_uses_funeral_safe_pause_threshold() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
-    assert "Number(options.silenceMs || 920)" in source
-    assert "const minSpeechMs = 760" in source
+    assert "Number(options.silenceMs || 520)" in source
+    assert "const minSpeechMs = 520" in source
+    assert "Math.max(420, Number(options.silenceMs || 520))" in source
 
 
 def test_memorial_gemini_live_uses_websocket_pcm_not_webrtc_sdp(

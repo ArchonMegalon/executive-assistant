@@ -11472,9 +11472,9 @@ def _memorial_html(
         let speechSeen = false;
         let lastVoiceAt = Date.now();
         const startedAt = Date.now();
-        const maxNoSpeechMs = Math.max(1800, Number(options.autoStopMs || 2400));
-        const silenceAfterSpeechMs = Math.max(760, Number(options.silenceMs || 920));
-        const minSpeechMs = 760;
+        const maxNoSpeechMs = Math.max(1500, Number(options.autoStopMs || 2100));
+        const silenceAfterSpeechMs = Math.max(420, Number(options.silenceMs || 520));
+        const minSpeechMs = 520;
         const speechThreshold = Math.max(0.008, Number(options.silenceThreshold || 0.011));
         const finish = (resolve, reject, timeoutId, error = null) => {{
           if (settled) return;
