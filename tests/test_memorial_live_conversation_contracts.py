@@ -2755,7 +2755,7 @@ def test_memorial_gemini_live_reports_oauth_scope_errors(
     assert error == {"type": "error", "turn_id": "turn_scope", "message": "gemini_live_auth_scope_insufficient"}
 
 
-def test_memorial_gemini_live_reports_oauth_scope_errors_after_open(
+def test_memorial_gemini_live_fails_soft_to_audio_buffer_after_oauth_scope_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2815,10 +2815,15 @@ def test_memorial_gemini_live_reports_oauth_scope_errors_after_open(
             }
         )
         phase = websocket.receive_json()
-        error = websocket.receive_json()
+        fallback_phase = websocket.receive_json()
 
     assert phase["phase"] == "listening"
-    assert error == {"type": "error", "turn_id": "turn_scope_open", "message": "gemini_live_auth_scope_insufficient"}
+    assert fallback_phase == {
+        "type": "phase",
+        "turn_id": "turn_scope_open",
+        "phase": "listening",
+        "detail": "Audio wird empfangen",
+    }
 
 
 def test_memorial_gemini_live_uses_mounted_oauth_credentials(

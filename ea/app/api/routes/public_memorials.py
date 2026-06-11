@@ -13734,6 +13734,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 pass
 
     async def _receive_gemini_live(turn_id: str, upstream) -> None:
+        nonlocal current_gemini_socket, current_gemini_receiver_task, current_gemini_turn_id, current_gemini_backend
         transcript_text = ""
         answer_text = ""
         output_audio_mode = _gemini_live_output_audio_mode()
@@ -13929,6 +13930,20 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
                 task = asyncio.create_task(_process_turn(turn_id, bytes(current_audio), current_content_type))
                 _register_turn_task(turn_id, task)
+                return
+            if public_detail in {"gemini_live_auth_scope_insufficient", "gemini_live_auth_invalid"}:
+                current_gemini_socket = None
+                current_gemini_receiver_task = None
+                current_gemini_turn_id = ""
+                current_gemini_backend = ""
+                _log_memorial_timing(
+                    "gemini_live_auth_fallback",
+                    slug=slug,
+                    turn_id=turn_id,
+                    detail=public_detail,
+                    content_type=current_content_type,
+                )
+                await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "listening", "detail": "Audio wird empfangen"})
                 return
             await _safe_send_json({"type": "error", "turn_id": turn_id, "message": public_detail})
 
