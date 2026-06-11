@@ -3084,7 +3084,71 @@ def test_memorial_gemini_live_refreshes_expired_oauth_credentials(
     assert seen["data"]["grant_type"] == "refresh_token"
     refreshed = json.loads(creds_path.read_text(encoding="utf-8"))
     assert refreshed["access_token"] == "fresh-access-token"
+    assert refreshed["ea_memorial_live_refreshed_at"]
     assert uri.startswith("wss://generativelanguage.googleapis.com/ws/")
+
+
+def test_memorial_gemini_live_reuses_existing_google_oauth_client_for_first_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    for name in list(os.environ):
+        if name.startswith("GOOGLE_API_KEY_FALLBACK_"):
+            monkeypatch.delenv(name, raising=False)
+    for name in (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "EA_GEMINI_API_KEY",
+        "EA_GOOGLE_API_KEY",
+        "EA_MEMORIAL_GEMINI_OAUTH_CLIENT_ID",
+        "EA_MEMORIAL_GEMINI_OAUTH_CLIENT_SECRET",
+        "EA_GEMINI_OAUTH_CLIENT_ID",
+        "EA_GEMINI_OAUTH_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    creds_path = tmp_path / "oauth_creds.json"
+    creds_path.write_text(
+        json.dumps(
+            {
+                "access_token": "stale-but-future-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+                "token_type": "Bearer",
+                "expiry_date": int((time.time() + 3600) * 1000),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_OAUTH_CREDS_PATH", str(creds_path))
+    monkeypatch.setenv("EA_MEMORIAL_GEMINI_LIVE_OAUTH", "1")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "existing-google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "existing-google-secret")
+    seen: dict[str, object] = {}
+
+    class _RefreshResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"access_token": "fresh-google-client-token", "expires_in": 3600, "token_type": "Bearer"}
+
+    def _fake_post(url, *, data, timeout):
+        seen["data"] = dict(data)
+        return _RefreshResponse()
+
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    uri, headers, auth_mode = public_memorials._gemini_live_connect_target()
+
+    assert auth_mode == "oauth"
+    assert headers == {"Authorization": "Bearer fresh-google-client-token"}
+    assert seen["data"]["client_id"] == "existing-google-client"
+    assert seen["data"]["client_secret"] == "existing-google-secret"
+    assert uri.startswith("wss://generativelanguage.googleapis.com/ws/")
+    refreshed = json.loads(creds_path.read_text(encoding="utf-8"))
+    assert refreshed["ea_memorial_live_refreshed_at"]
 
 
 def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(

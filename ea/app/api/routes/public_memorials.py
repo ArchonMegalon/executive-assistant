@@ -13268,12 +13268,14 @@ def _gemini_live_oauth_client_config() -> tuple[str, str]:
     client_id = str(
         os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_ID")
         or os.environ.get("EA_GEMINI_OAUTH_CLIENT_ID")
+        or os.environ.get("EA_GOOGLE_OAUTH_CLIENT_ID")
         or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
         or _GEMINI_CLI_OAUTH_CLIENT_ID
     ).strip()
     client_secret = str(
         os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_CLIENT_SECRET")
         or os.environ.get("EA_GEMINI_OAUTH_CLIENT_SECRET")
+        or os.environ.get("EA_GOOGLE_OAUTH_CLIENT_SECRET")
         or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
         or ""
     ).strip()
@@ -13309,7 +13311,9 @@ def _gemini_live_oauth_access_token() -> str:
         expires_at_ms = int(float(creds.get("expiry_date") or 0))
     except Exception:
         expires_at_ms = 0
-    if expires_at_ms and expires_at_ms <= int((time.time() + 90) * 1000):
+    force_refresh = str(os.environ.get("EA_MEMORIAL_GEMINI_OAUTH_FORCE_REFRESH") or "").strip().lower() in {"1", "true", "yes", "on"}
+    needs_first_memorial_refresh = bool(str(creds.get("refresh_token") or "").strip()) and not bool(creds.get("ea_memorial_live_refreshed_at"))
+    if force_refresh or needs_first_memorial_refresh or (expires_at_ms and expires_at_ms <= int((time.time() + 90) * 1000)):
         refreshed = _refresh_gemini_live_oauth_creds(creds)
         token = str(refreshed.get("access_token") or "").strip()
     return token
@@ -13355,6 +13359,7 @@ def _refresh_gemini_live_oauth_creds(creds: dict[str, object]) -> dict[str, obje
     refreshed["access_token"] = access_token
     refreshed["token_type"] = str(payload.get("token_type") or refreshed.get("token_type") or "Bearer")
     refreshed["expiry_date"] = int((time.time() + expires_in) * 1000)
+    refreshed["ea_memorial_live_refreshed_at"] = datetime.now(timezone.utc).isoformat()
     if payload.get("scope"):
         refreshed["scope"] = str(payload.get("scope"))
     if payload.get("id_token"):
