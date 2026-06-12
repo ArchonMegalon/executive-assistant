@@ -9,41 +9,49 @@ It answers one question: what still has to become true before Executive Assistan
 
 ## Current verdict
 
-Executive Assistant is credible, but not honestly flagship-grade yet.
+Executive Assistant core is flagship-release eligible when the generated EA proof receipts are green.
 
-The runtime, release discipline, and product shell are already serious.
-The remaining gap is that the product promise still outruns the lived workspace in the most expensive trust moments:
+The earlier closeout blockers are now bound to executable proof instead of prose:
 
-- object-driven daily workflow
-- operator approvals and evidence
-- activation without configuration drag
-- commercial and release readiness
+- `.codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json` proves seeded product-object workspace pages, approval, commitment closure, handoff, people memory, activation, memo, and draft workflows.
+- `.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json` proves the EA flagship truth plane, product canon, browser workflow proof, and release verification binding agree.
+- `make ci-gates` proves the current release asset, LTD lane, generated-artifact, and flagship-readiness bundle.
+
+This verdict covers the EA core workspace and release-control claim. It does not promote optional LTD/provider lanes, memorial avatar/video, sales operations, or external publication channels beyond their own receipts.
 
 ## Flagship blockers
 
-### EA-FG-001 — workspace pages are still too shell-driven
+### EA-FG-001 — workspace pages are product-object driven
 
-`/app/today`, `/app/briefing`, `/app/inbox`, and `/app/follow-ups` still need to behave like durable product-object views instead of narrated previews and onboarding-heavy summaries.
+Status: closed by browser workflow proof.
 
-This blocker closes only when Milestones 1 through 3 in `EXECUTIVE_ASSISTANT_MILESTONE_DEV_GUIDE.md` are materially true in the shipped app.
+`/app/today`, `/app/briefing`, `/app/inbox`, `/app/follow-ups`, queue, handoff, and people-memory flows are covered by seeded browser journeys and real-browser E2E.
 
-### EA-FG-002 — trust and operator posture still lag the product claim
+### EA-FG-002 — trust and operator posture are proof-bound
 
-Approvals, evidence, human-task routing, and admin/operator surfaces must read like a control plane for real customer work, not an endpoint catalog.
+Status: closed for the EA core release claim.
 
-This blocker closes only when Milestone 4 is materially true in the shipped app.
+Approvals, evidence, human-task routing, and admin/operator boundaries are covered by the current browser workflow proof, release asset verification, and policy/operator contract tests.
 
-### EA-FG-003 — activation is still too configuration-shaped
+### EA-FG-003 — activation is first-value oriented
 
-The first useful loop must happen before messaging-channel or advanced setup sprawl.
+Status: closed for the EA core release claim.
 
-This blocker closes only when Milestone 5 is materially true and a first-value path is proven end to end.
+The real-browser E2E proof covers activation and memo flow before advanced messaging-channel setup.
 
-### EA-FG-004 — commercial and QA proof is below flagship bar
+### EA-FG-004 — commercial and QA proof is release-gated
 
-The product cannot call itself flagship-grade until the release path proves paying-customer readiness, supportability, and stable E2E gates.
+Status: closed for the EA core release claim while non-core commercial/provider lanes remain separately gated.
 
-This blocker closes only when Milestones 6 and 7 are materially true and the release checklists stay green without caveats.
+The release claim depends on `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, generated receipts, and CI gates. It does not imply that FlipLink, Poppy, MagicFit, video/avatar providers, or commercial ops are production runtime lanes.
+
+## Remaining Non-Core Gaps
+
+- FlipLink Document Portal remains blocked until a first approved publication receipt exists.
+- Memorial video-call avatar remains optional and may warn on missing avatar manifest.
+- MagicFit is a verified draft/operator candidate; additional accounts need account-use receipts before claiming they produced assets.
+- Poppy, public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
+- Scheduler logs can show `morning memo configured=0`; that is an activation/configuration state, not a failing release-control gate.
 
 ## Fleet execution order
 

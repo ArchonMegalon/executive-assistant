@@ -403,8 +403,8 @@ def _check_passed(
         ok = all(needle.lower() in markdown_text.lower() for needle in needles)
         return ok, "boundary_text_present" if ok else "boundary_text_missing"
     if key == "first_publication_receipt":
-        ok = _existing_receipt(root, "ea/_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json", "_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json")
-        return ok, "publication_receipt_present" if ok else "publication_receipt_missing"
+        ok = _passing_json_receipt(root, "ea/_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json", "_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json")
+        return ok, "publication_receipt_passed" if ok else "publication_receipt_missing_or_failed"
     if key == "provider_verification":
         ok = any(
             str(discovery.get(_normalize(provider), {}).get("discovery_status") or "") in {"complete", "manual_seeded"}
@@ -570,16 +570,17 @@ def build_ltd_provider_governance_receipt(
     *,
     markdown_path: Path | None = None,
     env: Mapping[str, str] | None = None,
+    root: Path | None = None,
     generated_at: str | None = None,
 ) -> dict[str, object]:
-    root = _repo_root()
-    path = markdown_path or (root / "LTDs.md")
+    resolved_root = root or (markdown_path.parent if markdown_path else _repo_root())
+    path = markdown_path or (resolved_root / "LTDs.md")
     markdown_text = path.read_text(encoding="utf-8")
     inventory_rows = load_ltd_inventory_rows(path)
     merged_env = dict(env or {})
     if env is None:
         merged_env.update({key: value for key, value in os.environ.items() if value})
-        dot_env = _load_dotenv(root / ".env")
+        dot_env = _load_dotenv(resolved_root / ".env")
         dot_env.update(merged_env)
         merged_env = dot_env
     receipts = [
@@ -588,7 +589,7 @@ def build_ltd_provider_governance_receipt(
             markdown_text=markdown_text,
             inventory_rows=inventory_rows,
             env=merged_env,
-            root=root,
+            root=resolved_root,
             generated_at=generated_at,
         )
         for lane in LANES
@@ -615,7 +616,7 @@ def materialize_ltd_provider_governance_receipts(
     root = _repo_root()
     target = output_dir or (root / "_completion" / "ltd_provider_lanes")
     target.mkdir(parents=True, exist_ok=True)
-    receipt = build_ltd_provider_governance_receipt(markdown_path=markdown_path)
+    receipt = build_ltd_provider_governance_receipt(markdown_path=markdown_path, root=markdown_path.parent if markdown_path else root)
     lanes = receipt["lanes"]
     if lane_key:
         lane = lane_by_key(lane_key)

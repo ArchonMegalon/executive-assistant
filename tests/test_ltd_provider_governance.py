@@ -215,6 +215,43 @@ def test_unmixr_voice_roundtrip_requires_passing_receipt(tmp_path: Path) -> None
     assert "voice_roundtrip_validation" not in passed["missing_checks"]
 
 
+def test_fliplink_first_publication_requires_passing_receipt(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+    lane = lane_by_key("fliplink_document_portal")
+    assert lane is not None
+    receipt_dir = tmp_path / "_completion" / "fliplink"
+    receipt_dir.mkdir(parents=True)
+    receipt_path = receipt_dir / "CHUMMER_FLIPLINK_PUBLICATION.generated.json"
+
+    receipt_path.write_text(json.dumps({"status": "fail"}), encoding="utf-8")
+    failed = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={},
+        root=tmp_path,
+        generated_at="2026-06-10T00:00:00Z",
+    )
+    assert "first_publication_receipt" in failed["missing_checks"]
+    assert failed["lane_state"] == "blocked_pending_proof"
+
+    receipt_path.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+    passed = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={},
+        root=tmp_path,
+        generated_at="2026-06-10T00:00:00Z",
+    )
+    assert "first_publication_receipt" in passed["passed_checks"]
+    assert "first_publication_receipt" not in passed["missing_checks"]
+    assert passed["lane_state"] == "verified_runtime_lane"
+    assert passed["runtime_enabled"] is True
+
+
 def test_materializer_writes_aggregate_and_lane_receipts(tmp_path: Path, monkeypatch) -> None:
     ltd_path = _write_ltd(tmp_path)
     output_dir = tmp_path / "receipts"

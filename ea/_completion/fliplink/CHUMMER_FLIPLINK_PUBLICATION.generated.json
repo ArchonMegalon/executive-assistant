@@ -1,0 +1,61 @@
+{
+  "contract_name": "executive_assistant.fliplink_publication_receipt.v1",
+  "generated_at": "2026-06-12T14:37:56Z",
+  "status": "pass",
+  "provider": "FlipLink.me",
+  "lane_key": "fliplink_document_portal",
+  "document_id": "manfred-how-this-memorial-works",
+  "title": "So funktioniert diese Gedenkseite",
+  "audience": "public",
+  "review_status": "approved",
+  "manifest_path": "/docker/EA/memorial_archive/manfred/public/manfred-how-this-memorial-works/manifest.json",
+  "pdf_path": "/docker/EA/memorial_archive/manfred/public/manfred-how-this-memorial-works/build/output.pdf",
+  "pdf_sha256": "84e161c0001e777d54797503e5a23d7a2edb0927b0fcdd16c25c23821f0afd53",
+  "fliplink_url": "https://archive.myexternalbrain.com/manfred-how-this-memorial-works",
+  "live_url": {
+    "checked": true,
+    "status_code": 200,
+    "content_type": "text/html; charset=utf-8",
+    "sample_bytes": 4081
+  },
+  "source_of_truth_boundary": "EA/Memorial archive owns approved PDF content; FlipLink presents the approved public artifact only.",
+  "privacy": {
+    "public_document": true,
+    "contains_sourcebook_pdf": false,
+    "contains_private_runner_sheet": false,
+    "contains_gm_only_secret": false,
+    "contains_entitlement_or_payment_truth": false
+  },
+  "checks": [
+    {
+      "code": "manifest_public",
+      "status": "pass"
+    },
+    {
+      "code": "manifest_approved",
+      "status": "pass"
+    },
+    {
+      "code": "review_approved_or_published",
+      "status": "pass"
+    },
+    {
+      "code": "pdf_exists",
+      "status": "pass"
+    },
+    {
+      "code": "https_url",
+      "status": "pass"
+    },
+    {
+      "code": "forbidden_source_terms_absent",
+      "status": "pass",
+      "hits": []
+    },
+    {
+      "code": "live_url_get_ok",
+      "status": "pass",
+      "status_code": 200
+    }
+  ]
+}
