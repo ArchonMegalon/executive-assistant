@@ -579,3 +579,41 @@ def test_preflight_live_checks_avatar_video_when_public_json_enabled(monkeypatch
 
     assert report.failed is False
     assert any(item.code == "live_avatar_video_present_on_page" and item.status == "pass" for item in report.findings)
+
+
+def test_preflight_http_request_returns_zero_for_transport_failure(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    def fail_urlopen(*_args, **_kwargs):
+        raise ConnectionResetError("startup race")
+
+    monkeypatch.setattr(preflight.urllib.request, "urlopen", fail_urlopen)
+
+    status, body = preflight.http_request("https://example.test/memorials/manfred")
+
+    assert status == 0
+    assert "ConnectionResetError" in body
+
+
+def test_preflight_live_transport_failures_are_structured_findings(monkeypatch) -> None:
+    import scripts.memorial_flagship_preflight as preflight
+
+    def fake_http_request(url: str, *, method: str = "GET", body: bytes | None = None, headers=None):
+        return 0, "ConnectionResetError: startup race"
+
+    monkeypatch.setattr(preflight, "http_request", fake_http_request)
+
+    report = preflight.Report(slug="manfred")
+    preflight.check_live("manfred", report, "https://example.test")
+
+    failures = [item for item in report.findings if item.code == "live_endpoint_request_failed"]
+    assert report.failed is True
+    assert len(failures) == 6
+    assert {item.detail["route"] for item in failures} == {
+        "raw_manifest",
+        "public_json",
+        "public_page",
+        "voice_config",
+        "archive_json",
+        "speech_synthesize_override_probe",
+    }

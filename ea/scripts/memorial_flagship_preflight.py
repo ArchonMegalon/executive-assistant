@@ -541,20 +541,48 @@ def http_request(url: str, *, method: str = "GET", body: bytes | None = None, he
             return int(response.status), response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        return 0, f"{exc.__class__.__name__}: {exc}"
+
+
+def _live_request(
+    report: Report,
+    url: str,
+    *,
+    route: str,
+    method: str = "GET",
+    body: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str]:
+    status, response_body = http_request(url, method=method, body=body, headers=headers)
+    if status == 0:
+        report.add(
+            "fail",
+            "live_endpoint_request_failed",
+            "Live memorial endpoint request failed before an HTTP response was received.",
+            route=route,
+            url=url,
+            error=response_body,
+        )
+    return status, response_body
 
 
 def check_live(slug: str, report: Report, base_url: str) -> None:
     base = base_url.rstrip("/")
     public_json_payload: dict[str, Any] = {}
 
-    status, _ = http_request(f"{base}/memorials/files/{slug}/memorial.json")
+    status, _ = _live_request(report, f"{base}/memorials/files/{slug}/memorial.json", route="raw_manifest")
     if status == 404:
         report.add("pass", "live_raw_manifest_blocked", "Live raw memorial.json is blocked from the public asset route.")
+    elif status == 0:
+        pass
     else:
         report.add("fail", "live_raw_manifest_exposed", "Live raw memorial.json is still publicly retrievable.", http_status=status)
 
-    status, body = http_request(f"{base}/memorials/{slug}.json")
-    if status != 200:
+    status, body = _live_request(report, f"{base}/memorials/{slug}.json", route="public_json")
+    if status == 0:
+        pass
+    elif status != 200:
         report.add("fail", "live_public_json_unavailable", "Live public memorial JSON is unavailable.", http_status=status)
     else:
         try:
@@ -568,8 +596,10 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         else:
             report.add("pass", "live_public_json_sanitized", "Live public memorial JSON is sanitized.")
 
-    status, body = http_request(f"{base}/memorials/{slug}")
-    if status != 200:
+    status, body = _live_request(report, f"{base}/memorials/{slug}", route="public_page")
+    if status == 0:
+        pass
+    elif status != 200:
         report.add("fail", "live_public_page_unavailable", "Live public memorial page is unavailable.", http_status=status)
     else:
         missing_markers = sorted(marker for marker in REQUIRED_PUBLIC_PAGE_MARKERS if marker not in body)
@@ -599,8 +629,10 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         else:
             report.add("pass", "live_avatar_portrait_fallback_consistent", "Live page portrait fallback matches the public JSON avatar-disabled state.")
 
-    status, body = http_request(f"{base}/memorials/{slug}/voice-config")
-    if status != 200:
+    status, body = _live_request(report, f"{base}/memorials/{slug}/voice-config", route="voice_config")
+    if status == 0:
+        pass
+    elif status != 200:
         report.add("fail", "live_voice_config_unavailable", "Live voice-config route is unavailable.", http_status=status)
     else:
         try:
@@ -613,7 +645,7 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
         else:
             report.add("pass", "live_voice_config_sanitized", "Live voice-config route does not expose raw provider identifiers.")
 
-    status, body = http_request(f"{base}/memorials/{slug}/archive.json")
+    status, body = _live_request(report, f"{base}/memorials/{slug}/archive.json", route="archive_json")
     if status == 200:
         try:
             payload = json.loads(body)
@@ -630,19 +662,21 @@ def check_live(slug: str, report: Report, base_url: str) -> None:
             report.add("fail", "live_archive_json_exposes_non_public_audience", "Live archive JSON still exposes non-public audiences.", audiences=non_public)
         else:
             report.add("pass", "live_archive_json_public_only", "Live archive JSON exposes public publications only.")
-    else:
+    elif status != 0:
         report.add("warn", "live_archive_json_unavailable", "Live archive JSON endpoint is unavailable.", http_status=status)
 
     bad_tts_payload = json.dumps({"text": "Test", "tts_plugin_voice_id": "should-not-pass"}).encode("utf-8")
-    status, _ = http_request(
+    status, _ = _live_request(
+        report,
         f"{base}/memorials/{slug}/speech-synthesize",
+        route="speech_synthesize_override_probe",
         method="POST",
         body=bad_tts_payload,
         headers={"Content-Type": "application/json"},
     )
     if status in {400, 403}:
         report.add("pass", "live_public_tts_rejects_override", "Live public TTS rejects client-supplied voice overrides.", http_status=status)
-    else:
+    elif status != 0:
         report.add("fail", "live_public_tts_override_not_rejected", "Live public TTS accepted or ignored a forbidden voice override payload.", http_status=status)
 
 
