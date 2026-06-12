@@ -41,6 +41,9 @@ RUN set -eu; \
     elif [ -f /tmp/src/LTDs.md ]; then \
       cp /tmp/src/LTDs.md /app/LTDs.md; \
     fi; \
+    if [ -f /tmp/src/Makefile ]; then \
+      cp /tmp/src/Makefile /app/Makefile; \
+    fi; \
     mkdir -p /app/scripts; \
     if [ -d /tmp/src/scripts ]; then \
       for script in /tmp/src/scripts/*; do \
