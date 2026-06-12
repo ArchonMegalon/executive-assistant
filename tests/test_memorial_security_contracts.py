@@ -1188,6 +1188,7 @@ def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_MEMORIAL_MANFRED_VOICE_B_ID", "provider-test-challenger-v2")
     public_root = tmp_path / "public"
     slug = "manfred"
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
@@ -1205,14 +1206,14 @@ def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
                         "id": "a",
                         "label": "Stimme A · klarer",
                         "tts_plugin": "unmixr_clone",
-                        "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+                        "tts_plugin_voice_id": "provider-test-champion-a",
                         "description": "Champion",
                     },
                     {
                         "id": "b",
                         "label": "Stimme B · challenger",
                         "tts_plugin": "unmixr_clone",
-                        "tts_plugin_voice_id": "e8eced7f-35fa-4036-af46-ba2b748afd70",
+                        "tts_plugin_voice_id": "provider-test-challenger-old",
                         "description": "Old challenger",
                     },
                 ],
@@ -1237,7 +1238,7 @@ def test_public_voice_ab_auto_rotates_challenger_after_effective_margin(
 
     stored_config = json.loads((voice_ab_root / "voice_ab.json").read_text(encoding="utf-8"))
     variant_b = next(item for item in stored_config["variants"] if item["id"] == "b")
-    assert variant_b["tts_plugin_voice_id"] == "26858715-06e2-4bd3-a100-e0c1c1676466"
+    assert variant_b["tts_plugin_voice_id"] == "provider-test-challenger-v2"
 
     stored_ratings = json.loads((voice_ab_root / "ratings.json").read_text(encoding="utf-8"))
     assert stored_ratings["round"] == 2

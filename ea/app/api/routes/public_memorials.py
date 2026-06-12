@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
 import hashlib
 import html
 import io
@@ -120,6 +121,7 @@ _GEMINI_CLI_OAUTH_CLIENT_ID = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.app
 _MEMORIAL_GEMINI_OAUTH_FAILURE_COOLDOWN_SECONDS = 600
 _MEMORIAL_LIVE_WARMUP_TTL_SECONDS = 600
 _MEMORIAL_REALTIME_LLM_TIMEOUT_SECONDS = 8.0
+_MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS = 10.0
 _MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS = 30.0
 _PUBLIC_MEMORIAL_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "chat": (18, 60),
@@ -1143,7 +1145,7 @@ def _load_voice_ab_config(slug: str) -> dict[str, object]:
                     "id": _text(item.get("id"), "a"),
                     "label": _text(item.get("label"), "Stimme"),
                     "tts_plugin": _safe_tts_plugin_id(item.get("tts_plugin")) or UNMIXR_TTS_PLUGIN_ID,
-                    "tts_plugin_voice_id": _text(item.get("tts_plugin_voice_id"), ""),
+                    "tts_plugin_voice_id": _runtime_secret_placeholder(_text(item.get("tts_plugin_voice_id"), "")),
                     "unmixr_speaking_rate": _text(item.get("unmixr_speaking_rate"), "low"),
                     "unmixr_speaking_pitch": _text(item.get("unmixr_speaking_pitch"), "medium"),
                     "unmixr_speaking_volume": _text(item.get("unmixr_speaking_volume"), "high"),
@@ -1168,7 +1170,7 @@ def _default_voice_ab_pool(slug: str) -> dict[str, object]:
     if _safe_slug(slug) == "manfred":
         challengers = [
             {
-                "voice_id": "c381af52-a4de-4b0e-a974-99ebc1cfd0b3",
+                "voice_id": _runtime_secret_placeholder("${EA_MEMORIAL_MANFRED_VOICE_B_ID}"),
                 "label": "Stimme B · naeher an ihm",
                 "description": "Bisher bester identitaetsnaher Challenger",
                 "unmixr_speaking_rate": "low",
@@ -1188,7 +1190,7 @@ def _default_voice_ab_pool(slug: str) -> dict[str, object]:
                 "hypothesis": "Mehr Identitaet, etwas hoehere Artefaktrisiken.",
             },
             {
-                "voice_id": "26858715-06e2-4bd3-a100-e0c1c1676466",
+                "voice_id": _runtime_secret_placeholder("${EA_MEMORIAL_MANFRED_VOICE_A_ID}"),
                 "label": "Stimme B · V2 challenger",
                 "description": "Neuerer identitaetsnaher Clone mit weicherer Prosodie",
                 "unmixr_speaking_rate": "low",
@@ -1230,6 +1232,7 @@ def _load_voice_ab_pool(slug: str) -> dict[str, object]:
         payload = {}
     merged = _default_voice_ab_pool(slug)
     merged.update({k: v for k, v in payload.items() if k != "challengers"})
+    merged["champion_voice_id"] = _runtime_secret_placeholder(merged.get("champion_voice_id"))
     challengers = payload.get("challengers")
     if isinstance(challengers, list) and challengers:
         cleaned_challengers: list[dict[str, object]] = []
@@ -1237,10 +1240,21 @@ def _load_voice_ab_pool(slug: str) -> dict[str, object]:
             if not isinstance(item, dict):
                 continue
             cleaned = dict(item)
+            cleaned["voice_id"] = _runtime_secret_placeholder(item.get("voice_id"))
             cleaned["feature_profile"] = _voice_ab_normalize_feature_profile(item.get("feature_profile"))
             cleaned["hypothesis"] = _text(item.get("hypothesis"), "")
             cleaned_challengers.append(cleaned)
         merged["challengers"] = cleaned_challengers
+    retired = merged.get("retired_voices")
+    if isinstance(retired, list):
+        cleaned_retired: list[dict[str, object]] = []
+        for item in retired:
+            if not isinstance(item, dict):
+                continue
+            cleaned = dict(item)
+            cleaned["voice_id"] = _runtime_secret_placeholder(item.get("voice_id"))
+            cleaned_retired.append(cleaned)
+        merged["retired_voices"] = cleaned_retired
     return merged
 
 
@@ -2535,8 +2549,16 @@ def _safe_tts_plugin_id(value: object) -> str:
     return normalized
 
 
+def _runtime_secret_placeholder(value: object) -> str:
+    raw = str(value or "").strip()
+    match = re.fullmatch(r"\$\{([A-Z0-9_]+)\}", raw)
+    if not match:
+        return raw
+    return str(os.environ.get(match.group(1)) or "").strip()
+
+
 def _tts_plugin_options(*, payload: dict[str, object], voice_profile_ready: bool) -> list[dict[str, object]]:
-    configured_voice_id = _text(payload.get("tts_plugin_voice_id"), "")
+    configured_voice_id = _runtime_secret_placeholder(_text(payload.get("tts_plugin_voice_id"), ""))
     unmixr_voice_id = configured_voice_id or unmixr_memorial_voice_id()
     openvoice_voice_id = configured_voice_id or openvoice_memorial_voice_id()
     voicewave_voice_id = configured_voice_id or voicewave_memorial_voice_label()
@@ -2739,8 +2761,8 @@ def _load_voice_config(slug: str) -> dict[str, object]:
             default_config.update(
                 {
                     "tts_plugin": persisted_tts_plugin,
-                    "tts_plugin_voice_id": _text(payload.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])),
-                    "voice_profile_id": _text(payload.get("voice_profile_id"), str(default_config["voice_profile_id"])),
+                    "tts_plugin_voice_id": _runtime_secret_placeholder(_text(payload.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"]))),
+                    "voice_profile_id": _runtime_secret_placeholder(_text(payload.get("voice_profile_id"), str(default_config["voice_profile_id"]))),
                     "voice_label": _text(payload.get("voice_label"), str(default_config["voice_label"])),
                     "lang": _text(payload.get("lang"), str(default_config["lang"])),
                     "rate": _float_between(payload.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5),
@@ -2767,7 +2789,7 @@ def _load_voice_config(slug: str) -> dict[str, object]:
     selected_plugin, selected_option = _resolve_tts_plugin(payload=default_config, options=tts_options)
     default_config["tts_plugin"] = selected_plugin or _TTS_PLUGIN_DEFAULT_ID
     default_config["tts_mode"] = default_config["tts_plugin"]
-    default_config["tts_plugin_voice_id"] = _text(selected_option.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"]))
+    default_config["tts_plugin_voice_id"] = _runtime_secret_placeholder(_text(selected_option.get("tts_plugin_voice_id"), str(default_config["tts_plugin_voice_id"])))
     if not default_config["tts_plugin_voice_id"]:
         default_config["tts_plugin_voice_id"] = _text(unmixr_memorial_voice_id(), "") or _text(openvoice_memorial_voice_id(), "")
     default_config["tts_plugin_options"] = tts_options
@@ -3468,6 +3490,15 @@ def _is_memorial_present_world_question(question: str) -> bool:
         "was passiert heute",
         "aktuelles",
         "news heute",
+        "wie wird das weiter",
+        "wie geht das weiter",
+        "was kommt als naechstes",
+        "was kommt als nächstes",
+        "wie entwickelt sich",
+        "wie wird es weitergehen",
+        "was passiert damit jetzt",
+        "was ist der aktuelle stand",
+        "wie sieht der stand aus",
     )
     return any(token in lowered for token in (*weather_terms, *time_terms, *current_terms))
 
@@ -3692,7 +3723,7 @@ def _memorial_present_world_search_request(question: str) -> dict[str, object]:
     return request_meta
 
 
-def _memorial_present_world_search_answer(question: str, *, requested_model: str) -> dict[str, object] | None:
+def _memorial_present_world_search_answer(question: str, *, requested_model: str, person_name: str = "Manfred") -> dict[str, object] | None:
     if not _memorial_web_search_enabled():
         return None
     search_payload = _memorial_present_world_search_request(question)
@@ -3755,7 +3786,7 @@ def _memorial_present_world_search_answer(question: str, *, requested_model: str
                 "Ich habe aber gerade aktuelle Quellen dazu gefunden und kann sie fuer dich einordnen."
             )
     return {
-        "person_name": "Manfred Hoza",
+        "person_name": person_name,
         "mode": "memorial_first_person_memory_chat",
         "question": " ".join(_text(question, "").split()),
         "answer": model_text,
@@ -5460,9 +5491,9 @@ def _memorial_chat_answer(
         search_answer = _memorial_present_world_search_answer(
             normalized_question,
             requested_model=requested_model,
+            person_name=person_name,
         )
         if search_answer is not None:
-            search_answer["person_name"] = person_name
             search_answer["difficult_memory_mode"] = bool(difficult_memory_mode)
             return search_answer
         return {
@@ -6428,19 +6459,43 @@ def _build_memorial_conversation_turn_payload(
     effective_question = _canonical_memorial_contact_opening_question(transcript_text)
     selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, effective_question)
     llm_started = time.perf_counter()
-    answer_payload = _memorial_chat_answer(
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{slug}")
+    future = executor.submit(
+        _memorial_chat_answer,
         payload,
         effective_question,
         private_profile,
-        requested_model=selected_model,
+        selected_model,
         slug=slug,
         memory_runtime=memory_runtime,
         personal_memory_context=personal_memory_context,
         difficult_memory_mode=difficult_memory_mode,
     )
+    try:
+        answer_payload = future.result(timeout=_MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        answer_payload = _memorial_chat_fallback_answer(
+            payload,
+            effective_question,
+            private_profile,
+            slug=slug,
+            memory_runtime=memory_runtime,
+            personal_memory_context=personal_memory_context,
+            llm_model=selected_model,
+            fallback_reason="conversation_turn_llm_timeout",
+            difficult_memory_mode=difficult_memory_mode,
+        )
+        answer_payload["llm_model"] = selected_model
+        answer_payload["llm_provider"] = "memorial_guardrail"
+        answer_payload["llm_request_model"] = selected_model
+        answer_payload["llm_fallback_used"] = True
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
     llm_ms = (time.perf_counter() - llm_started) * 1000.0
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
+    merged_config["lang"] = _memorial_fixed_conversation_language()
     if voice_ab_variant in {"a", "b"}:
         merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=voice_ab_variant, context=personal_memory_context))
     tts_options = _tts_plugin_options(
@@ -13123,6 +13178,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         return _public_memorial_error_response(400, "unsupported_public_tts_fields")
     base_config = _load_voice_config(slug)
     merged_config = dict(base_config)
+    merged_config["lang"] = _memorial_fixed_conversation_language()
     personal_memory_context = _extract_personal_memory_request_context(request=request, body=body)
     _enforce_public_memorial_rate_limit("speech_synthesize", request=request, context=personal_memory_context)
     voice_ab_variant = _voice_ab_variant_from_request(request=request, body=body)

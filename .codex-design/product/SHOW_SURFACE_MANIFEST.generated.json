@@ -1,0 +1,43 @@
+{
+  "contract_name": "ea.show_surface_manifest",
+  "generated_at": "2026-06-12T20:20:48Z",
+  "generated_by": "scripts/materialize_project_mode_manifests.py",
+  "git_head": "d33e683b79fe48ea09f73d535204f1406fe06c34",
+  "demo_mode": "ea_core",
+  "allowed_surfaces": [
+    "/",
+    "/product",
+    "/get-started",
+    "/sign-in",
+    "/app/today",
+    "/app/queue",
+    "/app/commitments",
+    "/app/settings"
+  ],
+  "forbidden_surfaces": [
+    "/memorials/*",
+    "/memorials/files/*",
+    "/results/*",
+    "/tours/*",
+    "/properties*",
+    "/property*"
+  ],
+  "allowed_provider_names": [
+    "Google",
+    "Email"
+  ],
+  "forbidden_provider_names": [
+    "JoggAI",
+    "MagicFit",
+    "VidBoard",
+    "Poppy",
+    "Unmixr",
+    "VoiceWave",
+    "FlipLink"
+  ],
+  "allowed_assets": [],
+  "operator_notes": [
+    "EA core demos must show the office loop first: morning memo, decision queue, commitments, approvals.",
+    "Memorial, provider lab, Chummer release control, and property surfaces require explicit separate demo mode."
+  ]
+}

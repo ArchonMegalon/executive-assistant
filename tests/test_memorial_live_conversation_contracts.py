@@ -279,6 +279,23 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert "schach" not in body["answer"].lower()
 
 
+def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_guardrail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    client = _client(principal_id="exec-memorial-present-world-future")
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie geht das weiter?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "present_world_guardrail"
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert "schach" not in body["answer"].lower()
+    assert "famil" not in body["answer"].lower()
+
+
 def test_memorial_chat_current_weather_uses_present_world_search_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -658,6 +675,163 @@ def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_expli
     assert body["llm_fallback_used"] is False
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "direct_contact_opening"
+
+
+def test_memorial_conversation_turn_falls_back_when_llm_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    input_audio = _generated_wav_bytes(textish_seed="Kannst du mich hoeren?")
+    output_audio = _generated_wav_bytes(textish_seed="Ich antworte aus dem Erinnerungsmodus.")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Kannst du mich hoeren?",
+            "transcriber": "unit-test",
+        },
+    )
+
+    def _slow_chat_answer(*args, **kwargs):
+        time.sleep(0.05)
+        return {
+            "answer": "Diese langsame Antwort darf nicht ausgeliefert werden.",
+            "sources": [],
+            "llm_model": "slow-model",
+            "llm_provider": "slow-provider",
+            "llm_request_model": "slow-model",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _slow_chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "openvoice_synthesize_request_with_variant",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-turn-timeout-fallback")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["llm_fallback_used"] is True
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["fallback_reason"] == "conversation_turn_llm_timeout"
+    assert body["audio_base64"]
+    assert "langsame Antwort" not in body["answer"]
+
+
+def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-unmixr-test",
+            "lang": "en-US",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_LANGUAGE", "en-US")
+    monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: seen.update(kwargs) or (_generated_wav_bytes(textish_seed="Ich antworte ruhig."), "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    config = public_memorials._load_voice_config(slug)
+    client = _client(principal_id="exec-memorial-voice-german-runtime")
+    response = client.post(f"/memorials/{slug}/speech-synthesize", json={"text": "Ich antworte ruhig und deutsch."})
+
+    assert config["lang"] == "en-US"
+    assert response.status_code == 200
+    assert seen["lang"] == "de-AT"
+
+
+def test_memorial_voice_config_resolves_committed_voice_id_placeholders_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "${UNMIXR_VOICE_ID}",
+            "voice_profile_id": "${UNMIXR_VOICE_ID}",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
+    monkeypatch.setenv("UNMIXR_VOICE_ID", "runtime-private-voice-id")
+
+    config = public_memorials._load_voice_config(slug)
+
+    assert config["tts_plugin_voice_id"] == "runtime-private-voice-id"
+    assert config["voice_profile_id"] == "runtime-private-voice-id"
 
 
 def test_memorial_conversation_turn_keeps_configured_voice_even_while_warmup_is_cold(

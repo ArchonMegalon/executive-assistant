@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-12T18:18:44Z",
+  "generated_at": "2026-06-12T19:44:20Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "7eaa5fa5360ded4368b426391cbd73a2836249c8",
+  "git_head": "d33e683b79fe48ea09f73d535204f1406fe06c34",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -10,16 +10,12 @@
   "rules": [
     "EA flagship readiness does not imply whole Chummer project readiness.",
     "Unknown external planes block whole-project gold claims.",
+    "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
     "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
     "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
     "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts."
   ],
   "blocking_planes": [
-    "chummer_core_rules",
-    "chummer_desktop_ui",
-    "chummer_hub_public_web",
-    "mobile_and_second_device",
-    "media_factory_publication",
     "memorial_voice_demo"
   ],
   "planes": [
@@ -68,74 +64,70 @@
       "key": "chummer_core_rules",
       "title": "Chummer Core Rules And Data Correctness",
       "owner_repo": "chummer6-core",
-      "status": "unknown_missing_receipt",
-      "claim": "No EA-local receipt proves complete Chummer rules/data correctness.",
-      "evidence": [],
-      "missing_evidence": [
-        "core rules parity receipt",
-        "data migration receipt",
-        "regression suite receipt"
+      "status": "pass",
+      "claim": "Chummer core rules/data correctness is accepted only when the external rule-authority gold and completion receipts pass.",
+      "evidence": [
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"
       ],
+      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "chummer_desktop_ui",
       "title": "Chummer Desktop/UI Product Surface",
       "owner_repo": "chummer6-ui",
-      "status": "unknown_missing_receipt",
-      "claim": "No EA-local receipt proves desktop UI, visual polish, accessibility, or launcher flows end to end.",
-      "evidence": [],
-      "missing_evidence": [
-        "visual regression receipt",
-        "accessibility receipt",
-        "install/update journey receipt"
+      "status": "pass",
+      "claim": "Desktop/UI readiness is accepted only when executable, visual familiarity, and layout hard-gate receipts pass.",
+      "evidence": [
+        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_LAYOUT_HARD_GATE.generated.json"
       ],
+      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "chummer_hub_public_web",
       "title": "Chummer Hub And Public Web",
       "owner_repo": "chummer6-hub",
-      "status": "unknown_missing_receipt",
-      "claim": "No EA-local receipt proves public hub, account, download, support, or landing surfaces are production-gold.",
-      "evidence": [],
-      "missing_evidence": [
-        "hub smoke receipt",
-        "public web visual receipt",
-        "support/contact receipt"
+      "status": "pass",
+      "claim": "Hub/public web readiness is accepted only when flagship readiness, public origin reachability, and shell clickability receipts pass.",
+      "evidence": [
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json",
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json"
       ],
+      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "mobile_and_second_device",
       "title": "Mobile And Second-Device Continuation",
       "owner_repo": "mobile / hub",
-      "status": "unknown_missing_receipt",
-      "claim": "No EA-local receipt proves mobile, tablet, or second-device continuation journeys.",
-      "evidence": [],
-      "missing_evidence": [
-        "mobile viewport receipt",
-        "second-device auth receipt",
-        "session handoff receipt"
+      "status": "pass",
+      "claim": "Mobile readiness is accepted only when the Chummer play/mobile local release proof passes.",
+      "evidence": [
+        "/docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json"
       ],
+      "missing_evidence": [],
       "design_notes": []
     },
     {
       "key": "media_factory_publication",
       "title": "Media Factory And Video Publication",
       "owner_repo": "EA / Chummer media factory",
-      "status": "draft_operator",
-      "claim": "MagicFit, JoggAI, Poppy, and video/avatar lanes are governed draft/operator or candidate lanes unless separate publish receipts exist.",
+      "status": "bounded_pass",
+      "claim": "Published Black Ledger live media is accepted when its live media proof passes; future provider candidates remain draft/operator until asset-specific receipts exist.",
       "evidence": [
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
         "scripts/verify_ltd_provider_lanes.py",
         ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"
       ],
-      "missing_evidence": [
-        "approved render receipts for each published asset",
-        "human review receipts",
-        "source-of-truth publication receipts"
-      ],
-      "design_notes": []
+      "missing_evidence": [],
+      "design_notes": [
+        "This is a bounded publication pass for current Black Ledger live media, not a blanket promotion of MagicFit, JoggAI, Poppy, or avatar candidate lanes."
+      ]
     },
     {
       "key": "memorial_voice_demo",
@@ -143,7 +135,9 @@
       "owner_repo": "memorial runtime",
       "status": "separate_risk_zone",
       "claim": "Memorial voice quality and realtime conversation readiness must be proven by its own browser+STT+TTS exit gate, not by EA release readiness.",
-      "evidence": [],
+      "evidence": [
+        "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+      ],
       "missing_evidence": [
         "live memorial roundtrip transcript receipt",
         "voice intelligibility receipt",
@@ -188,11 +182,6 @@
     ]
   },
   "required_next_receipts": [
-    "chummer_core_rules_parity.generated.json",
-    "chummer_desktop_ui_visual_accessibility.generated.json",
-    "chummer_hub_public_web_smoke.generated.json",
-    "mobile_second_device_continuation.generated.json",
-    "media_factory_publication_approval.generated.json",
     "memorial_voice_roundtrip_exit_gate.generated.json"
   ]
 }

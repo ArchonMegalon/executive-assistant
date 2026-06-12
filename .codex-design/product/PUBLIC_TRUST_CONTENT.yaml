@@ -31,7 +31,7 @@ trust_pages:
           - "The release page should make the current public download obvious."
           - "Installer language stays off until an installer is actually published."
           - "Create an account when you want tracked support, recovery, or future linked installs."
-          - "Check the release page before assuming another platform is on the public shelf."
+          - "Check the release page before assuming another platform is already on the public downloads page."
       - id: sign-in-recovery
         eyebrow: "Sign-in or account recovery"
         heading: "Keep access and recovery on one calm path"

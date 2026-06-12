@@ -1,0 +1,71 @@
+{
+  "contract_name": "ea.project_modes",
+  "generated_at": "2026-06-12T20:20:48Z",
+  "generated_by": "scripts/materialize_project_mode_manifests.py",
+  "git_head": "d33e683b79fe48ea09f73d535204f1406fe06c34",
+  "modes": [
+    {
+      "key": "EA_CORE",
+      "status": "shipping_core",
+      "purpose": "Executive office product: morning memo, decisions, commitments, approvals, durable office memory.",
+      "route_prefixes": [
+        "/",
+        "/product",
+        "/integrations",
+        "/security",
+        "/pricing",
+        "/docs",
+        "/get-started",
+        "/sign-in",
+        "/app/",
+        "/admin/"
+      ],
+      "hard_gate": "tests/e2e/test_ea_first_value_journey.py",
+      "design_language": "calm, direct, office-grade, decision-first"
+    },
+    {
+      "key": "MEMORIAL",
+      "status": "separate_risk_zone",
+      "purpose": "Manfred memorial pages, realtime voice, public archive assets, voice profile/AB tooling.",
+      "route_prefixes": [
+        "/memorials/",
+        "/memorials/files/"
+      ],
+      "hard_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+      "design_language": "quiet, source-bound, emotionally safe"
+    },
+    {
+      "key": "PROVIDER_LAB",
+      "status": "operator_lab",
+      "purpose": "LTD/media/document/voice provider proof lanes and candidate render receipts.",
+      "route_prefixes": [],
+      "script_prefixes": [
+        "scripts/verify_joggai_",
+        "scripts/verify_memorial_joggai_",
+        "scripts/materialize_poppy_",
+        "scripts/materialize_magicfit_"
+      ],
+      "hard_gate": "scripts/verify_ltd_provider_lanes.py",
+      "design_language": "internal, receipt-oriented, not product truth"
+    },
+    {
+      "key": "CHUMMER_RELEASE_CONTROL",
+      "status": "release_control_projection",
+      "purpose": "Chummer/Fleet/Black Ledger external receipt consumption and gold-map projection.",
+      "route_prefixes": [],
+      "hard_gate": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+      "design_language": "evidence ledger, not customer-facing EA copy"
+    },
+    {
+      "key": "PROPERTY",
+      "status": "separate_product_plane",
+      "purpose": "PropertyQuarry/provider search, market evidence, and property-specific public surfaces.",
+      "route_prefixes": [
+        "/properties",
+        "/property"
+      ],
+      "hard_gate": "property-release-gates",
+      "design_language": "trust, accuracy, market evidence"
+    }
+  ]
+}

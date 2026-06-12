@@ -1,0 +1,100 @@
+{
+  "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
+  "generated_at": "2026-06-12T19:06:34Z",
+  "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
+  "git_head": "d33e683b79fe48ea09f73d535204f1406fe06c34",
+  "status": "fail",
+  "slug": "manfred",
+  "base_url": "http://127.0.0.1:8090",
+  "require_stt": true,
+  "direct_text": "Ich antworte ruhig und klar.",
+  "conversation_question": "Wie ist das Wetter?",
+  "present_world_question": "Wie ist das Wetter heute?",
+  "failed_codes": [
+    "direct_tts_similarity_bad",
+    "conversation_answer_text_similarity_bad"
+  ],
+  "warned_codes": [],
+  "metrics": {
+    "direct_tts_audio_status": "pass",
+    "direct_tts_transcriber": "1min.ai/whisper-1",
+    "direct_tts_expected_chars": 28,
+    "direct_tts_actual_chars": 33,
+    "direct_tts_f1": 0.3636,
+    "reference_answer_chars": 108,
+    "present_world_answer_chars": 108,
+    "conversation_turn_audio_status": "pass",
+    "conversation_answer_text_expected_chars": 108,
+    "conversation_answer_text_actual_chars": 113,
+    "conversation_answer_text_f1": 0.4211,
+    "conversation_turn_transcriber": "1min.ai/whisper-1",
+    "conversation_turn_audio_expected_chars": 113,
+    "conversation_turn_audio_actual_chars": 113,
+    "conversation_turn_audio_f1": 0.8649
+  },
+  "artifacts": {
+    "direct_tts_audio": "/tmp/memorial_voice_roundtrip_exit_gate/manfred-direct-tts.wav",
+    "synthetic_question_audio": "/tmp/memorial_voice_roundtrip_exit_gate/manfred-synthetic-question.wav",
+    "conversation_turn_audio": "/tmp/memorial_voice_roundtrip_exit_gate/manfred-conversation-turn-answer.wav"
+  },
+  "checks": [
+    {
+      "status": "pass",
+      "code": "direct_tts_audio_ok",
+      "message": "Synthesized audio passed signal checks.",
+      "detail": {}
+    },
+    {
+      "status": "fail",
+      "code": "direct_tts_similarity_bad",
+      "message": "Transcript diverges too far from the expected spoken content.",
+      "detail": {
+        "expected": "Ich antworte ruhig und klar.",
+        "actual": "Ich habe vor der Beruhigung klar.",
+        "precision": 0.3333,
+        "recall": 0.4,
+        "f1": 0.3636
+      }
+    },
+    {
+      "status": "pass",
+      "code": "present_world_route_ok",
+      "message": "Present-world question stayed on the dedicated direct-answer route.",
+      "detail": {
+        "question": "Wie ist das Wetter heute?",
+        "fallback_reason": "present_world_guardrail"
+      }
+    },
+    {
+      "status": "pass",
+      "code": "conversation_turn_audio_ok",
+      "message": "Conversation-turn answer audio passed signal checks.",
+      "detail": {}
+    },
+    {
+      "status": "fail",
+      "code": "conversation_answer_text_similarity_bad",
+      "message": "Transcript diverges too far from the expected spoken content.",
+      "detail": {
+        "expected": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort, dann ordnen wir Regen, Temperatur und Wind.",
+        "actual": "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+        "precision": 0.4211,
+        "recall": 0.4211,
+        "f1": 0.4211
+      }
+    },
+    {
+      "status": "pass",
+      "code": "conversation_turn_audio_similarity_ok",
+      "message": "Transcript matches the expected spoken content closely.",
+      "detail": {
+        "expected": "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+        "actual": "Sag mir den konkreten Punkt noch etwas länger, dann antworte ich dir direkt darauf und nicht allgemein drumherum.",
+        "precision": 0.8889,
+        "recall": 0.8421,
+        "f1": 0.8649
+      }
+    }
+  ],
+  "gold_claim_allowed": false
+}

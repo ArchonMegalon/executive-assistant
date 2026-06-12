@@ -794,7 +794,7 @@ make docs-verify
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: it permits the EA release-control claim while keeping whole-Chummer gold blocked until core, UI, hub, mobile, media, and memorial receipts exist.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: it now consumes passing Chummer core, UI, hub, mobile, and current Black Ledger media receipts, while keeping whole-Chummer gold blocked until the memorial voice/realtime receipt exists.
 
 Combined local readiness check:
 

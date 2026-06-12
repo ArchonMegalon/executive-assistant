@@ -22,7 +22,8 @@ The paying-customer product is intentionally narrow:
 - one commitment system
 - approvals and auditability
 
-Default product mode does not mount experimental public utility routes such as `/results/*` or `/tours/*`. Those surfaces must be explicitly enabled and are not part of the core product story.
+Default product mode is `EA_CORE`: the executive office loop. Memorial, provider lab, Chummer release control, and property are separate project modes, not implied EA-core product scope. See [PRODUCT_BOUNDARY.md](/docker/EA/PRODUCT_BOUNDARY.md), `.codex-design/product/PROJECT_MODES.generated.json`, and `.codex-design/product/SHOW_SURFACE_MANIFEST.generated.json`.
+Default product mode does not mount experimental public utility routes such as `/results/*`, `/tours/*`, or `/memorials/*`. Those surfaces must be explicitly enabled for their own project mode and are not part of the core product story.
 
 ## Run It
 
@@ -108,7 +109,8 @@ Then open `http://localhost:8090/health`.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader flagship inventory gate. It does not claim the whole LTD catalog is verified; it enforces that the named flagship subset (`1min.AI`, `Prompt Architects`, `PayFunnels`, BrowserAct, Teable, ClickRank.ai, Emailit, Pixefy, Rafter) stays on accepted verification sources before release.
 - `python3 scripts/verify_ltd_provider_lanes.py` materializes governed provider-lane receipts for the high-value LTD lanes, including source-of-truth boundaries, off-switches, allowed/forbidden inputs, and missing proof receipts.
 - `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` records a Poppy draft-workbench receipt for public or operator-approved source packets. It keeps Poppy draft/operator only: runtime stays off, output remains pending human review, and EA/Chummer source material remains truth.
-- `python3 scripts/materialize_whole_project_gold_map.py` writes `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json`, the conservative map that keeps EA flagship readiness separate from whole-Chummer gold. Unknown external planes, draft/operator provider lanes, and memorial voice risk block whole-project gold claims until their own receipts exist.
+- `python3 scripts/materialize_memorial_voice_roundtrip_exit_gate.py --base-url http://127.0.0.1:8090` records the live memorial voice roundtrip receipt. It must pass before the whole-project map can clear the memorial voice/realtime blocker.
+- `python3 scripts/materialize_whole_project_gold_map.py` writes `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json`, the conservative map that keeps EA flagship readiness separate from whole-Chummer gold. It consumes passing Chummer core, desktop/UI, hub/public web, mobile, and current Black Ledger media receipts, and still blocks whole-project gold on memorial voice/realtime risk until that plane has its own receipt.
 - `python3 scripts/verify_whole_project_gold_map.py` fails closed if that map overclaims gold or promotes Poppy/media/memorial lanes beyond their governed receipt state.
 - `make verify-ltd-critical-entries` runs the critical runtime LTD verifier.
 - `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
@@ -436,7 +438,7 @@ Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scrip
 Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, Tibor smoke, and Pocket archive verification.
 Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
-Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; it is intentionally green only as an honest not-gold map while external Chummer planes lack receipts.
+Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; it is intentionally green only as an honest not-gold map while memorial voice/realtime proof remains separate from the passing Chummer core/UI/hub/mobile/media receipts.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
 Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, or dirty regenerated receipt.

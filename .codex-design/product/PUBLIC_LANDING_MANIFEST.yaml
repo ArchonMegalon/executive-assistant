@@ -1,18 +1,18 @@
 product: chummer
 surface: chummer.run
 version: 1
-headline: Shadowrun rules truth, with receipts.
-subhead: Build characters, inspect rulings, and keep sessions moving with explainable
-  math, durable state, and clear capabilities for tonight's game.
-proof_line: Public preview, honest status, and inspectable proof for the files, named
-  flows, and recent checks posted today.
+headline: Build Shadowrun characters. Know why the numbers changed.
+subhead: Download Chummer, open or import a character, and keep sessions moving with
+  explainable rules math, durable local state, and clear recovery paths.
+proof_line: Current preview builds, install checks, and route evidence are posted
+  so you can verify what works today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
-- label: Open downloads
+- label: Download Chummer
   href: /downloads
   emphasis: primary
-- label: What Works Today
+- label: See what works today
   href: /now
   emphasis: secondary
 guest_shell_actions:
@@ -26,22 +26,20 @@ secondary_highlights:
 - Deterministic engine
 - Rules receipts
 - Local-first continuity
-product_proof_eyebrow: Inspectable preview proof
-product_proof_intro: Open downloads for the current preview, inspect one visible trail,
-  and verify what the posted files and named flows can prove today without reading
-  that proof as a flagship-complete claim, a fallback recommendation, or a substitute
-  for the install shelf.
-product_proof_primary_label: Open downloads
+product_proof_eyebrow: Verifiable preview evidence
+product_proof_intro: Start with the current download, then inspect the evidence trail
+  when you need to confirm what the posted builds, routes, and named flows prove today.
+product_proof_primary_label: Download Chummer
 product_proof_primary_href: /downloads
-product_proof_secondary_label: Inspect the proof trail
+product_proof_secondary_label: Inspect evidence
 product_proof_secondary_href: /now#real-rules-truth
-product_proof_topline_label: Posted preview proof
-product_proof_scope_line: Proof on the public shelf is scoped to the posted files,
-  named flows, and recent checks you can inspect today; it is not a blanket flagship-complete
-  claim and it does not outrank the recommended install route.
-product_flagship_boundary_line: Preview proof, fallback routes, artifact explainers,
-  and packet-detail artifacts can show real progress, but flagship wording is reserved
-  for surfaces that independently clear the flagship acceptance bar.
+product_proof_topline_label: Posted preview evidence
+product_proof_scope_line: Evidence on the public shelf is scoped to the posted files,
+  named flows, and recent checks you can inspect today; downloads remain the primary
+  route for trying Chummer.
+product_flagship_boundary_line: Preview evidence and fallback routes can show real
+  progress, but flagship wording is reserved for surfaces that independently clear
+  the flagship acceptance bar.
 product_proof_result_title: Final pool 9
 product_proof_result_summary: Same inputs, same answer, with the trail, posted-shelf
   posture, and claim boundary still attached.
@@ -123,6 +121,65 @@ public_routes:
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: proof shelf honesty only
+- path: /docs
+  title: Document Portal
+  audience: public
+  purpose: document_portal
+  requires_auth: false
+  guest_fallback: /docs
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: governed document portal only
+- path: /docs/chummer6-quickstart
+  title: Chummer6 Quickstart Guide
+  audience: public
+  purpose: document_detail
+  closeout_proof_binding: fleet.next90_m138_hero_path_closeout_gates
+  requires_auth: false
+  guest_fallback: /docs/chummer6-quickstart
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first safe document route only
+- path: /docs/{slug}/receipts/publication.json
+  title: Document publication receipt
+  audience: public
+  purpose: document_publication_receipt
+  verification_path: /docs/chummer6-quickstart/receipts/publication.json
+  requires_auth: false
+  guest_fallback: /docs
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: candidate viewer publication receipt only
+- path: /docs/{slug}/download.pdf
+  title: Document PDF fallback
+  audience: public
+  purpose: document_pdf_fallback
+  verification_path: /docs/chummer6-quickstart/download.pdf
+  requires_auth: false
+  guest_fallback: /docs
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: first-party PDF fallback only
+- path: /docs/embed/{slug}
+  title: Document embed boundary
+  audience: public
+  purpose: document_embed_boundary
+  verification_path: /docs/embed/chummer6-quickstart
+  requires_auth: false
+  guest_fallback: /docs
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: explicit viewer boundary only
+- path: /docs/category/{category}
+  title: Document category
+  audience: public
+  purpose: document_category
+  verification_path: /docs/category/quickstart
+  requires_auth: false
+  guest_fallback: /docs
+  must_exist: true
+  placeholder_allowed: false
+  placeholder_requirements: governed document category only
 - path: /help
   title: Help
   audience: public

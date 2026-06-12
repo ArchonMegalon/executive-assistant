@@ -50,6 +50,8 @@ required_files=(
   ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml"
   ".codex-design/product/TELEGRAM_FLAGSHIP_RUNTIME_DESIGN.md"
+  ".codex-design/product/PROJECT_MODES.generated.json"
+  ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
   ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
   "scripts/deploy.sh"
@@ -75,6 +77,9 @@ required_files=(
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
   "scripts/materialize_poppy_draft_packet.py"
+  "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"
+  "scripts/materialize_project_mode_manifests.py"
+  "scripts/verify_project_mode_manifests.py"
   "scripts/materialize_whole_project_gold_map.py"
   "scripts/verify_whole_project_gold_map.py"
   "scripts/verify_generated_release_artifacts_clean.py"
@@ -192,14 +197,15 @@ gold_map = json.loads(Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generat
 assert gold_map["contract_name"] == "ea.whole_project_gold_map"
 assert gold_map["overall_status"] == "not_gold"
 assert gold_map["gold_claim_allowed"] is False
+assert gold_map["blocking_planes"] == ["memorial_voice_demo"]
 planes = {plane["key"]: plane for plane in gold_map["planes"]}
 assert planes["ea_release_control"]["status"] == "pass"
 assert planes["design_surface"]["status"] == "bounded_pass"
-assert planes["chummer_core_rules"]["status"] == "unknown_missing_receipt"
-assert planes["chummer_desktop_ui"]["status"] == "unknown_missing_receipt"
-assert planes["chummer_hub_public_web"]["status"] == "unknown_missing_receipt"
-assert planes["mobile_and_second_device"]["status"] == "unknown_missing_receipt"
-assert planes["media_factory_publication"]["status"] == "draft_operator"
+assert planes["chummer_core_rules"]["status"] == "pass"
+assert planes["chummer_desktop_ui"]["status"] == "pass"
+assert planes["chummer_hub_public_web"]["status"] == "pass"
+assert planes["mobile_and_second_device"]["status"] == "pass"
+assert planes["media_factory_publication"]["status"] == "bounded_pass"
 assert planes["memorial_voice_demo"]["status"] == "separate_risk_zone"
 assert gold_map["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
 assert "EA flagship readiness does not imply whole Chummer project readiness" in "\n".join(gold_map["rules"])

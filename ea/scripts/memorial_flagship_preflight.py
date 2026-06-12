@@ -227,6 +227,9 @@ def _check_joggai_public_document(
         receipt_asset_hash = str(receipt.get("asset_sha256") or "").strip().lower()
         receipt_public_ready = bool(receipt.get("public_ready") is True)
         receipt_review_status = str(receipt.get("review_status") or "").strip().lower()
+        provider_receipt_relpath = _safe_public_relpath(str(receipt.get("provider_verification_receipt") or ""))
+        provider_receipt_hash = str(receipt.get("provider_verification_sha256") or "").strip().lower()
+        provider_verdict_required = str(receipt.get("provider_verdict_required") or "").strip()
         receipt_missing: list[str] = []
         if receipt_contract != "executive_assistant.memorial_joggai_render.v1":
             receipt_missing.append("contract_name")
@@ -240,6 +243,12 @@ def _check_joggai_public_document(
             receipt_missing.append("receipt.review_status=approved")
         if receipt_public_ready is not True:
             receipt_missing.append("receipt.public_ready=true")
+        if provider_verdict_required != "VERIFIED_PROVIDER":
+            receipt_missing.append("provider_verdict_required=VERIFIED_PROVIDER")
+        if not provider_receipt_relpath:
+            receipt_missing.append("provider_verification_receipt")
+        if not provider_receipt_hash:
+            receipt_missing.append("provider_verification_sha256")
         if receipt_missing:
             report.add(
                 "fail",
@@ -249,6 +258,55 @@ def _check_joggai_public_document(
                 relpath=relpath,
                 receipt_relpath=receipt_relpath,
                 missing=receipt_missing,
+            )
+            return
+        provider_receipt_path = (bundle / provider_receipt_relpath).resolve()
+        if bundle.resolve() not in provider_receipt_path.parents or not provider_receipt_path.is_file():
+            report.add(
+                "fail",
+                "joggai_public_asset_missing_provider_receipt",
+                "Public JoggAI asset provider verification receipt is missing from the bundle.",
+                section=section,
+                relpath=relpath,
+                provider_receipt_relpath=provider_receipt_relpath,
+            )
+            return
+        if sha256_file(provider_receipt_path) != provider_receipt_hash:
+            report.add(
+                "fail",
+                "joggai_public_asset_provider_receipt_hash_mismatch",
+                "Public JoggAI asset provider verification receipt hash does not match.",
+                section=section,
+                relpath=relpath,
+                provider_receipt_relpath=provider_receipt_relpath,
+            )
+            return
+        try:
+            provider_receipt = load_json(provider_receipt_path)
+        except Exception as exc:
+            report.add(
+                "fail",
+                "joggai_public_asset_provider_receipt_unreadable",
+                "Public JoggAI asset provider verification receipt could not be parsed.",
+                section=section,
+                relpath=relpath,
+                provider_receipt_relpath=provider_receipt_relpath,
+                error=str(exc),
+            )
+            return
+        if (
+            str(provider_receipt.get("contract_name") or "").strip() != "executive_assistant.joggai_provider_verification.v1"
+            or str(provider_receipt.get("provider_key") or provider_receipt.get("provider") or "").strip().lower() != "joggai"
+            or str(provider_receipt.get("verdict") or "").strip() != "VERIFIED_PROVIDER"
+            or provider_receipt.get("provider_ready") is not True
+        ):
+            report.add(
+                "fail",
+                "joggai_public_asset_provider_receipt_not_verified",
+                "Public JoggAI asset provider verification receipt is not verified-ready.",
+                section=section,
+                relpath=relpath,
+                provider_receipt_relpath=provider_receipt_relpath,
             )
             return
         if candidate.is_file() and sha256_file(candidate) != sha256:

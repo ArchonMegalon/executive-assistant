@@ -85,7 +85,7 @@ Exit: launch, freeze, canary, rollback, feedback followthrough, and public statu
 
 ## Wave 9 - make artifact proof and concierge first-party
 
-### 107. Artifact factory and public proof shelf
+### 107. Artifact factory and public proof gallery
 Owners: `chummer6-hub`, `chummer6-media-factory`, `chummer6-hub-registry`, `chummer6-design`
 Exit: release, fix, support, and publication explainers ship as approved video, audio, preview, and packet bundles from the same release and support truth, with registry-backed proof shelf surfaces and first-class media receipts.
 

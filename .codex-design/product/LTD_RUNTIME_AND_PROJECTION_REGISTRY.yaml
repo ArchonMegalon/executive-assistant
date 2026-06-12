@@ -39,7 +39,6 @@ capability_slots:
       - vidBoard
       - MarkupGo
       - PeekShot
-      - FlipLink.me
       - Soundmadeseen
       - Taja
     boundary: approved_source_packet_only
@@ -93,7 +92,6 @@ product_systems:
       - vidBoard
       - MarkupGo
       - PeekShot
-      - FlipLink.me
       - Taja
       - Soundmadeseen
       - Unmixr AI

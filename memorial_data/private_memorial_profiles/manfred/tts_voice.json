@@ -1,6 +1,6 @@
 {
   "tts_plugin": "unmixr_clone",
-  "voice_profile_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+  "voice_profile_id": "${UNMIXR_VOICE_ID}",
   "voice_label": "Manfred Hoza · Unmixr-Klon",
   "lang": "de-AT",
   "rate": 0.92,
@@ -15,7 +15,7 @@
     "de-DE",
     "German"
   ],
-  "tts_plugin_voice_id": "558a4e6f-b80b-474d-a48b-09bd46c4f9eb",
+  "tts_plugin_voice_id": "${UNMIXR_VOICE_ID}",
   "tts_base_voice_variant": "unmixr",
   "notes": "Aktive Memorial-Stimme ist jetzt genau ein Unmixr-Klon. Fuer den Live-Stand laeuft der rohe Unmixr-Ausgang ohne zusaetzliche Klangverbiegung, weil dieser gegen die starke Referenz natuerlicher und identitaetsnäher wirkt als die zusaetzlichen Filterketten. Andere Sprecher und Fallback-Stimmen bleiben fuer das Memorial-Gespraech deaktiviert.",
   "synthetic_voice_clone_of_memorial_person": true,

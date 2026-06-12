@@ -96,7 +96,18 @@ def main() -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     args = parser.parse_args()
     payload = build_receipt(ltds_path=Path(args.ltds), output_path=Path(args.output))
-    print(json.dumps({"status": "pass", "output": str(args.output), "verdict": payload["verdict"]}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "status": "pass",
+                "receipt_type": "inventory_only",
+                "provider_ready": bool(payload.get("provider_ready")),
+                "output": str(args.output),
+                "verdict": payload["verdict"],
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

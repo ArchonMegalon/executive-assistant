@@ -143,6 +143,22 @@ def _validate_approved_consent(consent: Any, *, code: str, required_scopes: set[
         raise SystemExit(f"{code}_scope_missing:{','.join(missing)}")
 
 
+def _validate_provider_verification(path: Path) -> tuple[str, str]:
+    if not path.is_file():
+        raise SystemExit(f"provider_verification_receipt_missing:{path}")
+    payload = _load_json(path)
+    if str(payload.get("contract_name") or "").strip() != "executive_assistant.joggai_provider_verification.v1":
+        raise SystemExit("provider_verification_contract_mismatch")
+    if str(payload.get("provider_key") or payload.get("provider") or "").strip().lower() != "joggai":
+        raise SystemExit("provider_verification_provider_mismatch")
+    verdict = str(payload.get("verdict") or "").strip()
+    if verdict != "VERIFIED_PROVIDER":
+        raise SystemExit(f"provider_verification_not_verified:{verdict or 'missing'}")
+    if payload.get("provider_ready") is not True:
+        raise SystemExit("provider_verification_not_ready")
+    return str(path), _sha256_file(path)
+
+
 def _validate_script_packet(packet: dict[str, Any], *, public_ready: bool) -> None:
     if str(packet.get("provider") or "").strip().lower() != "joggai":
         raise SystemExit("script_provider_not_joggai")
@@ -182,6 +198,7 @@ def build_receipt(
     review_status: str,
     public_ready: bool,
     watermark_present: bool,
+    provider_verification_receipt: Path | None = None,
 ) -> dict[str, Any]:
     _validate_file(asset, suffixes=ALLOWED_VIDEO_SUFFIXES, code="joggai_asset")
     _validate_file(poster, suffixes=ALLOWED_POSTER_SUFFIXES, code="joggai_poster")
@@ -195,6 +212,14 @@ def build_receipt(
     metadata = _video_metadata(asset)
     if public_ready and watermark_present:
         raise SystemExit("public_ready_requires_no_watermark")
+    provider_verification_path = ""
+    provider_verification_sha256 = ""
+    provider_verdict_required = ""
+    if public_ready:
+        if provider_verification_receipt is None:
+            raise SystemExit("public_ready_requires_provider_verification_receipt")
+        provider_verification_path, provider_verification_sha256 = _validate_provider_verification(provider_verification_receipt)
+        provider_verdict_required = "VERIFIED_PROVIDER"
     asset_hash = _sha256_file(asset)
     poster_hash = _sha256_file(poster)
     script_hash = hashlib.sha256(json.dumps(packet, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
@@ -218,6 +243,9 @@ def build_receipt(
         "aspect_ratio": metadata["aspect_ratio"],
         "asset_metadata": metadata,
         "watermark_present": bool(watermark_present),
+        "provider_verification_receipt": provider_verification_path,
+        "provider_verification_sha256": provider_verification_sha256,
+        "provider_verdict_required": provider_verdict_required,
         "review_status": normalized_review,
         "public_ready": bool(public_ready),
         "mode": "manual",
@@ -240,6 +268,7 @@ def main() -> int:
     parser.add_argument("--review-status", default="candidate")
     parser.add_argument("--public-ready", action="store_true")
     parser.add_argument("--watermark-present", action="store_true")
+    parser.add_argument("--provider-verification-receipt", default="")
     args = parser.parse_args()
     asset = Path(args.asset)
     poster = Path(args.poster)
@@ -254,6 +283,7 @@ def main() -> int:
         review_status=str(args.review_status),
         public_ready=bool(args.public_ready),
         watermark_present=bool(args.watermark_present),
+        provider_verification_receipt=Path(args.provider_verification_receipt) if str(args.provider_verification_receipt or "").strip() else None,
     )
     print(json.dumps({"status": "pass", "output": str(args.output), "public_ready": receipt["public_ready"]}, ensure_ascii=False))
     return 0

@@ -4,6 +4,21 @@ import hashlib
 import json
 
 
+def _write_verified_joggai_provider_receipt(bundle, relpath: str = "receipts/JOGGAI_PROVIDER_VERIFICATION.generated.json") -> tuple[str, str]:
+    payload = {
+        "contract_name": "executive_assistant.joggai_provider_verification.v1",
+        "provider": "joggai",
+        "provider_key": "joggai",
+        "verdict": "VERIFIED_PROVIDER",
+        "provider_ready": True,
+    }
+    path = bundle / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    path.write_bytes(raw)
+    return relpath, hashlib.sha256(raw).hexdigest()
+
+
 def test_preflight_detects_public_manifest_tokens(monkeypatch, tmp_path) -> None:
     import scripts.memorial_flagship_preflight as preflight
 
@@ -213,6 +228,7 @@ def test_preflight_passes_public_joggai_video_with_receipt_and_hash(monkeypatch,
     (bundle / "receipts").mkdir()
     asset_relpath = "video/joggai/how-this-memorial-works.mp4"
     receipt_relpath = "receipts/joggai-how-this-memorial-works.generated.json"
+    provider_receipt_relpath, provider_receipt_hash = _write_verified_joggai_provider_receipt(bundle)
     asset_bytes = b"joggai-video"
     asset_hash = hashlib.sha256(asset_bytes).hexdigest()
     (bundle / asset_relpath).write_bytes(asset_bytes)
@@ -223,6 +239,9 @@ def test_preflight_passes_public_joggai_video_with_receipt_and_hash(monkeypatch,
                 "provider": "joggai",
                 "asset_relpath": asset_relpath,
                 "asset_sha256": asset_hash,
+                "provider_verification_receipt": provider_receipt_relpath,
+                "provider_verification_sha256": provider_receipt_hash,
+                "provider_verdict_required": "VERIFIED_PROVIDER",
                 "review_status": "approved",
                 "public_ready": True,
             }
@@ -317,6 +336,7 @@ def test_preflight_fails_public_joggai_video_hash_mismatch(monkeypatch, tmp_path
     (bundle / "receipts").mkdir()
     asset_relpath = "video/joggai/how-this-memorial-works.mp4"
     receipt_relpath = "receipts/joggai-how-this-memorial-works.generated.json"
+    provider_receipt_relpath, provider_receipt_hash = _write_verified_joggai_provider_receipt(bundle)
     manifest_hash = hashlib.sha256(b"original").hexdigest()
     (bundle / asset_relpath).write_bytes(b"changed")
     (bundle / receipt_relpath).write_text(
@@ -326,6 +346,9 @@ def test_preflight_fails_public_joggai_video_hash_mismatch(monkeypatch, tmp_path
                 "provider": "joggai",
                 "asset_relpath": asset_relpath,
                 "asset_sha256": manifest_hash,
+                "provider_verification_receipt": provider_receipt_relpath,
+                "provider_verification_sha256": provider_receipt_hash,
+                "provider_verdict_required": "VERIFIED_PROVIDER",
                 "review_status": "approved",
                 "public_ready": True,
             }
@@ -426,6 +449,7 @@ def test_preflight_fails_public_joggai_poster_hash_mismatch(monkeypatch, tmp_pat
     asset_relpath = "video/joggai/how-this-memorial-works.mp4"
     poster_relpath = "video/joggai/how-this-memorial-works-poster.webp"
     receipt_relpath = "receipts/joggai-how-this-memorial-works.generated.json"
+    provider_receipt_relpath, provider_receipt_hash = _write_verified_joggai_provider_receipt(bundle)
     asset_bytes = b"joggai-video"
     asset_hash = hashlib.sha256(asset_bytes).hexdigest()
     (bundle / asset_relpath).write_bytes(asset_bytes)
@@ -439,6 +463,9 @@ def test_preflight_fails_public_joggai_poster_hash_mismatch(monkeypatch, tmp_pat
                 "asset_sha256": asset_hash,
                 "poster_relpath": poster_relpath,
                 "poster_sha256": hashlib.sha256(b"poster-original").hexdigest(),
+                "provider_verification_receipt": provider_receipt_relpath,
+                "provider_verification_sha256": provider_receipt_hash,
+                "provider_verdict_required": "VERIFIED_PROVIDER",
                 "review_status": "approved",
                 "public_ready": True,
             }

@@ -10,7 +10,7 @@
 - [ ] `.codex-design/ea/START_HERE.md` and the linked EA canon docs still match the shipped public/app surface.
 - [ ] `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json` agree with the browser workflow proof.
 - [ ] `make verify-flagship-release-readiness` passes, confirming the weekly pulse, browser proof, flagship receipt, and Fleet journey gate are all clear for wider release claims.
-- [ ] `make verify-whole-project-gold-map` passes, confirming EA readiness is not being overclaimed as whole-Chummer gold while external core/UI/hub/mobile/media/memorial receipts are missing.
+- [ ] `make verify-whole-project-gold-map` passes, confirming EA readiness is not being overclaimed as whole-Chummer gold and that memorial voice/realtime remains separately blocked until its own receipt exists.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] CI smoke workflow is green.
 - [ ] CI gate bundle (`make smoke-help`, `make ci-local`, runtime smoke API tests, `make verify-release-assets`) is green.

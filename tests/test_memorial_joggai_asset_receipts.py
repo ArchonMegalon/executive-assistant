@@ -56,6 +56,22 @@ def _write_script_packet(path: Path, **overrides: object) -> None:
     path.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
 
 
+def _write_provider_receipt(path: Path, *, verdict: str = "VERIFIED_PROVIDER", provider_ready: bool = True) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "contract_name": "executive_assistant.joggai_provider_verification.v1",
+                "provider": "joggai",
+                "provider_key": "joggai",
+                "verdict": verdict,
+                "provider_ready": provider_ready,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _run_verifier(tmp_path: Path, *, packet_overrides: dict[str, object] | None = None, extra_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
     asset = tmp_path / "how-this-memorial-works.mp4"
     poster = tmp_path / "how-this-memorial-works-poster.webp"
@@ -87,7 +103,18 @@ def _run_verifier(tmp_path: Path, *, packet_overrides: dict[str, object] | None 
 
 
 def test_joggai_asset_verifier_writes_public_ready_receipt(tmp_path: Path) -> None:
-    result = _run_verifier(tmp_path, extra_args=["--review-status", "approved", "--public-ready"])
+    provider_receipt = tmp_path / "JOGGAI_PROVIDER_VERIFICATION.generated.json"
+    _write_provider_receipt(provider_receipt)
+    result = _run_verifier(
+        tmp_path,
+        extra_args=[
+            "--review-status",
+            "approved",
+            "--public-ready",
+            "--provider-verification-receipt",
+            str(provider_receipt),
+        ],
+    )
 
     assert result.returncode == 0, result.stderr
     receipt = json.loads((tmp_path / "receipt.json").read_text(encoding="utf-8"))
@@ -102,7 +129,17 @@ def test_joggai_asset_verifier_writes_public_ready_receipt(tmp_path: Path) -> No
     assert receipt["aspect_ratio"] == "16:9"
     assert receipt["review_status"] == "approved"
     assert receipt["public_ready"] is True
+    assert receipt["provider_verdict_required"] == "VERIFIED_PROVIDER"
+    assert receipt["provider_verification_receipt"] == str(provider_receipt)
+    assert receipt["provider_verification_sha256"]
     assert receipt["api_used"] is False
+
+
+def test_joggai_asset_verifier_rejects_public_ready_without_verified_provider_receipt(tmp_path: Path) -> None:
+    result = _run_verifier(tmp_path, extra_args=["--review-status", "approved", "--public-ready"])
+
+    assert result.returncode != 0
+    assert "public_ready_requires_provider_verification_receipt" in (result.stderr + result.stdout)
 
 
 def test_joggai_asset_verifier_defaults_to_public_bundle_relpaths(tmp_path: Path) -> None:
@@ -218,6 +255,8 @@ def test_joggai_asset_verifier_requires_voice_consent_for_manfred_voice(tmp_path
 
 
 def test_joggai_asset_verifier_allows_manfred_voice_with_specific_consent(tmp_path: Path) -> None:
+    provider_receipt = tmp_path / "JOGGAI_PROVIDER_VERIFICATION.generated.json"
+    _write_provider_receipt(provider_receipt)
     result = _run_verifier(
         tmp_path,
         packet_overrides={
@@ -230,7 +269,13 @@ def test_joggai_asset_verifier_allows_manfred_voice_with_specific_consent(tmp_pa
                 "revoked": False,
             },
         },
-        extra_args=["--review-status", "approved", "--public-ready"],
+        extra_args=[
+            "--review-status",
+            "approved",
+            "--public-ready",
+            "--provider-verification-receipt",
+            str(provider_receipt),
+        ],
     )
 
     assert result.returncode == 0, result.stderr

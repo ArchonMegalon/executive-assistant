@@ -25,6 +25,27 @@ DEFAULT_WEEKLY_PULSE = ROOT / ".codex-design/product/WEEKLY_PRODUCT_PULSE.genera
 DEFAULT_BROWSER_PROOF = ROOT / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
 DEFAULT_MIRROR_BOUNDARY = ROOT / ".codex-design/repo/MIRROR_SCOPE_BOUNDARY.md"
 DEFAULT_FLEET_JOURNEY_GATES = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
+DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+DEFAULT_CORE_RULE_RECEIPTS = (
+    Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"),
+    Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"),
+)
+DEFAULT_DESKTOP_UI_RECEIPTS = (
+    Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json"),
+    Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json"),
+    Path("/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_LAYOUT_HARD_GATE.generated.json"),
+)
+DEFAULT_HUB_PUBLIC_WEB_RECEIPTS = (
+    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json"),
+    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json"),
+    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json"),
+)
+DEFAULT_MOBILE_RECEIPTS = (
+    Path("/docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json"),
+)
+DEFAULT_MEDIA_RECEIPTS = (
+    Path("/docker/chummercomplete/chummer.run-services/.codex-studio/published/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json"),
+)
 
 BLOCKING_STATUSES = {
     "unknown_missing_receipt",
@@ -121,6 +142,24 @@ def _status_from_receipt(path: Path, allowed: set[str]) -> str:
     return "pass" if status in allowed else "unknown_missing_receipt"
 
 
+def _receipt_group_status(
+    paths: tuple[Path, ...], *, allowed: set[str] = {"pass", "passed"}
+) -> tuple[str, list[str], list[str]]:
+    evidence: list[str] = []
+    missing_or_blocked: list[str] = []
+    for path in paths:
+        payload = _json(path)
+        if not payload:
+            missing_or_blocked.append(path.as_posix())
+            continue
+        status = str(payload.get("status") or payload.get("overall_status") or payload.get("verdict") or "").strip().lower()
+        if status in allowed:
+            evidence.append(path.as_posix())
+        else:
+            missing_or_blocked.append(f"{path.as_posix()} status={status or 'missing'}")
+    return ("pass" if not missing_or_blocked else "unknown_missing_receipt", evidence, missing_or_blocked)
+
+
 def _fleet_status(path: Path) -> tuple[str, list[str], list[str]]:
     payload = _json(path)
     summary = payload.get("summary")
@@ -141,6 +180,12 @@ def build_gold_map(
     browser_proof_path: Path = DEFAULT_BROWSER_PROOF,
     mirror_boundary_path: Path = DEFAULT_MIRROR_BOUNDARY,
     fleet_journey_gates_path: Path = DEFAULT_FLEET_JOURNEY_GATES,
+    core_rule_receipts: tuple[Path, ...] = DEFAULT_CORE_RULE_RECEIPTS,
+    desktop_ui_receipts: tuple[Path, ...] = DEFAULT_DESKTOP_UI_RECEIPTS,
+    hub_public_web_receipts: tuple[Path, ...] = DEFAULT_HUB_PUBLIC_WEB_RECEIPTS,
+    mobile_receipts: tuple[Path, ...] = DEFAULT_MOBILE_RECEIPTS,
+    media_receipts: tuple[Path, ...] = DEFAULT_MEDIA_RECEIPTS,
+    memorial_voice_roundtrip_receipt: Path = DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     flagship_status = _status_from_receipt(flagship_receipt_path, {"pass"})
@@ -148,6 +193,20 @@ def build_gold_map(
     browser_status = _status_from_receipt(browser_proof_path, {"pass"})
     ea_status = "pass" if {flagship_status, weekly_status, browser_status} == {"pass"} else "blocked"
     fleet_status, fleet_evidence, fleet_missing = _fleet_status(fleet_journey_gates_path)
+    core_status, core_evidence, core_missing = _receipt_group_status(core_rule_receipts)
+    desktop_status, desktop_evidence, desktop_missing = _receipt_group_status(desktop_ui_receipts)
+    hub_status, hub_evidence, hub_missing = _receipt_group_status(hub_public_web_receipts)
+    mobile_status, mobile_evidence, mobile_missing = _receipt_group_status(mobile_receipts)
+    media_status_raw, media_evidence, media_missing = _receipt_group_status(media_receipts)
+    media_status = "bounded_pass" if media_status_raw == "pass" else media_status_raw
+    memorial_voice_status_raw = _status_from_receipt(memorial_voice_roundtrip_receipt, {"pass"})
+    memorial_voice_status = "pass" if memorial_voice_status_raw == "pass" else "separate_risk_zone"
+    memorial_voice_evidence = [memorial_voice_roundtrip_receipt.as_posix()] if memorial_voice_roundtrip_receipt.is_file() else []
+    memorial_voice_missing = (
+        []
+        if memorial_voice_status == "pass"
+        else ["live memorial roundtrip transcript receipt", "voice intelligibility receipt", "latency p50/p95 receipt"]
+    )
     ltd_summary = _load_ltd_summary()
     mirror_boundary_present = _exists(mirror_boundary_path)
 
@@ -191,50 +250,58 @@ def build_gold_map(
             key="chummer_core_rules",
             title="Chummer Core Rules And Data Correctness",
             owner_repo="chummer6-core",
-            status="unknown_missing_receipt",
-            claim="No EA-local receipt proves complete Chummer rules/data correctness.",
-            missing_evidence=["core rules parity receipt", "data migration receipt", "regression suite receipt"],
+            status=core_status,
+            claim="Chummer core rules/data correctness is accepted only when the external rule-authority gold and completion receipts pass.",
+            evidence=core_evidence,
+            missing_evidence=core_missing,
         ),
         _plane(
             key="chummer_desktop_ui",
             title="Chummer Desktop/UI Product Surface",
             owner_repo="chummer6-ui",
-            status="unknown_missing_receipt",
-            claim="No EA-local receipt proves desktop UI, visual polish, accessibility, or launcher flows end to end.",
-            missing_evidence=["visual regression receipt", "accessibility receipt", "install/update journey receipt"],
+            status=desktop_status,
+            claim="Desktop/UI readiness is accepted only when executable, visual familiarity, and layout hard-gate receipts pass.",
+            evidence=desktop_evidence,
+            missing_evidence=desktop_missing,
         ),
         _plane(
             key="chummer_hub_public_web",
             title="Chummer Hub And Public Web",
             owner_repo="chummer6-hub",
-            status="unknown_missing_receipt",
-            claim="No EA-local receipt proves public hub, account, download, support, or landing surfaces are production-gold.",
-            missing_evidence=["hub smoke receipt", "public web visual receipt", "support/contact receipt"],
+            status=hub_status,
+            claim="Hub/public web readiness is accepted only when flagship readiness, public origin reachability, and shell clickability receipts pass.",
+            evidence=hub_evidence,
+            missing_evidence=hub_missing,
         ),
         _plane(
             key="mobile_and_second_device",
             title="Mobile And Second-Device Continuation",
             owner_repo="mobile / hub",
-            status="unknown_missing_receipt",
-            claim="No EA-local receipt proves mobile, tablet, or second-device continuation journeys.",
-            missing_evidence=["mobile viewport receipt", "second-device auth receipt", "session handoff receipt"],
+            status=mobile_status,
+            claim="Mobile readiness is accepted only when the Chummer play/mobile local release proof passes.",
+            evidence=mobile_evidence,
+            missing_evidence=mobile_missing,
         ),
         _plane(
             key="media_factory_publication",
             title="Media Factory And Video Publication",
             owner_repo="EA / Chummer media factory",
-            status="draft_operator",
-            claim="MagicFit, JoggAI, Poppy, and video/avatar lanes are governed draft/operator or candidate lanes unless separate publish receipts exist.",
-            evidence=["scripts/verify_ltd_provider_lanes.py", ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"],
-            missing_evidence=["approved render receipts for each published asset", "human review receipts", "source-of-truth publication receipts"],
+            status=media_status,
+            claim="Published Black Ledger live media is accepted when its live media proof passes; future provider candidates remain draft/operator until asset-specific receipts exist.",
+            evidence=media_evidence + ["scripts/verify_ltd_provider_lanes.py", ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"],
+            missing_evidence=media_missing,
+            design_notes=[
+                "This is a bounded publication pass for current Black Ledger live media, not a blanket promotion of MagicFit, JoggAI, Poppy, or avatar candidate lanes.",
+            ],
         ),
         _plane(
             key="memorial_voice_demo",
             title="Memorial Voice / Realtime Demo",
             owner_repo="memorial runtime",
-            status="separate_risk_zone",
+            status=memorial_voice_status,
             claim="Memorial voice quality and realtime conversation readiness must be proven by its own browser+STT+TTS exit gate, not by EA release readiness.",
-            missing_evidence=["live memorial roundtrip transcript receipt", "voice intelligibility receipt", "latency p50/p95 receipt"],
+            evidence=memorial_voice_evidence,
+            missing_evidence=memorial_voice_missing,
         ),
         _plane(
             key="ltd_provider_lanes",
@@ -277,6 +344,7 @@ def build_gold_map(
         "rules": [
             "EA flagship readiness does not imply whole Chummer project readiness.",
             "Unknown external planes block whole-project gold claims.",
+            "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
             "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
             "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
@@ -285,11 +353,6 @@ def build_gold_map(
         "planes": planes,
         "ltd_provider_lane_summary": ltd_summary,
         "required_next_receipts": [
-            "chummer_core_rules_parity.generated.json",
-            "chummer_desktop_ui_visual_accessibility.generated.json",
-            "chummer_hub_public_web_smoke.generated.json",
-            "mobile_second_device_continuation.generated.json",
-            "media_factory_publication_approval.generated.json",
             "memorial_voice_roundtrip_exit_gate.generated.json",
         ],
     }

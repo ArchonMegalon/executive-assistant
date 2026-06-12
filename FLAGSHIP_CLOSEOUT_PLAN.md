@@ -15,7 +15,7 @@ The earlier closeout blockers are now bound to executable proof instead of prose
 
 - `.codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json` proves seeded product-object workspace pages, approval, commitment closure, handoff, people memory, activation, memo, and draft workflows.
 - `.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json` proves the EA flagship truth plane, product canon, browser workflow proof, and release verification binding agree.
-- `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json` proves the boundary around this claim: EA release control may be green while whole-project Chummer gold remains blocked by missing external receipts.
+- `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json` proves the boundary around this claim: EA release control may be green, Chummer core/UI/hub/mobile/current-media receipts may pass, and whole-project Chummer gold still remains blocked until memorial voice/realtime has its own receipt.
 - `make ci-gates` proves the current release asset, LTD lane, generated-artifact, and flagship-readiness bundle.
 
 This verdict covers the EA core workspace and release-control claim. It does not promote optional LTD/provider lanes, memorial avatar/video, sales operations, external publication channels, Chummer core rules, desktop/UI, hub/web, mobile, or whole-project design polish beyond their own receipts.
