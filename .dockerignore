@@ -15,7 +15,15 @@ ea/third_party/**
 .tools/
 .tools/**
 .codex-design/
+!.codex-design/
+!.codex-design/product/
+!.codex-design/product/*.generated.json
+!.codex-design/repo/
+!.codex-design/repo/MIRROR_SCOPE_BOUNDARY.md
 .codex-studio/
+!.codex-studio/
+!.codex-studio/published/
+!.codex-studio/published/*.generated.json
 _completion/
 feedback/
 skills/
