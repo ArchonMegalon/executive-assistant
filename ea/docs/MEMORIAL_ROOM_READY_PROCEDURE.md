@@ -40,3 +40,25 @@ The code path is now mostly hardened. The remaining risks are room risks:
 - accidental archive/A-B/admin surface exposure
 
 The room-ready runner verifies the live endpoint and then probes the actual demo TTS audio file.
+
+## Missed In The First Pass
+
+The first green deploy was not enough. The live voice/STT loop exposed two phrase-level failures that were easy to miss if only the API and broad tests were checked:
+
+- `Ich bin da. Erzähl mir bitte mehr.` could be transcribed as `Bitte nicht. Erzähl mir bitte mehr.`
+- `Sag mir bitte in Ruhe, worum es geht.` could be transcribed as unrelated words.
+
+The guarded German contact path now avoids the brittle `Ich bin da` opening and uses:
+
+```text
+Sprich ruhig weiter. Ich antworte dir direkt.
+```
+
+The final deployed room-ready run passed `voice_roundtrip_validation` and `audio_probe`. The final voice-loop transcript preserved the spoken intent with F1 `0.9231` for both direct TTS and conversation-answer audio:
+
+```text
+expected: Sprich ruhig weiter. Ich antworte dir direkt.
+actual:   Sprich ruhig weiter, ich antworte direkt.
+```
+
+Unmixr is now a verified runtime lane only because a passing JSON roundtrip receipt exists. A missing video-call avatar manifest may still appear as a warning; that is the optional avatar/video lane, not the live voice conversation gate.
