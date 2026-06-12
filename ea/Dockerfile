@@ -33,6 +33,9 @@ RUN set -eu; \
     if [ -f "$APP_SRC/requirements-openvoice.txt" ]; then cp "$APP_SRC/requirements-openvoice.txt" /app/requirements-openvoice.txt; fi; \
     cp -r "$APP_SRC/app" /app/; \
     cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
+    if [ -d "$APP_SRC/_completion" ]; then \
+      cp -r "$APP_SRC/_completion" /app/_completion; \
+    fi; \
     if [ -f "$APP_SRC/LTDs.md" ]; then \
       cp "$APP_SRC/LTDs.md" /app/LTDs.md; \
     elif [ -f /tmp/src/LTDs.md ]; then \
