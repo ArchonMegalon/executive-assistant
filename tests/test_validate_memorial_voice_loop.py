@@ -52,7 +52,7 @@ def test_token_overlap_treats_jo_like_ja() -> None:
 def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    direct_wav = _generated_wav(b"Sag mir bitte in Ruhe, worum es geht. ")
+    direct_wav = _generated_wav(b"Sprich ruhig weiter. Ich antworte dir direkt. ")
     answer_wav = _generated_wav(b"Ich antworte dir direkt und bleibe bei der Sache. ")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
@@ -68,8 +68,8 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
-            if b"Sag mir bitte in Ruhe, worum es geht." in raw:
-                return 200, {"transcript_text": "Sag mir bitte in Ruhe, worum es geht.", "transcriber": "stub"}
+            if b"Sprich ruhig weiter. Ich antworte dir direkt." in raw:
+                return 200, {"transcript_text": "Sprich ruhig weiter. Ich antworte dir direkt.", "transcriber": "stub"}
             return 200, {
                 "transcript_text": "Ich antworte dir direkt und bleibe bei der Sache.",
                 "transcriber": "stub",
@@ -85,7 +85,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         raise AssertionError(url)
 
     def fake_post_json_binary_response(url: str, payload: dict[str, object], *, timeout: float = 120.0):
-        if payload.get("text") == "Sag mir bitte in Ruhe, worum es geht.":
+        if payload.get("text") == "Sprich ruhig weiter. Ich antworte dir direkt.":
             return 200, direct_wav, "audio/wav"
         return 200, _generated_wav(str(payload.get("text") or "").encode("utf-8") or b"question"), "audio/wav"
 
@@ -97,7 +97,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Sag mir bitte in Ruhe, worum es geht.",
+        direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -112,7 +112,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
 def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    direct_wav = _generated_wav(b"Sag mir bitte in Ruhe, worum es geht. ")
+    direct_wav = _generated_wav(b"Sprich ruhig weiter. Ich antworte dir direkt. ")
     answer_wav = _generated_wav(b"Ich ordne dir das aus aktuellen Quellen ein. ")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
@@ -129,8 +129,8 @@ def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
-            if b"Sag mir bitte in Ruhe, worum es geht." in raw:
-                return 200, {"transcript_text": "Sag mir bitte in Ruhe, worum es geht.", "transcriber": "stub"}
+            if b"Sprich ruhig weiter. Ich antworte dir direkt." in raw:
+                return 200, {"transcript_text": "Sprich ruhig weiter. Ich antworte dir direkt.", "transcriber": "stub"}
             return 200, {"transcript_text": "Ich ordne dir das aus aktuellen Quellen ein.", "transcriber": "stub"}
         if url.endswith("/conversation-turn"):
             import base64
@@ -154,7 +154,7 @@ def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Sag mir bitte in Ruhe, worum es geht.",
+        direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -198,7 +198,7 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Sag mir bitte in Ruhe, worum es geht.",
+        direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -220,7 +220,7 @@ def test_validate_memorial_voice_loop_accepts_short_phrase_with_stt_filler(tmp_p
 def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unavailable(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    direct_wav = _generated_wav(b"Sag mir bitte in Ruhe, worum es geht. ")
+    direct_wav = _generated_wav(b"Sprich ruhig weiter. Ich antworte dir direkt. ")
     answer_wav = _generated_wav(b"Ich antworte dir direkt und bleibe bei der Sache. ")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
@@ -258,7 +258,7 @@ def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unava
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Sag mir bitte in Ruhe, worum es geht.",
+        direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -271,7 +271,7 @@ def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unava
 def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    direct_wav = _generated_wav(b"Sag mir bitte in Ruhe, worum es geht. ")
+    direct_wav = _generated_wav(b"Sprich ruhig weiter. Ich antworte dir direkt. ")
     answer_wav = _generated_wav(b"Ich antworte dir direkt und bleibe bei der Sache. ")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
@@ -305,7 +305,7 @@ def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Sag mir bitte in Ruhe, worum es geht.",
+        direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
         require_stt=True,
     )
@@ -317,7 +317,7 @@ def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp
 def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
-    wav_bytes = _generated_wav(b"Sag mir bitte in Ruhe, worum es geht.")
+    wav_bytes = _generated_wav(b"Sprich ruhig weiter. Ich antworte dir direkt.")
 
     def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
         if payload.get("question") == "Welches Wetter haben wir heute?":
@@ -347,7 +347,7 @@ def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(t
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Sag mir bitte in Ruhe, worum es geht.",
+        direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 

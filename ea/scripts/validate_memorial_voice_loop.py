@@ -473,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--slug", default="manfred")
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--output-dir", default="")
-    parser.add_argument("--direct-text", default="Sag mir bitte in Ruhe, worum es geht.")
+    parser.add_argument("--direct-text", default="Sprich ruhig weiter. Ich antworte dir direkt.")
     parser.add_argument("--conversation-question", default="Hallo Manfred, kannst du direkt mit mir reden?")
     parser.add_argument("--present-world-question", default="Welches Wetter haben wir heute?")
     parser.add_argument("--require-stt", action="store_true", help="Fail when live speech-to-text is unavailable.")
