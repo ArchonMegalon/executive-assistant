@@ -121,6 +121,35 @@ def test_showtime_warns_when_json_semantic_status_warn(tmp_path: Path) -> None:
     assert result.semantic_detail["warn_codes"] == ["difficult_memory_guardrail_unclear"]
 
 
+def test_launch_snapshot_extracts_semantic_status_from_json_stdout() -> None:
+    import scripts.memorial_launch_snapshot as snapshot
+
+    status, detail = snapshot._extract_json_status(
+        json.dumps(
+            {
+                "status": "warn",
+                "findings": [
+                    {"status": "pass", "code": "landing_available"},
+                    {"status": "warn", "code": "avatar_video_not_published"},
+                ],
+            }
+        )
+    )
+
+    assert status == "warn"
+    assert detail["finding_count"] == 2
+    assert detail["warn_codes"] == ["avatar_video_not_published"]
+
+
+def test_launch_snapshot_status_uses_returncode_and_semantic_status() -> None:
+    import scripts.memorial_launch_snapshot as snapshot
+
+    assert snapshot.snapshot_status([{"returncode": 0}]) == "pass"
+    assert snapshot.snapshot_status([{"returncode": 0, "semantic_status": "warn"}]) == "warn"
+    assert snapshot.snapshot_status([{"returncode": 0, "semantic_status": "fail"}]) == "fail"
+    assert snapshot.snapshot_status([{"returncode": 1, "semantic_status": "pass"}]) == "fail"
+
+
 def test_showtime_adds_avatar_gate_when_optional_exit_gates_enabled(tmp_path: Path) -> None:
     import scripts.memorial_showtime as showtime
 

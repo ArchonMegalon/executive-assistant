@@ -346,6 +346,7 @@ def test_memorial_launch_snapshot_cli_writes_green_snapshot(
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["slug"] == "manfred"
     assert payload["base_url"] == base_url
+    assert payload["status"] == "warn"
     assert payload["commands"]
     assert all(item["returncode"] == 0 for item in payload["commands"])
     command_text = [" ".join(item["command"]) for item in payload["commands"]]
@@ -355,6 +356,8 @@ def test_memorial_launch_snapshot_cli_writes_green_snapshot(
     avatar_command = next(item for item in payload["commands"] if "verify_memorial_video_call_avatar_ready.py" in " ".join(item["command"]))
     avatar_payload = json.loads(avatar_command["stdout"])
     assert avatar_payload["status"] == "warn"
+    assert avatar_command["semantic_status"] == "warn"
+    assert avatar_command["semantic_detail"]["warn_codes"] == ["avatar_disabled_label_missing", "avatar_video_not_published"]
 
 
 def test_memorial_room_ready_cli_writes_room_and_audio_reports(

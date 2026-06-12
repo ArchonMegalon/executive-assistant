@@ -16,6 +16,52 @@ EA_DIR = SCRIPT_DIR.parent
 REPO_ROOT = EA_DIR.parent
 
 
+def _extract_json_status(stdout: str) -> tuple[str, dict[str, Any]]:
+    try:
+        payload = json.loads(str(stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        return "", {}
+    if not isinstance(payload, dict):
+        return "", {}
+    status = str(payload.get("status") or "").strip().lower()
+    if status not in {"pass", "warn", "fail"}:
+        return "", {}
+    detail: dict[str, Any] = {}
+    if isinstance(payload.get("findings"), list):
+        detail["finding_count"] = len(payload["findings"])
+        fail_codes = [
+            item.get("code")
+            for item in payload["findings"]
+            if isinstance(item, dict) and item.get("status") == "fail"
+        ]
+        warn_codes = [
+            item.get("code")
+            for item in payload["findings"]
+            if isinstance(item, dict) and item.get("status") == "warn"
+        ]
+        if fail_codes:
+            detail["fail_codes"] = fail_codes
+        if warn_codes:
+            detail["warn_codes"] = warn_codes
+    if isinstance(payload.get("checks"), list):
+        detail["check_count"] = len(payload["checks"])
+        fail_codes = [
+            item.get("code")
+            for item in payload["checks"]
+            if isinstance(item, dict) and item.get("status") == "fail"
+        ]
+        warn_codes = [
+            item.get("code")
+            for item in payload["checks"]
+            if isinstance(item, dict) and item.get("status") == "warn"
+        ]
+        if fail_codes:
+            detail["fail_codes"] = fail_codes
+        if warn_codes:
+            detail["warn_codes"] = warn_codes
+    return status, detail
+
+
 def run_command(
     command: list[str],
     *,
@@ -46,6 +92,10 @@ def run_command(
                 "stderr": proc.stderr[-5000:],
                 "attempt": attempt,
             }
+            semantic_status, semantic_detail = _extract_json_status(proc.stdout)
+            if semantic_status:
+                result["semantic_status"] = semantic_status
+                result["semantic_detail"] = semantic_detail
         except Exception as exc:
             result = {
                 "command": command,
@@ -73,6 +123,17 @@ def run_command(
         "stderr": "unknown_error",
         "attempt": attempts,
     }
+
+
+def snapshot_status(commands: list[dict[str, Any]]) -> str:
+    if any(int(item.get("returncode") or 0) != 0 for item in commands):
+        return "fail"
+    semantic_statuses = {str(item.get("semantic_status") or "").lower() for item in commands}
+    if "fail" in semantic_statuses:
+        return "fail"
+    if "warn" in semantic_statuses:
+        return "warn"
+    return "pass"
 
 
 def env_status() -> dict[str, Any]:
@@ -171,20 +232,22 @@ def main(argv: list[str] | None = None) -> int:
             rehearsal_command.extend(["--questions", args.questions])
         commands.append((rehearsal_command, ea_dir, 240, 0))
 
+    command_results = [run_command(command, cwd=cwd, timeout=timeout, retries=retries) for command, cwd, timeout, retries in commands]
     snapshot = {
         "slug": args.slug,
         "base_url": args.base_url,
+        "status": snapshot_status(command_results),
         "created_at_epoch": int(time.time()),
         "host": {
             "platform": platform.platform(),
             "python": platform.python_version(),
         },
         "environment": env_status(),
-        "commands": [run_command(command, cwd=cwd, timeout=timeout, retries=retries) for command, cwd, timeout, retries in commands],
+        "commands": command_results,
     }
     output.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(output)
-    return 0 if all(item["returncode"] == 0 for item in snapshot["commands"]) else 1
+    return 0 if snapshot["status"] in {"pass", "warn"} else 1
 
 
 if __name__ == "__main__":
