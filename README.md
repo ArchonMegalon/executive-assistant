@@ -108,6 +108,8 @@ Then open `http://localhost:8090/health`.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader flagship inventory gate. It does not claim the whole LTD catalog is verified; it enforces that the named flagship subset (`1min.AI`, `Prompt Architects`, `PayFunnels`, BrowserAct, Teable, ClickRank.ai, Emailit, Pixefy, Rafter) stays on accepted verification sources before release.
 - `python3 scripts/verify_ltd_provider_lanes.py` materializes governed provider-lane receipts for the high-value LTD lanes, including source-of-truth boundaries, off-switches, allowed/forbidden inputs, and missing proof receipts.
 - `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` records a Poppy draft-workbench receipt for public or operator-approved source packets. It keeps Poppy draft/operator only: runtime stays off, output remains pending human review, and EA/Chummer source material remains truth.
+- `python3 scripts/materialize_whole_project_gold_map.py` writes `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json`, the conservative map that keeps EA flagship readiness separate from whole-Chummer gold. Unknown external planes, draft/operator provider lanes, and memorial voice risk block whole-project gold claims until their own receipts exist.
+- `python3 scripts/verify_whole_project_gold_map.py` fails closed if that map overclaims gold or promotes Poppy/media/memorial lanes beyond their governed receipt state.
 - `make verify-ltd-critical-entries` runs the critical runtime LTD verifier.
 - `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
@@ -116,7 +118,7 @@ Then open `http://localhost:8090/health`.
 
 ## Operator Shortcuts
 
-- `make verify-release-assets`: materialize and verify the EA flagship receipts plus the bounded design-mirror bundle
+- `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, and bounded design-mirror bundle
 - `make verify-design-mirror-bundle`: inspect only the bounded EA design-mirror bundle parity
 - `make repair-design-mirror-bundle`: restore the bounded EA design-mirror bundle from canonical sources
 
@@ -427,16 +429,17 @@ Postgres-backed repository contract tests are available via `scripts/test_postgr
 Legacy migration-regression smoke is available via `bash scripts/smoke_postgres.sh --legacy-fixture` or `make smoke-postgres-legacy`.
 The script targets an isolated smoke database (`EA_SMOKE_DB`, default `ea_smoke_runtime`) and restores local `.env` state after the run.
 Local CI-parity compile checks can be run via `make ci-local`.
-One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, and generated release artifact cleanliness after the full memory-backed test suite.
+One-command local CI gate bundle is available via `make ci-gates`; it includes release asset verification, flagship release-readiness verification, whole-project gold-map verification, and generated release artifact cleanliness after the full memory-backed test suite.
 Combined local API+Postgres parity run is available via `make ci-gates-postgres`.
 Combined local API+Postgres legacy-migration parity run is available via `make ci-gates-postgres-legacy`.
 Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper Tibor contract smoke stays in `make hard-exit-gates`.
 Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, Tibor smoke, and Pocket archive verification.
 Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
 Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
+Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; it is intentionally green only as an honest not-gold map while external Chummer planes lack receipts.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
-Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness` and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, or dirty regenerated receipt.
+Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, or dirty regenerated receipt.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
 `make all-local` is a lighter local readiness pass; it still verifies release assets, flagship readiness, and generated release artifact cleanliness, but use `make release-preflight` for release-stage smoke + operator checks.

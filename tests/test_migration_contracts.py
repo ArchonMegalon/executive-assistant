@@ -147,6 +147,7 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "make ci-gates-postgres" in text
     assert "make verify-release-assets" in text
     assert "make verify-flagship-release-readiness" in text
+    assert "make verify-whole-project-gold-map" in text
     assert "make release-preflight" in text
     assert "make provider-readiness" in text
     assert "verify-flagship-release-readiness" in makefile
@@ -188,6 +189,7 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
     for body in (ci_gates, all_local, release_preflight):
         assert "verify-release-assets" in body
         assert "verify-flagship-release-readiness" in body
+        assert "verify-whole-project-gold-map" in body
         assert "verify-generated-release-artifacts-clean" in body
 
     generated_clean = _make_target_body(makefile, "verify-generated-release-artifacts-clean")
@@ -196,8 +198,10 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
 
     assert "make ci-gates" in workflow
     assert "flagship release-readiness verification" in readme
+    assert "whole-project gold-map verification" in readme
     assert "generated release artifact cleanliness" in readme
     assert "flagship release readiness" in runbook
+    assert "make verify-whole-project-gold-map" in runbook
     assert "generated release artifact cleanliness" in runbook
     assert "- `make verify-flagship-release-readiness`" in runbook
     assert "- `make verify-generated-release-artifacts-clean`" in runbook

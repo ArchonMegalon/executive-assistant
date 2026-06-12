@@ -51,6 +51,7 @@ required_files=(
   ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml"
   ".codex-design/product/TELEGRAM_FLAGSHIP_RUNTIME_DESIGN.md"
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
+  ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
   "scripts/deploy.sh"
   "scripts/db_bootstrap.sh"
   "scripts/db_status.sh"
@@ -74,6 +75,8 @@ required_files=(
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
   "scripts/materialize_poppy_draft_packet.py"
+  "scripts/materialize_whole_project_gold_map.py"
+  "scripts/verify_whole_project_gold_map.py"
   "scripts/verify_generated_release_artifacts_clean.py"
   "scripts/verify_flagship_release_readiness.py"
   "scripts/verify_design_mirror_bundle.py"
@@ -184,6 +187,22 @@ assert journey_gate_provenance.get("git_head")
 assert supporting.get("journey_gate_git_head") == journey_gate_provenance.get("git_head")
 assert supporting.get("launch_readiness")
 assert pulse["governor_decisions"]
+
+gold_map = json.loads(Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json").read_text(encoding="utf-8"))
+assert gold_map["contract_name"] == "ea.whole_project_gold_map"
+assert gold_map["overall_status"] == "not_gold"
+assert gold_map["gold_claim_allowed"] is False
+planes = {plane["key"]: plane for plane in gold_map["planes"]}
+assert planes["ea_release_control"]["status"] == "pass"
+assert planes["design_surface"]["status"] == "bounded_pass"
+assert planes["chummer_core_rules"]["status"] == "unknown_missing_receipt"
+assert planes["chummer_desktop_ui"]["status"] == "unknown_missing_receipt"
+assert planes["chummer_hub_public_web"]["status"] == "unknown_missing_receipt"
+assert planes["mobile_and_second_device"]["status"] == "unknown_missing_receipt"
+assert planes["media_factory_publication"]["status"] == "draft_operator"
+assert planes["memorial_voice_demo"]["status"] == "separate_risk_zone"
+assert gold_map["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
+assert "EA flagship readiness does not imply whole Chummer project readiness" in "\n".join(gold_map["rules"])
 
 current_head = subprocess.run(
     ["git", "rev-parse", "HEAD"],
@@ -844,10 +863,11 @@ else
 fi
 
 if grep -Fq '  - `make verify-flagship-release-readiness`' "RUNBOOK.md" && \
+   grep -Fq '  - `make verify-whole-project-gold-map`' "RUNBOOK.md" && \
    grep -Fq '  - `make verify-generated-release-artifacts-clean`' "RUNBOOK.md"; then
-  echo "ok: RUNBOOK CI gate readiness and generated-clean bullets"
+  echo "ok: RUNBOOK CI gate readiness, whole-gold-map, and generated-clean bullets"
 else
-  echo "missing: RUNBOOK CI gate readiness or generated-clean bullets" >&2
+  echo "missing: RUNBOOK CI gate readiness, whole-gold-map, or generated-clean bullets" >&2
   missing=1
 fi
 
@@ -1228,6 +1248,7 @@ if grep -Fq "make smoke-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make ci-gates-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make provider-readiness" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-flagship-release-readiness" "scripts/operator_summary.sh" && \
+   grep -Fq "make verify-whole-project-gold-map" "scripts/operator_summary.sh" && \
    grep -Fq "make release-preflight" "scripts/operator_summary.sh" && \
    grep -Fq "make support-bundle" "scripts/operator_summary.sh" && \
    grep -Fq "make tasks-archive" "scripts/operator_summary.sh" && \

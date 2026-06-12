@@ -1,0 +1,198 @@
+{
+  "contract_name": "ea.whole_project_gold_map",
+  "generated_at": "2026-06-12T18:18:44Z",
+  "generated_by": "scripts/materialize_whole_project_gold_map.py",
+  "git_head": "7eaa5fa5360ded4368b426391cbd73a2836249c8",
+  "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+  "overall_status": "not_gold",
+  "gold_claim_allowed": false,
+  "operator_summary": "EA release control is green, but whole-project gold is blocked by unproven external planes.",
+  "rules": [
+    "EA flagship readiness does not imply whole Chummer project readiness.",
+    "Unknown external planes block whole-project gold claims.",
+    "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
+    "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
+    "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts."
+  ],
+  "blocking_planes": [
+    "chummer_core_rules",
+    "chummer_desktop_ui",
+    "chummer_hub_public_web",
+    "mobile_and_second_device",
+    "media_factory_publication",
+    "memorial_voice_demo"
+  ],
+  "planes": [
+    {
+      "key": "ea_release_control",
+      "title": "Executive Assistant Release Control",
+      "owner_repo": "EA",
+      "status": "pass",
+      "claim": "EA core workspace and release-control proof are green only when the EA receipt, weekly pulse, and browser workflow proof are green.",
+      "evidence": [
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "fleet_journey_gates",
+      "title": "Fleet Journey Gates",
+      "owner_repo": "fleet",
+      "status": "pass",
+      "claim": "Fleet journey gates are separate evidence; EA only consumes their generated summary.",
+      "evidence": [
+        "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "design_surface",
+      "title": "Design Surface And Mirror Boundary",
+      "owner_repo": "design-front-door / EA mirror",
+      "status": "bounded_pass",
+      "claim": "EA owns a bounded mirror and cannot infer all Chummer product design readiness from mirrored docs alone.",
+      "evidence": [
+        ".codex-design/repo/MIRROR_SCOPE_BOUNDARY.md"
+      ],
+      "missing_evidence": [],
+      "design_notes": [
+        "Whole-project design gold requires canonical product/UI review receipts outside the EA mirror.",
+        "The EA mirror may be green while product-wide visual polish remains unproven."
+      ]
+    },
+    {
+      "key": "chummer_core_rules",
+      "title": "Chummer Core Rules And Data Correctness",
+      "owner_repo": "chummer6-core",
+      "status": "unknown_missing_receipt",
+      "claim": "No EA-local receipt proves complete Chummer rules/data correctness.",
+      "evidence": [],
+      "missing_evidence": [
+        "core rules parity receipt",
+        "data migration receipt",
+        "regression suite receipt"
+      ],
+      "design_notes": []
+    },
+    {
+      "key": "chummer_desktop_ui",
+      "title": "Chummer Desktop/UI Product Surface",
+      "owner_repo": "chummer6-ui",
+      "status": "unknown_missing_receipt",
+      "claim": "No EA-local receipt proves desktop UI, visual polish, accessibility, or launcher flows end to end.",
+      "evidence": [],
+      "missing_evidence": [
+        "visual regression receipt",
+        "accessibility receipt",
+        "install/update journey receipt"
+      ],
+      "design_notes": []
+    },
+    {
+      "key": "chummer_hub_public_web",
+      "title": "Chummer Hub And Public Web",
+      "owner_repo": "chummer6-hub",
+      "status": "unknown_missing_receipt",
+      "claim": "No EA-local receipt proves public hub, account, download, support, or landing surfaces are production-gold.",
+      "evidence": [],
+      "missing_evidence": [
+        "hub smoke receipt",
+        "public web visual receipt",
+        "support/contact receipt"
+      ],
+      "design_notes": []
+    },
+    {
+      "key": "mobile_and_second_device",
+      "title": "Mobile And Second-Device Continuation",
+      "owner_repo": "mobile / hub",
+      "status": "unknown_missing_receipt",
+      "claim": "No EA-local receipt proves mobile, tablet, or second-device continuation journeys.",
+      "evidence": [],
+      "missing_evidence": [
+        "mobile viewport receipt",
+        "second-device auth receipt",
+        "session handoff receipt"
+      ],
+      "design_notes": []
+    },
+    {
+      "key": "media_factory_publication",
+      "title": "Media Factory And Video Publication",
+      "owner_repo": "EA / Chummer media factory",
+      "status": "draft_operator",
+      "claim": "MagicFit, JoggAI, Poppy, and video/avatar lanes are governed draft/operator or candidate lanes unless separate publish receipts exist.",
+      "evidence": [
+        "scripts/verify_ltd_provider_lanes.py",
+        ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"
+      ],
+      "missing_evidence": [
+        "approved render receipts for each published asset",
+        "human review receipts",
+        "source-of-truth publication receipts"
+      ],
+      "design_notes": []
+    },
+    {
+      "key": "memorial_voice_demo",
+      "title": "Memorial Voice / Realtime Demo",
+      "owner_repo": "memorial runtime",
+      "status": "separate_risk_zone",
+      "claim": "Memorial voice quality and realtime conversation readiness must be proven by its own browser+STT+TTS exit gate, not by EA release readiness.",
+      "evidence": [],
+      "missing_evidence": [
+        "live memorial roundtrip transcript receipt",
+        "voice intelligibility receipt",
+        "latency p50/p95 receipt"
+      ],
+      "design_notes": []
+    },
+    {
+      "key": "ltd_provider_lanes",
+      "title": "LTD Provider Lanes",
+      "owner_repo": "EA",
+      "status": "mixed",
+      "claim": "Provider lanes may be verified runtime, draft/operator, or parked inventory; they are not product truth.",
+      "evidence": [
+        "scripts/verify_ltd_provider_lanes.py"
+      ],
+      "missing_evidence": [],
+      "design_notes": [
+        "lane_count=11",
+        "runtime_lane_count=3",
+        "draft_or_operator_lane_count=8"
+      ]
+    }
+  ],
+  "ltd_provider_lane_summary": {
+    "contract_name": "ea.verify_ltd_provider_lanes",
+    "status": "pass",
+    "lane_count": 11,
+    "runtime_lane_count": 3,
+    "draft_or_operator_lane_count": 8,
+    "poppy_runtime_enabled": false,
+    "poppy_lane_state": "verified_draft_operator_lane",
+    "draft_or_operator_lanes": [
+      "magicfit_media_factory_candidate",
+      "poppy_draft_workbench",
+      "public_signal_ingest",
+      "docs_draft_factory",
+      "prompt_foundry",
+      "operator_control_plane",
+      "video_provider_bakeoff",
+      "commercial_ops"
+    ]
+  },
+  "required_next_receipts": [
+    "chummer_core_rules_parity.generated.json",
+    "chummer_desktop_ui_visual_accessibility.generated.json",
+    "chummer_hub_public_web_smoke.generated.json",
+    "mobile_second_device_continuation.generated.json",
+    "media_factory_publication_approval.generated.json",
+    "memorial_voice_roundtrip_exit_gate.generated.json"
+  ]
+}

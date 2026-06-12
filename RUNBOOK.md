@@ -291,6 +291,7 @@ EA product canon for those claims now lives in `.codex-design/ea/START_HERE.md`.
   - `make test-api`
   - `make verify-release-assets`
   - `make verify-flagship-release-readiness`
+  - `make verify-whole-project-gold-map`
   - `make verify-generated-release-artifacts-clean`
   - `make runtime-hard-exit-gates`
   - `make hard-exit-gates`
@@ -786,13 +787,14 @@ make tasks-archive-prune
 bash scripts/verify_release_assets.sh
 # or
 make verify-release-assets
+make verify-whole-project-gold-map
 # docs-focused alias
 make docs-verify
 # docs + operator-help bundle
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: it permits the EA release-control claim while keeping whole-Chummer gold blocked until core, UI, hub, mobile, media, and memorial receipts exist.
 
 Combined local readiness check:
 

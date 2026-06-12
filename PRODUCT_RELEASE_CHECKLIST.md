@@ -58,4 +58,5 @@ The critical test is whether the shipped workspace behaves like a real executive
 - real browser E2E passes.
 - runtime smoke passes.
 - the EA flagship receipt is materialized and current.
+- the whole-project gold map is materialized and still blocks whole-Chummer gold unless every external plane has its own passing receipt.
 - the flagship closeout blockers in `FLAGSHIP_CLOSEOUT_PLAN.md` are all materially closed.

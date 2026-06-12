@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GENERATED_ARTIFACTS = (
     Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"),
     Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"),
+    Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"),
     Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"),
 )
 VOLATILE_KEYS = {
