@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -43,11 +44,32 @@ def _intent_from_row(raw: dict[str, Any]) -> IntentSpecV3:
 
 
 class PostgresExecutionLedgerRepository:
+    _SCHEMA_RETRY_DELAYS_SECONDS = (0.05, 0.15, 0.35)
+    _SCHEMA_RETRY_SQLSTATES = {"40P01", "40001"}
+
     def __init__(self, database_url: str) -> None:
         self._database_url = str(database_url or "").strip()
         if not self._database_url:
             raise ValueError("database_url is required for PostgresExecutionLedgerRepository")
-        self._ensure_schema()
+        self._ensure_schema_with_retry()
+
+    def _ensure_schema_with_retry(self) -> None:
+        for attempt in range(len(self._SCHEMA_RETRY_DELAYS_SECONDS) + 1):
+            try:
+                self._ensure_schema()
+                return
+            except Exception as exc:
+                if not self._is_retryable_schema_bootstrap_error(exc) or attempt >= len(
+                    self._SCHEMA_RETRY_DELAYS_SECONDS
+                ):
+                    raise
+                time.sleep(self._SCHEMA_RETRY_DELAYS_SECONDS[attempt])
+
+    def _is_retryable_schema_bootstrap_error(self, exc: Exception) -> bool:
+        sqlstate = str(getattr(exc, "sqlstate", "") or "").strip().upper()
+        if sqlstate in self._SCHEMA_RETRY_SQLSTATES:
+            return True
+        return exc.__class__.__name__ in {"DeadlockDetected", "SerializationFailure"}
 
     def _connect(self):  # type: ignore[no-untyped-def]
         try:
