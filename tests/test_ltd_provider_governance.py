@@ -451,3 +451,95 @@ def test_materialize_poppy_draft_workbench_receipts_promotes_draft_only_lane(tmp
     assert receipt["lane_state"] == "verified_draft_operator_lane"
     assert receipt["runtime_enabled"] is False
     assert receipt["missing_checks"] == []
+
+
+def test_materialize_poppy_draft_packet_accepts_only_approved_public_inputs(tmp_path: Path) -> None:
+    script = Path("/docker/EA/scripts/materialize_poppy_draft_packet.py")
+    source_packet = tmp_path / "source.packet.json"
+    draft_output = tmp_path / "draft.txt"
+    output_dir = tmp_path / "poppy-drafts"
+    source_packet.write_text(
+        json.dumps(
+            {
+                "source_packet_id": "public-release-copy-v1",
+                "input_kind": "public_release_copy",
+                "visibility": "public",
+                "review_status": "approved",
+                "source_refs": ["README.md"],
+                "source_text": "Public source packet only.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    draft_output.write_text("Draft summary copied manually from Poppy.", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--source-packet",
+            str(source_packet),
+            "--draft-output",
+            str(draft_output),
+            "--output-dir",
+            str(output_dir),
+        ],
+        cwd="/docker/EA",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    receipt = json.loads(Path(body["output"]).read_text(encoding="utf-8"))
+    rendered = json.dumps(receipt, sort_keys=True)
+    assert receipt["contract_name"] == "executive_assistant.poppy_draft_packet.v1"
+    assert receipt["lane_state"] == "verified_draft_operator_lane"
+    assert receipt["runtime_enabled"] is False
+    assert receipt["human_review_required"] is True
+    assert receipt["status"] == "pending_human_review"
+    assert "Draft summary copied manually from Poppy." not in rendered
+
+
+def test_materialize_poppy_draft_packet_rejects_private_or_truth_inputs(tmp_path: Path) -> None:
+    script = Path("/docker/EA/scripts/materialize_poppy_draft_packet.py")
+    source_packet = tmp_path / "source.packet.json"
+    draft_output = tmp_path / "draft.txt"
+    source_packet.write_text(
+        json.dumps(
+            {
+                "source_packet_id": "bad-private-packet",
+                "input_kind": "private_campaign_data",
+                "visibility": "private",
+                "review_status": "draft",
+                "source_text": "Do not send this.",
+                "contains_private_campaign_data": True,
+                "contains_release_truth": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    draft_output.write_text("Draft should not be accepted.", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--source-packet",
+            str(source_packet),
+            "--draft-output",
+            str(draft_output),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        cwd="/docker/EA",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "poppy_source_packet_rejected" in result.stderr
+    assert "forbidden_flag_set:contains_private_campaign_data" in result.stderr
+    assert "input_kind_not_allowed:private_campaign_data" in result.stderr

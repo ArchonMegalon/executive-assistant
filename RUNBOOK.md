@@ -129,6 +129,7 @@ Auth:
 - `python3 scripts/verify_ltd_critical_entries.py` is the hard verifier for the currently depended-on LTD lanes. It fails closed if [LTDs.md](/docker/EA/LTDs.md) or the live env drift away from the required `1min.AI`, `Prompt Architects`, BrowserAct, and Teable facts.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader release gate for the current flagship verified subset. It intentionally covers a named subset instead of pretending all `manual_seeded` or `missing` LTD rows are already proven.
 - `python3 scripts/verify_ltd_provider_lanes.py` writes governed provider-lane receipts with off-switches, source-of-truth boundaries, allowed/forbidden inputs, and missing proof checks.
+- `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` turns a manually copied Poppy draft into a hash-only receipt. It accepts only public or operator-approved source packets, leaves `runtime_enabled=false`, and requires human review before any source-controlled content change.
 - `make ltd-release-gates` runs all LTD release verifiers together.
 - `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, and `make verify-ltd-provider-lanes` are the corresponding operator entrypoints.
 

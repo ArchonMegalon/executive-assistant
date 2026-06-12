@@ -13,6 +13,7 @@ RELEASE_CHECKLIST_PATH = ROOT / "RELEASE_CHECKLIST.md"
 PRODUCT_RELEASE_CHECKLIST_PATH = ROOT / "PRODUCT_RELEASE_CHECKLIST.md"
 README_PATH = ROOT / "README.md"
 RUNBOOK_PATH = ROOT / "RUNBOOK.md"
+MIRROR_SCOPE_BOUNDARY_PATH = ROOT / ".codex-design" / "repo" / "MIRROR_SCOPE_BOUNDARY.md"
 
 
 def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
@@ -53,6 +54,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     assert ".codex-design/ea/START_HERE.md" in canon["required_docs"]
     assert ".codex-design/ea/SURFACE_DESIGN_SYSTEM.md" in canon["required_docs"]
     assert ".codex-design/ea/LTD_INTEGRATION_MAP.md" in canon["required_docs"]
+    assert ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md" in canon["required_docs"]
 
 
 def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_oracle() -> None:
@@ -86,6 +88,14 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in runbook
     assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in runbook
     assert "scripts/materialize_ea_flagship_release_gate.py" in runbook
+
+
+def test_mirror_scope_boundary_prevents_full_design_index_overclaim() -> None:
+    boundary = MIRROR_SCOPE_BOUNDARY_PATH.read_text(encoding="utf-8")
+    assert ".codex-design/product/README.md" in boundary
+    assert "does not mirror every canonical Chummer product document" in boundary
+    assert "Missing files from that list are not local EA mirror failures" in boundary
+    assert "emit a design petition" in boundary
 
 
 def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -> None:

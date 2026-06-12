@@ -37,6 +37,7 @@ SCRIPTS=(
   scripts/verify_ltd_critical_entries.py
   scripts/verify_ltd_flagship_subset.py
   scripts/verify_ltd_provider_lanes.py
+  scripts/materialize_poppy_draft_packet.py
   scripts/list_endpoints.sh
   scripts/version_info.sh
   scripts/export_openapi.sh

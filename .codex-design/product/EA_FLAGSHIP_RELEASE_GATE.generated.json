@@ -3,7 +3,7 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-05T16:10:46Z",
+  "generated_at": "2026-06-12T17:20:46Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "operator_summary": "EA flagship release truth is published as a machine-readable receipt and currently green.",
@@ -36,7 +36,8 @@
       ".codex-design/ea/FIRST_VALUE_JOURNEY.md",
       ".codex-design/ea/COPY_PRINCIPLES.md",
       ".codex-design/ea/METRICS_AND_SLOS.yaml",
-      ".codex-design/ea/LTD_INTEGRATION_MAP.md"
+      ".codex-design/ea/LTD_INTEGRATION_MAP.md",
+      ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"
     ],
     "docs_present": [
       {
@@ -77,6 +78,10 @@
       },
       {
         "path": ".codex-design/ea/LTD_INTEGRATION_MAP.md",
+        "present": true
+      },
+      {
+        "path": ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md",
         "present": true
       }
     ],

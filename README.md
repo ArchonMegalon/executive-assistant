@@ -107,6 +107,7 @@ Then open `http://localhost:8090/health`.
 - `python3 scripts/verify_ltd_critical_entries.py` is the fail-closed check for the LTD lanes currently relied on in runtime (`1min.AI`, `Prompt Architects`, BrowserAct, and Teable). `scripts/hard_exit_gates.sh` now runs it before release smoke.
 - `python3 scripts/verify_ltd_flagship_subset.py` is the broader flagship inventory gate. It does not claim the whole LTD catalog is verified; it enforces that the named flagship subset (`1min.AI`, `Prompt Architects`, `PayFunnels`, BrowserAct, Teable, ClickRank.ai, Emailit, Pixefy, Rafter) stays on accepted verification sources before release.
 - `python3 scripts/verify_ltd_provider_lanes.py` materializes governed provider-lane receipts for the high-value LTD lanes, including source-of-truth boundaries, off-switches, allowed/forbidden inputs, and missing proof receipts.
+- `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` records a Poppy draft-workbench receipt for public or operator-approved source packets. It keeps Poppy draft/operator only: runtime stays off, output remains pending human review, and EA/Chummer source material remains truth.
 - `make verify-ltd-critical-entries` runs the critical runtime LTD verifier.
 - `make verify-ltd-flagship-subset` runs the broader flagship verified-subset gate.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.

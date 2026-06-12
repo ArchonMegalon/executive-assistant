@@ -50,7 +50,7 @@ The release claim depends on `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_
 - FlipLink Document Portal is now a verified runtime lane for approved public document presentation because `ea/_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json` passes and the deployed container sees the receipt.
 - Memorial video-call avatar remains optional and may warn on missing avatar manifest.
 - MagicFit is a verified draft/operator candidate; additional accounts need account-use receipts before claiming they produced assets.
-- Poppy remains blocked pending explicit privacy, export-semantics, tenant-isolation, and session proof receipts. Public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
+- Poppy is now a verified draft/operator lane for public or operator-approved source packets only; `runtime_enabled` remains false, BrowserAct private publish remains unavailable, and Poppy still cannot own product, release, support, prompt, private-user, sourcebook, or memorial-private truth. Public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
 - Scheduler logs can show `morning memo configured=0`; that is an activation/configuration state, not a failing release-control gate.
 
 ## Fleet execution order

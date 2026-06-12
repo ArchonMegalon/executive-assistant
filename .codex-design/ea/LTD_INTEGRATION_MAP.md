@@ -52,3 +52,29 @@ Use for:
 - commitment extraction
 - decision proposals
 - people-memory enrichment
+
+## Poppy AI
+
+Use for:
+
+- public video transcript repurposing drafts
+- public PDF summary drafts
+- manually approved operator-note drafts
+- public release-copy variants
+
+Do not use for:
+
+- live assistant runtime
+- product truth
+- release truth
+- support truth
+- private campaign data
+- sourcebook copied text
+- memorial-private material
+
+Operator proof:
+
+- `python3 scripts/verify_poppy_session.py`
+- `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>`
+
+The source packet and human review own truth. Poppy output is only draft text until reviewed and copied into EA/Chummer-owned source material.
