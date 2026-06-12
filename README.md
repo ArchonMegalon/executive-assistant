@@ -34,6 +34,15 @@ bash scripts/deploy.sh
 bash scripts/db_bootstrap.sh
 ```
 
+Explicit Make deploy targets are split by product plane:
+
+```bash
+make deploy-ea-prod    # EA core/runtime services
+make deploy-property   # PropertyQuarry isolated compose stack
+```
+
+The legacy `make deploy` target remains the property compose path for compatibility with the property isolation checks; new EA operations should use `make deploy-ea-prod`.
+
 The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or Docker socket control:
 
 ```bash

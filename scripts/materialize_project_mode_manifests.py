@@ -92,7 +92,7 @@ def show_surface_manifest() -> dict[str, Any]:
         "generated_by": "scripts/materialize_project_mode_manifests.py",
         "git_head": _git_head(),
         "demo_mode": "ea_core",
-        "allowed_surfaces": ["/", "/product", "/get-started", "/sign-in", "/app/today", "/app/queue", "/app/commitments", "/app/settings"],
+        "allowed_surfaces": ["/", "/product", "/modes", "/get-started", "/sign-in", "/app/today", "/app/queue", "/app/commitments", "/app/settings"],
         "forbidden_surfaces": ["/memorials/*", "/memorials/files/*", "/results/*", "/tours/*", "/properties*", "/property*"],
         "allowed_provider_names": ["Google", "Email"],
         "forbidden_provider_names": ["JoggAI", "MagicFit", "VidBoard", "Poppy", "Unmixr", "VoiceWave", "FlipLink"],

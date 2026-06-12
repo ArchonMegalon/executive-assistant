@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import hmac
+import json
 import os
 import hashlib
 import re
@@ -87,6 +88,27 @@ archive_router = APIRouter(tags=["landing_archive"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
+
+def _repo_root() -> Path:
+    resolved = Path(__file__).resolve()
+    for candidate in (resolved.parents[4], resolved.parents[3], Path("/app"), Path.cwd()):
+        if (candidate / ".codex-design").exists() or (candidate / "PRODUCT_BOUNDARY.md").is_file():
+            return candidate
+    return resolved.parents[4]
+
+
+def _load_project_mode_payloads() -> tuple[dict[str, object], dict[str, object]]:
+    root = _repo_root()
+    try:
+        modes = json.loads((root / ".codex-design/product/PROJECT_MODES.generated.json").read_text(encoding="utf-8"))
+    except Exception:
+        modes = {"contract_name": "ea.project_modes", "modes": []}
+    try:
+        show = json.loads((root / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json").read_text(encoding="utf-8"))
+    except Exception:
+        show = {"contract_name": "ea.show_surface_manifest", "demo_mode": "ea_core"}
+    return (dict(modes) if isinstance(modes, dict) else {"modes": []}, dict(show) if isinstance(show, dict) else {})
+
 
 _ARCHIVE_HOSTNAME = "archive.myexternalbrain.com"
 _ARCHIVE_MEMORIAL_SLUG = "manfred"
@@ -713,6 +735,54 @@ def archive_publication_page(archive_slug: str, request: Request) -> HTMLRespons
     if not path.is_file():
         raise HTTPException(status_code=404, detail="archive_publication_not_found")
     return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+
+
+@router.get("/modes", response_class=HTMLResponse)
+def project_modes_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    modes_payload, show_payload = _load_project_mode_payloads()
+    mode_rows = []
+    display_names = {
+        "EA_CORE": "EA Core",
+        "MEMORIAL": "Memorial",
+        "PROVIDER_LAB": "Provider Lab",
+        "CHUMMER_RELEASE_CONTROL": "Chummer Release Control",
+        "PROPERTY": "Property",
+    }
+    for mode in list(modes_payload.get("modes") or []):
+        if not isinstance(mode, dict):
+            continue
+        key = str(mode.get("key") or "").strip()
+        mode_rows.append(
+            {
+                "key": key,
+                "display_name": display_names.get(key, key.replace("_", " ").title()),
+                "status": str(mode.get("status") or "").strip(),
+                "purpose": str(mode.get("purpose") or "").strip(),
+                "design_language": str(mode.get("design_language") or "").strip(),
+                "hard_gate": str(mode.get("hard_gate") or "").strip(),
+            }
+        )
+    return _render_public_template(
+        request,
+        "project_modes.html",
+        **_public_context(
+            request=request,
+            current_nav="modes",
+            page_title=f"{request_brand(request)['name']} Project Modes",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "project_modes": mode_rows,
+                "show_manifest": show_payload,
+            },
+        ),
+    )
 
 
 @router.get("/product", response_class=HTMLResponse)

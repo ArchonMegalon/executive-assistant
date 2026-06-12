@@ -6,6 +6,7 @@ from app.api.routes.responses import _codex_governance_payload, _codex_profiles
 from app.container import AppContainer
 from app.product.projections.handoffs import handoff_action_options, handoff_action_plan, handoff_from_human_task
 from app.product.service import build_product_service
+from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
 
 
 def _row(
@@ -83,6 +84,54 @@ def _row(
 
 def _humanize(value: str) -> str:
     return str(value or "").strip().replace("_", " ") or "unknown"
+
+
+def _ea_shell_provider_text(value: str) -> str:
+    text = str(value or "")
+    replacements = (
+        ("EA/Chummer", "EA and approved source owners"),
+        ("Fleet/Chummer", "Upstream release owners"),
+        ("Chummer/Fleet/design", "upstream design owners"),
+        ("Chummer", "upstream project"),
+        ("chummer", "project"),
+        ("GM runtime", "live runtime"),
+        ("GM ", "operator "),
+        ("campaign or community ops", "adjacent operations"),
+        ("campaign ops", "adjacent ops"),
+    )
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
+
+def _provider_lane_rows() -> list[dict[str, str]]:
+    try:
+        receipt = build_ltd_provider_governance_receipt()
+    except Exception:
+        return []
+    rows: list[dict[str, str]] = []
+    for lane in list(receipt.get("lanes") or []):
+        if not isinstance(lane, dict):
+            continue
+        providers = ", ".join(
+            _ea_shell_provider_text(str(value)) for value in list(lane.get("providers") or []) if str(value or "").strip()
+        )
+        missing = ", ".join(str(value) for value in list(lane.get("missing_checks") or []) if str(value or "").strip())
+        allowed = ", ".join(
+            _ea_shell_provider_text(str(value))
+            for value in list(lane.get("allowed_inputs") or [])[:3]
+            if str(value or "").strip()
+        )
+        boundary = _ea_shell_provider_text(str(lane.get("source_of_truth_boundary") or "").strip())
+        detail = " · ".join(part for part in (providers, f"Allowed: {allowed}" if allowed else "", f"Missing proof: {missing}" if missing else "Proof gate clear", boundary) if part)
+        rows.append(
+            _row(
+                str(lane.get("title") or lane.get("lane_key") or "Provider lane"),
+                detail or "Provider lane is governed by receipts.",
+                _humanize(str(lane.get("lane_state") or lane.get("status") or "unknown")).title(),
+            )
+        )
+    return rows
 
 
 def _handoff_id_from_row(value: object) -> str:
@@ -425,6 +474,7 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             "Boundary",
         ),
     ]
+    provider_lane_rows = _provider_lane_rows()
     approval_rows = [
         _row(
             str(row.reason or "Approval pending"),
@@ -971,8 +1021,14 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         },
         "providers": {
             "title": "Providers",
-            "summary": "Provider health, capacity, routing lanes, and codex governance from the live runtime and canon-backed control loop.",
+            "summary": "Provider health, governed LTD lanes, capacity, routing, and codex governance from the live runtime and canon-backed control loop.",
             "cards": [
+                {
+                    "eyebrow": "Governed lanes",
+                    "title": "What each provider is allowed to do",
+                    "items": provider_lane_rows
+                    or [_row("No governed provider lanes", "Run the LTD provider-lane verifier before relying on provider state.", "Missing")],
+                },
                 {"eyebrow": "Bindings", "title": "Configured providers", "items": provider_rows or [_row("No provider bindings", "No providers are currently bound for this principal.", "Empty")]},
                 {"eyebrow": "Routing", "title": "Lane routing state", "items": lane_rows or [_row("No active lanes", "No provider lanes are currently active.", "Empty")]},
                 {

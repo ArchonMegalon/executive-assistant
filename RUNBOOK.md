@@ -342,8 +342,10 @@ Release ops linkage: `RELEASE_CHECKLIST.md` includes `make ci-gates` and `make c
 ```bash
 bash scripts/deploy.sh
 # or
-make deploy
+make deploy-ea-prod
 ```
+
+`make deploy` is still the legacy PropertyQuarry compose path for property isolation checks. Use `make deploy-property` when you intentionally want that stack.
 
 Memory-only local mode (API without DB dependency):
 
