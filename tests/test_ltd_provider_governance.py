@@ -180,6 +180,41 @@ def test_lane_receipt_never_leaks_env_secret_values(tmp_path: Path) -> None:
     assert "voice_id_private" in receipt["passed_checks"]
 
 
+def test_unmixr_voice_roundtrip_requires_passing_receipt(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+    lane = lane_by_key("unmixr_voice_runtime")
+    assert lane is not None
+    receipt_dir = tmp_path / "_completion" / "unmixr"
+    receipt_dir.mkdir(parents=True)
+    receipt_path = receipt_dir / "UNMIXR_VOICE_ROUNDTRIP.generated.json"
+    env = {"UNMIXR_API_KEY": "secret-api-key", "UNMIXR_VOICE_ID": "secret-voice"}
+
+    receipt_path.write_text(json.dumps({"status": "fail"}), encoding="utf-8")
+    failed = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env=env,
+        root=tmp_path,
+        generated_at="2026-06-10T00:00:00Z",
+    )
+    assert "voice_roundtrip_validation" in failed["missing_checks"]
+
+    receipt_path.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+    passed = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env=env,
+        root=tmp_path,
+        generated_at="2026-06-10T00:00:00Z",
+    )
+    assert "voice_roundtrip_validation" in passed["passed_checks"]
+    assert "voice_roundtrip_validation" not in passed["missing_checks"]
+
+
 def test_materializer_writes_aggregate_and_lane_receipts(tmp_path: Path, monkeypatch) -> None:
     ltd_path = _write_ltd(tmp_path)
     output_dir = tmp_path / "receipts"

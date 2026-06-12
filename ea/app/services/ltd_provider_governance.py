@@ -363,6 +363,20 @@ def _existing_receipt(root: Path, *relative_paths: str) -> bool:
     return any((root / relative_path).is_file() for relative_path in relative_paths)
 
 
+def _passing_json_receipt(root: Path, *relative_paths: str) -> bool:
+    for relative_path in relative_paths:
+        path = root / relative_path
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict) and str(payload.get("status") or "").strip().lower() == "pass":
+            return True
+    return False
+
+
 def _check_passed(
     lane: ProviderLane,
     check: LaneCheck,
@@ -404,7 +418,7 @@ def _check_passed(
         ok = _env_present(env, "UNMIXR_VOICE_ID")
         return ok, "env_slot_populated" if ok else "UNMIXR_VOICE_ID_missing"
     if key == "voice_roundtrip_validation":
-        ok = _existing_receipt(root, "ea/_completion/unmixr/UNMIXR_VOICE_ROUNDTRIP.generated.json", "_completion/unmixr/UNMIXR_VOICE_ROUNDTRIP.generated.json")
+        ok = _passing_json_receipt(root, "ea/_completion/unmixr/UNMIXR_VOICE_ROUNDTRIP.generated.json", "_completion/unmixr/UNMIXR_VOICE_ROUNDTRIP.generated.json")
         return ok, "roundtrip_receipt_present" if ok else "roundtrip_receipt_missing"
     if key == "piper_fallback_policy":
         ok = "piper" in markdown_text.lower() or _existing_receipt(
