@@ -1,0 +1,49 @@
+{
+  "provider": "Poppy AI",
+  "generated_at": "2026-06-12T16:41:19Z",
+  "status": "pass",
+  "lane": "poppy_draft_workbench",
+  "lane_state_allowed": "verified_draft_operator_lane",
+  "runtime_enabled": false,
+  "source_of_truth_boundary": "EA/Chummer source markdown and approved notes remain truth; Poppy may draft only from approved public material.",
+  "allowed_inputs": [
+    "public_video_transcript",
+    "public_pdf",
+    "manually_approved_notes",
+    "public_release_copy"
+  ],
+  "forbidden_inputs": [
+    "private_campaign_data",
+    "user_submission",
+    "private_memorial_memory",
+    "sourcebook_copied_text",
+    "product_truth",
+    "release_truth",
+    "support_truth"
+  ],
+  "off_switch_env": "EA_POPPY_DRAFT_WORKBENCH_ENABLED",
+  "contract_name": "executive_assistant.poppy_privacy_boundary.v1",
+  "check_key": "privacy_boundary",
+  "policy_sources": [
+    {
+      "url": "https://getpoppy.ai/privacy-policy",
+      "observed_at": "2026-06-12T16:41:19Z",
+      "notes": "Policy describes collection/use, third-party service providers, analytics/session recording, retention, staff/contractor access, rights requests, and security caveats."
+    },
+    {
+      "url": "https://getpoppy.ai/terms-conditions",
+      "observed_at": "2026-06-12T16:41:19Z",
+      "notes": "Terms state service/features may change and user data is handled under the Privacy Policy."
+    },
+    {
+      "url": "https://getpoppy.ai/refund-policy",
+      "observed_at": "2026-06-12T16:41:19Z",
+      "notes": "Refund policy describes cancellation flow and data removal contact path."
+    }
+  ],
+  "verification_result": {
+    "privacy_boundary_verified": true,
+    "boundary": "Public/approved material only; no private user, support, campaign, sourcebook, or memorial-private content.",
+    "reason": "Official policy permits broad service, improvement, analytics, support, and staff/contractor access. EA therefore restricts Poppy to public approved draft inputs only."
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "provider": "Poppy AI",
+  "generated_at": "2026-06-12T16:41:19Z",
+  "status": "pass",
+  "lane": "poppy_draft_workbench",
+  "lane_state_allowed": "verified_draft_operator_lane",
+  "runtime_enabled": false,
+  "source_of_truth_boundary": "EA/Chummer source markdown and approved notes remain truth; Poppy may draft only from approved public material.",
+  "allowed_inputs": [
+    "public_video_transcript",
+    "public_pdf",
+    "manually_approved_notes",
+    "public_release_copy"
+  ],
+  "forbidden_inputs": [
+    "private_campaign_data",
+    "user_submission",
+    "private_memorial_memory",
+    "sourcebook_copied_text",
+    "product_truth",
+    "release_truth",
+    "support_truth"
+  ],
+  "off_switch_env": "EA_POPPY_DRAFT_WORKBENCH_ENABLED",
+  "contract_name": "executive_assistant.poppy_authenticated_session.v1",
+  "check_key": "authenticated_session",
+  "session_probe_path": "/docker/chummercomplete/.integrated/fleet/_completion/poppy_ai/POPPY_AI_PROVIDER_SESSION_PROBE.generated.json",
+  "session_probe_sha256": "aea639a38c4c279f7026ba615ee17995693e6828aa9291f3f4359459e405c597",
+  "verification_result": {
+    "authenticated_session_proven": true,
+    "proof_lane": "host_headful_chromium_under_xvfb",
+    "automation_boundary": "Google/Clerk auth proof is host-session proof, not a reusable server-side API token."
+  }
+}

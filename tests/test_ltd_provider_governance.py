@@ -358,6 +358,33 @@ def test_verify_ltd_provider_lanes_cli_works_outside_repo_cwd() -> None:
 
 
 def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
+    receipt_dir = Path("/docker/EA/ea/_completion/poppy")
+    if receipt_dir.is_dir() and all(
+        (receipt_dir / name).is_file()
+        for name in (
+            "POPPY_AUTHENTICATED_SESSION.generated.json",
+            "POPPY_PRIVACY_BOUNDARY.generated.json",
+            "POPPY_EXPORT_SEMANTICS.generated.json",
+            "POPPY_TENANT_ISOLATION.generated.json",
+        )
+    ):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/verify_poppy_session.py",
+            ],
+            cwd="/docker/EA",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0
+        body = json.loads(result.stdout)
+        assert body["lane_key"] == "poppy_draft_workbench"
+        assert body["lane_state"] == "verified_draft_operator_lane"
+        assert body["runtime_enabled"] is False
+        return
+
     result = subprocess.run(
         [
             sys.executable,
@@ -373,3 +400,54 @@ def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
     body = json.loads(result.stdout)
     assert body["lane_key"] == "poppy_draft_workbench"
     assert {"privacy_boundary", "export_semantics", "tenant_isolation"} <= set(body["missing_checks"])
+
+
+def test_materialize_poppy_draft_workbench_receipts_promotes_draft_only_lane(tmp_path: Path) -> None:
+    script = Path("/docker/EA/scripts/materialize_poppy_draft_workbench_receipts.py")
+    session_probe = tmp_path / "POPPY_AI_PROVIDER_SESSION_PROBE.generated.json"
+    session_probe.write_text(
+        json.dumps(
+            {
+                "status": "authenticated_session_proven_host_headful",
+                "verification_result": {"authenticated_session_proven": True},
+                "browser_lane": {"google_email_submitted": "secret@example.com"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "_completion" / "poppy"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--output-dir",
+            str(output_dir),
+            "--session-probe",
+            str(session_probe),
+        ],
+        cwd="/docker/EA",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    receipt_files = sorted(output_dir.glob("POPPY_*.generated.json"))
+    assert len(receipt_files) == 4
+    rendered = "\n".join(path.read_text(encoding="utf-8") for path in receipt_files)
+    assert "private_memorial_memory" in rendered
+    assert "secret@example.com" not in rendered
+
+    ltd_path = _write_ltd(tmp_path)
+    receipt = build_ltd_provider_lane_receipt(
+        lane_by_key("poppy_draft_workbench"),
+        markdown_text=ltd_path.read_text(encoding="utf-8"),
+        inventory_rows=load_ltd_inventory_rows(ltd_path),
+        env={},
+        root=tmp_path,
+        generated_at="2026-06-12T00:00:00Z",
+    )
+    assert receipt["lane_state"] == "verified_draft_operator_lane"
+    assert receipt["runtime_enabled"] is False
+    assert receipt["missing_checks"] == []
