@@ -293,13 +293,17 @@ def test_memorial_showtime_cli_writes_pass_report(
     assert voice_loop.is_file()
 
     payload = json.loads(report_json.read_text(encoding="utf-8"))
-    assert payload["status"] == "pass"
+    assert payload["status"] == "warn"
     names = [item["name"] for item in payload["results"]]
     assert "filesystem_preflight" in names
     assert "live_preflight" in names
     assert "live_demo_rehearsal" in names
     assert "voice_roundtrip_validation" in names
     assert "launch_snapshot" in names
+    snapshot_step = next(item for item in payload["results"] if item["name"] == "launch_snapshot")
+    assert snapshot_step["effective_status"] == "warn"
+    assert snapshot_step["semantic_status"] == "warn"
+    assert snapshot_step["semantic_detail"]["warn_commands"]
 
 
 def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(

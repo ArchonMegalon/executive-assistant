@@ -32,7 +32,10 @@ def test_showtime_builds_live_steps(tmp_path: Path) -> None:
     assert "launch_snapshot" in names
     assert "full_exit_gates" not in names
     voice_step = next(step for step in steps if step.name == "voice_roundtrip_validation")
+    snapshot_step = next(step for step in steps if step.name == "launch_snapshot")
     assert "--require-stt" in voice_step.command
+    assert snapshot_step.parse_json_status is True
+    assert snapshot_step.output_path_arg
 
 
 def test_showtime_launch_mode_allows_exit_gate_skip_for_root_gate_recursion_guard(tmp_path: Path) -> None:
@@ -119,6 +122,41 @@ def test_showtime_warns_when_json_semantic_status_warn(tmp_path: Path) -> None:
 
     assert result.effective_status == "warn"
     assert result.semantic_detail["warn_codes"] == ["difficult_memory_guardrail_unclear"]
+
+
+def test_showtime_warns_when_launch_snapshot_json_status_warn(tmp_path: Path) -> None:
+    import scripts.memorial_showtime as showtime
+
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(
+            {
+                "status": "warn",
+                "commands": [
+                    {
+                        "command": ["python3", "scripts/verify_memorial_video_call_avatar_ready.py"],
+                        "returncode": 0,
+                        "semantic_status": "warn",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = showtime.ShowtimeResult(
+        name="launch_snapshot",
+        command=["python3", "scripts/memorial_launch_snapshot.py"],
+        cwd=str(tmp_path),
+        gate="required",
+        returncode=0,
+        duration_ms=1,
+    )
+    payload = showtime._extract_json_payload(result, output_path_arg=str(snapshot_path))
+    result.semantic_status, result.semantic_detail = showtime._semantic_from_payload(payload)
+
+    assert result.effective_status == "warn"
+    assert result.semantic_detail["command_count"] == 1
+    assert result.semantic_detail["warn_commands"] == ["python3 scripts/verify_memorial_video_call_avatar_ready.py"]
 
 
 def test_launch_snapshot_extracts_semantic_status_from_json_stdout() -> None:

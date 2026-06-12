@@ -196,6 +196,23 @@ def _semantic_from_payload(payload: dict[str, Any]) -> tuple[str, dict[str, Any]
             detail.pop("warn_codes")
         if not detail["fail_codes"]:
             detail.pop("fail_codes")
+    if "commands" in payload and isinstance(payload["commands"], list):
+        detail["command_count"] = len(payload["commands"])
+        warn_commands = [
+            " ".join(str(part) for part in list(item.get("command") or [])[:2])
+            for item in payload["commands"]
+            if isinstance(item, dict) and str(item.get("semantic_status") or "").lower() == "warn"
+        ]
+        fail_commands = [
+            " ".join(str(part) for part in list(item.get("command") or [])[:2])
+            for item in payload["commands"]
+            if isinstance(item, dict)
+            and (str(item.get("semantic_status") or "").lower() == "fail" or int(item.get("returncode") or 0) != 0)
+        ]
+        if warn_commands:
+            detail["warn_commands"] = warn_commands
+        if fail_commands:
+            detail["fail_commands"] = fail_commands
     return status, detail
 
 
@@ -392,6 +409,7 @@ def build_steps(args: argparse.Namespace, output_dir: Path) -> list[ShowtimeStep
                     EA_DIR,
                     gate="required",
                     timeout=360,
+                    parse_json_status=True,
                     output_path_arg=str(snapshot_output),
                 )
             )

@@ -392,7 +392,7 @@ def test_memorial_room_ready_cli_writes_room_and_audio_reports(
 
     assert result.returncode == 0, result.stderr or result.stdout
     payload = json.loads(result.stdout)
-    assert payload["status"] == "pass"
+    assert payload["status"] == "warn"
 
     report_json = output_dir / "room_ready_report.json"
     report_md = output_dir / "room_ready_report.md"
@@ -411,7 +411,10 @@ def test_memorial_room_ready_cli_writes_room_and_audio_reports(
     report_payload = json.loads(report_json.read_text(encoding="utf-8"))
     names = [item["name"] for item in report_payload["results"]]
     assert names == ["showtime", "audio_probe"]
-    assert all(item["effective_status"] == "pass" for item in report_payload["results"])
+    assert report_payload["status"] == "warn"
+    by_name = {item["name"]: item for item in report_payload["results"]}
+    assert by_name["showtime"]["effective_status"] == "warn"
+    assert by_name["audio_probe"]["effective_status"] == "pass"
 
     probe_payload = json.loads(audio_probe_json.read_text(encoding="utf-8"))
     assert probe_payload["status"] == "pass"
