@@ -73,3 +73,28 @@ def test_magicfit_account_inventory_cli_uses_current_ltd_inventory(tmp_path: Pat
     assert body["account_count"] == 3
     assert receipt["inventory_recorded_in_ltds"] is True
     assert receipt["existing_provider_proof_account"] in {"", "tibor.girschele@gmail.com"}
+
+
+def test_magicfit_account_use_receipts_default_to_pending_without_secrets(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "materialize_magicfit_account_use_receipts.py"
+    output_dir = tmp_path / "magicfit"
+    result = subprocess.run(
+        [sys.executable, str(script), "--output-dir", str(output_dir)],
+        cwd="/docker/EA",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["receipt_count"] == 3
+    assert body["asset_provenance_claim_allowed_count"] == 0
+    receipts = sorted(output_dir.glob("MAGICFIT_ACCOUNT_USE_*.generated.json"))
+    assert len(receipts) == 3
+    rendered = "\n".join(path.read_text(encoding="utf-8") for path in receipts)
+    assert "pending_account_use" in rendered
+    assert "asset_provenance_claim_allowed" in rendered
+    assert "tibor.girschele@gmail.com" not in rendered
+    assert "the.girscheles@gmail.com" not in rendered
+    assert "archon.megalon@gmail.com" not in rendered

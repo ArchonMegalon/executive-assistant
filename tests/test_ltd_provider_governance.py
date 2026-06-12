@@ -252,6 +252,59 @@ def test_fliplink_first_publication_requires_passing_receipt(tmp_path: Path) -> 
     assert passed["runtime_enabled"] is True
 
 
+def test_poppy_pending_boundary_text_does_not_count_as_proof(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+    lane = lane_by_key("poppy_draft_workbench")
+    assert lane is not None
+
+    receipt = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={},
+        root=tmp_path,
+        generated_at="2026-06-10T00:00:00Z",
+    )
+
+    assert receipt["lane_state"] == "blocked_pending_proof"
+    assert {"authenticated_session", "privacy_boundary", "export_semantics", "tenant_isolation"} <= set(
+        receipt["missing_checks"]
+    )
+    assert "privacy_boundary" not in receipt["passed_checks"]
+
+
+def test_poppy_boundary_checks_require_passing_receipts(tmp_path: Path) -> None:
+    ltd_path = _write_ltd(tmp_path)
+    markdown_text = ltd_path.read_text(encoding="utf-8")
+    inventory_rows = load_ltd_inventory_rows(ltd_path)
+    lane = lane_by_key("poppy_draft_workbench")
+    assert lane is not None
+    receipt_dir = tmp_path / "_completion" / "poppy"
+    receipt_dir.mkdir(parents=True)
+    for name in (
+        "POPPY_AUTHENTICATED_SESSION.generated.json",
+        "POPPY_PRIVACY_BOUNDARY.generated.json",
+        "POPPY_EXPORT_SEMANTICS.generated.json",
+        "POPPY_TENANT_ISOLATION.generated.json",
+    ):
+        (receipt_dir / name).write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+
+    receipt = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_text,
+        inventory_rows=inventory_rows,
+        env={},
+        root=tmp_path,
+        generated_at="2026-06-10T00:00:00Z",
+    )
+
+    assert receipt["lane_state"] == "verified_draft_operator_lane"
+    assert "authenticated_session" in receipt["passed_checks"]
+    assert {"privacy_boundary", "export_semantics", "tenant_isolation"} <= set(receipt["passed_checks"])
+
+
 def test_materializer_writes_aggregate_and_lane_receipts(tmp_path: Path, monkeypatch) -> None:
     ltd_path = _write_ltd(tmp_path)
     output_dir = tmp_path / "receipts"
@@ -302,3 +355,21 @@ def test_verify_ltd_provider_lanes_cli_works_outside_repo_cwd() -> None:
     body = json.loads(result.stdout)
     assert body["lane_key"] == "release_quality_gates"
     assert body["runtime_enabled"] is True
+
+
+def test_verify_poppy_session_cli_fails_until_boundary_receipts_exist() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/verify_poppy_session.py",
+        ],
+        cwd="/docker/EA",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    body = json.loads(result.stdout)
+    assert body["lane_key"] == "poppy_draft_workbench"
+    assert {"privacy_boundary", "export_semantics", "tenant_isolation"} <= set(body["missing_checks"])

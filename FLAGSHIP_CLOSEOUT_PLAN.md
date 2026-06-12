@@ -43,14 +43,14 @@ The real-browser E2E proof covers activation and memo flow before advanced messa
 
 Status: closed for the EA core release claim while non-core commercial/provider lanes remain separately gated.
 
-The release claim depends on `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, generated receipts, and CI gates. It does not imply that FlipLink, Poppy, MagicFit, video/avatar providers, or commercial ops are production runtime lanes.
+The release claim depends on `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, generated receipts, and CI gates. It promotes only lanes whose own receipts pass; it does not imply that Poppy, MagicFit, video/avatar providers, or commercial ops are production runtime lanes.
 
 ## Remaining Non-Core Gaps
 
-- FlipLink Document Portal remains blocked until a first approved publication receipt exists.
+- FlipLink Document Portal is now a verified runtime lane for approved public document presentation because `ea/_completion/fliplink/CHUMMER_FLIPLINK_PUBLICATION.generated.json` passes and the deployed container sees the receipt.
 - Memorial video-call avatar remains optional and may warn on missing avatar manifest.
 - MagicFit is a verified draft/operator candidate; additional accounts need account-use receipts before claiming they produced assets.
-- Poppy, public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
+- Poppy remains blocked pending explicit privacy, export-semantics, tenant-isolation, and session proof receipts. Public signal intake, docs factory, prompt foundry, video bake-off, operator control plane, and commercial ops remain draft/operator lanes unless their lane receipts promote them.
 - Scheduler logs can show `morning memo configured=0`; that is an activation/configuration state, not a failing release-control gate.
 
 ## Fleet execution order

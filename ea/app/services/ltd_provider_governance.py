@@ -377,6 +377,38 @@ def _passing_json_receipt(root: Path, *relative_paths: str) -> bool:
     return False
 
 
+def _row_notes(discovery: Mapping[str, Mapping[str, str]], provider: str) -> str:
+    row = discovery.get(_normalize(provider), {})
+    return " ".join(str(row.get(key) or "") for key in ("verification_source", "notes")).lower()
+
+
+def _has_positive_proof_text(text: str, *, required_terms: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    negative_markers = (
+        "pending",
+        "still pending",
+        "not verified",
+        "no authenticated",
+        "no structured",
+        "fails",
+        "failed",
+        "blocked",
+        "before any chummer use",
+    )
+    if any(marker in lowered for marker in negative_markers):
+        return False
+    positive_markers = (
+        "verified",
+        "proven",
+        "proof exists",
+        "receipt exists",
+        "receipt recorded",
+        "passes",
+        "approved",
+    )
+    return all(term in lowered for term in required_terms) and any(marker in lowered for marker in positive_markers)
+
+
 def _check_passed(
     lane: ProviderLane,
     check: LaneCheck,
@@ -442,12 +474,39 @@ def _check_passed(
         ok = all(term in (markdown_text + relevant).lower() for term in terms)
         return ok, "inventory_or_receipt_text_present" if ok else "proof_missing"
     if key == "authenticated_session":
-        row = discovery.get(_normalize("Poppy AI"), {})
-        ok = "session" in str(row.get("verification_source") or row.get("notes") or "").lower()
+        if _passing_json_receipt(
+            root,
+            "ea/_completion/poppy/POPPY_AUTHENTICATED_SESSION.generated.json",
+            "_completion/poppy/POPPY_AUTHENTICATED_SESSION.generated.json",
+        ):
+            return True, "poppy_receipt_passed"
+        notes = _row_notes(discovery, "Poppy AI")
+        ok = _has_positive_proof_text(notes, required_terms=("session",))
         return ok, "session_proof_recorded" if ok else "session_proof_missing"
     if key in {"privacy_boundary", "export_semantics", "tenant_isolation"}:
-        row = discovery.get(_normalize("Poppy AI"), {})
-        ok = key.split("_")[0] in str(row.get("notes") or "").lower()
+        receipt_paths = {
+            "privacy_boundary": (
+                "ea/_completion/poppy/POPPY_PRIVACY_BOUNDARY.generated.json",
+                "_completion/poppy/POPPY_PRIVACY_BOUNDARY.generated.json",
+            ),
+            "export_semantics": (
+                "ea/_completion/poppy/POPPY_EXPORT_SEMANTICS.generated.json",
+                "_completion/poppy/POPPY_EXPORT_SEMANTICS.generated.json",
+            ),
+            "tenant_isolation": (
+                "ea/_completion/poppy/POPPY_TENANT_ISOLATION.generated.json",
+                "_completion/poppy/POPPY_TENANT_ISOLATION.generated.json",
+            ),
+        }[key]
+        if _passing_json_receipt(root, *receipt_paths):
+            return True, "poppy_receipt_passed"
+        notes = _row_notes(discovery, "Poppy AI")
+        terms = {
+            "privacy_boundary": ("privacy",),
+            "export_semantics": ("export",),
+            "tenant_isolation": ("tenant", "isolation"),
+        }[key]
+        ok = _has_positive_proof_text(notes, required_terms=terms)
         return ok, "poppy_boundary_recorded" if ok else "poppy_boundary_missing"
     if key == "rafter_fleet_verified":
         row = discovery.get(_normalize("Rafter"), {})
