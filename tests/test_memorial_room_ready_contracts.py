@@ -30,6 +30,30 @@ def test_room_report_status_tracks_warn_and_fail(tmp_path: Path) -> None:
     assert report.status == "fail"
 
 
+def test_room_ready_treats_optional_avatar_fallback_as_pass(tmp_path: Path) -> None:
+    import scripts.memorial_room_ready as room
+
+    result = room.StepResult(
+        "showtime",
+        ["python3", "scripts/memorial_showtime.py"],
+        str(tmp_path),
+        "required",
+        0,
+        1,
+        semantic_status="warn",
+        semantic_detail={
+            "warn_steps": ["launch_snapshot"],
+            "warn_codes": ["avatar_video_not_published"],
+            "warn_commands": ["python3 scripts/verify_memorial_video_call_avatar_ready.py"],
+        },
+    )
+    report = room.RoomReport(slug="manfred", base_url="https://example.test", output_dir=str(tmp_path), started_at_epoch=1)
+    report.results.append(result)
+
+    assert result.effective_status == "pass"
+    assert report.status == "pass"
+
+
 def test_room_ready_extracts_semantic_warn_codes() -> None:
     import scripts.memorial_room_ready as room
 

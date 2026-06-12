@@ -16,6 +16,24 @@ EA_DIR = SCRIPT_DIR.parent
 REPO_ROOT = EA_DIR.parent
 
 GateLevel = Literal["required", "warning", "info"]
+OPTIONAL_AVATAR_WARNING_CODES = {
+    "avatar_disabled_label_missing",
+    "avatar_disabled_detail_unclear",
+    "avatar_manifest_missing",
+    "avatar_video_not_published",
+}
+
+
+def _is_optional_avatar_warning(detail: dict[str, Any]) -> bool:
+    fail_codes = [str(item or "") for item in list(detail.get("fail_codes") or [])]
+    fail_commands = [str(item or "") for item in list(detail.get("fail_commands") or [])]
+    if fail_codes or fail_commands:
+        return False
+    warn_codes = {str(item or "") for item in list(detail.get("warn_codes") or []) if str(item or "")}
+    warn_commands = [str(item or "") for item in list(detail.get("warn_commands") or [])]
+    if warn_codes and warn_codes.issubset(OPTIONAL_AVATAR_WARNING_CODES):
+        return True
+    return bool(warn_commands) and all("verify_memorial_video_call_avatar_ready.py" in item for item in warn_commands)
 
 
 @dataclass
@@ -50,6 +68,8 @@ class StepResult:
         if self.semantic_level == "fail":
             return "fail" if self.gate == "required" else "warn"
         if self.semantic_level == "warn":
+            if _is_optional_avatar_warning(self.semantic_detail):
+                return "pass"
             return "warn"
         return "pass"
 

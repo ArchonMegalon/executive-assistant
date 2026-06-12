@@ -14,6 +14,12 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 EA_DIR = SCRIPT_DIR.parent
 REPO_ROOT = EA_DIR.parent
+OPTIONAL_AVATAR_WARNING_CODES = {
+    "avatar_disabled_label_missing",
+    "avatar_disabled_detail_unclear",
+    "avatar_manifest_missing",
+    "avatar_video_not_published",
+}
 
 
 def _extract_json_status(stdout: str) -> tuple[str, dict[str, Any]]:
@@ -132,6 +138,17 @@ def snapshot_status(commands: list[dict[str, Any]]) -> str:
     if "fail" in semantic_statuses:
         return "fail"
     if "warn" in semantic_statuses:
+        accepted_optional_only = True
+        for item in commands:
+            if str(item.get("semantic_status") or "").lower() != "warn":
+                continue
+            detail = dict(item.get("semantic_detail") or {})
+            warn_codes = {str(code or "") for code in list(detail.get("warn_codes") or []) if str(code or "")}
+            if not warn_codes or not warn_codes.issubset(OPTIONAL_AVATAR_WARNING_CODES):
+                accepted_optional_only = False
+                break
+        if accepted_optional_only:
+            return "pass"
         return "warn"
     return "pass"
 

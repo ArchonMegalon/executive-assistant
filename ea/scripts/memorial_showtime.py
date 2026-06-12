@@ -18,6 +18,24 @@ REPO_ROOT = EA_DIR.parent
 ROOT_EXIT_GATES = REPO_ROOT / "scripts" / "memorial_flagship_exit_gates.sh"
 
 GateLevel = Literal["required", "warning", "info"]
+OPTIONAL_AVATAR_WARNING_CODES = {
+    "avatar_disabled_label_missing",
+    "avatar_disabled_detail_unclear",
+    "avatar_manifest_missing",
+    "avatar_video_not_published",
+}
+
+
+def _is_optional_avatar_warning(detail: dict[str, Any]) -> bool:
+    fail_codes = [str(item or "") for item in list(detail.get("fail_codes") or [])]
+    fail_commands = [str(item or "") for item in list(detail.get("fail_commands") or [])]
+    if fail_codes or fail_commands:
+        return False
+    warn_codes = {str(item or "") for item in list(detail.get("warn_codes") or []) if str(item or "")}
+    warn_commands = [str(item or "") for item in list(detail.get("warn_commands") or [])]
+    if warn_codes and warn_codes.issubset(OPTIONAL_AVATAR_WARNING_CODES):
+        return True
+    return bool(warn_commands) and all("verify_memorial_video_call_avatar_ready.py" in item for item in warn_commands)
 
 
 @dataclass
@@ -64,6 +82,8 @@ class ShowtimeResult:
         if self.semantic_level == "fail":
             return "fail" if self.gate == "required" else "warn"
         if self.semantic_level == "warn":
+            if _is_optional_avatar_warning(self.semantic_detail):
+                return "pass"
             return "warn"
         return "pass"
 
@@ -188,6 +208,12 @@ def _semantic_from_payload(payload: dict[str, Any]) -> tuple[str, dict[str, Any]
     detail: dict[str, Any] = {}
     if "findings" in payload and isinstance(payload["findings"], list):
         detail["finding_count"] = len(payload["findings"])
+        detail["warn_codes"] = [item.get("code") for item in payload["findings"] if isinstance(item, dict) and item.get("status") == "warn"]
+        detail["fail_codes"] = [item.get("code") for item in payload["findings"] if isinstance(item, dict) and item.get("status") == "fail"]
+        if not detail["warn_codes"]:
+            detail.pop("warn_codes")
+        if not detail["fail_codes"]:
+            detail.pop("fail_codes")
     if "checks" in payload and isinstance(payload["checks"], list):
         detail["check_count"] = len(payload["checks"])
         detail["warn_codes"] = [item.get("code") for item in payload["checks"] if isinstance(item, dict) and item.get("status") == "warn"]

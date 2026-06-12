@@ -293,7 +293,7 @@ def test_memorial_showtime_cli_writes_pass_report(
     assert voice_loop.is_file()
 
     payload = json.loads(report_json.read_text(encoding="utf-8"))
-    assert payload["status"] == "warn"
+    assert payload["status"] == "pass"
     names = [item["name"] for item in payload["results"]]
     assert "filesystem_preflight" in names
     assert "live_preflight" in names
@@ -301,9 +301,8 @@ def test_memorial_showtime_cli_writes_pass_report(
     assert "voice_roundtrip_validation" in names
     assert "launch_snapshot" in names
     snapshot_step = next(item for item in payload["results"] if item["name"] == "launch_snapshot")
-    assert snapshot_step["effective_status"] == "warn"
-    assert snapshot_step["semantic_status"] == "warn"
-    assert snapshot_step["semantic_detail"]["warn_commands"]
+    assert snapshot_step["effective_status"] == "pass"
+    assert snapshot_step["semantic_status"] == "pass"
 
 
 def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
@@ -343,9 +342,9 @@ def test_memorial_showtime_cli_optional_avatar_gate_warns_without_failing(
 
     assert result.returncode == 0, result.stderr or result.stdout
     payload = json.loads((output_dir / "showtime_report.json").read_text(encoding="utf-8"))
-    assert payload["status"] == "warn"
+    assert payload["status"] == "pass"
     avatar_step = next(item for item in payload["results"] if item["name"] == "avatar_video_call_status")
-    assert avatar_step["effective_status"] == "warn"
+    assert avatar_step["effective_status"] == "pass"
     assert avatar_step["semantic_status"] == "warn"
     assert "avatar_video_not_published" in avatar_step["stdout_tail"]
 

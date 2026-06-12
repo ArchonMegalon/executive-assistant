@@ -316,5 +316,6 @@ def test_memorial_flagship_exit_gate_script_accepts_optional_avatar_warn(
     showtime = json.loads((tmpdir / "manfred_room_ready_exit_gate" / "showtime_report.json").read_text(encoding="utf-8"))
     avatar_step = next(item for item in room_ready["results"] if item["name"] == "avatar_video_call_status")
     voice_step = next(item for item in showtime["results"] if item["name"] == "voice_roundtrip_validation")
-    assert avatar_step["effective_status"] == "warn"
+    assert avatar_step["effective_status"] == "pass"
+    assert avatar_step["semantic_status"] == "warn"
     assert voice_step["effective_status"] == "pass"

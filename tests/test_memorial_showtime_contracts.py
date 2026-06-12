@@ -102,6 +102,29 @@ def test_showtime_report_status_transitions(tmp_path: Path) -> None:
     assert report.status == "fail"
 
 
+def test_showtime_treats_optional_avatar_fallback_as_pass(tmp_path: Path) -> None:
+    import scripts.memorial_showtime as showtime
+
+    result = showtime.ShowtimeResult(
+        "launch_snapshot",
+        ["python3", "scripts/memorial_launch_snapshot.py"],
+        str(tmp_path),
+        "required",
+        0,
+        1,
+        semantic_status="warn",
+        semantic_detail={
+            "warn_codes": ["avatar_video_not_published"],
+            "warn_commands": ["python3 scripts/verify_memorial_video_call_avatar_ready.py"],
+        },
+    )
+    report = showtime.ShowtimeReport(slug="manfred", base_url="", started_at_epoch=1, output_dir=str(tmp_path))
+    report.results.append(result)
+
+    assert result.effective_status == "pass"
+    assert report.status == "pass"
+
+
 def test_showtime_warns_when_json_semantic_status_warn(tmp_path: Path) -> None:
     import scripts.memorial_showtime as showtime
 
@@ -122,6 +145,23 @@ def test_showtime_warns_when_json_semantic_status_warn(tmp_path: Path) -> None:
 
     assert result.effective_status == "warn"
     assert result.semantic_detail["warn_codes"] == ["difficult_memory_guardrail_unclear"]
+
+
+def test_showtime_extracts_warn_codes_from_findings() -> None:
+    import scripts.memorial_showtime as showtime
+
+    status, detail = showtime._semantic_from_payload(
+        {
+            "status": "warn",
+            "findings": [
+                {"status": "pass", "code": "landing_available"},
+                {"status": "warn", "code": "avatar_video_not_published"},
+            ],
+        }
+    )
+
+    assert status == "warn"
+    assert detail["warn_codes"] == ["avatar_video_not_published"]
 
 
 def test_showtime_warns_when_launch_snapshot_json_status_warn(tmp_path: Path) -> None:
@@ -154,7 +194,7 @@ def test_showtime_warns_when_launch_snapshot_json_status_warn(tmp_path: Path) ->
     payload = showtime._extract_json_payload(result, output_path_arg=str(snapshot_path))
     result.semantic_status, result.semantic_detail = showtime._semantic_from_payload(payload)
 
-    assert result.effective_status == "warn"
+    assert result.effective_status == "pass"
     assert result.semantic_detail["command_count"] == 1
     assert result.semantic_detail["warn_commands"] == ["python3 scripts/verify_memorial_video_call_avatar_ready.py"]
 
@@ -184,6 +224,18 @@ def test_launch_snapshot_status_uses_returncode_and_semantic_status() -> None:
 
     assert snapshot.snapshot_status([{"returncode": 0}]) == "pass"
     assert snapshot.snapshot_status([{"returncode": 0, "semantic_status": "warn"}]) == "warn"
+    assert (
+        snapshot.snapshot_status(
+            [
+                {
+                    "returncode": 0,
+                    "semantic_status": "warn",
+                    "semantic_detail": {"warn_codes": ["avatar_video_not_published"]},
+                }
+            ]
+        )
+        == "pass"
+    )
     assert snapshot.snapshot_status([{"returncode": 0, "semantic_status": "fail"}]) == "fail"
     assert snapshot.snapshot_status([{"returncode": 1, "semantic_status": "pass"}]) == "fail"
 
