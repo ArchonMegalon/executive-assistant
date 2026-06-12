@@ -4110,7 +4110,7 @@ def _memorial_contact_answer_body(question: str) -> str:
         "Ja. Ich höre dich.",
         "Ich höre dich. Erzähl weiter.",
         "Ja. Sag mir, was dich gerade beschäftigt.",
-        "Ich bin hier. Sprich ruhig weiter.",
+        "Ich bin da. Erzähl mir bitte mehr.",
     )
     normalized = _normalize_memorial_transcript_text(question)
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -4128,7 +4128,8 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
         "ich hoere dich. erzaehl weiter.",
         "ja. sag mir, was dich gerade beschäftigt.",
         "ja. sag mir, was dich gerade beschaeftigt.",
-        "ich bin hier. sprich ruhig weiter.",
+        "ich bin da. erzähl mir bitte mehr.",
+        "ich bin da. erzaehl mir bitte mehr.",
     }
 
 
@@ -13580,7 +13581,7 @@ def _build_memorial_gemini_live_instruction(
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
         "Bleibe im Erinnerungsmodus: keine Behauptung, dass die verstorbene Person real anwesend ist.",
-        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Ich hoere dich. / Ich hoere dich. Erzaehl weiter. / Ich bin hier. Sprich ruhig weiter. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
+        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Ich hoere dich. / Ich hoere dich. Erzaehl weiter. / Ich bin da. Erzaehl mir bitte mehr. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
         "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
         "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
         "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",
@@ -13714,6 +13715,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             "audio_transport": "gemini_live_websocket_pcm",
             "turn_timing": "streaming_audio_server_vad",
             "provider": "gemini_live",
+            "fallback_provider": "ea_memorial_turn",
+            "fallback_transport": "ea_websocket_audio_turn",
             "redesign_target": "native_speech_to_speech_live_audio",
         }
     )

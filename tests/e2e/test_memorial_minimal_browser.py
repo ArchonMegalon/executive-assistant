@@ -609,7 +609,7 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
             "Ja. Ich höre dich.",
             "Ich höre dich. Erzähl weiter.",
             "Ja. Sag mir, was dich gerade beschäftigt.",
-            "Ich bin hier. Sprich ruhig weiter.",
+            "Ich bin da. Erzähl mir bitte mehr.",
         }
         stt = result["stt"]
         assert isinstance(stt, dict)

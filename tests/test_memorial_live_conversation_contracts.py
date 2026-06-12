@@ -24,8 +24,17 @@ CONTACT_REPLY_VARIANTS = {
     "Ja. Ich höre dich.",
     "Ich höre dich. Erzähl weiter.",
     "Ja. Sag mir, was dich gerade beschäftigt.",
-    "Ich bin hier. Sprich ruhig weiter.",
+    "Ich bin da. Erzähl mir bitte mehr.",
 }
+
+
+def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
+    from app.api.routes import public_memorials
+
+    variants = {public_memorials._memorial_contact_answer_body(f"hallo manfred {index}") for index in range(128)}
+
+    assert "Ich bin hier. Sprich ruhig weiter." not in variants
+    assert "Ich bin da. Erzähl mir bitte mehr." in variants
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -1267,6 +1276,9 @@ def test_memorial_realtime_ready_declares_current_fallback_and_live_audio_target
     assert ready["audio_transport"] == "gemini_live_websocket_pcm"
     assert ready["turn_timing"] == "streaming_audio_server_vad"
     assert ready["provider"] == "gemini_live"
+    assert ready["fallback_provider"] == "ea_memorial_turn"
+    assert ready["fallback_transport"] == "ea_websocket_audio_turn"
+    assert "openai" not in json.dumps(ready).lower()
     assert ready["redesign_target"] == "native_speech_to_speech_live_audio"
 
 
@@ -1588,6 +1600,15 @@ def test_memorial_realtime_chat_model_always_prefers_gemini() -> None:
     )
 
     assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+
+
+def test_memorial_realtime_chat_model_never_uses_default_openai_style_fallback() -> None:
+    from app.api.routes import public_memorials
+
+    selected = public_memorials._resolve_memorial_realtime_chat_model({}, {})
+
+    assert selected == GEMINI_VORTEX_PUBLIC_MODEL
+    assert selected != public_memorials.DEFAULT_PUBLIC_MODEL
 
 
 def test_memorial_realtime_timeout_copy_invites_retry_without_sounding_like_a_failure() -> None:
