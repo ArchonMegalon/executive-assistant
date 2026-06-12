@@ -175,10 +175,30 @@ def _semantic_from_payload(payload: dict[str, Any]) -> tuple[str, dict[str, Any]
         detail["result_count"] = len(payload["results"])
         effective_warns = [item.get("name") for item in payload["results"] if isinstance(item, dict) and item.get("effective_status") == "warn"]
         effective_fails = [item.get("name") for item in payload["results"] if isinstance(item, dict) and item.get("effective_status") == "fail"]
+        nested_warn_codes: list[Any] = []
+        nested_fail_codes: list[Any] = []
+        nested_warn_commands: list[Any] = []
+        nested_fail_commands: list[Any] = []
+        for item in payload["results"]:
+            if not isinstance(item, dict) or not isinstance(item.get("semantic_detail"), dict):
+                continue
+            semantic_detail = item["semantic_detail"]
+            nested_warn_codes.extend(list(semantic_detail.get("warn_codes") or []))
+            nested_fail_codes.extend(list(semantic_detail.get("fail_codes") or []))
+            nested_warn_commands.extend(list(semantic_detail.get("warn_commands") or []))
+            nested_fail_commands.extend(list(semantic_detail.get("fail_commands") or []))
         if effective_warns:
             detail["warn_steps"] = effective_warns
         if effective_fails:
             detail["fail_steps"] = effective_fails
+        if nested_warn_codes:
+            detail["warn_codes"] = nested_warn_codes
+        if nested_fail_codes:
+            detail["fail_codes"] = nested_fail_codes
+        if nested_warn_commands:
+            detail["warn_commands"] = nested_warn_commands
+        if nested_fail_commands:
+            detail["fail_commands"] = nested_fail_commands
     return status, detail
 
 

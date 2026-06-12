@@ -46,6 +46,31 @@ def test_room_ready_extracts_semantic_warn_codes() -> None:
     assert detail["warn_steps"] == ["audio_probe"]
 
 
+def test_room_ready_preserves_nested_showtime_warning_commands() -> None:
+    import scripts.memorial_room_ready as room
+
+    status, detail = room._semantic_from_payload(
+        {
+            "status": "warn",
+            "results": [
+                {
+                    "name": "launch_snapshot",
+                    "effective_status": "warn",
+                    "semantic_detail": {
+                        "warn_commands": ["python3 scripts/verify_memorial_video_call_avatar_ready.py"],
+                        "warn_codes": ["avatar_video_not_published"],
+                    },
+                }
+            ],
+        }
+    )
+
+    assert status == "warn"
+    assert detail["warn_steps"] == ["launch_snapshot"]
+    assert detail["warn_commands"] == ["python3 scripts/verify_memorial_video_call_avatar_ready.py"]
+    assert detail["warn_codes"] == ["avatar_video_not_published"]
+
+
 def test_room_ready_builds_avatar_video_check_command() -> None:
     import scripts.memorial_room_ready as room
 

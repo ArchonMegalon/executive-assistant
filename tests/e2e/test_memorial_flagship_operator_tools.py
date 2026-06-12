@@ -414,6 +414,10 @@ def test_memorial_room_ready_cli_writes_room_and_audio_reports(
     assert report_payload["status"] == "warn"
     by_name = {item["name"]: item for item in report_payload["results"]}
     assert by_name["showtime"]["effective_status"] == "warn"
+    assert by_name["showtime"]["semantic_detail"]["warn_steps"] == ["launch_snapshot"]
+    assert by_name["showtime"]["semantic_detail"]["warn_commands"] == [
+        f"{sys.executable} scripts/verify_memorial_video_call_avatar_ready.py"
+    ]
     assert by_name["audio_probe"]["effective_status"] == "pass"
 
     probe_payload = json.loads(audio_probe_json.read_text(encoding="utf-8"))
