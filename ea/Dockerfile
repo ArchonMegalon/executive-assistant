@@ -44,6 +44,12 @@ RUN set -eu; \
     if [ -f /tmp/src/Makefile ]; then \
       cp /tmp/src/Makefile /app/Makefile; \
     fi; \
+    if [ -d /tmp/src/.codex-design ]; then \
+      cp -r /tmp/src/.codex-design /app/.codex-design; \
+    fi; \
+    if [ -d /tmp/src/.codex-studio ]; then \
+      cp -r /tmp/src/.codex-studio /app/.codex-studio; \
+    fi; \
     mkdir -p /app/scripts; \
     if [ -d /tmp/src/scripts ]; then \
       for script in /tmp/src/scripts/*; do \
