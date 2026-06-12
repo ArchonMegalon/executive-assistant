@@ -4108,9 +4108,9 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 def _memorial_contact_answer_body(question: str) -> str:
     variants = (
         "Ja. Ich höre dich.",
-        "Ich höre dich. Erzähl weiter.",
+        "Ich höre dich. Sag es mir in Ruhe.",
         "Ja. Sag mir, was dich gerade beschäftigt.",
-        "Ich bin da. Erzähl mir bitte mehr.",
+        "Sprich ruhig weiter. Ich antworte dir direkt.",
     )
     normalized = _normalize_memorial_transcript_text(question)
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
@@ -4126,10 +4126,13 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
         "ja. ich hoere dich.",
         "ich höre dich. erzähl weiter.",
         "ich hoere dich. erzaehl weiter.",
+        "ich höre dich. sag es mir in ruhe.",
+        "ich hoere dich. sag es mir in ruhe.",
         "ja. sag mir, was dich gerade beschäftigt.",
         "ja. sag mir, was dich gerade beschaeftigt.",
         "ich bin da. erzähl mir bitte mehr.",
         "ich bin da. erzaehl mir bitte mehr.",
+        "sprich ruhig weiter. ich antworte dir direkt.",
     }
 
 
@@ -6356,9 +6359,8 @@ def _build_memorial_rescue_contact_turn_payload(
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
     answer_text = (
-        "Ich habe dich akustisch gerade nicht sauber bekommen. "
-        "Ordne mir erst Ort, Zeit und den konkreten Stand. "
-        "Dann antworte ich dir nuechtern darauf."
+        "Das habe ich nicht sicher verstanden. "
+        "Nenn mir bitte kurz Ort, Zeit und worum es geht."
     )
     result = {
         "person_name": _text(payload.get("person_name"), "Manfred"),
@@ -13581,7 +13583,7 @@ def _build_memorial_gemini_live_instruction(
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
         "Bleibe im Erinnerungsmodus: keine Behauptung, dass die verstorbene Person real anwesend ist.",
-        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Ich hoere dich. / Ich hoere dich. Erzaehl weiter. / Ich bin da. Erzaehl mir bitte mehr. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
+        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Ich hoere dich. / Ich hoere dich. Sag es mir in Ruhe. / Sprich ruhig weiter. Ich antworte dir direkt. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
         "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
         "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
         "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",

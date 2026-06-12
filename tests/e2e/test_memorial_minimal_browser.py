@@ -607,10 +607,11 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
         assert result["ttsPlugin"] == "unmixr_clone"
         assert result["assistantText"] in {
             "Ja. Ich höre dich.",
-            "Ich höre dich. Erzähl weiter.",
+            "Ich höre dich. Sag es mir in Ruhe.",
             "Ja. Sag mir, was dich gerade beschäftigt.",
-            "Ich bin da. Erzähl mir bitte mehr.",
+            "Sprich ruhig weiter. Ich antworte dir direkt.",
         }
+        assert "Ich bin da" not in result["assistantText"]
         stt = result["stt"]
         assert isinstance(stt, dict)
         transcript = str(stt.get("transcript_text") or "")

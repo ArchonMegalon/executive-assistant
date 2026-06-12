@@ -22,9 +22,9 @@ from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 CONTACT_REPLY_VARIANTS = {
     "Ja. Ich höre dich.",
-    "Ich höre dich. Erzähl weiter.",
+    "Ich höre dich. Sag es mir in Ruhe.",
     "Ja. Sag mir, was dich gerade beschäftigt.",
-    "Ich bin da. Erzähl mir bitte mehr.",
+    "Sprich ruhig weiter. Ich antworte dir direkt.",
 }
 
 
@@ -33,8 +33,9 @@ def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
 
     variants = {public_memorials._memorial_contact_answer_body(f"hallo manfred {index}") for index in range(128)}
 
-    assert "Ich bin hier. Sprich ruhig weiter." not in variants
-    assert "Ich bin da. Erzähl mir bitte mehr." in variants
+    assert all("Jo" not in variant for variant in variants)
+    assert all("Ich bin da" not in variant for variant in variants)
+    assert "Sprich ruhig weiter. Ich antworte dir direkt." in variants
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -512,8 +513,8 @@ def test_memorial_conversation_turn_canonicalizes_short_contact_openings(
 def test_memorial_contact_opening_detection_repairs_missing_sentence_space() -> None:
     from app.api.routes import public_memorials
 
-    assert public_memorials._normalize_tts_text("Ich höre dich.Erzähl weiter.") == "Ich höre dich. Erzähl weiter."
-    assert public_memorials._is_memorial_direct_contact_opening_text("Ich höre dich.Erzähl weiter.") is True
+    assert public_memorials._normalize_tts_text("Ich höre dich.Sag es mir in Ruhe.") == "Ich höre dich. Sag es mir in Ruhe."
+    assert public_memorials._is_memorial_direct_contact_opening_text("Ich höre dich.Sag es mir in Ruhe.") is True
 
 
 def test_memorial_conversation_turn_current_weather_short_circuits_to_present_world_answer(
