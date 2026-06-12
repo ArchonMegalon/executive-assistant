@@ -1,12 +1,12 @@
 {
   "contract_name": "executive_assistant.unmixr_voice_roundtrip.v1",
-  "generated_at": "2026-06-12T11:50:24Z",
+  "generated_at": "2026-06-12T12:11:00Z",
   "provider": "Unmixr AI",
   "lane_key": "unmixr_voice_runtime",
   "slug": "manfred",
   "status": "pass",
   "source_gate": {
-    "command": "PYTHONPATH=ea .venv/bin/python ea/scripts/memorial_room_ready.py --slug manfred --base-url http://127.0.0.1:8090 --questions /docker/EA/examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready_deployed_probe_fixed --skip-exit-gates --json",
+    "command": "PYTHONPATH=ea .venv/bin/python ea/scripts/memorial_room_ready.py --slug manfred --base-url http://127.0.0.1:8090 --questions /docker/EA/examples/demo_questions.manfred.json --output-dir /tmp/manfred_room_ready_deployed_final --skip-exit-gates --json",
     "report": "voice_loop_report.json",
     "base_url": "http://127.0.0.1:8090"
   },
@@ -18,13 +18,13 @@
   },
   "metrics": {
     "direct_tts_audio_status": "pass",
-    "direct_tts_f1": 1.0,
+    "direct_tts_f1": 0.9231,
     "direct_tts_expected": "Sprich ruhig weiter. Ich antworte dir direkt.",
-    "direct_tts_actual": "Sprich ruhig weiter, ich antworte dir direkt.",
+    "direct_tts_actual": "Sprich ruhig weiter, ich antworte direkt.",
     "conversation_turn_audio_status": "pass",
-    "conversation_turn_audio_f1": 1.0,
+    "conversation_turn_audio_f1": 0.9231,
     "conversation_turn_audio_expected": "Sprich ruhig weiter. Ich antworte dir direkt.",
-    "conversation_turn_audio_actual": "Sprich ruhig weiter, ich antworte dir direkt.",
+    "conversation_turn_audio_actual": "Sprich ruhig weiter, ich antworte direkt.",
     "direct_tts_transcriber": "1min.ai/whisper-1",
     "conversation_turn_transcriber": "1min.ai/whisper-1"
   },
