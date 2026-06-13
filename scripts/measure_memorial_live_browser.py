@@ -585,6 +585,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
             answer_started = time.perf_counter()
             turn_error = ""
             answer_text = ""
+            answer_visible = False
             phase_text = ""
             detail_text = ""
             conversation_turn_payload: dict[str, object] | None = None
@@ -626,6 +627,27 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
                 except Exception:
                     answer_text = ""
+                try:
+                    answer_visible = bool(
+                        page.eval_on_selector(
+                            "#memorial-chat-answer",
+                            """node => {
+                              const style = window.getComputedStyle(node);
+                              const rect = node.getBoundingClientRect();
+                              return Boolean(
+                                node.textContent &&
+                                node.textContent.trim().length > 0 &&
+                                !node.hidden &&
+                                style.display !== "none" &&
+                                style.visibility !== "hidden" &&
+                                rect.width > 0 &&
+                                rect.height > 0
+                              );
+                            }""",
+                        )
+                    )
+                except Exception:
+                    answer_visible = False
                 phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
                 detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
                 ui_audio_src = page.eval_on_selector(
@@ -699,6 +721,8 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
             if not turn_error:
                 if not answer_text:
                     turn_error = "missing_answer"
+                elif not answer_visible:
+                    turn_error = "missing_visible_answer_text"
                 elif not audio_payload_ready and not audio_unavailable:
                     turn_error = "missing_audio_payload"
                 elif not ui_audio_ready and not audio_unavailable:
@@ -731,6 +755,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 "conversation_turn_payload": payload,
                 "audio_ready_for_ui": bool(ui_audio_ready),
                 "audio_payload_ready": bool(audio_payload_ready),
+                "answer_text_visible": bool(answer_visible),
                 "audio_unavailable": bool(audio_unavailable),
                 "ui_audio_play_calls": int(ui_audio_play_calls),
                 "ui_audio_play_ended": int(ui_audio_play_ended),
@@ -780,6 +805,8 @@ def _with_exit_gate_status(
         add_reason("missing_audio_payload")
     if not bool(result.get("audio_ready_for_ui")):
         add_reason("missing_ui_audio_output")
+    if not bool(result.get("answer_text_visible")):
+        add_reason("missing_visible_answer_text")
     if not bool(result.get("ui_audio_play_calls")):
         add_reason("missing_ui_audio_playback")
     if not bool(result.get("ui_audio_play_ended")) and not result.get("ui_audio_play_error"):

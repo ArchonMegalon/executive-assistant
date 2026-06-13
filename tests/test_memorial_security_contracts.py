@@ -82,6 +82,7 @@ def test_public_memorial_json_is_sanitized_and_raw_manifest_is_blocked(
     (bundle_dir / "audio").mkdir()
     (bundle_dir / "audio" / "clip.mp3").write_bytes(b"clip")
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_PWA_INSTALL_ENABLED", "1")
     _patch_memorial_runtime_roots(tmp_path)
 
     client = _client(principal_id="exec-memorial-sanitize")
@@ -124,6 +125,7 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
     for size in (180, 192, 512):
         (icon_dir / f"manfred-{size}.png").write_bytes(b"\x89PNG\r\n\x1a\nicon")
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_PWA_INSTALL_ENABLED", "1")
     _patch_memorial_runtime_roots(tmp_path)
 
     client = _client(principal_id="exec-memorial-pwa-icons")
@@ -143,11 +145,44 @@ def test_public_memorial_pwa_uses_configured_png_icons_and_install_copy(
 
     page = client.get(f"/memorials/{slug}")
     assert page.status_code == 200
+
+
+def test_public_memorial_pwa_install_is_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.delenv("EA_MEMORIAL_PWA_INSTALL_ENABLED", raising=False)
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {"slug": slug, "person_name": "Manfred Hoza", "pwa_app_name": "Mit Manfred sprechen", "audio_clips": []},
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-pwa-disabled")
+
+    manifest = client.get(f"/memorials/{slug}/app.webmanifest")
+    assert manifest.status_code == 200
+    body = manifest.json()
+    assert body["display"] == "browser"
+    assert body["start_url"] == f"/memorials/{slug}"
+    assert body["install_policy"] == "disabled_until_install_update_offline_behavior_is_tested"
+
+    worker = client.get(f"/memorials/{slug}/service-worker.js")
+    assert worker.status_code == 200
+    assert "caches.delete" in worker.text
+    assert "cache.addAll" not in worker.text
+    page = client.get(f"/memorials/{slug}")
+    assert page.status_code == 200
     assert "Gespräch beginnen" in page.text
     assert 'id="memorial-video-call"' not in page.text
     assert "Am Handy/Desktop installieren" in page.text
+    assert "memorialPwaInstallEnabled = false" in page.text
     assert "App installieren" not in page.text
-    assert f"/memorials/{slug}/icon-180.png" in page.text
     assert 'id="memorial-hero-actions"' in page.text
     assert 'aria-disabled="true" disabled' in page.text
     assert f'/memorials/{slug}/warmup' in page.text
@@ -451,6 +486,7 @@ def test_public_memorial_video_meeting_status_and_session_fail_closed(
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
     monkeypatch.delenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", raising=False)
     monkeypatch.delenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_VIDEO_AVATAR_BETA", raising=False)
     monkeypatch.delenv("TAVUS_API_KEY", raising=False)
     _patch_memorial_runtime_roots(tmp_path)
 
@@ -460,33 +496,23 @@ def test_public_memorial_video_meeting_status_and_session_fail_closed(
     assert status.status_code == 200
     assert status.json()["video_meeting"] == {
         "enabled": False,
-        "integration_state": "fallback_only",
+        "integration_state": "disabled_voice_gold_scope",
         "provider_key": "",
         "provider_label": "",
-        "title": "Video Call mit Manfred Hoza",
-        "detail": "Live-Avatar noch nicht freigegeben. Der Video Call läuft weiter über Portrait und Stimme.",
-        "camera_optional": True,
-        "microphone_required": True,
-        "fallback_mode": "portrait_voice",
-        "session_endpoint": f"/memorials/{slug}/video-meeting/session",
-        "status_endpoint": f"/memorials/{slug}/video-meeting/status",
-        "recommended_provider": "tavus",
-        "secondary_provider": "did",
-        "next_action": "fallback_to_portrait_voice",
+        "fallback_mode": "voice_only",
+        "next_action": "voice_gold_video_beta_disabled",
+        "detail": "Video/avatar meeting is disabled for the voice-only memorial release scope.",
     }
 
     session = client.post(
         f"/memorials/{slug}/video-meeting/session",
         json={"camera_requested": True, "personal_memory_enabled": False},
     )
-    assert session.status_code == 200
+    assert session.status_code == 404
     body = session.json()
-    assert body["integration_state"] == "fallback_only"
-    assert body["provider_key"] == ""
-    assert body["fallback_mode"] == "portrait_voice"
-    assert body["next_action"] == "fallback_to_portrait_voice"
-    assert body["client"] == {"camera_requested": True, "personal_memory_enabled": False}
-    assert body["session_id"].startswith("memorial-video-meeting:")
+    assert body["integration_state"] == "disabled_voice_gold_scope"
+    assert body["fallback_mode"] == "voice_only"
+    assert body["next_action"] == "voice_gold_video_beta_disabled"
 
 
 def test_public_memorial_video_meeting_status_reports_provider_configured_contract_only(
@@ -498,6 +524,7 @@ def test_public_memorial_video_meeting_status_reports_provider_configured_contra
     slug = "manfred"
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_AVATAR_BETA", "1")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", "1")
     monkeypatch.setenv("TAVUS_API_KEY", "test-key")
@@ -531,6 +558,7 @@ def test_public_memorial_video_meeting_status_reports_tavus_live_ready(
     slug = "manfred"
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_AVATAR_BETA", "1")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ALLOW_PROVIDER_SESSION", "1")
@@ -559,6 +587,7 @@ def test_public_memorial_video_meeting_session_creates_tavus_session(
     slug = "manfred"
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_AVATAR_BETA", "1")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_ALLOW_PROVIDER_SESSION", "1")
@@ -621,6 +650,7 @@ def test_public_memorial_video_meeting_provider_callback_is_sanitized(
     slug = "manfred"
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
     monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_MEMORIAL_VIDEO_AVATAR_BETA", "1")
     monkeypatch.setenv("EA_MEMORIAL_VIDEO_MEETING_PROVIDER", "tavus")
     _patch_memorial_runtime_roots(tmp_path)
 

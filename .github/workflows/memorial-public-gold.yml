@@ -1,0 +1,62 @@
+name: Memorial Public-Origin Gold
+
+on:
+  workflow_dispatch:
+    inputs:
+      memorial_public_origin:
+        description: "Deployed public origin, for example https://example.com"
+        required: true
+        type: string
+      memorial_slug:
+        description: "Memorial slug"
+        required: false
+        default: "manfred"
+        type: string
+      max_first_answer_ms:
+        description: "Browser first-answer threshold in ms"
+        required: false
+        default: "4500"
+        type: string
+
+concurrency:
+  group: memorial-public-gold-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  public-origin-gold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MEMORIAL_PUBLIC_ORIGIN: ${{ inputs.memorial_public_origin }}
+      MEMORIAL_PUBLIC_SLUG: ${{ inputs.memorial_slug }}
+      MEMORIAL_GOLD_MAX_BROWSER_FIRST_ANSWER_MS: ${{ inputs.max_first_answer_ms }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest httpx
+          python -m playwright install --with-deps chromium
+
+      - name: Materialize public-origin memorial gold receipts
+        run: |
+          make materialize-memorial-public-gold
+
+      - name: Upload public-origin receipts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: memorial-public-origin-gold-receipts
+          path: |
+            .codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json
+            .codex-studio/published/memorial_realtime_browser_public_origin.generated.json

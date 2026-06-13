@@ -120,6 +120,8 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     assert '"/conversation-turn"' not in source
     assert '"conversation_turn_payload"' in source
     assert '"audio_ready_for_ui"' in source
+    assert '"answer_text_visible"' in source
+    assert '"missing_visible_answer_text"' in source
     assert '"ui_audio_play_calls"' in source
     assert '"ui_audio_play_ended"' in source
     assert '"ui_audio_play_error"' in source
@@ -149,6 +151,7 @@ def test_browser_exit_gate_receipt_blocks_local_public_gold() -> None:
             "answer_preview": "Ja, ich bin da. Sag mir einfach, was dich beschaeftigt.",
             "audio_payload_ready": True,
             "audio_ready_for_ui": True,
+            "answer_text_visible": True,
             "ui_audio_play_calls": 1,
             "ui_audio_play_ended": 1,
             "answer_semantic_passed": True,

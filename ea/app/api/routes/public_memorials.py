@@ -2810,6 +2810,18 @@ def _public_memorial_operator_surfaces_enabled() -> bool:
     }
 
 
+def _env_flag(name: str) -> bool:
+    return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _memorial_pwa_install_enabled() -> bool:
+    return _env_flag("EA_MEMORIAL_PWA_INSTALL_ENABLED")
+
+
+def _memorial_video_meeting_beta_enabled() -> bool:
+    return _env_flag("EA_MEMORIAL_VIDEO_AVATAR_BETA") or _env_flag("EA_MEMORIAL_VIDEO_MEETING_BETA")
+
+
 def _video_meeting_callback_path(slug: str) -> Path:
     safe = _safe_slug(slug)
     return (_VIDEO_MEETING_RUNTIME_ROOT / safe / "provider_callback.latest.json").resolve()
@@ -3215,7 +3227,7 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         f"Direkter Gespraechszugang zum Memorial von {_text(payload.get('person_name'), 'Manfred')}.",
     )
     base_path = f"/memorials/{slug}"
-    return {
+    manifest = {
         "name": name,
         "short_name": short_name,
         "description": description,
@@ -3232,9 +3244,29 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         "prefer_related_applications": False,
         "icons": _memorial_pwa_manifest_icons(slug, payload),
     }
+    if not _memorial_pwa_install_enabled():
+        manifest["display"] = "browser"
+        manifest["start_url"] = base_path
+        manifest["scope"] = base_path
+        manifest["prefer_related_applications"] = False
+        manifest["install_policy"] = "disabled_until_install_update_offline_behavior_is_tested"
+    return manifest
 
 
 def _memorial_pwa_service_worker(slug: str, payload: dict[str, object]) -> str:
+    if not _memorial_pwa_install_enabled():
+        return """self.addEventListener("install", (event) => {
+  self.skipWaiting();
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).then(() => self.clients.claim())
+  );
+});
+self.addEventListener("fetch", (event) => {
+  return;
+});
+"""
     cache_name = f"memorial-pwa-{slug}-v{_MEMORIAL_PWA_VERSION}"
     base_path = f"/memorials/{slug}"
     icon_paths = [icon["src"] for icon in _memorial_pwa_manifest_icons(slug, payload)]
@@ -7621,8 +7653,15 @@ def _minimal_public_memorial_html(
         }});
       }}
 
+      const memorialPwaInstallEnabled = {json.dumps(_memorial_pwa_install_enabled())};
       window.addEventListener("beforeinstallprompt", (event) => {{
         event.preventDefault();
+        if (!memorialPwaInstallEnabled) {{
+          deferredInstallPrompt = null;
+          if (installHint) installHint.hidden = true;
+          if (installButton) installButton.hidden = true;
+          return;
+        }}
         deferredInstallPrompt = event;
         if (installHint) installHint.hidden = false;
         if (installButton) installButton.hidden = false;
@@ -12150,8 +12189,15 @@ def _memorial_html(
         const message = String((reason && reason.message) || reason || "Unbehandelte Promise-Ablehnung");
         setSpeechStatus("Seitenfehler: " + message, "error", "Bitte Seite neu laden");
       }});
+      const memorialPwaInstallEnabled = {json.dumps(_memorial_pwa_install_enabled())};
       window.addEventListener("beforeinstallprompt", (event) => {{
         event.preventDefault();
+        if (!memorialPwaInstallEnabled) {{
+          deferredInstallPrompt = null;
+          if (installHint) installHint.hidden = true;
+          if (installButton) installButton.hidden = true;
+          return;
+        }}
         deferredInstallPrompt = event;
         if (installHint) installHint.hidden = false;
         if (installButton) installButton.hidden = false;
@@ -12369,6 +12415,22 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
 @router.get("/memorials/{slug}/video-meeting/status")
 def public_memorial_video_meeting_status(slug: str) -> JSONResponse:
     payload = _load_memorial(slug)
+    if not _memorial_video_meeting_beta_enabled():
+        return JSONResponse(
+            {
+                "slug": _safe_slug(slug),
+                "video_meeting": {
+                    "enabled": False,
+                    "integration_state": "disabled_voice_gold_scope",
+                    "provider_key": "",
+                    "provider_label": "",
+                    "fallback_mode": "voice_only",
+                    "next_action": "voice_gold_video_beta_disabled",
+                    "detail": "Video/avatar meeting is disabled for the voice-only memorial release scope.",
+                },
+            },
+            headers={"Cache-Control": "no-store"},
+        )
     return JSONResponse(
         {
             "slug": _safe_slug(slug),
@@ -12384,6 +12446,19 @@ def public_memorial_video_meeting_status(slug: str) -> JSONResponse:
 @router.post("/memorials/{slug}/video-meeting/session")
 async def public_memorial_video_meeting_session(slug: str, request: Request) -> JSONResponse:
     payload = _load_memorial(slug)
+    if not _memorial_video_meeting_beta_enabled():
+        return JSONResponse(
+            {
+                "slug": _safe_slug(slug),
+                "enabled": False,
+                "integration_state": "disabled_voice_gold_scope",
+                "fallback_mode": "voice_only",
+                "next_action": "voice_gold_video_beta_disabled",
+                "detail": "Video/avatar meeting is disabled for the voice-only memorial release scope.",
+            },
+            headers={"Cache-Control": "no-store"},
+            status_code=404,
+        )
     try:
         body = await request.json()
     except Exception:
@@ -12408,6 +12483,17 @@ async def public_memorial_video_meeting_session(slug: str, request: Request) -> 
 async def public_memorial_video_meeting_provider_callback(slug: str, request: Request) -> JSONResponse:
     payload = _load_memorial(slug)
     safe_slug = _safe_slug(slug)
+    if not _memorial_video_meeting_beta_enabled():
+        return JSONResponse(
+            {
+                "slug": safe_slug,
+                "status": "disabled",
+                "provider_key": "",
+                "detail": "Video/avatar meeting callback is disabled for the voice-only memorial release scope.",
+            },
+            headers={"Cache-Control": "no-store"},
+            status_code=404,
+        )
     try:
         body = await request.json()
     except Exception:

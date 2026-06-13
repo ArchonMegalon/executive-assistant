@@ -173,6 +173,8 @@ def _check_browser_receipt(
         issues.append("browser_first_answer_ms_above_gold_threshold")
     if not bool(receipt.get("audio_ready_for_ui")):
         issues.append("browser_audio_not_ready_for_ui")
+    if not bool(receipt.get("answer_text_visible")):
+        issues.append("browser_answer_text_not_visible")
     if not bool(receipt.get("ui_audio_play_calls")):
         issues.append("browser_audio_playback_not_started")
     if not bool(receipt.get("ui_audio_play_ended")) and not receipt.get("ui_audio_play_error"):

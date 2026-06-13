@@ -40,6 +40,7 @@ def _browser_receipt(*, base_url: str = "https://memorial.example.test", mode: s
         "failed_codes": [],
         "first_answer_ms": 1200,
         "audio_ready_for_ui": True,
+        "answer_text_visible": True,
         "ui_audio_play_calls": 1,
         "ui_audio_play_ended": 1,
         "answer_semantic_passed": True,
