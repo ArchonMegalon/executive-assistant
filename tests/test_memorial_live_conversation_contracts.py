@@ -570,6 +570,28 @@ def test_memorial_shadow_stt_ignores_language_mismatched_shadow_transcript() -> 
     assert correction == {"should_correct": False, "reason": "shadow_language_mismatch"}
 
 
+def test_memorial_shadow_stt_ignores_reply_like_shadow_transcript() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Das weiß ich nicht.",
+        shadow_transcript="Was weiß ich nun?",
+    )
+
+    assert correction == {"should_correct": False, "reason": "shadow_matches_memorial_reply"}
+
+
+def test_memorial_shadow_stt_requires_user_intent_when_primary_is_weak() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Ja. Ich höre dich.",
+        shadow_transcript="Ja, ich schwöre es nicht.",
+    )
+
+    assert correction == {"should_correct": False, "reason": "shadow_user_intent_missing"}
+
+
 def test_memorial_shadow_stt_requires_anchor_for_large_unrelated_overwrite() -> None:
     from app.api.routes import public_memorials
 

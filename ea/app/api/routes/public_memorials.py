@@ -3907,6 +3907,31 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     }
 
 
+def _looks_like_memorial_reply_text(text: str) -> bool:
+    normalized = _normalize_memorial_transcript_text(text).lower()
+    if not normalized:
+        return False
+    if _is_memorial_direct_contact_opening_text(normalized):
+        return True
+    reply_prefixes = (
+        "ja. ich höre dich",
+        "ja. ich hoere dich",
+        "ich höre dich",
+        "ich hoere dich",
+        "sprich ruhig weiter",
+        "ich antworte dir direkt",
+        "das weiß ich nicht",
+        "das weiss ich nicht",
+        "das kann ich nicht sagen",
+        "das kann man nicht sagen",
+        "was weiß ich",
+        "was weiss ich",
+        "zum wetter brauche ich den ort",
+        "das wetter sehe ich nicht",
+    )
+    return any(normalized.startswith(prefix) for prefix in reply_prefixes)
+
+
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
     mapping = {
         "real_estate": ("grundbuch", "vertrag", "rücklage", "ruecklage", "betriebskosten", "sanierungen", "lasten"),
@@ -6749,6 +6774,8 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
         return {"should_correct": False, "reason": "shadow_empty"}
     if len(shadow_tokens) < 2:
         return {"should_correct": False, "reason": "shadow_too_brief"}
+    if _looks_like_memorial_reply_text(shadow):
+        return {"should_correct": False, "reason": "shadow_matches_memorial_reply"}
     german_markers = {
         "ich",
         "du",
@@ -6791,9 +6818,11 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
     primary_is_low_information = (
         len(primary_tokens) <= 3
         or _looks_like_memorial_contact_opening_transcript(primary)
+        or _is_memorial_direct_contact_opening_text(primary)
+        or _looks_like_memorial_reply_text(primary)
         or _is_known_bad_memorial_subtitle_transcript(primary)
     )
-    shadow_looks_like_user_question = bool(
+    shadow_looks_like_plausible_user_turn = _looks_like_memorial_contact_opening_transcript(shadow) or bool(
         shadow_tokens
         & {
             "wie",
@@ -6813,11 +6842,34 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
             "kann",
             "sprichst",
             "sprechen",
+            "hallo",
+            "bitte",
+            "erzähl",
+            "erzaehl",
+            "erzähle",
+            "erzaehle",
+            "sag",
+            "sage",
+            "erinnere",
+            "erinnerst",
+            "weißt",
+            "weisst",
+            "möchte",
+            "moechte",
+            "wollte",
+            "reden",
+            "frage",
+            "fragen",
         }
     )
+    if primary_is_low_information and not shadow_looks_like_plausible_user_turn:
+        return {
+            "should_correct": False,
+            "reason": "shadow_user_intent_missing",
+        }
     overlap = len(primary_tokens & shadow_tokens) / max(1, len(primary_tokens | shadow_tokens))
     length_gain = len(shadow) - len(primary)
-    if overlap < 0.15 and not primary_is_low_information and not shadow_looks_like_user_question:
+    if overlap < 0.15 and not primary_is_low_information and not shadow_looks_like_plausible_user_turn:
         return {
             "should_correct": False,
             "reason": "shadow_semantic_anchor_missing",
