@@ -354,7 +354,7 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert body["sources"] == []
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "present_world_guardrail"
-    assert body["answer"] == "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
+    assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -380,7 +380,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das kann man nicht sagen."
+    assert body["answer"] == "Das kann ich aus meinen Erinnerungen nicht sagen."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -390,7 +390,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das kann man nicht sagen."
+    assert body["answer"] == "Das kann ich aus meinen Erinnerungen nicht sagen."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -442,7 +442,7 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["sources"] == []
     assert body["current_world_policy"] == "local_memories_and_conversation_only_no_internet_search"
-    assert body["answer"] == "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
+    assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -718,7 +718,7 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["sources"] == []
-    assert body["answer"] == "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
+    assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 

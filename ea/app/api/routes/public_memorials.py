@@ -3530,8 +3530,8 @@ def _is_memorial_weather_question(question: str) -> bool:
 
 def _memorial_present_world_answer_body(question: str) -> str:
     if _is_memorial_weather_question(question):
-        return "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
-    return "Das kann man nicht sagen."
+        return "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
+    return "Das kann ich aus meinen Erinnerungen nicht sagen."
 
 
 def _memorial_present_world_search_request(question: str) -> dict[str, object]:

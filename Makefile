@@ -198,8 +198,7 @@ materialize-memorial-public-voice-gold:
 		--require-public-origin \
 		--direct-min-f1 "$${MEMORIAL_GOLD_DIRECT_TTS_F1_MIN:-0.92}" \
 		--conversation-min-f1 "$${MEMORIAL_GOLD_CONVERSATION_AUDIO_F1_MIN:-0.90}" \
-		--critical-token kann \
-		--critical-token man \
+		--critical-token erinnerungen \
 		--critical-token nicht \
 		--critical-token sagen \
 		--output .codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json
