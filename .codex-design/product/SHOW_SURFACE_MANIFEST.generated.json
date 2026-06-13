@@ -1,19 +1,22 @@
 {
   "contract_name": "ea.show_surface_manifest",
-  "generated_at": "2026-06-12T23:12:35Z",
+  "generated_at": "2026-06-13T04:26:39Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "git_head": "b2be7c94f55e73c793cb61f552c42a45f3b2cce6",
+  "git_head": "83e025c82896c67e82b2c0e0b00251de05b71643",
   "demo_mode": "ea_core",
   "allowed_surfaces": [
     "/",
     "/product",
-    "/modes",
     "/get-started",
     "/sign-in",
     "/app/today",
     "/app/queue",
     "/app/commitments",
     "/app/settings"
+  ],
+  "operator_surfaces": [
+    "/modes",
+    "/admin/*"
   ],
   "forbidden_surfaces": [
     "/memorials/*",

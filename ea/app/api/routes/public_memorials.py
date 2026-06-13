@@ -6498,6 +6498,7 @@ def _build_memorial_conversation_turn_payload(
     merged_config["lang"] = _memorial_fixed_conversation_language()
     if voice_ab_variant in {"a", "b"}:
         merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=voice_ab_variant, context=personal_memory_context))
+    merged_config = _apply_memorial_spoken_tts_clarity_policy(merged_config)
     tts_options = _tts_plugin_options(
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
@@ -13184,6 +13185,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
     voice_ab_variant = _voice_ab_variant_from_request(request=request, body=body)
     if voice_ab_variant in {"a", "b"}:
         merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=voice_ab_variant, context=personal_memory_context))
+    merged_config = _apply_memorial_spoken_tts_clarity_policy(merged_config)
     tts_options = _tts_plugin_options(
         payload=merged_config,
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
@@ -13559,6 +13561,18 @@ def _apply_memorial_live_clone_tts_policy(config: dict[str, object]) -> dict[str
             merged["tts_postprocess_profile"] = "unmixr_realtime_clear"
         if not _text(merged.get("unmixr_speaking_rate"), ""):
             merged["unmixr_speaking_rate"] = "0.90"
+    return merged
+
+
+def _apply_memorial_spoken_tts_clarity_policy(config: dict[str, object]) -> dict[str, object]:
+    merged = dict(config)
+    configured = _safe_tts_plugin_id(merged.get("tts_plugin") or merged.get("tts_mode"))
+    if configured != UNMIXR_TTS_PLUGIN_ID:
+        return merged
+    if not _text(merged.get("tts_postprocess_profile"), ""):
+        merged["tts_postprocess_profile"] = "unmixr_realtime_clear"
+    if not _text(merged.get("unmixr_speaking_rate"), ""):
+        merged["unmixr_speaking_rate"] = "0.90"
     return merged
 
 

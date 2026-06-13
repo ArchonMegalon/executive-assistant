@@ -80,6 +80,7 @@ required_files=(
   "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"
   "scripts/materialize_project_mode_manifests.py"
   "scripts/verify_project_mode_manifests.py"
+  "scripts/verify_project_mode_runtime.py"
   "scripts/materialize_whole_project_gold_map.py"
   "scripts/verify_whole_project_gold_map.py"
   "scripts/verify_generated_release_artifacts_clean.py"

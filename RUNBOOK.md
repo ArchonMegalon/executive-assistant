@@ -345,7 +345,7 @@ bash scripts/deploy.sh
 make deploy-ea-prod
 ```
 
-`make deploy` is still the legacy PropertyQuarry compose path for property isolation checks. Use `make deploy-property` when you intentionally want that stack.
+`make deploy` refuses ambiguous deployment. Use `make deploy-ea-prod` for EA services or `make deploy-property` when you intentionally want the PropertyQuarry stack.
 
 Memory-only local mode (API without DB dependency):
 

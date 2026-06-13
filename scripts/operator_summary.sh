@@ -180,9 +180,10 @@ bash scripts/version_info.sh
 echo
 
 echo "-- key commands --"
-echo "deploy:            make deploy"
+echo "deploy EA:         make deploy-ea-prod"
+echo "deploy property:   make deploy-property"
 echo "deploy (memory):   make deploy-memory"
-echo "deploy + bootstrap: EA_BOOTSTRAP_DB=1 make deploy"
+echo "deploy + bootstrap: EA_BOOTSTRAP_DB=1 make deploy-bootstrap"
 echo "bootstrap only:    make bootstrap"
 echo "db status:         make db-status"
 echo "db size:           make db-size"

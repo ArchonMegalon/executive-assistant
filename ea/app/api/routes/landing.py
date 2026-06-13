@@ -742,6 +742,7 @@ def project_modes_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    _: None = Depends(require_operator_context),
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
     modes_payload, show_payload = _load_project_mode_payloads()
@@ -762,6 +763,7 @@ def project_modes_page(
                 "key": key,
                 "display_name": display_names.get(key, key.replace("_", " ").title()),
                 "status": str(mode.get("status") or "").strip(),
+                "status_class": "blocked" if key == "MEMORIAL" and str(mode.get("status") or "") == "separate_risk_zone" else "ready",
                 "purpose": str(mode.get("purpose") or "").strip(),
                 "design_language": str(mode.get("design_language") or "").strip(),
                 "hard_gate": str(mode.get("hard_gate") or "").strip(),
@@ -797,13 +799,14 @@ def integrations_page(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity)
+    brand = request_brand(request)
     return _render_public_template(
         request,
         "integrations_page.html",
         **_public_context(
             request=request,
             current_nav="integrations",
-            page_title="PropertyQuarry Integrations",
+            page_title=f"{brand['name']} Integrations",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,

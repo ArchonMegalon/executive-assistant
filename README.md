@@ -41,7 +41,7 @@ make deploy-ea-prod    # EA core/runtime services
 make deploy-property   # PropertyQuarry isolated compose stack
 ```
 
-The legacy `make deploy` target remains the property compose path for compatibility with the property isolation checks; new EA operations should use `make deploy-ea-prod`.
+The plain `make deploy` target is intentionally non-operational. Use `make deploy-ea-prod` or `make deploy-property` so an EA deploy cannot accidentally start the property stack.
 
 The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or Docker socket control:
 
@@ -403,7 +403,7 @@ stream_max_retries = 5
 
 - Bootstrap during deploy: `EA_BOOTSTRAP_DB=1 bash scripts/deploy.sh`
 - Memory-only local profile: `cp .env.local.example .env && EA_MEMORY_ONLY=1 bash scripts/deploy.sh`
-- Common targets: `make deploy`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-api-tibor`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make runtime-hard-exit-gates`, `make hard-exit-gates`, `make ltd-release-gates`, `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
+- Common targets: `make deploy-ea-prod`, `make deploy-property`, `make bootstrap`, `make db-status`, `make db-size`, `make db-retention`, `make operator-summary`, `make smoke-api`, `make smoke-api-tibor`, `make smoke-postgres`, `make smoke-postgres-legacy`, `make release-smoke`, `make ci-gates-postgres`, `make ci-gates-postgres-legacy`, `make runtime-hard-exit-gates`, `make hard-exit-gates`, `make ltd-release-gates`, `make verify-ltd-critical-entries`, `make verify-ltd-flagship-subset`, `make all-local`, `make verify-release-assets`, `make release-docs`, `make release-preflight`
 - OpenAPI export/diff: `scripts/export_openapi.sh`, `scripts/diff_openapi.sh`, `make openapi-export`, `make openapi-diff`
 - Release checklist: `RELEASE_CHECKLIST.md`
 Snapshot pruning is available via `scripts/prune_openapi.sh` or `make openapi-prune`.

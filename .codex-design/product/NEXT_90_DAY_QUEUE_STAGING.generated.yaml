@@ -3569,7 +3569,7 @@ items:
   - onboarding_metrics
   - onboarding_claims
 - title: Publish public trust, status, release, and proof-shelf surfaces from registry and governor truth.
-  task: Compile live, preview, fallback, revoked, fixed, blocked, proof freshness, support pulse, and adoption health into
+  task: Compile live, preview, fallback, revoked, fixed, blocked, proof recency, support pulse, and adoption health into
     public status surfaces.
   package_id: next90-m120-hub-public-launch-health
   work_task_id: 120.1

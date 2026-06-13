@@ -65,6 +65,11 @@
     font-size: 12px;
     background: var(--panel-2);
   }
+  .mode-pill.blocked {
+    border-color: rgba(152, 66, 35, 0.35);
+    color: #7f321f;
+    background: rgba(255, 231, 214, 0.78);
+  }
   .mode-meta {
     display: grid;
     gap: 8px;
@@ -106,7 +111,7 @@
           <div class="mode-kicker">{{ mode.key }}</div>
           <h2>{{ mode.display_name }}</h2>
         </div>
-        <span class="mode-pill">{{ mode.status|replace('_', ' ') }}</span>
+        <span class="mode-pill {{ mode.status_class }}">{{ mode.status|replace('_', ' ') }}</span>
       </header>
       <p class="copy">{{ mode.purpose }}</p>
       <div class="mode-meta">

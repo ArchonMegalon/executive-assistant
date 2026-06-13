@@ -99,7 +99,7 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "status": "pass",
+                "status": "warn",
                 "receipt_type": "inventory_only",
                 "provider_ready": bool(payload.get("provider_ready")),
                 "output": str(args.output),

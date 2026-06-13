@@ -34,6 +34,27 @@ def main() -> int:
         raise SystemExit("ea_core_first_value_gate_missing")
     if show.get("demo_mode") != "ea_core":
         raise SystemExit("show_surface_demo_mode_not_ea_core")
+    allowed = set(show.get("allowed_surfaces") or [])
+    if "/modes" in allowed:
+        raise SystemExit("operator_modes_surface_leaked_into_public_demo")
+    operator_surfaces = set(show.get("operator_surfaces") or [])
+    if "/modes" not in operator_surfaces:
+        raise SystemExit("operator_modes_surface_missing")
+    ea_gate = ROOT / str(by_key["EA_CORE"].get("hard_gate") or "")
+    if not ea_gate.is_file():
+        raise SystemExit("ea_core_hard_gate_path_missing")
+    memorial_gate = ROOT / str(by_key["MEMORIAL"].get("hard_gate") or "")
+    if not memorial_gate.is_file():
+        raise SystemExit("memorial_hard_gate_receipt_missing")
+    try:
+        memorial_receipt = json.loads(memorial_gate.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise SystemExit(f"memorial_hard_gate_receipt_invalid:{exc}") from exc
+    memorial_status = str(memorial_receipt.get("status") or "").strip().lower()
+    if by_key["MEMORIAL"].get("status") == "shipping_memorial" and memorial_status != "pass":
+        raise SystemExit("shipping_memorial_gate_not_passing")
+    if by_key["MEMORIAL"].get("status") == "separate_risk_zone" and memorial_status == "pass":
+        raise SystemExit("memorial_pass_receipt_still_marked_risk_zone")
     forbidden = set(show.get("forbidden_surfaces") or [])
     for expected in {"/memorials/*", "/memorials/files/*", "/results/*", "/tours/*"}:
         if expected not in forbidden:

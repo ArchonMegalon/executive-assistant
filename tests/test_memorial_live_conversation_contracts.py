@@ -781,6 +781,7 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     monkeypatch.setenv("UNMIXR_LANGUAGE", "en-US")
     monkeypatch.setenv("UNMIXR_API_KEY", "unit-test-unmixr-key")
     seen: dict[str, object] = {}
+    pad_seen: dict[str, object] = {}
     monkeypatch.setattr(
         public_memorials,
         "unmixr_synthesize_request",
@@ -789,7 +790,14 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     monkeypatch.setattr(
         public_memorials,
         "_pad_speech_audio_lead_in",
-        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: pad_seen.update(
+            {
+                "silence_ms": silence_ms,
+                "tail_silence_ms": tail_silence_ms,
+                "extra_filters": extra_filters,
+            }
+        )
+        or (payload, content_type),
     )
 
     config = public_memorials._load_voice_config(slug)
@@ -799,6 +807,8 @@ def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     assert config["lang"] == "en-US"
     assert response.status_code == 200
     assert seen["lang"] == "de-AT"
+    assert seen["speaking_rate"] == "0.90"
+    assert "atempo=0.92" in str(pad_seen["extra_filters"])
 
 
 def test_memorial_voice_config_resolves_committed_voice_id_placeholders_from_env(

@@ -66,6 +66,7 @@ def test_verify_joggai_provider_cli_writes_receipt(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     body = json.loads(result.stdout)
     receipt = json.loads(output.read_text(encoding="utf-8"))
+    assert body["status"] == "warn"
     assert body["verdict"] == "CANDIDATE_ONLY"
     assert body["receipt_type"] == "inventory_only"
     assert body["provider_ready"] is False
