@@ -576,10 +576,10 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 """
                 () => {
                   const button = document.getElementById("memorial-conversation");
-                  return Boolean(button && !button.disabled && button.textContent && button.textContent.includes("Gespräch beginnen"));
+                  return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
                 }
                 """,
-                timeout=10000,
+                timeout=30000,
             )
             cta_ready_ms = (time.perf_counter() - ready_started) * 1000.0
             answer_started = time.perf_counter()
@@ -657,10 +657,10 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     """
                     () => {
                       const button = document.getElementById("memorial-conversation");
-                      return Boolean(button && button.textContent && button.textContent.includes("Gespräch beginnen"));
+                      return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
                     }
                     """,
-                    timeout=10000,
+                    timeout=30000,
                 )
             except Exception as exc:
                 turn_error = str(exc)
