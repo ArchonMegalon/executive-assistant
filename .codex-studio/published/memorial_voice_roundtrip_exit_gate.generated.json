@@ -1,12 +1,12 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T19:25:12Z",
+  "generated_at": "2026-06-13T20:07:19Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "5600866ca90fa7292c3877ebcd74de72c6e7b802",
-  "source_git_head": "5600866ca90fa7292c3877ebcd74de72c6e7b802",
-  "source_tree_fingerprint": "d41a82b29a7b6f78244af88777158cdb34db8fb3a18c40e99ced5dc231e3f3ef",
-  "dirty_worktree": false,
-  "status": "pass",
+  "git_head": "3d01d0259551ea70de1b6904f6fd79073aaee818",
+  "source_git_head": "3d01d0259551ea70de1b6904f6fd79073aaee818",
+  "source_tree_fingerprint": "ee7e5b64b97648791e92b38b3aba3726e5b9cdc3b3fff6647e7f9a7455cedfcd",
+  "dirty_worktree": true,
+  "status": "fail",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
@@ -15,32 +15,34 @@
   "direct_min_f1": 0.92,
   "conversation_min_f1": 0.9,
   "critical_tokens": [],
-  "direct_text": "Ja. Sag es mir.",
+  "direct_text": "Worum geht es?",
   "conversation_question": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
   "present_world_question": "Welches Wetter haben wir heute?",
-  "failed_codes": [],
+  "failed_codes": [
+    "dirty_worktree"
+  ],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 20,
+    "speech_synthesize_ms": 22,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 18388,
+    "speech_transcribe_ms": 13393,
     "direct_tts_transcriber": "1min.ai/whisper-1+enhanced_wav",
-    "direct_tts_expected_chars": 15,
-    "direct_tts_actual_chars": 15,
+    "direct_tts_expected_chars": 14,
+    "direct_tts_actual_chars": 14,
     "direct_tts_f1": 1.0,
-    "chat_reference_ms": 5,
-    "reference_answer_chars": 15,
+    "chat_reference_ms": 6,
+    "reference_answer_chars": 14,
     "present_world_chat_ms": 3,
     "present_world_answer_chars": 71,
-    "synthetic_prompt_synthesize_ms": 25,
+    "synthetic_prompt_synthesize_ms": 26,
     "synthetic_prompt_source": "local_neutral_prompt",
-    "conversation_turn_total_ms": 19913,
+    "conversation_turn_total_ms": 17424,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 21350,
+    "conversation_answer_transcribe_ms": 14967,
     "conversation_turn_transcriber": "1min.ai/whisper-1+enhanced_wav",
-    "conversation_turn_audio_expected_chars": 15,
-    "conversation_turn_audio_actual_chars": 15,
+    "conversation_turn_audio_expected_chars": 14,
+    "conversation_turn_audio_actual_chars": 14,
     "conversation_turn_audio_f1": 1.0
   },
   "artifacts": {
@@ -61,8 +63,8 @@
       "code": "direct_tts_gold_similarity_ok",
       "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
-        "expected": "Ja. Sag es mir.",
-        "actual": "Jo, sag es mir.",
+        "expected": "Worum geht es?",
+        "actual": "Worum geht es?",
         "min_f1": 0.92,
         "precision": 1.0,
         "recall": 1.0,
@@ -95,14 +97,20 @@
       "code": "conversation_turn_audio_gold_similarity_ok",
       "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
-        "expected": "Ja. Sag es mir.",
-        "actual": "Jo, sag es mir.",
+        "expected": "Worum geht es?",
+        "actual": "Worum geht es?",
         "min_f1": 0.9,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
       }
+    },
+    {
+      "status": "fail",
+      "code": "dirty_worktree",
+      "message": "Memorial-gold voice proof requires a clean worktree.",
+      "detail": {}
     }
   ],
-  "gold_claim_allowed": true
+  "gold_claim_allowed": false
 }
