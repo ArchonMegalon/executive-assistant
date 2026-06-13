@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         "--direct-text",
         default="Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
     )
-    parser.add_argument("--conversation-question", default="Wie ist das Wetter heute?")
+    parser.add_argument("--conversation-question", default="Wie geht das weiter?")
     parser.add_argument("--present-world-question", default="Wie ist das Wetter heute?")
     parser.add_argument("--allow-missing-stt", action="store_true")
     args = parser.parse_args(argv)
