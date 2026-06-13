@@ -600,6 +600,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 )
                 cta_ready_ms = (time.perf_counter() - ready_started) * 1000.0
                 answer_started = time.perf_counter()
+                first_answer_elapsed_ms = 0.0
                 turn_error = ""
                 answer_text = ""
                 answer_visible = False
@@ -691,6 +692,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     ui_audio_play_ended = int(gate_state.get("play_ended") or 0)
                     ui_audio_play_error = str(gate_state.get("last_error") or "")
                     ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
+                    first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
                     page.click("#memorial-conversation", timeout=5000)
                     page.wait_for_function(
                         """
@@ -715,7 +717,9 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                         detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
                     except Exception:
                         detail_text = ""
-                first_answer_ms = (time.perf_counter() - answer_started) * 1000.0
+                if not first_answer_elapsed_ms:
+                    first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
+                first_answer_ms = first_answer_elapsed_ms
                 warmup_after = page.evaluate(
                     """async (url) => {
                       const response = await fetch(url);
