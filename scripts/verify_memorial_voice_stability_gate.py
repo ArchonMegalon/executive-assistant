@@ -48,7 +48,7 @@ def run_stability_gate(*, slug: str, base_url: str, output_dir: Path, runs: int,
             base_url=base_url,
             output_dir=output_dir / f"run-{index:02d}",
             direct_text="Sprich ruhig weiter. Ich antworte dir direkt.",
-            conversation_question="Wie ist heute das Wetter?",
+            conversation_question="Wie ist das Wetter heute?",
             present_world_question="Wie ist das Wetter heute?",
             require_stt=require_stt,
         )
