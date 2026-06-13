@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.materialize_whole_project_gold_map import build_gold_map
+from scripts.materialize_whole_project_gold_map import build_gold_map, _git_head
 from scripts.verify_whole_project_gold_map import verify
 
 
@@ -45,10 +45,29 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert "Whole-project gold requires every listed plane to pass" in rules
     assert receipt["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
     assert receipt["ltd_provider_lane_summary"]["poppy_lane_state"] == "verified_draft_operator_lane"
+    assert "memorial_room_audio_public_origin.generated.json" in receipt["required_next_receipts"]
+    memorial_public_plane = planes["memorial_public_origin_gold"]
+    if memorial_public_plane["status"] == "blocked":
+        assert "public-origin room/device audio intelligibility receipt" in memorial_public_plane["missing_evidence"]
 
 
 def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) -> None:
-    receipt = build_gold_map(generated_at="2026-06-12T00:00:00Z")
+    current_head = _git_head()
+    memorial_voice_receipt = tmp_path / "memorial-voice.json"
+    memorial_voice_receipt.write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
+                "status": "pass",
+                "git_head": current_head,
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt = build_gold_map(
+        generated_at="2026-06-12T00:00:00Z",
+        memorial_voice_roundtrip_receipt=memorial_voice_receipt,
+    )
     path = tmp_path / "gold-map.json"
     path.write_text(json.dumps(receipt), encoding="utf-8")
 

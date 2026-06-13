@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-06-13T12:34:15Z",
+  "generated_at": "2026-06-13T18:14:49Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "git_head": "a42322fa57d6883089facaaccd0f3ef263802ba3",
+  "git_head": "33125a3aeb186f42c4441496593e4f240a83861a",
   "modes": [
     {
       "key": "EA_CORE",
@@ -37,6 +37,11 @@
         "/memorials/files/"
       ],
       "hard_gate": "make memorial-gold-gates",
+      "hard_gates": [
+        ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+      ],
       "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
       "public_gold_gates": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",

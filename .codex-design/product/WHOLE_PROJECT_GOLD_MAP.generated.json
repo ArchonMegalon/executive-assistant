@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-13T12:34:15Z",
+  "generated_at": "2026-06-13T18:16:14Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "a42322fa57d6883089facaaccd0f3ef263802ba3",
+  "git_head": "33125a3aeb186f42c4441496593e4f240a83861a",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -17,9 +17,10 @@
     "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
     "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
     "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
-    "Memorial public-origin gold requires both the public voice roundtrip receipt and public browser realtime receipt."
+    "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
   ],
   "blocking_planes": [
+    "memorial_voice_demo",
     "memorial_public_origin_gold"
   ],
   "planes": [
@@ -137,17 +138,22 @@
       "key": "memorial_voice_demo",
       "title": "Memorial Voice / Realtime Demo",
       "owner_repo": "memorial runtime",
-      "status": "pass",
+      "status": "separate_risk_zone",
       "claim": "Memorial local voice release can pass separately from Memorial public-origin gold. Manfred remains local memories/conversation only, with no internet search.",
       "evidence": [
         "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        "live memorial roundtrip transcript receipt",
+        "voice intelligibility receipt",
+        "latency p50/p95 receipt"
+      ],
       "design_notes": [
         "Public copy must not collapse this into a generic gold claim.",
         "public_origin_gold_status=blocked",
         "public-origin memorial voice+STT+TTS gold receipt",
-        "public-origin browser realtime/audio playback gold receipt"
+        "public-origin browser realtime/audio playback gold receipt",
+        "public-origin room/device audio intelligibility receipt"
       ]
     },
     {
@@ -159,7 +165,8 @@
       "evidence": [],
       "missing_evidence": [
         "public-origin memorial voice+STT+TTS gold receipt",
-        "public-origin browser realtime/audio playback gold receipt"
+        "public-origin browser realtime/audio playback gold receipt",
+        "public-origin room/device audio intelligibility receipt"
       ],
       "design_notes": [
         "Guest-facing copy must never say simply gold while this plane is blocked.",
@@ -204,6 +211,7 @@
   },
   "required_next_receipts": [
     "memorial_voice_roundtrip_public_origin.generated.json",
-    "memorial_realtime_browser_public_origin.generated.json"
+    "memorial_realtime_browser_public_origin.generated.json",
+    "memorial_room_audio_public_origin.generated.json"
   ]
 }
