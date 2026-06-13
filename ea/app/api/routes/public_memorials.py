@@ -116,7 +116,11 @@ _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 560
 _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 620
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
 _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
+_BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
+_BLIPAI_SUPABASE_ANON_KEY = "sb_publishable_TCu8hwzGitgxmzCu2rYHiA_6r3MImeD"
 _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
+_MEMORIAL_BLIPAI_TOKEN_STATE: dict[str, str] = {}
+_MEMORIAL_BLIPAI_TOKEN_LOCK = threading.Lock()
 _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
 _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
@@ -6545,9 +6549,7 @@ def _memorial_shadow_stt_result(
             "reason": "provider_cooldown_active",
             "cooldown_seconds_remaining": round(cooldown_until - now, 3),
         }
-    api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
-    if provider == "blipai" and not api_key:
-        api_key = _text(os.getenv("BLIPAI_APP_API_TOKEN")).strip()
+    api_key = _memorial_shadow_stt_api_key(provider=provider)
     url = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_URL")).strip()
     if provider == "blipai" and not url and api_key:
         url = _BLIPAI_DEFAULT_STT_URL
@@ -6557,9 +6559,11 @@ def _memorial_shadow_stt_result(
     if len(user_audio_payload or b"") > max_bytes:
         return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "audio_too_large"}
     timeout = max(0.25, min(5.0, float(os.getenv("EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS") or "1.6")))
-    headers = {"User-Agent": "EA-Memorial-Shadow-STT/1.0"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    def _headers(token: str) -> dict[str, str]:
+        result = {"User-Agent": "EA-Memorial-Shadow-STT/1.0"}
+        if token:
+            result["Authorization"] = f"Bearer {token}"
+        return result
     request_payload = {
         "provider": provider,
         "mode": "shadow_only_user_question_stt",
@@ -6571,7 +6575,8 @@ def _memorial_shadow_stt_result(
         "include_memorial_answer": False,
         "include_private_memory": False,
     }
-    try:
+    def _post_shadow_request(token: str):
+        headers = _headers(token)
         if provider == "blipai" and url == _BLIPAI_DEFAULT_STT_URL:
             files = {
                 "audio": (
@@ -6580,10 +6585,15 @@ def _memorial_shadow_stt_result(
                     _text(content_type, "audio/wav") or "audio/wav",
                 )
             }
-            response = requests.post(url, headers=headers, files=files, timeout=timeout)
-        else:
-            headers["Content-Type"] = "application/json"
-            response = requests.post(url, headers=headers, json=request_payload, timeout=timeout)
+            return requests.post(url, headers=headers, files=files, timeout=timeout)
+        headers["Content-Type"] = "application/json"
+        return requests.post(url, headers=headers, json=request_payload, timeout=timeout)
+    try:
+        response = _post_shadow_request(api_key)
+        if provider == "blipai" and response.status_code in {401, 403}:
+            refreshed_api_key = _refresh_blipai_shadow_stt_access_token()
+            if refreshed_api_key:
+                response = _post_shadow_request(refreshed_api_key)
         if response.status_code >= 400:
             if response.status_code in {401, 403, 429}:
                 cooldown_seconds = max(
@@ -6630,6 +6640,56 @@ def _memorial_shadow_stt_result(
             "reason": str(exc)[:120],
             "may_override_primary": False,
         }
+
+
+def _memorial_shadow_stt_api_key(*, provider: str) -> str:
+    api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
+    if provider == "blipai" and not api_key:
+        with _MEMORIAL_BLIPAI_TOKEN_LOCK:
+            api_key = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")).strip()
+        if not api_key:
+            api_key = _text(os.getenv("BLIPAI_APP_API_TOKEN")).strip()
+    return api_key
+
+
+def _refresh_blipai_shadow_stt_access_token() -> str:
+    refresh_token = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN")).strip()
+    if not refresh_token:
+        with _MEMORIAL_BLIPAI_TOKEN_LOCK:
+            refresh_token = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")).strip()
+    if not refresh_token:
+        refresh_token = _text(os.getenv("BLIPAI_APP_REFRESH_TOKEN")).strip()
+    if not refresh_token:
+        return ""
+    with _MEMORIAL_BLIPAI_TOKEN_LOCK:
+        if _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")).strip() == refresh_token:
+            cached = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")).strip()
+            if cached:
+                return cached
+        headers = {
+            "apikey": _BLIPAI_SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+            "User-Agent": "EA-Memorial-Shadow-STT/1.0",
+        }
+        response = requests.post(
+            f"{_BLIPAI_SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
+            headers=headers,
+            json={"refresh_token": refresh_token},
+            timeout=5.0,
+        )
+        if response.status_code >= 400:
+            return ""
+        try:
+            payload = response.json()
+        except ValueError:
+            return ""
+        access_token = _text(payload.get("access_token")).strip()
+        if not access_token:
+            return ""
+        next_refresh_token = _text(payload.get("refresh_token")).strip() or refresh_token
+        _MEMORIAL_BLIPAI_TOKEN_STATE["access_token"] = access_token
+        _MEMORIAL_BLIPAI_TOKEN_STATE["refresh_token"] = next_refresh_token
+        return access_token
 
 
 def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_transcript: str) -> dict[str, object]:
