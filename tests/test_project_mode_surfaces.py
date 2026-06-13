@@ -26,7 +26,7 @@ def test_project_mode_switchboard_is_operator_only_and_renders_separate_product_
     assert "Chummer Release Control" in response.text
     assert "Property" in response.text
     assert 'data-project-mode-switchboard' in response.text
-    assert 'class="mode-pill blocked"' in response.text
+    assert 'class="mode-pill ready"' in response.text
     assert 'href="/memorials/' not in response.text
     assert 'href="/properties' not in response.text
 

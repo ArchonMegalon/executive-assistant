@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-06-13T04:26:39Z",
+  "generated_at": "2026-06-13T05:00:31Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "git_head": "83e025c82896c67e82b2c0e0b00251de05b71643",
+  "git_head": "9d63b8c80f28b9bacd00e36a529fb9ee92e03f82",
   "modes": [
     {
       "key": "EA_CORE",
@@ -25,7 +25,7 @@
     },
     {
       "key": "MEMORIAL",
-      "status": "separate_risk_zone",
+      "status": "shipping_memorial",
       "purpose": "Manfred memorial pages, realtime voice, public archive assets, voice profile/AB tooling.",
       "route_prefixes": [
         "/memorials/",

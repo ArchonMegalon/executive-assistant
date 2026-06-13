@@ -11,6 +11,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_MODES_OUTPUT = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
 SHOW_SURFACE_OUTPUT = ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
+MEMORIAL_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 
 
 def _utc_now() -> str:
@@ -33,6 +34,14 @@ def _git_head() -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def _memorial_mode_status() -> str:
+    try:
+        receipt = json.loads(MEMORIAL_VOICE_GATE.read_text(encoding="utf-8"))
+    except Exception:
+        return "separate_risk_zone"
+    return "shipping_memorial" if str(receipt.get("status") or "").strip().lower() == "pass" else "separate_risk_zone"
+
+
 def project_modes() -> dict[str, Any]:
     return {
         "contract_name": "ea.project_modes",
@@ -50,7 +59,7 @@ def project_modes() -> dict[str, Any]:
             },
             {
                 "key": "MEMORIAL",
-                "status": "separate_risk_zone",
+                "status": _memorial_mode_status(),
                 "purpose": "Manfred memorial pages, realtime voice, public archive assets, voice profile/AB tooling.",
                 "route_prefixes": ["/memorials/", "/memorials/files/"],
                 "hard_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
