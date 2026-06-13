@@ -26,6 +26,8 @@ DEFAULT_BROWSER_PROOF = ROOT / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROO
 DEFAULT_MIRROR_BOUNDARY = ROOT / ".codex-design/repo/MIRROR_SCOPE_BOUNDARY.md"
 DEFAULT_FLEET_JOURNEY_GATES = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
 DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
+DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 DEFAULT_CORE_RULE_RECEIPTS = (
     Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"),
     Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"),
@@ -186,6 +188,8 @@ def build_gold_map(
     mobile_receipts: tuple[Path, ...] = DEFAULT_MOBILE_RECEIPTS,
     media_receipts: tuple[Path, ...] = DEFAULT_MEDIA_RECEIPTS,
     memorial_voice_roundtrip_receipt: Path = DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT,
+    memorial_public_voice_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT,
+    memorial_public_browser_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     flagship_status = _status_from_receipt(flagship_receipt_path, {"pass"})
@@ -202,11 +206,23 @@ def build_gold_map(
     memorial_voice_status_raw = _status_from_receipt(memorial_voice_roundtrip_receipt, {"pass"})
     memorial_voice_status = "pass" if memorial_voice_status_raw == "pass" else "separate_risk_zone"
     memorial_voice_evidence = [memorial_voice_roundtrip_receipt.as_posix()] if memorial_voice_roundtrip_receipt.is_file() else []
+    memorial_public_voice_status = _status_from_receipt(memorial_public_voice_receipt, {"pass"})
+    memorial_public_browser_status = _status_from_receipt(memorial_public_browser_receipt, {"pass"})
+    memorial_public_gold_status = (
+        "pass"
+        if memorial_public_voice_status == "pass" and memorial_public_browser_status == "pass"
+        else "blocked"
+    )
     memorial_voice_missing = (
         []
         if memorial_voice_status == "pass"
         else ["live memorial roundtrip transcript receipt", "voice intelligibility receipt", "latency p50/p95 receipt"]
     )
+    memorial_public_missing = []
+    if memorial_public_voice_status != "pass":
+        memorial_public_missing.append("public-origin memorial voice+STT+TTS gold receipt")
+    if memorial_public_browser_status != "pass":
+        memorial_public_missing.append("public-origin browser realtime/audio playback gold receipt")
     ltd_summary = _load_ltd_summary()
     mirror_boundary_present = _exists(mirror_boundary_path)
 
@@ -299,9 +315,14 @@ def build_gold_map(
             title="Memorial Voice / Realtime Demo",
             owner_repo="memorial runtime",
             status=memorial_voice_status,
-            claim="Memorial voice quality and realtime conversation readiness must be proven by its own browser+STT+TTS exit gate, not by EA release readiness.",
+            claim="Memorial local voice release can pass separately from Memorial public-origin gold. Manfred remains local memories/conversation only, with no internet search.",
             evidence=memorial_voice_evidence,
             missing_evidence=memorial_voice_missing,
+            design_notes=[
+                "Public copy must not collapse this into a generic gold claim.",
+                f"public_origin_gold_status={memorial_public_gold_status}",
+                *memorial_public_missing,
+            ],
         ),
         _plane(
             key="ltd_provider_lanes",
@@ -352,12 +373,14 @@ def build_gold_map(
             "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
             "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
+            "Memorial public-origin gold requires both the public voice roundtrip receipt and public browser realtime receipt.",
         ],
         "blocking_planes": blocking_planes,
         "planes": planes,
         "ltd_provider_lane_summary": ltd_summary,
         "required_next_receipts": [
-            "memorial_voice_roundtrip_exit_gate.generated.json",
+            "memorial_voice_roundtrip_public_origin.generated.json",
+            "memorial_realtime_browser_public_origin.generated.json",
         ],
     }
 

@@ -13,11 +13,13 @@ import subprocess
 import tempfile
 import time
 import wave
+from datetime import UTC, datetime
 from pathlib import Path
 
 
 LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
 DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS = 10000.0
+DEFAULT_GOLD_MAX_FIRST_ANSWER_MS = 4500.0
 DEFAULT_EXIT_GATE_REQUIRED_CONTEXT_MATCHES = 2
 DEFAULT_EXIT_GATE_CONTEXT_TOKENS = (
     "ja",
@@ -83,6 +85,45 @@ def _require_binary(name: str) -> str:
     if not resolved:
         raise SystemExit(f"missing_binary:{name}")
     return resolved
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _git_head() -> str:
+    root = Path(__file__).resolve().parents[1]
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _git_dirty() -> bool:
+    root = Path(__file__).resolve().parents[1]
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "status", "--short"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return True
+    return bool(proc.stdout.strip()) if proc.returncode == 0 else True
+
+
+def _is_local_base_url(value: str) -> bool:
+    lowered = str(value or "").strip().lower()
+    return any(marker in lowered for marker in ("://127.0.0.1", "://localhost", "://0.0.0.0", "://[::1]"))
 
 
 def _pure_python_prompt_wav_bytes(text: str) -> bytes:
@@ -717,6 +758,56 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
     return result
 
 
+def _with_exit_gate_status(
+    result: dict[str, object],
+    *,
+    exit_gate: bool,
+    gold_mode: bool,
+    require_public_origin: bool,
+    max_first_answer_ms: float,
+) -> dict[str, object]:
+    reasons: list[str] = []
+    if result.get("turn_error"):
+        reasons.append(str(result.get("turn_error") or "missing_gate_feedback"))
+    elif not str(result.get("answer_preview") or "").strip():
+        reasons.append("missing_answer_preview")
+    if not bool(result.get("audio_payload_ready")):
+        reasons.append("missing_audio_payload")
+    if not bool(result.get("audio_ready_for_ui")):
+        reasons.append("missing_ui_audio_output")
+    if not bool(result.get("ui_audio_play_calls")):
+        reasons.append("missing_ui_audio_playback")
+    if not bool(result.get("ui_audio_play_ended")) and not result.get("ui_audio_play_error"):
+        reasons.append("missing_ui_audio_playback_complete")
+    if float(result.get("first_answer_ms") or 0.0) > float(max_first_answer_ms):
+        reasons.append("first_answer_too_slow")
+    if not bool(result.get("answer_semantic_passed")):
+        reasons.append("answer_semantics_failed")
+    if require_public_origin and _is_local_base_url(str(result.get("base_url") or "")):
+        reasons.append("public_origin_required")
+    if gold_mode and _git_dirty():
+        reasons.append("dirty_worktree")
+
+    payload = dict(result)
+    payload.update(
+        {
+            "contract_name": "ea.memorial_realtime_browser_exit_gate",
+            "generated_at": _utc_now(),
+            "generated_by": "scripts/measure_memorial_live_browser.py",
+            "git_head": _git_head(),
+            "dirty_worktree": _git_dirty(),
+            "status": "pass" if not reasons else "fail",
+            "exit_gate": bool(exit_gate),
+            "gold_mode": bool(gold_mode),
+            "require_public_origin": bool(require_public_origin),
+            "max_first_answer_ms": float(max_first_answer_ms),
+            "failed_codes": reasons,
+            "gold_claim_allowed": bool(gold_mode) and not reasons,
+        }
+    )
+    return payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Measure the live memorial browser first-turn path.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8090")
@@ -725,45 +816,29 @@ def main() -> int:
     parser.add_argument("--output", default="")
     parser.add_argument("--exit-gate", action="store_true", help="Exit with failure if turn lacks answer/audio output.")
     parser.add_argument("--real-stt", action="store_true", help="Use the live STT endpoint instead of a deterministic browser stub.")
+    parser.add_argument("--gold-mode", action="store_true", help="Write a stricter memorial browser-gold receipt.")
+    parser.add_argument("--require-public-origin", action="store_true", help="Fail gold/browser proof on localhost origins.")
+    parser.add_argument("--max-first-answer-ms", type=float, default=0.0)
     args = parser.parse_args()
 
     result = _measure(args.base_url, args.slug, args.prompt_text, stub_transcribe=not args.real_stt)
-    exit_gate_passed = True
-    exit_gate_reasons: list[str] = []
-    if args.exit_gate:
-        if result.get("turn_error"):
-            exit_gate_passed = False
-            exit_gate_reasons.append(str(result.get("turn_error") or "missing_gate_feedback"))
-        elif not str(result.get("answer_preview") or "").strip():
-            exit_gate_passed = False
-            exit_gate_reasons.append("missing_answer_preview")
-        if not bool(result.get("audio_payload_ready")):
-            exit_gate_passed = False
-            exit_gate_reasons.append("missing_audio_payload")
-        if not bool(result.get("audio_ready_for_ui")):
-            exit_gate_passed = False
-            exit_gate_reasons.append("missing_ui_audio_output")
-        if not bool(result.get("ui_audio_play_calls")):
-            exit_gate_passed = False
-            exit_gate_reasons.append("missing_ui_audio_playback")
-        if not bool(result.get("ui_audio_play_ended")) and not result.get("ui_audio_play_error"):
-            exit_gate_passed = False
-            exit_gate_reasons.append("missing_ui_audio_playback_complete")
-        if float(result.get("first_answer_ms") or 0.0) > DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS:
-            exit_gate_passed = False
-            exit_gate_reasons.append("first_answer_too_slow")
-        if not bool(result.get("answer_semantic_passed")):
-            exit_gate_passed = False
-            exit_gate_reasons.append("answer_semantics_failed")
-    rendered = json.dumps(result, ensure_ascii=False, indent=2)
+    max_first_answer_ms = float(args.max_first_answer_ms or (DEFAULT_GOLD_MAX_FIRST_ANSWER_MS if args.gold_mode else DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS))
+    receipt = _with_exit_gate_status(
+        result,
+        exit_gate=bool(args.exit_gate),
+        gold_mode=bool(args.gold_mode),
+        require_public_origin=bool(args.require_public_origin),
+        max_first_answer_ms=max_first_answer_ms,
+    )
+    rendered = json.dumps(receipt, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(rendered + "\n", encoding="utf-8")
     print(rendered)
     if args.exit_gate:
-        if exit_gate_passed:
+        if receipt["status"] == "pass":
             print("EXIT_GATE_PASS")
             return 0
-        print(f"EXIT_GATE_FAIL: {'; '.join(exit_gate_reasons)}")
+        print(f"EXIT_GATE_FAIL: {'; '.join(str(item) for item in receipt['failed_codes'])}")
         return 2
     return 0
 

@@ -12,12 +12,14 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 PUBLIC_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
+BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/PROJECT_MODES.generated.json",
     ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
 }
 
 
@@ -76,6 +78,13 @@ def _metric(receipt: dict[str, Any], key: str) -> float:
         return 0.0
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name) or default)
+    except Exception:
+        return float(default)
+
+
 def _check_receipt(
     receipt: dict[str, Any],
     *,
@@ -83,6 +92,8 @@ def _check_receipt(
     public_required: bool,
     direct_min_f1: float,
     conversation_min_f1: float,
+    max_conversation_turn_ms: float | None = None,
+    max_speech_transcribe_ms: float | None = None,
 ) -> list[str]:
     issues: list[str] = []
     if not receipt:
@@ -112,6 +123,10 @@ def _check_receipt(
         issues.append("direct_tts_f1_below_gold_threshold")
     if _metric(receipt, "conversation_turn_audio_f1") < conversation_min_f1:
         issues.append("conversation_turn_audio_f1_below_gold_threshold")
+    if max_conversation_turn_ms is not None and _metric(receipt, "conversation_turn_total_ms") > float(max_conversation_turn_ms):
+        issues.append("conversation_turn_total_ms_above_gold_threshold")
+    if max_speech_transcribe_ms is not None and _metric(receipt, "speech_transcribe_ms") > float(max_speech_transcribe_ms):
+        issues.append("speech_transcribe_ms_above_gold_threshold")
     checks = list(receipt.get("checks") or [])
     check_codes = {str(item.get("code") or "") for item in checks if isinstance(item, dict)}
     if "present_world_route_ok" not in check_codes:
@@ -122,8 +137,53 @@ def _check_receipt(
     return issues
 
 
+def _check_browser_receipt(
+    receipt: dict[str, Any],
+    *,
+    current_head: str,
+    max_first_answer_ms: float,
+) -> list[str]:
+    issues: list[str] = []
+    if not receipt:
+        return ["browser_receipt_missing_or_invalid"]
+    if receipt.get("contract_name") != "ea.memorial_realtime_browser_exit_gate":
+        issues.append("browser_contract_name_invalid")
+    if str(receipt.get("status") or "").strip().lower() != "pass":
+        issues.append("browser_receipt_status_not_pass")
+    if current_head and not _fresh_enough(str(receipt.get("git_head") or ""), current_head=current_head):
+        issues.append("browser_receipt_stale_relative_to_current_head")
+    if bool(receipt.get("dirty_worktree")):
+        issues.append("browser_receipt_generated_from_dirty_worktree")
+    if _is_local_base_url(str(receipt.get("base_url") or "")):
+        issues.append("browser_public_origin_required_not_localhost")
+    if receipt.get("gold_mode") is not True:
+        issues.append("browser_gold_receipt_must_use_gold_mode")
+    if receipt.get("require_public_origin") is not True:
+        issues.append("browser_gold_receipt_must_require_public_origin")
+    if receipt.get("gold_claim_allowed") is not True:
+        issues.append("browser_gold_claim_not_allowed_by_receipt")
+    if receipt.get("speech_transcribe_mode") != "live":
+        issues.append("browser_gold_receipt_must_use_live_stt")
+    if receipt.get("failed_codes"):
+        issues.append("browser_failed_codes_present")
+    if float(receipt.get("first_answer_ms") or 0.0) > float(max_first_answer_ms):
+        issues.append("browser_first_answer_ms_above_gold_threshold")
+    if not bool(receipt.get("audio_ready_for_ui")):
+        issues.append("browser_audio_not_ready_for_ui")
+    if not bool(receipt.get("ui_audio_play_calls")):
+        issues.append("browser_audio_playback_not_started")
+    if not bool(receipt.get("ui_audio_play_ended")) and not receipt.get("ui_audio_play_error"):
+        issues.append("browser_audio_playback_not_completed")
+    if not bool(receipt.get("answer_semantic_passed")):
+        issues.append("browser_answer_semantics_not_proven")
+    return issues
+
+
 def main() -> int:
     current_head = _git_head()
+    max_conversation_turn_ms = _float_env("MEMORIAL_GOLD_MAX_CONVERSATION_TURN_MS", 4500.0)
+    max_speech_transcribe_ms = _float_env("MEMORIAL_GOLD_MAX_SPEECH_TRANSCRIBE_MS", 2500.0)
+    max_browser_first_answer_ms = _float_env("MEMORIAL_GOLD_MAX_BROWSER_FIRST_ANSWER_MS", 4500.0)
     local = _json(LOCAL_RECEIPT)
     local_issues = _check_receipt(
         local,
@@ -141,20 +201,44 @@ def main() -> int:
         public_required=True,
         direct_min_f1=0.92,
         conversation_min_f1=0.90,
+        max_conversation_turn_ms=max_conversation_turn_ms,
+        max_speech_transcribe_ms=max_speech_transcribe_ms,
+    )
+    browser_receipt_path = Path(os.getenv("MEMORIAL_PUBLIC_BROWSER_RECEIPT") or BROWSER_RECEIPT)
+    browser = _json(browser_receipt_path)
+    browser_issues = _check_browser_receipt(
+        browser,
+        current_head=current_head,
+        max_first_answer_ms=max_browser_first_answer_ms,
     )
 
-    status = "pass" if not local_issues and not public_issues else "blocked"
+    status = "pass" if not local_issues and not public_issues and not browser_issues else "blocked"
     payload = {
         "status": status,
         "current_head": current_head,
+        "claim_labels": {
+            "ea_receipt_set": "EA receipt-set gold",
+            "memorial_local": "Memorial local release candidate",
+            "memorial_public": "Memorial public-origin gold",
+        },
         "local_release_receipt": LOCAL_RECEIPT.as_posix(),
         "local_release_issues": local_issues,
         "public_gold_receipt": public_receipt_path.as_posix(),
         "public_gold_issues": public_issues,
+        "public_browser_gold_receipt": browser_receipt_path.as_posix(),
+        "public_browser_gold_issues": browser_issues,
+        "gold_thresholds": {
+            "direct_tts_f1_min": 0.92,
+            "conversation_turn_audio_f1_min": 0.90,
+            "conversation_turn_total_ms_max": max_conversation_turn_ms,
+            "speech_transcribe_ms_max": max_speech_transcribe_ms,
+            "browser_first_answer_ms_max": max_browser_first_answer_ms,
+        },
         "memorial_voice_gold_claim_allowed": status == "pass",
         "labels": {
             "local_receipt": "Memorial voice release-candidate proof",
             "public_receipt": "Memorial voice gold proof",
+            "browser_receipt": "Memorial public browser realtime proof",
         },
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

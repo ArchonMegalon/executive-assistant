@@ -22,6 +22,8 @@ jobs:
           PYTHONPATH=.:ea pytest -q \
             tests/test_project_mode_manifests.py \
             tests/test_project_mode_surfaces.py \
+            tests/test_memorial_gold_readiness.py \
+            tests/test_measure_memorial_live_browser.py \
             tests/test_validate_memorial_voice_loop.py \
             tests/test_memorial_voice_stability_gate.py \
             tests/test_memorial_live_conversation_contracts.py::test_memorial_chat_current_weather_ignores_present_world_search_even_when_enabled \

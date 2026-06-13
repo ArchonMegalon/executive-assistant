@@ -15,6 +15,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
 }
 
 
@@ -92,7 +93,7 @@ def main() -> int:
     ea_gate = ROOT / str(by_key["EA_CORE"].get("hard_gate") or "")
     if not ea_gate.is_file() and not runtime_image_without_tests:
         raise SystemExit("ea_core_hard_gate_path_missing")
-    memorial_gate = ROOT / str(by_key["MEMORIAL"].get("hard_gate") or "")
+    memorial_gate = ROOT / str(by_key["MEMORIAL"].get("local_release_gate") or by_key["MEMORIAL"].get("hard_gate") or "")
     if not memorial_gate.is_file():
         raise SystemExit("memorial_hard_gate_receipt_missing")
     try:
@@ -106,6 +107,29 @@ def main() -> int:
         raise SystemExit("shipping_memorial_gate_not_passing")
     if by_key["MEMORIAL"].get("status") == "separate_risk_zone" and memorial_status == "pass":
         raise SystemExit("memorial_pass_receipt_still_marked_risk_zone")
+    public_gold_status = str(by_key["MEMORIAL"].get("public_gold_status") or "")
+    if public_gold_status not in {"public_origin_gold_blocked", "public_origin_gold_candidate"}:
+        raise SystemExit("memorial_public_gold_status_invalid")
+    public_gold_gates = [str(item) for item in list(by_key["MEMORIAL"].get("public_gold_gates") or []) if str(item)]
+    expected_public_gates = {
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    }
+    if set(public_gold_gates) != expected_public_gates:
+        raise SystemExit("memorial_public_gold_gates_missing")
+    public_gate_payloads = []
+    for public_gate in public_gold_gates:
+        path = ROOT / public_gate
+        if path.is_file():
+            try:
+                public_gate_payloads.append(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:
+                public_gate_payloads.append({})
+    public_gate_pass_count = sum(1 for payload in public_gate_payloads if str(payload.get("status") or "").strip().lower() == "pass")
+    if public_gold_status == "public_origin_gold_candidate" and public_gate_pass_count != len(expected_public_gates):
+        raise SystemExit("memorial_public_gold_candidate_without_all_public_gates")
+    if public_gold_status == "public_origin_gold_blocked" and public_gate_pass_count == len(expected_public_gates):
+        raise SystemExit("memorial_public_gold_blocked_despite_public_gates")
     forbidden = set(show.get("forbidden_surfaces") or [])
     for expected in {"/memorials/*", "/memorials/files/*", "/results/*", "/tours/*"}:
         if expected not in forbidden:

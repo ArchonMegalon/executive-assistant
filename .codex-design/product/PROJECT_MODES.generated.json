@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-06-13T08:20:33Z",
+  "generated_at": "2026-06-13T08:50:51Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "git_head": "bb2f53727f31d06c8a48281d9851b78330379e0e",
+  "git_head": "a174e3482814327fc9870ee50331f7ff4e5a8a50",
   "modes": [
     {
       "key": "EA_CORE",
@@ -26,12 +26,22 @@
     {
       "key": "MEMORIAL",
       "status": "shipping_memorial",
-      "purpose": "Manfred memorial pages, realtime voice, public archive assets, voice profile/AB tooling.",
+      "public_gold_status": "public_origin_gold_blocked",
+      "claim_labels": {
+        "local": "Memorial local release candidate",
+        "public": "Memorial public-origin gold"
+      },
+      "purpose": "Manfred memorial pages and realtime voice from local memories/conversation sources only. No internet search for Manfred.",
       "route_prefixes": [
         "/memorials/",
         "/memorials/files/"
       ],
-      "hard_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+      "hard_gate": "make memorial-gold-gates",
+      "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+      "public_gold_gates": [
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+      ],
       "design_language": "quiet, source-bound, emotionally safe"
     },
     {

@@ -134,6 +134,35 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     assert '"--exit-gate"' in source
     assert '"turn_error": turn_error[:240]' in source
     assert '--real-stt' in source
+    assert '--gold-mode' in source
+    assert '--require-public-origin' in source
+    assert '"ea.memorial_realtime_browser_exit_gate"' in source
+    assert '"speech_transcribe_mode"' in source
+
+
+def test_browser_exit_gate_receipt_blocks_local_public_gold() -> None:
+    module = _load_module()
+
+    receipt = module._with_exit_gate_status(
+        {
+            "base_url": "http://127.0.0.1:8090",
+            "answer_preview": "Ja, ich bin da. Sag mir einfach, was dich beschaeftigt.",
+            "audio_payload_ready": True,
+            "audio_ready_for_ui": True,
+            "ui_audio_play_calls": 1,
+            "ui_audio_play_ended": 1,
+            "answer_semantic_passed": True,
+            "first_answer_ms": 900,
+        },
+        exit_gate=True,
+        gold_mode=True,
+        require_public_origin=True,
+        max_first_answer_ms=4500,
+    )
+
+    assert receipt["contract_name"] == "ea.memorial_realtime_browser_exit_gate"
+    assert receipt["status"] == "fail"
+    assert "public_origin_required" in receipt["failed_codes"]
 
 
 def test_wait_for_realtime_turn_tolerates_contexts_without_off() -> None:
