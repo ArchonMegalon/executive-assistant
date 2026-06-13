@@ -200,7 +200,7 @@ materialize-memorial-public-voice-gold:
 		--conversation-min-f1 "$${MEMORIAL_GOLD_CONVERSATION_AUDIO_F1_MIN:-0.90}" \
 		--critical-token kann \
 		--critical-token nicht \
-		--critical-token wissen \
+		--critical-token sagen \
 		--output .codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json
 
 materialize-memorial-public-browser-gold:

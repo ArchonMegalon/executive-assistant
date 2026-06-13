@@ -453,7 +453,7 @@ def validate_memorial_voice_loop(
         )
         return report
     normalized_present_answer = _normalize_compare_text(present_answer)
-    if not all(token in normalized_present_answer for token in ("kann", "nicht", "wissen")):
+    if not all(token in normalized_present_answer for token in ("kann", "nicht", "sagen")):
         report.add(
             "fail",
             "present_world_missing_memory_boundary",

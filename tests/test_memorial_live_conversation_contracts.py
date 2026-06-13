@@ -273,7 +273,7 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert body["sources"] == []
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "present_world_guardrail"
-    assert body["answer"] == "Ich kann das nicht wissen."
+    assert body["answer"] == "Das kann ich nicht sagen."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -299,7 +299,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Ich kann das nicht wissen."
+    assert body["answer"] == "Das kann ich nicht sagen."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -626,7 +626,7 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["sources"] == []
-    assert body["answer"] == "Ich kann das nicht wissen."
+    assert body["answer"] == "Das kann ich nicht sagen."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
