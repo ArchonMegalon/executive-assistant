@@ -1,12 +1,12 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T20:07:19Z",
+  "generated_at": "2026-06-13T20:08:38Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "3d01d0259551ea70de1b6904f6fd79073aaee818",
-  "source_git_head": "3d01d0259551ea70de1b6904f6fd79073aaee818",
+  "git_head": "81214fa20a87504fd78e2c96a28be833529f27aa",
+  "source_git_head": "81214fa20a87504fd78e2c96a28be833529f27aa",
   "source_tree_fingerprint": "ee7e5b64b97648791e92b38b3aba3726e5b9cdc3b3fff6647e7f9a7455cedfcd",
-  "dirty_worktree": true,
-  "status": "fail",
+  "dirty_worktree": false,
+  "status": "pass",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
@@ -18,28 +18,26 @@
   "direct_text": "Worum geht es?",
   "conversation_question": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
   "present_world_question": "Welches Wetter haben wir heute?",
-  "failed_codes": [
-    "dirty_worktree"
-  ],
+  "failed_codes": [],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 22,
+    "speech_synthesize_ms": 26,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 13393,
+    "speech_transcribe_ms": 14832,
     "direct_tts_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "direct_tts_expected_chars": 14,
     "direct_tts_actual_chars": 14,
     "direct_tts_f1": 1.0,
-    "chat_reference_ms": 6,
+    "chat_reference_ms": 4,
     "reference_answer_chars": 14,
-    "present_world_chat_ms": 3,
+    "present_world_chat_ms": 5,
     "present_world_answer_chars": 71,
     "synthetic_prompt_synthesize_ms": 26,
     "synthetic_prompt_source": "local_neutral_prompt",
-    "conversation_turn_total_ms": 17424,
+    "conversation_turn_total_ms": 17061,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 14967,
+    "conversation_answer_transcribe_ms": 13560,
     "conversation_turn_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "conversation_turn_audio_expected_chars": 14,
     "conversation_turn_audio_actual_chars": 14,
@@ -104,13 +102,7 @@
         "recall": 1.0,
         "f1": 1.0
       }
-    },
-    {
-      "status": "fail",
-      "code": "dirty_worktree",
-      "message": "Memorial-gold voice proof requires a clean worktree.",
-      "detail": {}
     }
   ],
-  "gold_claim_allowed": false
+  "gold_claim_allowed": true
 }
