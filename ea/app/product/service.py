@@ -29543,7 +29543,7 @@ class ProductService:
         access_token = _sign_channel_payload(secret=self._workspace_access_secret(), payload=token_payload)
         resolved_default_target = str(default_target or "").strip()
         if not resolved_default_target:
-            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/properties"
+            resolved_default_target = "/admin/office" if normalized_role == "operator" else "/app/today"
         payload = {
             "session_id": session_id,
             "principal_id": str(principal_id or "").strip(),
@@ -29610,7 +29610,7 @@ class ProductService:
                     "expires_at": str(payload.get("expires_at") or "").strip(),
                     "access_token": str(payload.get("access_token") or "").strip(),
                     "access_url": str(payload.get("access_url") or "").strip(),
-                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/properties")).strip(),
+                    "default_target": str(payload.get("default_target") or ("/admin/office" if normalized_role == "operator" else "/app/today")).strip(),
                 }
             elif event_type == "workspace_access_session_revoked" and session_id in sessions:
                 sessions[session_id].update(
@@ -29679,7 +29679,7 @@ class ProductService:
             "expires_at": str(payload.get("expires_at") or "").strip(),
             "access_token": str(token or "").strip(),
             "access_url": f"/workspace-access/{token}",
-            "default_target": "/admin/office" if normalized_role == "operator" else "/app/properties",
+            "default_target": "/admin/office" if normalized_role == "operator" else "/app/today",
         }
 
     def open_workspace_access_session(self, *, token: str, actor: str = "") -> dict[str, object] | None:
@@ -34322,7 +34322,7 @@ class ProductService:
             "access_session_id": str(access_session.get("session_id") or "").strip(),
             "access_token": str(access_session.get("access_token") or "").strip(),
             "access_url": str(access_session.get("access_url") or "").strip(),
-            "default_target": str(access_session.get("default_target") or "/app/properties"),
+            "default_target": str(access_session.get("default_target") or "/app/today"),
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": plain_text,
@@ -34536,7 +34536,7 @@ class ProductService:
             "open_url": f"/app/channel-loop/{digest_key}",
             "access_token": access_token,
             "access_url": str(access_session.get("access_url") or "").strip(),
-            "default_target": str(access_session.get("default_target") or "/app/properties"),
+            "default_target": str(access_session.get("default_target") or "/app/today"),
             "headline": str(digest.get("headline") or "Channel digest"),
             "preview_text": str(digest.get("preview_text") or ""),
             "plain_text": self.channel_digest_text(

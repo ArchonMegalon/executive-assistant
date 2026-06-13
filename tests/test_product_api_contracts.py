@@ -13411,7 +13411,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert access_session.status_code == 200
     access_body = access_session.json()
     assert access_body["access_url"].startswith("/workspace-access/")
-    assert access_body["default_target"] == "/app/properties"
+    assert access_body["default_target"] == "/app/today"
     assert access_body["status"] == "active"
     assert access_body["issued_at"]
 
@@ -13428,7 +13428,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
         follow_redirects=False,
     )
     assert opened_access_external.status_code == 303
-    assert opened_access_external.headers["location"] == "/app/properties"
+    assert opened_access_external.headers["location"] == "/app/today"
     opened_access_today = client.get(
         access_body["access_url"],
         params={"return_to": "/app/properties"},
@@ -13438,7 +13438,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert opened_access_today.headers["location"] == "/app/properties"
     opened_access = client.get(access_body["access_url"], follow_redirects=False)
     assert opened_access.status_code == 303
-    assert opened_access.headers["location"] == "/app/properties"
+    assert opened_access.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(opened_access.headers.get("set-cookie") or "")
     opened_access_secure = client.get(
         access_body["access_url"],
@@ -13452,7 +13452,7 @@ def test_workspace_access_sessions_and_channel_digest_deliveries_issue_cookie_re
     assert "Max-Age=" in secure_access_cookie
     head_opened_access = client.head(access_body["access_url"], follow_redirects=False)
     assert head_opened_access.status_code == 303
-    assert head_opened_access.headers["location"] == "/app/properties"
+    assert head_opened_access.headers["location"] == "/app/today"
     assert "ea_workspace_session=" in str(head_opened_access.headers.get("set-cookie") or "")
     session_drafts = client.get("/app/api/drafts")
     assert session_drafts.status_code == 200

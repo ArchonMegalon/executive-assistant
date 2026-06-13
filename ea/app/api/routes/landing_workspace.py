@@ -1507,7 +1507,7 @@ def settings_access_detail(
             _object_detail_row("Access opens", str(total_opens), "Telemetry"),
             _object_detail_row("Revoked sessions", str(len(revoked_sessions)), "Access"),
             _object_detail_row("Default operator target", "/admin/office", "Operators"),
-            _object_detail_row("Default principal target", "/app/properties", "Principal"),
+            _object_detail_row("Default principal target", "/app/today", "Principal"),
             _object_detail_row("Latest access action", access_detail, "Access"),
             _object_detail_row(
                 "Latest revocation",
@@ -1522,7 +1522,7 @@ def settings_access_detail(
                 "items": [
                     _object_detail_row(
                         str(item.get("email") or "unknown"),
-                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/properties')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
+                        f"{str(item.get('role') or 'principal').replace('_', ' ')} · {str(item.get('default_target') or '/app/today')} · expires {str(item.get('expires_at') or '')[:19] or 'n/a'}",
                         str(item.get("source_kind") or "workspace_access").replace("_", " ").title(),
                         action_href=f"/app/actions/access-sessions/{urllib.parse.quote(str(item.get('session_id') or '').strip(), safe='')}/revoke",
                         action_label="Revoke",

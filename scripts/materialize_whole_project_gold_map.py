@@ -325,6 +325,7 @@ def build_gold_map(
     ]
     gold_claim_allowed = not blocking_planes and ea_status == "pass"
     overall_status = "gold" if gold_claim_allowed else "not_gold"
+    claim_scope = "ea_controlled_receipt_set"
 
     return {
         "contract_name": "ea.whole_project_gold_map",
@@ -334,16 +335,19 @@ def build_gold_map(
         "output_path": output_path.relative_to(ROOT).as_posix(),
         "overall_status": overall_status,
         "gold_claim_allowed": gold_claim_allowed,
+        "claim_scope": claim_scope,
+        "claim_scope_label": "EA-controlled receipt-set gold; not a blanket authority claim for every owning repo.",
         "operator_summary": (
-            "EA release control is green, but whole-project gold is blocked by unproven external planes."
+            "EA release control is green, but EA-controlled receipt-set gold is blocked by unproven external planes."
             if not gold_claim_allowed and ea_status == "pass"
-            else "Whole-project gold is permitted by the current receipt set."
+            else "EA-controlled receipt-set gold is permitted by the current receipts. Owning repos remain authoritative for their planes."
             if gold_claim_allowed
             else "EA release control or required supporting receipts are blocked."
         ),
         "rules": [
             "EA flagship readiness does not imply whole Chummer project readiness.",
             "Unknown external planes block whole-project gold claims.",
+            "Gold here means EA-controlled receipt-set gold, not universal authority over every owning repo.",
             "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
             "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",

@@ -790,13 +790,14 @@ bash scripts/verify_release_assets.sh
 # or
 make verify-release-assets
 make verify-whole-project-gold-map
+make verify-memorial-voice-stability
 # docs-focused alias
 make docs-verify
 # docs + operator-help bundle
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: it now consumes passing Chummer core, UI, hub, mobile, and current Black Ledger media receipts, while keeping whole-Chummer gold blocked until the memorial voice/realtime receipt exists.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim.
 
 Combined local readiness check:
 

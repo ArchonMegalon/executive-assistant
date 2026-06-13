@@ -73,6 +73,10 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
 
     gold_claim_allowed = bool(receipt.get("gold_claim_allowed"))
     overall_status = str(receipt.get("overall_status") or "").strip().lower()
+    if receipt.get("claim_scope") != "ea_controlled_receipt_set":
+        issues.append("claim_scope must be ea_controlled_receipt_set")
+    if "not a blanket authority claim" not in str(receipt.get("claim_scope_label") or ""):
+        issues.append("claim_scope_label must explicitly avoid blanket authority claims")
     if blocking_planes and gold_claim_allowed:
         issues.append("gold_claim_allowed cannot be true while blocking planes exist")
     if blocking_planes and overall_status == "gold":
@@ -94,6 +98,8 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("missing rule: EA flagship readiness does not imply whole Chummer project readiness")
     if "Unknown external planes block whole-project gold claims" not in rules:
         issues.append("missing rule: unknown external planes block whole-project gold claims")
+    if "Gold here means EA-controlled receipt-set gold" not in rules:
+        issues.append("missing rule: gold scope must be EA-controlled receipt-set gold")
 
     return issues
 
