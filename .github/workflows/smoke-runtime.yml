@@ -1,9 +1,21 @@
 name: Smoke Runtime
 
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
   pull_request:
+    paths:
+      - ".github/workflows/smoke-runtime.yml"
+      - "Makefile"
+      - "docker-compose*.yml"
+      - "ea/**"
+      - "scripts/**"
+      - "tests/**"
+      - ".codex-design/**"
+      - ".codex-studio/**"
+
+concurrency:
+  group: smoke-runtime-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

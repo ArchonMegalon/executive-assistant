@@ -1,9 +1,29 @@
 name: Project and Gold Gates
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
   pull_request:
+    paths:
+      - ".github/workflows/project-gold-gates.yml"
+      - ".codex-design/**"
+      - ".codex-studio/**"
+      - "Makefile"
+      - "ea/app/**"
+      - "ea/scripts/**"
+      - "scripts/materialize_project_mode_manifests.py"
+      - "scripts/materialize_whole_project_gold_map.py"
+      - "scripts/verify_project_mode_manifests.py"
+      - "scripts/verify_whole_project_gold_map.py"
+      - "tests/test_project_mode_*.py"
+      - "tests/test_memorial_gold_readiness.py"
+      - "tests/test_measure_memorial_live_browser.py"
+      - "tests/test_validate_memorial_voice_loop.py"
+      - "tests/test_memorial_voice_stability_gate.py"
+      - "tests/test_memorial_live_conversation_contracts.py"
+
+concurrency:
+  group: project-gold-gates-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   project-gates:

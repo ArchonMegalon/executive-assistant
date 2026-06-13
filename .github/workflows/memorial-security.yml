@@ -1,9 +1,24 @@
 name: Memorial Launch Gates
 
 on:
-  push:
-    branches: ["main"]
+  workflow_dispatch:
   pull_request:
+    paths:
+      - ".github/workflows/memorial-security.yml"
+      - "Makefile"
+      - "ea/app/api/routes/public_memorials.py"
+      - "ea/scripts/validate_memorial_voice_loop.py"
+      - "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"
+      - "scripts/measure_memorial_live_browser.py"
+      - "scripts/verify_memorial_*.py"
+      - "tests/test_memorial_*.py"
+      - "tests/e2e/test_memorial_*.py"
+      - "memorial_data/**"
+      - ".codex-studio/published/memorial_*.json"
+
+concurrency:
+  group: memorial-launch-gates-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
