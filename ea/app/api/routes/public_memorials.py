@@ -3885,7 +3885,7 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Ja. Ich höre zu."
+    return "Ja. Ich höre dich gut."
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -3893,14 +3893,14 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     return normalized in {
         "ja.",
         "ja, ich bin da.",
-        "ja. ich höre zu.",
-        "ja. ich hoere zu.",
+        "ja. ich höre dich gut.",
+        "ja. ich hoere dich gut.",
         "ja. ich höre dich.",
         "ja. ich hoere dich.",
-        "ich höre zu. erzähl weiter.",
-        "ich hoere zu. erzaehl weiter.",
-        "ich höre zu. sag es mir in ruhe.",
-        "ich hoere zu. sag es mir in ruhe.",
+        "ich höre dich gut. erzähl weiter.",
+        "ich hoere dich gut. erzaehl weiter.",
+        "ich höre dich gut. sag es mir in ruhe.",
+        "ich hoere dich gut. sag es mir in ruhe.",
         "ich höre dich. erzähl weiter.",
         "ich hoere dich. erzaehl weiter.",
         "ich höre dich. sag es mir in ruhe.",
@@ -3920,10 +3920,10 @@ def _looks_like_memorial_reply_text(text: str) -> bool:
     if _is_memorial_direct_contact_opening_text(normalized):
         return True
     reply_prefixes = (
-        "ja. ich höre zu",
-        "ja. ich hoere zu",
-        "ich höre zu",
-        "ich hoere zu",
+        "ja. ich höre dich gut",
+        "ja. ich hoere dich gut",
+        "ich höre dich gut",
+        "ich hoere dich gut",
         "ja. ich höre dich",
         "ja. ich hoere dich",
         "ich höre dich",

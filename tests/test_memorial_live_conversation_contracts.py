@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 
-CONTACT_REPLY_VARIANTS = {"Ja. Ich höre zu."}
+CONTACT_REPLY_VARIANTS = {"Ja. Ich höre dich gut."}
 
 
 def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
@@ -585,7 +585,7 @@ def test_memorial_shadow_stt_requires_user_intent_when_primary_is_weak() -> None
     from app.api.routes import public_memorials
 
     correction = public_memorials._memorial_shadow_stt_correction_decision(
-        primary_transcript="Ja. Ich höre zu.",
+        primary_transcript="Ja. Ich höre dich gut.",
         shadow_transcript="Ja, ich schwöre es nicht.",
     )
 
@@ -2825,7 +2825,7 @@ def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> No
 
     assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' in source
     assert 'piper_fast_synthesize_request(' in source
-    assert 'text="Ja. Ich höre zu."' in source
+    assert 'text="Ja. Ich höre dich gut."' in source
 
 
 def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> None:

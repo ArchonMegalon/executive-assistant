@@ -228,7 +228,7 @@ def test_validate_memorial_voice_loop_retries_contact_turn_and_prefers_better_se
                     "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                     "sources": [],
                 }
-            return 200, {"answer": "Ja. Ich höre zu.", "fallback_reason": "direct_contact_opening"}
+            return 200, {"answer": "Ja. Ich höre dich gut.", "fallback_reason": "direct_contact_opening"}
         raise AssertionError(url)
 
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
@@ -249,7 +249,7 @@ def test_validate_memorial_voice_loop_retries_contact_turn_and_prefers_better_se
                     "audio_content_type": "audio/wav",
                 }
             return 200, {
-                "answer": "Ja. Ich höre zu.",
+                "answer": "Ja. Ich höre dich gut.",
                 "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
                 "fallback_reason": "direct_contact_opening",
                 "audio_base64": base64.b64encode(answer_wav).decode("ascii"),

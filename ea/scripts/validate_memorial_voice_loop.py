@@ -649,7 +649,7 @@ def validate_memorial_voice_loop(
         report.add("fail", "conversation_turn_failed", "Conversation turn did not return a valid response.", status_code=turn_status, payload=turn_payload)
         return report
     if _normalize_compare_text(reference_answer) in {
-        _normalize_compare_text("Ja. Ich höre zu."),
+        _normalize_compare_text("Ja. Ich höre dich gut."),
         _normalize_compare_text("Ich höre dich. Sag es mir in Ruhe."),
     }:
         first_score, _, _ = _contact_turn_candidate_score(
