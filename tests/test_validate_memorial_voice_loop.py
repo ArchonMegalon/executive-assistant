@@ -210,6 +210,71 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
     assert any(item.code == "direct_tts_transcript_empty" for item in report.checks)
 
 
+def test_validate_memorial_voice_loop_retries_contact_turn_and_prefers_better_second_result(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Das weiss ich nicht. ")
+    answer_wav = _generated_wav(b"Ja ich hoere dich. ")
+    turn_calls = {"value": 0}
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if url.endswith("/chat"):
+            if payload.get("question") == "Welches Wetter haben wir heute?":
+                return 200, {
+                    "answer": "Das weiß ich nicht.",
+                    "fallback_reason": "present_world_guardrail",
+                    "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                    "sources": [],
+                }
+            return 200, {"answer": "Ja. Ich höre dich.", "fallback_reason": "direct_contact_opening"}
+        raise AssertionError(url)
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/speech-transcribe"):
+            raw = bytes(payload)
+            if b"Das weiss ich nicht." in raw:
+                return 200, {"transcript_text": "Das weiß ich nicht.", "transcriber": "stub"}
+            return 200, {"transcript_text": "Ja, ich höre dich.", "transcriber": "stub"}
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            turn_calls["value"] += 1
+            if turn_calls["value"] == 1:
+                return 200, {
+                    "answer": "Ich würde es so fassen: [Stil] ...",
+                    "transcript_text": "etwas anderes",
+                    "audio_base64": base64.b64encode(_generated_wav(b"Ich wuerde es so fassen ")).decode("ascii"),
+                    "audio_content_type": "audio/wav",
+                }
+            return 200, {
+                "answer": "Ja. Ich höre dich.",
+                "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+                "fallback_reason": "direct_contact_opening",
+                "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(validator, "_post_json_binary_response", lambda *args, **kwargs: (200, direct_wav, "audio/wav"))
+    monkeypatch.setattr(validator, "_neutral_prompt_wav_bytes", lambda text: _generated_wav(text.encode("utf-8")))
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Das weiß ich nicht.",
+        conversation_question="Hallo Manfred, kannst du jetzt mit mir sprechen?",
+    )
+
+    assert turn_calls["value"] == 2
+    assert report.status == "pass"
+    assert report.metrics["conversation_turn_contact_retry_score_retry"] > report.metrics["conversation_turn_contact_retry_score_initial"]
+
+
 def test_validate_memorial_voice_loop_accepts_short_phrase_with_stt_filler(tmp_path: Path) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
