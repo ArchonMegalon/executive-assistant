@@ -245,6 +245,58 @@ def test_memorial_shadow_stt_marks_substantial_user_question_correction() -> Non
     assert minor["should_correct"] is False
 
 
+def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._looks_like_memorial_contact_opening_transcript("Untertitel der Amara.org-Community") is True
+    assert (
+        public_memorials._canonical_memorial_contact_opening_question("Untertitel der Amara.org-Community")
+        == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    )
+
+
+def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"asset": {"key": "audio-key"}, "fileContent": {"path": "audio-path"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Untertitel der Amara.org-Community"}}}},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": True,
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "correction": {
+                "should_correct": True,
+                "reason": "substantial_shadow_difference",
+                "corrected_transcript": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            },
+        },
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Hallo Manfred, kannst du jetzt mit mir sprechen?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert result["primary_transcript_text"] == "Untertitel der Amara.org-Community"
+
+
 @pytest.mark.parametrize(
     ("question", "expected_fragment"),
     [
@@ -380,7 +432,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das kann ich aus meiner Erinnerung nicht sagen."
+    assert body["answer"] == "Dazu habe ich keine Erinnerung."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -390,7 +442,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das kann ich aus meiner Erinnerung nicht sagen."
+    assert body["answer"] == "Dazu habe ich keine Erinnerung."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 

@@ -20,6 +20,13 @@ except ModuleNotFoundError:  # pragma: no cover - import shape depends on invoca
     from scripts import memorial_audio_probe as audio_probe
 
 
+_HTTP_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36 EA-Memorial-Validator/1.0"
+)
+
+
 def _normalize_base_url(value: str) -> str:
     return str(value or "").strip().rstrip("/")
 
@@ -28,7 +35,11 @@ def _post_json(url: str, payload: dict[str, Any], *, timeout: float = 90.0) -> t
     request = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": _HTTP_USER_AGENT,
+        },
         method="POST",
     )
     try:
@@ -50,7 +61,11 @@ def _post_binary(url: str, payload: bytes, *, content_type: str, timeout: float 
     request = urllib.request.Request(
         url,
         data=payload,
-        headers={"Content-Type": content_type, "Accept": "application/json"},
+        headers={
+            "Content-Type": content_type,
+            "Accept": "application/json",
+            "User-Agent": _HTTP_USER_AGENT,
+        },
         method="POST",
     )
     try:
@@ -72,7 +87,11 @@ def _post_json_binary_response(url: str, payload: dict[str, Any], *, timeout: fl
     request = urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "audio/wav,application/octet-stream"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "audio/wav,application/octet-stream",
+            "User-Agent": _HTTP_USER_AGENT,
+        },
         method="POST",
     )
     try:
@@ -459,12 +478,16 @@ def validate_memorial_voice_loop(
         and "nicht" in normalized_present_answer
         and "sagen" in normalized_present_answer
     )
+    has_no_memory_boundary = (
+        "erinnerung" in normalized_present_answer
+        and "keine" in normalized_present_answer
+    )
     has_weather_boundary = (
         "wetter" in normalized_present_answer
         and "nicht" in normalized_present_answer
         and any(token in normalized_present_answer for token in ("sehe", "sehen"))
     )
-    if not (has_unknown_boundary or has_memory_boundary or has_weather_boundary):
+    if not (has_unknown_boundary or has_memory_boundary or has_no_memory_boundary or has_weather_boundary):
         report.add(
             "fail",
             "present_world_missing_memory_boundary",

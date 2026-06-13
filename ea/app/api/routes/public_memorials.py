@@ -3485,6 +3485,7 @@ def _is_memorial_present_world_question(question: str) -> bool:
         "nachrichten heute",
         "aktuelle nachrichten",
         "was ist heute los",
+        "das ist heute los",
         "und jetzt koennt ihr los",
         "und jetzt könnt ihr los",
         "jetzt koennt ihr los",
@@ -3531,7 +3532,7 @@ def _is_memorial_weather_question(question: str) -> bool:
 def _memorial_present_world_answer_body(question: str) -> str:
     if _is_memorial_weather_question(question):
         return "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
-    return "Das kann ich aus meiner Erinnerung nicht sagen."
+    return "Dazu habe ich keine Erinnerung."
 
 
 def _memorial_should_include_mail_memory(question: str) -> bool:
@@ -3829,6 +3830,10 @@ def _looks_like_memorial_contact_opening_transcript(question: str) -> bool:
     if _is_memorial_contact_question(normalized):
         return True
     lowered = normalized.lower()
+    if "amara" in lowered:
+        return True
+    if "untertitel" in lowered and any(token in lowered for token in ("community", "org", "subtitle")):
+        return True
     tokens = [token for token in re.split(r"\s+", lowered) if token]
     if len(tokens) > 10:
         return False
@@ -6379,16 +6384,24 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     transcriber = "1min.ai/whisper-1"
                     if variant_label != "original":
                         transcriber = f"{transcriber}+{variant_label}"
+                    shadow_stt = _memorial_shadow_stt_result(
+                        user_audio_payload=variant_payload,
+                        content_type=variant_content_type,
+                        primary_transcript=text,
+                        primary_transcriber=transcriber,
+                    )
+                    correction = dict(shadow_stt.get("correction") or {})
+                    effective_text = text
+                    if bool(correction.get("should_correct")):
+                        corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
+                        if corrected_text:
+                            effective_text = corrected_text
                     return {
                         "transcription_status": "transcribed",
-                        "transcript_text": text,
+                        "transcript_text": effective_text,
                         "transcriber": transcriber,
-                        "shadow_stt": _memorial_shadow_stt_result(
-                            user_audio_payload=variant_payload,
-                            content_type=variant_content_type,
-                            primary_transcript=text,
-                            primary_transcriber=transcriber,
-                        ),
+                        "shadow_stt": shadow_stt,
+                        "primary_transcript_text": text,
                     }
                 except Exception as exc:
                     last_error = exc

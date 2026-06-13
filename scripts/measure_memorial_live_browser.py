@@ -27,8 +27,10 @@ DEFAULT_EXIT_GATE_CONTEXT_TOKENS = (
     "da",
     "sprich",
     "sag",
+    "antworte",
     "beschaeftigt",
     "reagiere",
+    "direkt",
 )
 DEFAULT_EXIT_GATE_REQUIRED_GROUP_MATCHES = 2
 EXIT_GATE_SEMANTIC_PROFILES = (
@@ -40,6 +42,7 @@ EXIT_GATE_SEMANTIC_PROFILES = (
         "required_any": (
             ("ja", "da"),
             ("sprich", "sag"),
+            ("antworte", "direkt"),
             ("beschaeftigt", "reagiere"),
         ),
         "required_group_matches": DEFAULT_EXIT_GATE_REQUIRED_GROUP_MATCHES,
