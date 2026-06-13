@@ -3532,7 +3532,7 @@ def _is_memorial_weather_question(question: str) -> bool:
 def _memorial_present_world_answer_body(question: str) -> str:
     if _is_memorial_weather_question(question):
         return "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
-    return "Dazu habe ich keine Erinnerung."
+    return "Das weiß ich nicht."
 
 
 def _memorial_should_include_mail_memory(question: str) -> bool:
@@ -3830,9 +3830,7 @@ def _looks_like_memorial_contact_opening_transcript(question: str) -> bool:
     if _is_memorial_contact_question(normalized):
         return True
     lowered = normalized.lower()
-    if "amara" in lowered:
-        return True
-    if "untertitel" in lowered and any(token in lowered for token in ("community", "org", "subtitle")):
+    if _is_known_bad_memorial_subtitle_transcript(lowered):
         return True
     tokens = [token for token in re.split(r"\s+", lowered) if token]
     if len(tokens) > 10:
@@ -3865,6 +3863,15 @@ def _looks_like_memorial_contact_opening_transcript(question: str) -> bool:
     return False
 
 
+def _is_known_bad_memorial_subtitle_transcript(question: str) -> bool:
+    lowered = _normalize_memorial_transcript_text(question).lower()
+    if not lowered:
+        return False
+    if "amara" in lowered:
+        return True
+    return "untertitel" in lowered and any(token in lowered for token in ("community", "org", "subtitle"))
+
+
 def _canonical_memorial_contact_opening_question(question: str) -> str:
     if _looks_like_memorial_contact_opening_transcript(question):
         return "Hallo Manfred, kannst du jetzt mit mir sprechen?"
@@ -3872,15 +3879,7 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    variants = (
-        "Ja. Ich höre dich.",
-        "Ich höre dich. Sag es mir in Ruhe.",
-        "Ja. Sag mir, was dich gerade beschäftigt.",
-        "Sprich ruhig weiter. Ich antworte dir direkt.",
-    )
-    normalized = _normalize_memorial_transcript_text(question)
-    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-    return variants[int(digest[:2], 16) % len(variants)]
+    return "Ja. Ich höre dich."
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -5401,6 +5400,78 @@ def _repair_memorial_transcript_text(value: object) -> str:
     return _normalize_memorial_transcript_text(repaired)
 
 
+def _memorial_transcript_quality_score(
+    transcript_text: str,
+    *,
+    transcriber: str = "",
+    corrected: bool = False,
+) -> tuple[int, int, int, int]:
+    text = _repair_memorial_transcript_text(transcript_text)
+    if not text:
+        return (-1000, 0, 0, 0)
+    lowered = text.lower()
+    tokens = re.findall(r"[a-z0-9äöüß]+", lowered)
+    token_count = len(tokens)
+    question_markers = {
+        "wie",
+        "was",
+        "wer",
+        "wo",
+        "wann",
+        "warum",
+        "wieso",
+        "weshalb",
+        "kann",
+        "kannst",
+        "ist",
+        "sind",
+        "heute",
+        "jetzt",
+        "weiter",
+        "stand",
+        "wetter",
+    }
+    score = 0
+    if _looks_like_memorial_contact_opening_transcript(text):
+        score += 70
+    if _is_memorial_present_world_question(text):
+        score += 55
+    if _is_memorial_live_interaction_question(text):
+        score += 35
+    if any(marker in tokens for marker in question_markers):
+        score += 18
+    if _is_known_bad_memorial_subtitle_transcript(lowered):
+        score -= 140
+    if corrected:
+        score += 22
+    normalized_transcriber = _text(transcriber).lower()
+    if "enhanced_wav" in normalized_transcriber:
+        score += 12
+    elif "converted_wav" in normalized_transcriber:
+        score += 6
+    score += min(24, token_count * 2)
+    return (score, token_count, len(text), 1 if corrected else 0)
+
+
+def _select_best_memorial_transcription(candidates: list[dict[str, object]]) -> dict[str, object] | None:
+    best_payload: dict[str, object] | None = None
+    best_score: tuple[int, int, int, int] | None = None
+    for candidate in candidates:
+        transcript_text = _repair_memorial_transcript_text(candidate.get("transcript_text"))
+        if not transcript_text:
+            continue
+        corrected = transcript_text != _repair_memorial_transcript_text(candidate.get("primary_transcript_text"))
+        score = _memorial_transcript_quality_score(
+            transcript_text,
+            transcriber=_text(candidate.get("transcriber")),
+            corrected=corrected,
+        )
+        if best_score is None or score > best_score:
+            best_score = score
+            best_payload = dict(candidate)
+    return best_payload
+
+
 def _memorial_meta_self_reference_answer(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
@@ -6337,14 +6408,14 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     "detail": "audio_silence",
                 }
             upload_variants.append((converted_payload, "audio/wav", ".wav", "converted_wav"))
-        if normalized_content_type not in {"audio/wav", "audio/wave", "audio/x-wav"}:
-            try:
-                enhanced_payload = _convert_audio_to_wav(payload=payload, extension=extension, enhance_for_speech=True)
-            except Exception:
-                enhanced_payload = b""
-            if enhanced_payload and not any(item[0] == enhanced_payload for item in upload_variants):
-                upload_variants.append((enhanced_payload, "audio/wav", ".wav", "enhanced_wav"))
+        try:
+            enhanced_payload = _convert_audio_to_wav(payload=payload, extension=extension, enhance_for_speech=True)
+        except Exception:
+            enhanced_payload = b""
+        if enhanced_payload and not any(item[0] == enhanced_payload for item in upload_variants):
+            upload_variants.append((enhanced_payload, "audio/wav", ".wav", "enhanced_wav"))
         last_error: Exception | None = None
+        transcript_candidates: list[dict[str, object]] = []
         for api_key in keys:
             for variant_payload, variant_content_type, variant_extension, variant_label in upload_variants:
                 try:
@@ -6396,16 +6467,48 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
                         if corrected_text:
                             effective_text = corrected_text
-                    return {
-                        "transcription_status": "transcribed",
-                        "transcript_text": effective_text,
-                        "transcriber": transcriber,
-                        "shadow_stt": shadow_stt,
-                        "primary_transcript_text": text,
-                    }
+                    transcript_candidates.append(
+                        {
+                            "transcription_status": "transcribed",
+                            "transcript_text": effective_text,
+                            "transcriber": transcriber,
+                            "shadow_stt": shadow_stt,
+                            "primary_transcript_text": text,
+                        }
+                    )
+                    if (
+                        effective_text
+                        and not _looks_like_memorial_contact_opening_transcript(text)
+                        and not _is_known_bad_memorial_subtitle_transcript(text)
+                        and variant_label == "enhanced_wav"
+                    ):
+                        break
+                    if (
+                        _looks_like_memorial_contact_opening_transcript(effective_text)
+                        and not _is_known_bad_memorial_subtitle_transcript(effective_text)
+                    ):
+                        break
                 except Exception as exc:
                     last_error = exc
                     continue
+            best_candidate = _select_best_memorial_transcription(transcript_candidates)
+            if best_candidate:
+                return {
+                    "transcription_status": "transcribed",
+                    "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
+                    "transcriber": _text(best_candidate.get("transcriber"), "1min.ai/whisper-1"),
+                    "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
+                    "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
+                }
+        best_candidate = _select_best_memorial_transcription(transcript_candidates)
+        if best_candidate:
+            return {
+                "transcription_status": "transcribed",
+                "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
+                "transcriber": _text(best_candidate.get("transcriber"), "1min.ai/whisper-1"),
+                "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
+                "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
+            }
         detail = str(last_error or "speech_transcription_failed")[:180]
         return {
             "transcription_status": "no_speech",

@@ -20,12 +20,7 @@ from fastapi.testclient import TestClient
 from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 
-CONTACT_REPLY_VARIANTS = {
-    "Ja. Ich höre dich.",
-    "Ich höre dich. Sag es mir in Ruhe.",
-    "Ja. Sag mir, was dich gerade beschäftigt.",
-    "Sprich ruhig weiter. Ich antworte dir direkt.",
-}
+CONTACT_REPLY_VARIANTS = {"Ja. Ich höre dich."}
 
 
 def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
@@ -35,7 +30,7 @@ def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
 
     assert all("Jo" not in variant for variant in variants)
     assert all("Ich bin da" not in variant for variant in variants)
-    assert "Sprich ruhig weiter. Ich antworte dir direkt." in variants
+    assert variants == CONTACT_REPLY_VARIANTS
 
 
 def _client(*, principal_id: str) -> TestClient:
@@ -297,6 +292,57 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
     assert result["primary_transcript_text"] == "Untertitel der Amara.org-Community"
 
 
+def test_memorial_transcribe_prefers_best_provider_variant_over_first_garbage_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _generated_wav_bytes(
+            textish_seed="Wie ist das Wetter heute in Wien?" if kwargs.get("enhance_for_speech") else "Wie ist das Wetter?"
+        ),
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    upload_count = {"value": 0}
+
+    def _fake_upload(**kwargs):
+        upload_count["value"] += 1
+        return {
+            "asset": {"key": f"audio-key-{upload_count['value']}"},
+            "fileContent": {"path": f"path-{upload_count['value']}-{kwargs['filename']}"},
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
+
+    seen_paths: list[str] = []
+
+    def _fake_stt(**kwargs):
+        audio_path = str(kwargs.get("audio_path") or "")
+        seen_paths.append(audio_path)
+        if audio_path.endswith("1-memorial-speech.wav"):
+            text = "Untertitel der Amara.org-Community"
+        else:
+            text = "Wie ist das Wetter heute in Wien?"
+        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": text}}}}
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=b"not-a-real-webm",
+        content_type="audio/webm",
+    )
+
+    assert all(path.endswith("memorial-speech.wav") for path in seen_paths)
+    assert len(seen_paths) >= 2
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["primary_transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"].endswith("converted_wav") or result["transcriber"].endswith("enhanced_wav")
+
+
 @pytest.mark.parametrize(
     ("question", "expected_fragment"),
     [
@@ -432,7 +478,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Dazu habe ich keine Erinnerung."
+    assert body["answer"] == "Das weiß ich nicht."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -442,7 +488,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Dazu habe ich keine Erinnerung."
+    assert body["answer"] == "Das weiß ich nicht."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 

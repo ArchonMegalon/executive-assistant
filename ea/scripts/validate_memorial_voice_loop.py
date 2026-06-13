@@ -3,13 +3,20 @@ from __future__ import annotations
 
 import argparse
 import base64
+import io
 import json
+import math
 import re
+import shutil
+import struct
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +32,77 @@ _HTTP_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0.0.0 Safari/537.36 EA-Memorial-Validator/1.0"
 )
+
+
+def _pure_python_prompt_wav_bytes(text: str) -> bytes:
+    sample_rate = 16000
+    amplitude = 14000
+    segments = max(4, min(18, len(str(text or "").split()) * 2))
+    segment_frames = int(sample_rate * 0.16)
+    silence_frames = int(sample_rate * 0.035)
+    frames = bytearray()
+    for index in range(segments):
+        frequency = 280.0 + float((index % 5) * 62)
+        for frame_index in range(segment_frames):
+            envelope = min(1.0, frame_index / max(1, int(sample_rate * 0.02)))
+            tail = min(1.0, (segment_frames - frame_index) / max(1, int(sample_rate * 0.03)))
+            gain = min(envelope, tail)
+            sample = int(amplitude * gain * math.sin((2.0 * math.pi * frequency * frame_index) / sample_rate))
+            frames.extend(struct.pack("<h", sample))
+        frames.extend(b"\x00\x00" * silence_frames)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
+def _neutral_prompt_wav_bytes(text: str) -> bytes:
+    espeak_bin = shutil.which("espeak-ng")
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not espeak_bin or not ffmpeg_bin:
+        return _pure_python_prompt_wav_bytes(text)
+    with tempfile.TemporaryDirectory(prefix="memorial-voice-loop-") as tmpdir:
+        tmp_path = Path(tmpdir)
+        raw_wav = tmp_path / "prompt.raw.wav"
+        normalized_wav = tmp_path / "prompt.16k.wav"
+        subprocess.run(
+            [
+                espeak_bin,
+                "-v",
+                "de",
+                "-s",
+                "155",
+                "-p",
+                "44",
+                "-w",
+                str(raw_wav),
+                text,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                ffmpeg_bin,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(raw_wav),
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                str(normalized_wav),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return normalized_wav.read_bytes()
 
 
 def _normalize_base_url(value: str) -> str:
@@ -472,15 +550,20 @@ def validate_memorial_voice_loop(
         )
         return report
     normalized_present_answer = _normalize_compare_text(present_answer)
-    has_unknown_boundary = all(token in normalized_present_answer for token in ("kann", "man", "nicht", "sagen"))
+    has_unknown_boundary = (
+        all(token in normalized_present_answer for token in ("kann", "man", "nicht", "sagen"))
+        or all(token in normalized_present_answer for token in ("weiß", "nicht"))
+        or all(token in normalized_present_answer for token in ("weiss", "nicht"))
+    )
     has_memory_boundary = (
         any(token in normalized_present_answer for token in ("erinnerung", "erinnerungen"))
         and "nicht" in normalized_present_answer
         and "sagen" in normalized_present_answer
     )
     has_no_memory_boundary = (
-        "erinnerung" in normalized_present_answer
-        and "keine" in normalized_present_answer
+        ("erinnerung" in normalized_present_answer and "keine" in normalized_present_answer)
+        or all(token in normalized_present_answer for token in ("weiß", "nicht"))
+        or all(token in normalized_present_answer for token in ("weiss", "nicht"))
     )
     has_weather_boundary = (
         "wetter" in normalized_present_answer
@@ -514,13 +597,21 @@ def validate_memorial_voice_loop(
     )
 
     started = time.perf_counter()
-    prompt_status, prompt_audio, prompt_content_type = _post_json_binary_response(
-        f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-synthesize",
-        {"text": conversation_question},
-    )
+    try:
+        prompt_audio = _neutral_prompt_wav_bytes(conversation_question)
+        prompt_status = 200 if prompt_audio else 0
+        prompt_content_type = "audio/wav"
+    except Exception as exc:
+        prompt_status = 0
+        prompt_audio = b""
+        prompt_content_type = "audio/wav"
+        prompt_error = f"{type(exc).__name__}:{str(exc)[:180]}"
+    else:
+        prompt_error = ""
     report.metrics["synthetic_prompt_synthesize_ms"] = _elapsed_ms(started)
+    report.metrics["synthetic_prompt_source"] = "local_neutral_prompt"
     if prompt_status != 200 or not prompt_audio:
-        report.add("fail", "synthetic_prompt_failed", "Could not synthesize the synthetic question loop prompt.", status_code=prompt_status)
+        report.add("fail", "synthetic_prompt_failed", "Could not synthesize the synthetic question loop prompt.", status_code=prompt_status, detail=prompt_error)
         return report
     prompt_audio_path = output_dir / f"{slug}-synthetic-question.wav"
     _save_bytes(prompt_audio_path, prompt_audio)
