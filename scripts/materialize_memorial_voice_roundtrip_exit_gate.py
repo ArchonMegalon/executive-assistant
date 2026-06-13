@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(
         "--direct-text",
-        default="Das weiss ich nicht.",
+        default="Das kann ich nicht sagen.",
     )
     parser.add_argument("--conversation-question", default="Was ist der aktuelle Stand?")
     parser.add_argument("--present-world-question", default="Wie ist das Wetter heute?")

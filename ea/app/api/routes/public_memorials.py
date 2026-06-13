@@ -3517,7 +3517,7 @@ def _memorial_present_world_answer_body(question: str) -> str:
             "Den heutigen Tag sehe ich hier nicht direkt. "
             "Sag ihn mir kurz, dann ordnen wir es gemeinsam."
         )
-    return "Das weiss ich nicht."
+    return "Das kann ich nicht sagen."
 
 
 def _memorial_present_world_search_cache_path(*, question: str) -> Path:
