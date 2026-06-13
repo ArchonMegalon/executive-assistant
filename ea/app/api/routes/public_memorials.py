@@ -6646,16 +6646,59 @@ def _memorial_shadow_stt_api_key(*, provider: str) -> str:
     api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
     if provider == "blipai" and not api_key:
         with _MEMORIAL_BLIPAI_TOKEN_LOCK:
+            if not _MEMORIAL_BLIPAI_TOKEN_STATE:
+                _MEMORIAL_BLIPAI_TOKEN_STATE.update(_load_memorial_blipai_token_state())
             api_key = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("access_token")).strip()
         if not api_key:
             api_key = _text(os.getenv("BLIPAI_APP_API_TOKEN")).strip()
     return api_key
 
 
+def _memorial_blipai_token_state_path() -> Path:
+    configured = _text(os.getenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH")).strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path("/docker/EA/state/memorial_blipai_shadow_stt_tokens.json")
+
+
+def _load_memorial_blipai_token_state() -> dict[str, str]:
+    path = _memorial_blipai_token_state_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    access_token = _text(payload.get("access_token")).strip()
+    refresh_token = _text(payload.get("refresh_token")).strip()
+    result: dict[str, str] = {}
+    if access_token:
+        result["access_token"] = access_token
+    if refresh_token:
+        result["refresh_token"] = refresh_token
+    return result
+
+
+def _save_memorial_blipai_token_state(access_token: str, refresh_token: str) -> None:
+    path = _memorial_blipai_token_state_path()
+    payload = {
+        "access_token": _text(access_token).strip(),
+        "refresh_token": _text(refresh_token).strip(),
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        return
+
+
 def _refresh_blipai_shadow_stt_access_token() -> str:
     refresh_token = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN")).strip()
     if not refresh_token:
         with _MEMORIAL_BLIPAI_TOKEN_LOCK:
+            if not _MEMORIAL_BLIPAI_TOKEN_STATE:
+                _MEMORIAL_BLIPAI_TOKEN_STATE.update(_load_memorial_blipai_token_state())
             refresh_token = _text(_MEMORIAL_BLIPAI_TOKEN_STATE.get("refresh_token")).strip()
     if not refresh_token:
         refresh_token = _text(os.getenv("BLIPAI_APP_REFRESH_TOKEN")).strip()
@@ -6689,6 +6732,7 @@ def _refresh_blipai_shadow_stt_access_token() -> str:
         next_refresh_token = _text(payload.get("refresh_token")).strip() or refresh_token
         _MEMORIAL_BLIPAI_TOKEN_STATE["access_token"] = access_token
         _MEMORIAL_BLIPAI_TOKEN_STATE["refresh_token"] = next_refresh_token
+        _save_memorial_blipai_token_state(access_token, next_refresh_token)
         return access_token
 
 

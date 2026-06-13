@@ -424,6 +424,105 @@ def test_memorial_shadow_stt_uses_cached_blipai_access_token_after_refresh(
     assert seen["auth"] == "Bearer cached-fresh-token"
 
 
+def test_memorial_shadow_stt_loads_persisted_blipai_access_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-shadow-token.json"
+    state_path.write_text(
+        json.dumps({"access_token": "persisted-access", "refresh_token": "persisted-refresh"}),
+        encoding="utf-8",
+    )
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_API_KEY", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+    monkeypatch.delenv("BLIPAI_APP_API_TOKEN", raising=False)
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"text": "Hallo Manfred"}
+
+    seen: dict[str, object] = {}
+
+    def _fake_post(url, *, headers, files=None, json=None, timeout):
+        seen["auth"] = headers.get("Authorization")
+        return _Response()
+
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=b"user-question-only",
+        content_type="audio/wav",
+        primary_transcript="Hallo Manfred",
+        primary_transcriber="1min.ai/whisper-1",
+    )
+
+    assert result["status"] == "ok"
+    assert seen["auth"] == "Bearer persisted-access"
+
+
+def test_memorial_shadow_stt_persists_refreshed_blipai_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    state_path = tmp_path / "blipai-shadow-token.json"
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(state_path))
+    monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "expired-token")
+    monkeypatch.setenv("BLIPAI_APP_REFRESH_TOKEN", "refresh-token")
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+
+    class _Unauthorized:
+        status_code = 401
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"error": "Token expired"}
+
+    class _RefreshOK:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"access_token": "fresh-token", "refresh_token": "next-refresh-token"}
+
+    class _ShadowOK:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"transcript_text": "Wie ist das Wetter heute in Wien?"}
+
+    def _fake_post(url, *, headers, files=None, json=None, timeout):
+        if url.endswith("/auth/v1/token?grant_type=refresh_token"):
+            return _RefreshOK()
+        if headers.get("Authorization") == "Bearer expired-token":
+            return _Unauthorized()
+        return _ShadowOK()
+
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=b"user-question-only",
+        content_type="audio/wav",
+        primary_transcript="Ich höre dich.",
+        primary_transcriber="1min.ai/whisper-1",
+    )
+
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert result["status"] == "ok"
+    assert saved["access_token"] == "fresh-token"
+    assert saved["refresh_token"] == "next-refresh-token"
+
+
 def test_memorial_shadow_stt_marks_substantial_user_question_correction() -> None:
     from app.api.routes import public_memorials
 
