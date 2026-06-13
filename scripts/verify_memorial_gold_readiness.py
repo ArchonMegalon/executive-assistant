@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCAL_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 PUBLIC_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     ".codex-design/product/PROJECT_MODES.generated.json",
@@ -23,6 +24,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
 }
 
 
@@ -81,6 +83,10 @@ def _metric(receipt: dict[str, Any], key: str) -> float:
         return 0.0
 
 
+def _receipt_source_head(receipt: dict[str, Any]) -> str:
+    return str(receipt.get("source_git_head") or receipt.get("git_head") or "")
+
+
 def _float_env(name: str, default: float) -> float:
     try:
         return float(os.getenv(name) or default)
@@ -105,7 +111,7 @@ def _check_receipt(
         issues.append("contract_name_invalid")
     if str(receipt.get("status") or "").strip().lower() != "pass":
         issues.append("receipt_status_not_pass")
-    if current_head and not _fresh_enough(str(receipt.get("git_head") or ""), current_head=current_head):
+    if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
         issues.append("receipt_stale_relative_to_current_head")
     if bool(receipt.get("dirty_worktree")):
         issues.append("receipt_generated_from_dirty_worktree")
@@ -153,7 +159,7 @@ def _check_browser_receipt(
         issues.append("browser_contract_name_invalid")
     if str(receipt.get("status") or "").strip().lower() != "pass":
         issues.append("browser_receipt_status_not_pass")
-    if current_head and not _fresh_enough(str(receipt.get("git_head") or ""), current_head=current_head):
+    if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
         issues.append("browser_receipt_stale_relative_to_current_head")
     if bool(receipt.get("dirty_worktree")):
         issues.append("browser_receipt_generated_from_dirty_worktree")
@@ -181,6 +187,43 @@ def _check_browser_receipt(
         issues.append("browser_audio_playback_not_completed")
     if not bool(receipt.get("answer_semantic_passed")):
         issues.append("browser_answer_semantics_not_proven")
+    return issues
+
+
+def _check_room_receipt(
+    receipt: dict[str, Any],
+    *,
+    current_head: str,
+) -> list[str]:
+    issues: list[str] = []
+    if not receipt:
+        return ["room_receipt_missing_or_invalid"]
+    if receipt.get("contract_name") != "ea.memorial_room_audio_public_origin":
+        issues.append("room_contract_name_invalid")
+    if str(receipt.get("status") or "").strip().lower() != "pass":
+        issues.append("room_receipt_status_not_pass")
+    if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
+        issues.append("room_receipt_stale_relative_to_current_head")
+    if bool(receipt.get("dirty_worktree")):
+        issues.append("room_receipt_generated_from_dirty_worktree")
+    if _is_local_base_url(str(receipt.get("base_url") or "")):
+        issues.append("room_public_origin_required_not_localhost")
+    if receipt.get("require_public_origin") is not True:
+        issues.append("room_receipt_must_require_public_origin")
+    required = {
+        "actual_device_checked",
+        "actual_speaker_checked",
+        "first_syllable_not_clipped",
+        "intelligibility_confirmed",
+        "answer_text_fallback_visible",
+        "no_internet_search_confirmed",
+    }
+    checks = dict(receipt.get("checks") or {})
+    for key in sorted(required):
+        if checks.get(key) is not True:
+            issues.append(f"room_{key}_missing")
+    if not str(receipt.get("reviewer") or "").strip():
+        issues.append("room_reviewer_missing")
     return issues
 
 
@@ -216,8 +259,14 @@ def main() -> int:
         current_head=current_head,
         max_first_answer_ms=max_browser_first_answer_ms,
     )
+    room_receipt_path = Path(os.getenv("MEMORIAL_ROOM_AUDIO_RECEIPT") or ROOM_RECEIPT)
+    room = _json(room_receipt_path)
+    room_issues = _check_room_receipt(
+        room,
+        current_head=current_head,
+    )
 
-    status = "pass" if not local_issues and not public_issues and not browser_issues else "blocked"
+    status = "pass" if not local_issues and not public_issues and not browser_issues and not room_issues else "blocked"
     payload = {
         "status": status,
         "current_head": current_head,
@@ -232,6 +281,8 @@ def main() -> int:
         "public_gold_issues": public_issues,
         "public_browser_gold_receipt": browser_receipt_path.as_posix(),
         "public_browser_gold_issues": browser_issues,
+        "room_audio_receipt": room_receipt_path.as_posix(),
+        "room_audio_issues": room_issues,
         "gold_thresholds": {
             "direct_tts_f1_min": 0.92,
             "conversation_turn_audio_f1_min": 0.90,
@@ -244,6 +295,7 @@ def main() -> int:
             "local_receipt": "Memorial voice release-candidate proof",
             "public_receipt": "Memorial voice gold proof",
             "browser_receipt": "Memorial public browser realtime proof",
+            "room_receipt": "Memorial public room/device playback proof",
         },
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

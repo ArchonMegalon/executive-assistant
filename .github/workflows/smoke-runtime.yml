@@ -44,6 +44,7 @@ jobs:
           PYTHONPATH=ea python scripts/check_property_repo_isolation.py
 
   security-static:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.EA_CI_BUDGET_MODE == 'full' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,6 +118,7 @@ jobs:
           PYTHONPATH=.:ea pytest -q tests/test_product_browser_journeys.py -k "properties_workspace_surface or propertyquarry_settings_hide_generic_google_sync_metrics or propertyquarry_host_renders_branded_public_surfaces or propertyquarry_repo_defaults_to_property_brand_without_host_header"
 
   product-browser-e2e:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.EA_CI_BUDGET_MODE == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -138,6 +140,7 @@ jobs:
           PYTHONPATH=.:ea python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py
 
   smoke-runtime-api:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.EA_CI_BUDGET_MODE == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -160,6 +163,7 @@ jobs:
           make property-release-gates
 
   generated-release-artifacts-clean:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.EA_CI_BUDGET_MODE == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

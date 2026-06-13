@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import io
 import math
@@ -119,6 +120,42 @@ def _git_dirty() -> bool:
     except Exception:
         return True
     return bool(proc.stdout.strip()) if proc.returncode == 0 else True
+
+
+def _source_tree_fingerprint() -> str:
+    root = Path(__file__).resolve().parents[1]
+    generated_prefixes = (
+        ".codex-design/product/",
+        ".codex-studio/published/",
+    )
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    digest = hashlib.sha256()
+    for relpath in sorted(line.strip() for line in proc.stdout.splitlines() if line.strip()):
+        if relpath.startswith(generated_prefixes):
+            continue
+        path = root / relpath
+        if not path.is_file():
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return ""
+        digest.update(relpath.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(data).hexdigest().encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _is_local_base_url(value: str) -> bool:
@@ -827,6 +864,8 @@ def _with_exit_gate_status(
             "generated_at": _utc_now(),
             "generated_by": "scripts/measure_memorial_live_browser.py",
             "git_head": _git_head(),
+            "source_git_head": _git_head(),
+            "source_tree_fingerprint": _source_tree_fingerprint(),
             "dirty_worktree": _git_dirty(),
             "status": "pass" if not reasons else "fail",
             "exit_gate": bool(exit_gate),

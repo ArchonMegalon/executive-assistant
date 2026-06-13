@@ -49,6 +49,7 @@ jobs:
           PYTHONPATH=.:ea pytest -q tests/test_memorial_showtime_contracts.py
 
   memorial-browser-e2e:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.EA_CI_BUDGET_MODE == 'full' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -60,6 +61,45 @@ def _git_dirty() -> bool:
     except Exception:
         return True
     return bool(proc.stdout.strip()) if proc.returncode == 0 else True
+
+
+def _source_tree_fingerprint() -> str:
+    import subprocess
+
+    generated_prefixes = (
+        ".codex-design/product/",
+        ".codex-studio/published/",
+    )
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files"],
+            cwd=str(ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    digest = hashlib.sha256()
+    for relpath in sorted(line.strip() for line in proc.stdout.splitlines() if line.strip()):
+        if relpath.startswith(generated_prefixes):
+            continue
+        path = ROOT / relpath
+        if not path.is_file():
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return ""
+        digest.update(relpath.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(data).hexdigest().encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _is_local_base_url(base_url: str) -> bool:
@@ -142,6 +182,8 @@ def build_receipt(
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
         "git_head": _git_head(),
+        "source_git_head": _git_head(),
+        "source_tree_fingerprint": _source_tree_fingerprint(),
         "dirty_worktree": dirty_worktree,
         "status": payload.get("status"),
         "slug": slug,
