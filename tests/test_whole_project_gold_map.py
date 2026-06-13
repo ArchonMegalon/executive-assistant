@@ -19,8 +19,8 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     planes = {plane["key"]: plane for plane in receipt["planes"]}
 
     assert receipt["contract_name"] == "ea.whole_project_gold_map"
-    assert receipt["claim_scope"] == "ea_controlled_receipt_set"
-    assert "not a blanket authority claim" in receipt["claim_scope_label"]
+    assert receipt["claim_scope"] == "whole_project_plane_set"
+    assert "memorial public-origin experience" in receipt["claim_scope_label"]
     assert planes["ea_release_control"]["status"] == "pass"
     assert planes["design_surface"]["status"] == "bounded_pass"
     assert planes["chummer_core_rules"]["status"] == "pass"
@@ -29,14 +29,11 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert planes["mobile_and_second_device"]["status"] == "pass"
     assert planes["media_factory_publication"]["status"] == "bounded_pass"
     assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
-    if planes["memorial_voice_demo"]["status"] == "pass":
-        assert receipt["overall_status"] == "gold"
-        assert receipt["gold_claim_allowed"] is True
-        assert receipt["blocking_planes"] == []
-    else:
+    assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
+    if planes["memorial_public_origin_gold"]["status"] == "blocked":
         assert receipt["overall_status"] == "not_gold"
         assert receipt["gold_claim_allowed"] is False
-        assert receipt["blocking_planes"] == ["memorial_voice_demo"]
+        assert "memorial_public_origin_gold" in receipt["blocking_planes"]
     assert planes["chummer_core_rules"]["evidence"]
     assert planes["chummer_desktop_ui"]["evidence"]
     assert planes["chummer_hub_public_web"]["evidence"]
@@ -45,7 +42,7 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     rules = "\n".join(receipt["rules"])
     assert "EA flagship readiness does not imply whole Chummer project readiness" in rules
     assert "Unknown external planes block whole-project gold claims" in rules
-    assert "Gold here means EA-controlled receipt-set gold" in rules
+    assert "Whole-project gold requires every listed plane to pass" in rules
     assert receipt["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
     assert receipt["ltd_provider_lane_summary"]["poppy_lane_state"] == "verified_draft_operator_lane"
 
@@ -59,11 +56,11 @@ def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) 
 
     overclaim = copy.deepcopy(receipt)
     for plane in overclaim["planes"]:
-        if plane["key"] == "memorial_voice_demo":
-            plane["status"] = "separate_risk_zone"
+        if plane["key"] == "memorial_public_origin_gold":
+            plane["status"] = "blocked"
     overclaim["overall_status"] = "gold"
     overclaim["gold_claim_allowed"] = True
-    overclaim["blocking_planes"] = ["memorial_voice_demo"]
+    overclaim["blocking_planes"] = ["memorial_public_origin_gold"]
     path.write_text(json.dumps(overclaim), encoding="utf-8")
 
     issues = verify(path)

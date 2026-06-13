@@ -7137,12 +7137,16 @@ def _minimal_public_memorial_html(
         memorialReadyPromise = (async () => {{
           try {{
             await requestMemorialWarmup(reason);
-            memorialReadySnapshot = await Promise.race([
-              waitForMemorialVoiceReady(12000),
-              new Promise((resolve) => window.setTimeout(() => resolve(memorialReadySnapshot), 12000)),
-            ]);
+            memorialReadySnapshot = await waitForMemorialVoiceReady(30000);
           }} catch (error) {{}}
-          setMemorialLandingReady(true, "");
+          if (memorialReadySnapshot && memorialReadySnapshot.warm && (memorialReadySnapshot.voice_required === false || memorialReadySnapshot.voice_ready === true)) {{
+            setMemorialLandingReady(true, "");
+          }} else {{
+            setMemorialLandingReady(false, "Ich bin gleich bereit.");
+            window.setTimeout(() => {{
+              if (!memorialLandingReady) void ensureMemorialReady("warmup_retry");
+            }}, 2500);
+          }}
           return memorialReadySnapshot;
         }})().finally(() => {{
           memorialReadyPromise = null;
@@ -10536,14 +10540,20 @@ def _memorial_html(
       }}
       async function primeMemorialLanding() {{
         setMemorialLandingReady(false, "Ich werde gerade bereit");
+        let readyPayload = null;
         try {{
           await requestMemorialWarmup("page_load");
-          await Promise.race([
-            waitForMemorialVoiceReady(12000),
-            new Promise((resolve) => window.setTimeout(resolve, 12000)),
-          ]);
+          readyPayload = await waitForMemorialVoiceReady(30000);
         }} catch (error) {{}}
-        setMemorialLandingReady(true, "Sprich mit mir");
+        if (readyPayload && readyPayload.warm && (readyPayload.voice_required === false || readyPayload.voice_ready === true)) {{
+          setMemorialLandingReady(true, "Sprich mit mir");
+        }} else {{
+          setMemorialLandingReady(false, "Ich bin gleich bereit.");
+          window.setTimeout(() => {{
+            if (!memorialLandingReady) void primeMemorialLanding();
+          }}, 2500);
+          return;
+        }}
         if (!navigator.webdriver) {{
           void primeRealtimeSocket("page_ready");
         }}

@@ -2212,6 +2212,15 @@ def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> No
     assert 'text="Ja. Ich höre dich."' in source
 
 
+def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "waitForMemorialVoiceReady(30000)" in source
+    assert 'setMemorialLandingReady(false, "Ich bin gleich bereit.")' in source
+    assert 'if (!memorialLandingReady) void ensureMemorialReady("warmup_retry");' in source
+    assert "new Promise((resolve) => window.setTimeout(resolve, 12000))" not in source
+
+
 def test_memorial_fast_tts_selector_skips_fast_path_for_recently_warm_lane(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.api.routes import public_memorials
 

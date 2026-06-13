@@ -197,8 +197,8 @@ assert pulse["governor_decisions"]
 
 gold_map = json.loads(Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json").read_text(encoding="utf-8"))
 assert gold_map["contract_name"] == "ea.whole_project_gold_map"
-assert gold_map["claim_scope"] == "ea_controlled_receipt_set"
-assert "not a blanket authority claim" in gold_map["claim_scope_label"]
+assert gold_map["claim_scope"] == "whole_project_plane_set"
+assert "memorial public-origin experience" in gold_map["claim_scope_label"]
 planes = {plane["key"]: plane for plane in gold_map["planes"]}
 assert planes["ea_release_control"]["status"] == "pass"
 assert planes["design_surface"]["status"] == "bounded_pass"
@@ -208,17 +208,14 @@ assert planes["chummer_hub_public_web"]["status"] == "pass"
 assert planes["mobile_and_second_device"]["status"] == "pass"
 assert planes["media_factory_publication"]["status"] == "bounded_pass"
 assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
-if planes["memorial_voice_demo"]["status"] == "pass":
-    assert gold_map["overall_status"] == "gold"
-    assert gold_map["gold_claim_allowed"] is True
-    assert gold_map["blocking_planes"] == []
-else:
+assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
+if planes["memorial_public_origin_gold"]["status"] == "blocked":
     assert gold_map["overall_status"] == "not_gold"
     assert gold_map["gold_claim_allowed"] is False
-    assert gold_map["blocking_planes"] == ["memorial_voice_demo"]
+    assert "memorial_public_origin_gold" in gold_map["blocking_planes"]
 assert gold_map["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
 assert "EA flagship readiness does not imply whole Chummer project readiness" in "\n".join(gold_map["rules"])
-assert "Gold here means EA-controlled receipt-set gold" in "\n".join(gold_map["rules"])
+assert "Whole-project gold requires every listed plane to pass" in "\n".join(gold_map["rules"])
 
 current_head = subprocess.run(
     ["git", "rev-parse", "HEAD"],

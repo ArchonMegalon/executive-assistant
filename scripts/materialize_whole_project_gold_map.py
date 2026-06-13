@@ -325,6 +325,23 @@ def build_gold_map(
             ],
         ),
         _plane(
+            key="memorial_public_origin_gold",
+            title="Memorial Public-Origin Experience Gold",
+            owner_repo="memorial runtime",
+            status=memorial_public_gold_status,
+            claim="The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
+            evidence=[
+                path.as_posix()
+                for path in (memorial_public_voice_receipt, memorial_public_browser_receipt)
+                if path.is_file()
+            ],
+            missing_evidence=memorial_public_missing,
+            design_notes=[
+                "Guest-facing copy must never say simply gold while this plane is blocked.",
+                "Use: Memorial public-origin gold: blocked.",
+            ],
+        ),
+        _plane(
             key="ltd_provider_lanes",
             title="LTD Provider Lanes",
             owner_repo="EA",
@@ -346,7 +363,7 @@ def build_gold_map(
     ]
     gold_claim_allowed = not blocking_planes and ea_status == "pass"
     overall_status = "gold" if gold_claim_allowed else "not_gold"
-    claim_scope = "ea_controlled_receipt_set"
+    claim_scope = "whole_project_plane_set"
 
     return {
         "contract_name": "ea.whole_project_gold_map",
@@ -357,18 +374,18 @@ def build_gold_map(
         "overall_status": overall_status,
         "gold_claim_allowed": gold_claim_allowed,
         "claim_scope": claim_scope,
-        "claim_scope_label": "EA-controlled receipt-set gold; not a blanket authority claim for every owning repo.",
+        "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
         "operator_summary": (
-            "EA release control is green, but EA-controlled receipt-set gold is blocked by unproven external planes."
+            "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes."
             if not gold_claim_allowed and ea_status == "pass"
-            else "EA-controlled receipt-set gold is permitted by the current receipts. Owning repos remain authoritative for their planes."
+            else "Whole-project gold is permitted by the current receipts. Owning repos remain authoritative for their planes."
             if gold_claim_allowed
             else "EA release control or required supporting receipts are blocked."
         ),
         "rules": [
             "EA flagship readiness does not imply whole Chummer project readiness.",
             "Unknown external planes block whole-project gold claims.",
-            "Gold here means EA-controlled receipt-set gold, not universal authority over every owning repo.",
+            "Whole-project gold requires every listed plane to pass; EA receipt-set gold is only a narrower local label.",
             "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
             "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
