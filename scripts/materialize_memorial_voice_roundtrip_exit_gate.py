@@ -172,10 +172,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(
         "--direct-text",
-        default="Ich weiss es wirklich nicht.",
+        default="Ich kann das nicht wissen.",
     )
-    parser.add_argument("--conversation-question", default="Wie ist das Wetter heute?")
-    parser.add_argument("--present-world-question", default="Wie ist das Wetter heute?")
+    parser.add_argument("--conversation-question", default="Was ist heute los?")
+    parser.add_argument("--present-world-question", default="Was ist heute los?")
     parser.add_argument("--allow-missing-stt", action="store_true")
     parser.add_argument("--gold-mode", action="store_true")
     parser.add_argument("--require-public-origin", action="store_true")

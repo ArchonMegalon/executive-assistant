@@ -453,7 +453,7 @@ def validate_memorial_voice_loop(
         )
         return report
     normalized_present_answer = _normalize_compare_text(present_answer)
-    if "weiss" not in normalized_present_answer or "nicht" not in normalized_present_answer:
+    if not all(token in normalized_present_answer for token in ("kann", "nicht", "wissen")):
         report.add(
             "fail",
             "present_world_missing_memory_boundary",
@@ -462,7 +462,7 @@ def validate_memorial_voice_loop(
             answer=present_answer,
         )
         return report
-    if any(token in normalized_present_answer for token in ("schach", "familie", "familien")):
+    if any(token in normalized_present_answer for token in ("schach", "familie", "familien", "mehr", "vergessen")):
         report.add(
             "fail",
             "present_world_domain_drift",
@@ -508,6 +508,10 @@ def validate_memorial_voice_loop(
     if not answer_audio_bytes:
         report.add("fail", "conversation_turn_audio_missing", "Conversation turn returned no answer audio.", answer_text=answer_text)
         return report
+    turn_transcript_text = str(turn_payload.get("transcript_text") or "")
+    if turn_transcript_text:
+        report.metrics["conversation_turn_transcript_chars"] = len(turn_transcript_text)
+        report.artifacts["conversation_turn_transcript_text"] = turn_transcript_text
     answer_audio_path = output_dir / f"{slug}-conversation-turn-answer.wav"
     _save_bytes(answer_audio_path, answer_audio_bytes)
     report.artifacts["conversation_turn_audio"] = str(answer_audio_path)
