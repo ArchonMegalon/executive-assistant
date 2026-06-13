@@ -15,13 +15,12 @@ if str(EA_DIR) not in sys.path:
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.api.app import create_app  # noqa: E402
-
 
 SHOW_SURFACE = ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
 
 
 def _client(*, operator: bool = False) -> TestClient:
+    os.environ["EA_RUNTIME_MODE"] = "test"
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_ENABLE_PUBLIC_MEMORIALS"] = "0"
     os.environ["EA_ENABLE_PUBLIC_RESULTS"] = "0"
@@ -36,6 +35,8 @@ def _client(*, operator: bool = False) -> TestClient:
         os.environ["EA_API_TOKEN"] = ""
         os.environ.pop("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", None)
         os.environ.pop("EA_OPERATOR_PRINCIPAL_IDS", None)
+    from app.api.app import create_app
+
     client = TestClient(create_app())
     client.headers.update({"X-EA-Principal-ID": "project-mode-runtime-check"})
     if operator:
