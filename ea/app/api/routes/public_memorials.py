@@ -3534,19 +3534,6 @@ def _memorial_present_world_answer_body(question: str) -> str:
     return "Das kann ich aus meiner Erinnerung nicht sagen."
 
 
-def _memorial_present_world_search_request(question: str) -> dict[str, object]:
-    return {
-        "provider": "disabled",
-        "query": " ".join(_text(question, "").split()),
-        "results": [],
-        "disabled_reason": "memorial_current_world_policy_local_memories_and_conversation_only",
-    }
-
-
-def _memorial_present_world_search_answer(question: str, *, requested_model: str, person_name: str = "Manfred") -> dict[str, object] | None:
-    return None
-
-
 def _memorial_should_include_mail_memory(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:

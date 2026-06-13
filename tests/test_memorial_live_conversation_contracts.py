@@ -406,22 +406,6 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
 
     seen = {"generate_text": 0}
 
-    monkeypatch.setattr(
-        public_memorials,
-        "_memorial_present_world_search_request",
-        lambda question: {
-            "provider": "custom",
-            "query": question,
-            "results": [
-                {
-                    "title": "Wetter Wien heute",
-                    "url": "https://weather.example/wien",
-                    "snippet": "In Wien sind heute 24 Grad und leicht bewölkt.",
-                }
-            ],
-        },
-    )
-
     def _fake_generate_text(*, messages, requested_model, max_output_tokens):
         seen["generate_text"] += 1
         return SimpleNamespace(
@@ -445,28 +429,28 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
     assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
+    assert not hasattr(public_memorials, "_memorial_present_world_search_request")
 
 
-def test_memorial_present_world_search_request_is_disabled_for_local_source_policy(
+def test_memorial_present_world_path_is_local_only_without_search_helpers(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    _setup_memorial(monkeypatch, tmp_path)
+    slug = _setup_memorial(monkeypatch, tmp_path)
     monkeypatch.setenv("EA_MEMORIAL_ENABLE_WEB_SEARCH", "1")
     monkeypatch.setenv("EA_MEMORIAL_WEB_SEARCH_PROVIDER", "brave")
     monkeypatch.setenv("EA_MEMORIAL_WEB_SEARCH_API_KEY", "unit-test-key")
     from app.api.routes import public_memorials
 
-    payload = public_memorials._memorial_present_world_search_request("Wie ist das Wetter heute?")
-
-    assert payload["provider"] == "disabled"
-    assert payload["results"] == []
-    assert payload["disabled_reason"] == "memorial_current_world_policy_local_memories_and_conversation_only"
-    assert public_memorials._memorial_present_world_search_answer(
-        "Wie ist das Wetter heute?",
-        requested_model="unit-test-model",
-        person_name="Manfred",
-    ) is None
+    assert not hasattr(public_memorials, "_memorial_present_world_search_request")
+    assert not hasattr(public_memorials, "_memorial_present_world_search_answer")
+    client = _client(principal_id="exec-memorial-present-world-local-only")
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ist das Wetter heute?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "present_world_guardrail"
+    assert body["current_world_policy"] == "local_memories_and_conversation_only_no_internet_search"
+    assert body["sources"] == []
 
 
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(

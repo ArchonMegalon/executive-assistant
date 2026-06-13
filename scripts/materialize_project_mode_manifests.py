@@ -84,6 +84,11 @@ def project_modes() -> dict[str, Any]:
                 "purpose": "Manfred memorial pages and realtime voice from local memories/conversation sources only. No internet search for Manfred.",
                 "route_prefixes": ["/memorials/", "/memorials/files/"],
                 "hard_gate": "make memorial-gold-gates",
+                "hard_gates": [
+                    ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+                    ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+                    ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+                ],
                 "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
                 "public_gold_gates": [
                     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",

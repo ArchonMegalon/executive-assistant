@@ -84,6 +84,14 @@ def main() -> int:
         raise SystemExit("memorial_mode_status_invalid")
     if "tests/e2e/test_ea_first_value_journey.py" not in str(by_key["EA_CORE"].get("hard_gate") or ""):
         raise SystemExit("ea_core_first_value_gate_missing")
+    memorial_hard_gates = [str(item) for item in list(by_key["MEMORIAL"].get("hard_gates") or []) if str(item)]
+    expected_memorial_hard_gates = [
+        ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    ]
+    if memorial_hard_gates != expected_memorial_hard_gates:
+        raise SystemExit("memorial_hard_gates_missing")
     if show.get("demo_mode") != "ea_core":
         raise SystemExit("show_surface_demo_mode_not_ea_core")
     allowed = set(show.get("allowed_surfaces") or [])
