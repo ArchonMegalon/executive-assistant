@@ -109,7 +109,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
     assert any(item.code == "conversation_turn_audio_similarity_ok" for item in report.checks)
 
 
-def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(tmp_path: Path, monkeypatch) -> None:
+def test_validate_memorial_voice_loop_rejects_present_world_search_sources(tmp_path: Path, monkeypatch) -> None:
     import scripts.validate_memorial_voice_loop as validator
 
     direct_wav = _generated_wav(b"Sprich ruhig weiter. Ich antworte dir direkt. ")
@@ -158,8 +158,8 @@ def test_validate_memorial_voice_loop_accepts_present_world_search_with_sources(
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
-    assert report.status == "pass"
-    assert any(item.code == "present_world_route_ok" for item in report.checks)
+    assert report.status == "fail"
+    assert any(item.code == "present_world_search_forbidden" for item in report.checks)
 
 
 def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, monkeypatch) -> None:

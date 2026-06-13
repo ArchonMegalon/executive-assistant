@@ -5485,14 +5485,6 @@ def _memorial_chat_answer(
         fallback["llm_fallback_used"] = False
         return fallback
     if _is_memorial_present_world_question(normalized_question):
-        search_answer = _memorial_present_world_search_answer(
-            normalized_question,
-            requested_model=requested_model,
-            person_name=person_name,
-        )
-        if search_answer is not None:
-            search_answer["difficult_memory_mode"] = bool(difficult_memory_mode)
-            return search_answer
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
@@ -5508,6 +5500,7 @@ def _memorial_chat_answer(
             "llm_request_model": requested_model,
             "llm_fallback_used": False,
             "fallback_reason": "present_world_guardrail",
+            "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
         }
     if _is_memorial_contact_question(normalized_question):
         return {

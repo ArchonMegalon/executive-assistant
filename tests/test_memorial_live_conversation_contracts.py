@@ -296,7 +296,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     assert "famil" not in body["answer"].lower()
 
 
-def test_memorial_chat_current_weather_uses_present_world_search_when_enabled(
+def test_memorial_chat_current_weather_ignores_present_world_search_even_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -338,11 +338,11 @@ def test_memorial_chat_current_weather_uses_present_world_search_when_enabled(
 
     assert response.status_code == 200
     body = response.json()
-    assert seen["generate_text"] == 1
-    assert body["fallback_reason"] == "present_world_search"
-    assert body["llm_provider"] == "unit-test-search"
-    assert "aktuelle quellen" in body["answer"].lower()
-    assert body["sources"]
+    assert seen["generate_text"] == 0
+    assert body["fallback_reason"] == "present_world_guardrail"
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["sources"] == []
+    assert body["current_world_policy"] == "local_memories_and_conversation_only_no_internet_search"
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
