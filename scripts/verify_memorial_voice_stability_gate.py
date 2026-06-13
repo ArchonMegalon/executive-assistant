@@ -61,7 +61,7 @@ def run_stability_gate(
             slug=slug,
             base_url=base_url,
             output_dir=output_dir / f"run-{index:02d}",
-            direct_text="Das weiß ich nicht.",
+            direct_text="Ja. Sag es mir.",
             conversation_question="Hallo Manfred, kannst du jetzt mit mir sprechen?",
             present_world_question="Welches Wetter haben wir heute?",
             require_stt=require_stt,

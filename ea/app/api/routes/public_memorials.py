@@ -2242,8 +2242,8 @@ def _content_length_or_zero(request: Request) -> int:
         return 0
     try:
         return int(raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="invalid_content_length") from exc
+    except ValueError:
+        return 0
 
 
 def _text(value: object, fallback: str = "") -> str:
@@ -3885,7 +3885,7 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Ja. Ich höre dich gut."
+    return "Ja. Sag es mir."
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -3893,6 +3893,7 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     return normalized in {
         "ja.",
         "ja, ich bin da.",
+        "ja. sag es mir.",
         "ja. ich höre dich gut.",
         "ja. ich hoere dich gut.",
         "ja. ich höre dich.",
@@ -3920,6 +3921,8 @@ def _looks_like_memorial_reply_text(text: str) -> bool:
     if _is_memorial_direct_contact_opening_text(normalized):
         return True
     reply_prefixes = (
+        "ja. sag es mir",
+        "sag es mir",
         "ja. ich höre dich gut",
         "ja. ich hoere dich gut",
         "ich höre dich gut",
@@ -5513,6 +5516,29 @@ def _select_best_memorial_transcription(candidates: list[dict[str, object]]) -> 
     return best_payload
 
 
+def _memorial_transcript_is_confident_early_accept(
+    transcript_text: str,
+    *,
+    transcriber: str = "",
+    corrected: bool = False,
+) -> bool:
+    text = _repair_memorial_transcript_text(transcript_text)
+    if not text:
+        return False
+    if _is_known_bad_memorial_subtitle_transcript(text):
+        return False
+    if _looks_like_memorial_contact_opening_transcript(text):
+        return False
+    score, token_count, _, _ = _memorial_transcript_quality_score(
+        text,
+        transcriber=transcriber,
+        corrected=corrected,
+    )
+    if token_count < 4:
+        return False
+    return score >= 78
+
+
 def _memorial_meta_self_reference_answer(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
@@ -6517,6 +6543,18 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                             "primary_transcript_text": text,
                         }
                     )
+                    if _memorial_transcript_is_confident_early_accept(
+                        effective_text,
+                        transcriber=transcriber,
+                        corrected=effective_text != text,
+                    ):
+                        return {
+                            "transcription_status": "transcribed",
+                            "transcript_text": effective_text,
+                            "transcriber": transcriber,
+                            "shadow_stt": shadow_stt,
+                            "primary_transcript_text": text,
+                        }
                     if (
                         effective_text
                         and not _looks_like_memorial_contact_opening_transcript(text)
@@ -13541,7 +13579,7 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
     total_started = time.perf_counter()
     memorial = _load_memorial(slug)
     _require_voice_consent(_payload_with_slug(slug, memorial), "conversation_turn")
-    content_length = int(str(request.headers.get("content-length") or "0") or "0")
+    content_length = _content_length_or_zero(request)
     if content_length > _MAX_SPEECH_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="audio_too_large")
     audio_payload = await request.body()
@@ -13977,7 +14015,7 @@ def _build_memorial_gemini_live_instruction(
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
         "Bleibe im Erinnerungsmodus: keine Behauptung, dass die verstorbene Person real anwesend ist.",
-        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Ich hoere dich. / Ich hoere dich. Sag es mir in Ruhe. / Sprich ruhig weiter. Ich antworte dir direkt. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
+        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Sag es mir. / Ich hoere dich. Sag es mir in Ruhe. / Sprich weiter. Ich antworte direkt. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
         "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
         "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
         "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",

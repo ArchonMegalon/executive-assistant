@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from app.services.brain_catalog import GEMINI_VORTEX_PUBLIC_MODEL
 
 
-CONTACT_REPLY_VARIANTS = {"Ja. Ich höre dich gut."}
+CONTACT_REPLY_VARIANTS = {"Ja. Sag es mir."}
 
 
 def test_contact_reply_variants_avoid_fragile_roundtrip_phrasing() -> None:
@@ -585,7 +585,7 @@ def test_memorial_shadow_stt_requires_user_intent_when_primary_is_weak() -> None
     from app.api.routes import public_memorials
 
     correction = public_memorials._memorial_shadow_stt_correction_decision(
-        primary_transcript="Ja. Ich höre dich gut.",
+        primary_transcript="Ja. Sag es mir.",
         shadow_transcript="Ja, ich schwöre es nicht.",
     )
 
@@ -767,6 +767,47 @@ def test_memorial_transcribe_prefers_question_candidate_over_early_contact_openi
     assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
     assert result["primary_transcript_text"] == "Wie ist das Wetter heute in Wien?"
     assert result["transcriber"].endswith("enhanced_wav")
+
+
+def test_memorial_transcribe_early_accepts_strong_non_contact_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    upload_count = {"value": 0}
+
+    def _fake_upload(**kwargs):
+        upload_count["value"] += 1
+        return {
+            "asset": {"key": f"audio-key-{upload_count['value']}"},
+            "fileContent": {"path": f"path-{upload_count['value']}-{kwargs['filename']}"},
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
+
+    def _fake_stt(**kwargs):
+        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}}
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=b"not-a-real-webm",
+        content_type="audio/webm",
+    )
+
+    assert upload_count["value"] == 1
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["primary_transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"] == "1min.ai/whisper-1+converted_wav"
 
 
 @pytest.mark.parametrize(
@@ -1162,6 +1203,24 @@ def test_memorial_contact_opening_detection_repairs_missing_sentence_space() -> 
 
     assert public_memorials._normalize_tts_text("Ich höre dich.Sag es mir in Ruhe.") == "Ich höre dich. Sag es mir in Ruhe."
     assert public_memorials._is_memorial_direct_contact_opening_text("Ich höre dich.Sag es mir in Ruhe.") is True
+
+
+def test_memorial_content_length_helper_tolerates_malformed_header() -> None:
+    from starlette.requests import Request
+    from app.api.routes import public_memorials
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/memorials/manfred/conversation-turn",
+        "headers": [(b"content-length", b"bogus")],
+    }
+
+    async def _receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(scope, _receive)
+    assert public_memorials._content_length_or_zero(request) == 0
 
 
 def test_memorial_conversation_turn_current_weather_short_circuits_to_present_world_answer(
@@ -2825,7 +2884,7 @@ def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> No
 
     assert 'selected_plugin = PIPER_FAST_TTS_PLUGIN_ID' in source
     assert 'piper_fast_synthesize_request(' in source
-    assert 'text="Ja. Ich höre dich gut."' in source
+    assert '_memorial_contact_answer_body("Hallo Manfred")' in source
 
 
 def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> None:
