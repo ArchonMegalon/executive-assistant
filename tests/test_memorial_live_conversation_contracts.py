@@ -616,6 +616,21 @@ def test_memorial_shadow_stt_allows_question_like_upgrade_from_low_information_p
     assert correction["corrected_transcript"] == "Wie ist das Wetter heute in Wien?"
 
 
+def test_memorial_shadow_stt_fast_primary_candidate_accepts_plausible_user_question() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Wie ist das Wetter heute in Wien?") is True
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Hallo Manfred, kannst du jetzt mit mir sprechen?") is True
+
+
+def test_memorial_shadow_stt_fast_primary_candidate_rejects_brief_or_language_drift() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("you") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("hello weather today") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Ja. Sag es mir.") is False
+
+
 def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> None:
     from app.api.routes import public_memorials
 
@@ -658,6 +673,7 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
             },
         },
     )
+    monkeypatch.setattr(public_memorials, "_memorial_shadow_stt_is_fast_primary_candidate", lambda text: False)
 
     result = public_memorials._memorial_transcribe_audio_blob(
         payload=_generated_wav_bytes(textish_seed="Hallo Manfred, kannst du jetzt mit mir sprechen?"),
@@ -666,6 +682,71 @@ def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcri
 
     assert result["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
     assert result["primary_transcript_text"] == "Untertitel der Amara.org-Community"
+
+
+def test_memorial_transcribe_uses_fast_shadow_stt_candidate_before_slow_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": True,
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "Wie ist das Wetter heute in Wien?",
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_onemin_api_keys",
+        lambda: (_ for _ in ()).throw(AssertionError("slow primary should not run")),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"] == "shadow:blipai"
+
+
+def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": True,
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "you",
+        },
+    )
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}})
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}},
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"] == "1min.ai/whisper-1"
 
 
 def test_memorial_transcribe_prefers_best_provider_variant_over_first_garbage_result(

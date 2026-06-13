@@ -5539,6 +5539,42 @@ def _memorial_transcript_is_confident_early_accept(
     return score >= 78
 
 
+def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool:
+    text = _repair_memorial_transcript_text(transcript_text)
+    if not text:
+        return False
+    if _is_known_bad_memorial_subtitle_transcript(text) or _looks_like_memorial_reply_text(text):
+        return False
+    tokens = set(re.findall(r"[a-z0-9äöüß]+", text.lower()))
+    if len(tokens) < 3:
+        return False
+    german_markers = {
+        "ich",
+        "du",
+        "dich",
+        "mir",
+        "bitte",
+        "wie",
+        "was",
+        "wo",
+        "wann",
+        "wetter",
+        "heute",
+        "jetzt",
+        "kann",
+        "kannst",
+        "sprechen",
+        "reden",
+        "manfred",
+    }
+    english_markers = {"i", "you", "your", "bye", "hello", "weather", "today", "can", "please", "speak", "hi", "now"}
+    if tokens & english_markers and not tokens & german_markers:
+        return False
+    if _looks_like_memorial_contact_opening_transcript(text):
+        return "manfred" in tokens and bool(tokens & {"kann", "kannst", "reden", "sprechen", "hoerst", "hörst"})
+    return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
+
+
 def _memorial_meta_self_reference_answer(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
@@ -6438,6 +6474,21 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         raise HTTPException(status_code=413, detail="audio_too_large")
     normalized_content_type = str(content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
     extension = mimetypes.guess_extension(normalized_content_type) or ".webm"
+    fast_shadow_stt = _memorial_shadow_stt_result(
+        user_audio_payload=payload,
+        content_type=normalized_content_type or content_type,
+        primary_transcript="",
+        primary_transcriber="",
+    )
+    fast_shadow_text = _repair_memorial_transcript_text(fast_shadow_stt.get("transcript_text"))
+    if _memorial_shadow_stt_is_fast_primary_candidate(fast_shadow_text):
+        return {
+            "transcription_status": "transcribed",
+            "transcript_text": fast_shadow_text,
+            "transcriber": f"shadow:{_text(fast_shadow_stt.get('provider'), 'unknown')}",
+            "shadow_stt": fast_shadow_stt,
+            "primary_transcript_text": fast_shadow_text,
+        }
     try:
         from app.product import service as product_service
 
