@@ -101,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", default=os.getenv("MEMORIAL_VOICE_EXIT_GATE_BASE_URL", "http://127.0.0.1:8090"))
     parser.add_argument("--output-dir", default=os.getenv("MEMORIAL_VOICE_EXIT_GATE_OUTPUT_DIR", "/tmp/memorial_voice_roundtrip_exit_gate"))
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
-    parser.add_argument("--direct-text", default="Zum Wetter brauche ich den Ort.")
+    parser.add_argument(
+        "--direct-text",
+        default="Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+    )
     parser.add_argument("--conversation-question", default="Wie ist das Wetter heute?")
     parser.add_argument("--present-world-question", default="Wie ist das Wetter heute?")
     parser.add_argument("--allow-missing-stt", action="store_true")

@@ -59,7 +59,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         if url.endswith("/chat"):
             if payload.get("question") == "Welches Wetter haben wir heute?":
                 return 200, {
-                    "answer": "Zum Wetter brauche ich den Ort.",
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                     "fallback_reason": "present_world_guardrail",
                 }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
@@ -173,7 +173,7 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
             payload = args[1]
         if isinstance(payload, dict) and payload.get("question") == "Welches Wetter haben wir heute?":
             return 200, {
-                "answer": "Zum Wetter brauche ich den Ort.",
+                "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                 "fallback_reason": "present_world_guardrail",
             }
         return 200, {"answer": "Ich antworte dir direkt."}
@@ -227,7 +227,7 @@ def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unava
         if url.endswith("/chat"):
             if payload.get("question") == "Welches Wetter haben wir heute?":
                 return 200, {
-                    "answer": "Zum Wetter brauche ich den Ort.",
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                     "fallback_reason": "present_world_guardrail",
                 }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
@@ -278,7 +278,7 @@ def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp
         if url.endswith("/chat"):
             if payload.get("question") == "Welches Wetter haben wir heute?":
                 return 200, {
-                    "answer": "Zum Wetter brauche ich den Ort.",
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                     "fallback_reason": "present_world_guardrail",
                 }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
