@@ -115,6 +115,8 @@ _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 560
 _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 620
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
+_BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
+_MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
 _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
 _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
@@ -6533,15 +6535,29 @@ def _memorial_shadow_stt_result(
     provider = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_PROVIDER"), "blipai").strip().lower()
     if provider not in _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS:
         return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "provider_not_allowed"}
+    cooldown_until = float(_MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.get(provider) or 0.0)
+    now = time.time()
+    if cooldown_until > now:
+        return {
+            "enabled": False,
+            "mode": "shadow_only",
+            "provider": provider,
+            "reason": "provider_cooldown_active",
+            "cooldown_seconds_remaining": round(cooldown_until - now, 3),
+        }
+    api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
+    if provider == "blipai" and not api_key:
+        api_key = _text(os.getenv("BLIPAI_APP_API_TOKEN")).strip()
     url = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_URL")).strip()
+    if provider == "blipai" and not url and api_key:
+        url = _BLIPAI_DEFAULT_STT_URL
     if not url:
         return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "url_missing"}
     max_bytes = max(1, int(float(os.getenv("EA_MEMORIAL_SHADOW_STT_MAX_BYTES") or "6000000")))
     if len(user_audio_payload or b"") > max_bytes:
         return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "audio_too_large"}
     timeout = max(0.25, min(5.0, float(os.getenv("EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS") or "1.6")))
-    headers = {"Content-Type": "application/json"}
-    api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
+    headers = {"User-Agent": "EA-Memorial-Shadow-STT/1.0"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     request_payload = {
@@ -6556,8 +6572,25 @@ def _memorial_shadow_stt_result(
         "include_private_memory": False,
     }
     try:
-        response = requests.post(url, headers=headers, json=request_payload, timeout=timeout)
+        if provider == "blipai" and url == _BLIPAI_DEFAULT_STT_URL:
+            files = {
+                "audio": (
+                    "shadow-stt.wav",
+                    user_audio_payload or b"",
+                    _text(content_type, "audio/wav") or "audio/wav",
+                )
+            }
+            response = requests.post(url, headers=headers, files=files, timeout=timeout)
+        else:
+            headers["Content-Type"] = "application/json"
+            response = requests.post(url, headers=headers, json=request_payload, timeout=timeout)
         if response.status_code >= 400:
+            if response.status_code in {401, 403, 429}:
+                cooldown_seconds = max(
+                    15.0,
+                    min(1800.0, float(os.getenv("EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS") or "300")),
+                )
+                _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS[provider] = time.time() + cooldown_seconds
             return {
                 "enabled": True,
                 "mode": "shadow_only",
@@ -6566,6 +6599,7 @@ def _memorial_shadow_stt_result(
                 "reason": f"http_{response.status_code}",
                 "may_override_primary": False,
             }
+        _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.pop(provider, None)
         try:
             body = response.json()
         except ValueError:

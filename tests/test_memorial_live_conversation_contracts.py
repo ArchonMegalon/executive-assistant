@@ -166,6 +166,7 @@ def test_memorial_shadow_stt_defaults_to_blipai_without_external_send_when_url_m
 
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_PROVIDER", raising=False)
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+    monkeypatch.delenv("BLIPAI_APP_API_TOKEN", raising=False)
     result = public_memorials._memorial_shadow_stt_result(
         user_audio_payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute?"),
         content_type="audio/wav",
@@ -221,6 +222,108 @@ def test_memorial_shadow_stt_blipai_receives_only_user_question_audio(
     assert "audio_base64" in payload
     assert "answer" not in payload
     assert "private_memory" not in payload
+
+
+def test_memorial_shadow_stt_blipai_defaults_to_official_multipart_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
+
+    def _fake_post(url, *, headers, files=None, json=None, timeout):
+        seen["url"] = url
+        seen["headers"] = headers
+        seen["files"] = files
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_API_KEY", raising=False)
+    monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "blip-unit-token")
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=b"wav-bytes",
+        content_type="audio/wav",
+        primary_transcript="Untertitel der Amara.org-Community",
+        primary_transcriber="1min.ai/whisper-1+enhanced_wav",
+    )
+
+    assert result["enabled"] is True
+    assert result["provider"] == "blipai"
+    assert result["status"] == "ok"
+    assert seen["url"] == public_memorials._BLIPAI_DEFAULT_STT_URL
+    assert seen["json"] is None
+    files = seen["files"]
+    assert isinstance(files, dict)
+    assert "audio" in files
+    filename, payload, content_type = files["audio"]
+    assert filename == "shadow-stt.wav"
+    assert payload == b"wav-bytes"
+    assert content_type == "audio/wav"
+    assert seen["headers"]["Authorization"] == "Bearer blip-unit-token"
+
+
+def test_memorial_shadow_stt_sets_provider_cooldown_after_auth_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
+
+    class _Response:
+        status_code = 401
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {}
+
+    monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "blip-unit-token")
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS", "120")
+    monkeypatch.setattr(public_memorials.requests, "post", lambda *args, **kwargs: _Response())
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=b"user-question-only",
+        content_type="audio/wav",
+        primary_transcript="Hallo Manfred",
+        primary_transcriber="1min.ai/whisper-1",
+    )
+
+    assert result["enabled"] is True
+    assert result["status"] == "error"
+    assert result["reason"] == "http_401"
+    assert public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS["blipai"] > time.time()
+
+
+def test_memorial_shadow_stt_skips_requests_during_provider_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS["blipai"] = time.time() + 60.0
+    monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "blip-unit-token")
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=b"user-question-only",
+        content_type="audio/wav",
+        primary_transcript="Hallo Manfred",
+        primary_transcriber="1min.ai/whisper-1",
+    )
+
+    assert result["enabled"] is False
+    assert result["reason"] == "provider_cooldown_active"
+    assert result["cooldown_seconds_remaining"] > 0
+    public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
 
 
 def test_memorial_shadow_stt_marks_substantial_user_question_correction() -> None:
