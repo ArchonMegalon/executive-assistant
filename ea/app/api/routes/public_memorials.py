@@ -3885,7 +3885,7 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Ja. Ich höre dich."
+    return "Ja. Ich höre zu."
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -3893,8 +3893,14 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     return normalized in {
         "ja.",
         "ja, ich bin da.",
+        "ja. ich höre zu.",
+        "ja. ich hoere zu.",
         "ja. ich höre dich.",
         "ja. ich hoere dich.",
+        "ich höre zu. erzähl weiter.",
+        "ich hoere zu. erzaehl weiter.",
+        "ich höre zu. sag es mir in ruhe.",
+        "ich hoere zu. sag es mir in ruhe.",
         "ich höre dich. erzähl weiter.",
         "ich hoere dich. erzaehl weiter.",
         "ich höre dich. sag es mir in ruhe.",
@@ -3914,6 +3920,10 @@ def _looks_like_memorial_reply_text(text: str) -> bool:
     if _is_memorial_direct_contact_opening_text(normalized):
         return True
     reply_prefixes = (
+        "ja. ich höre zu",
+        "ja. ich hoere zu",
+        "ich höre zu",
+        "ich hoere zu",
         "ja. ich höre dich",
         "ja. ich hoere dich",
         "ich höre dich",
@@ -5999,7 +6009,7 @@ def _run_memorial_live_warmup(slug: str) -> None:
             selected_plugin = PIPER_FAST_TTS_PLUGIN_ID
             phase_started = time.perf_counter()
             piper_fast_synthesize_request(
-                text="Ja. Ich höre dich.",
+                text=_memorial_contact_answer_body("Hallo Manfred"),
                 lang=_text(base_config.get("lang"), "de-AT"),
                 base_voice_variant=_effective_tts_base_voice_variant(base_config),
             )
