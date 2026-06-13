@@ -570,6 +570,30 @@ def test_memorial_shadow_stt_ignores_language_mismatched_shadow_transcript() -> 
     assert correction == {"should_correct": False, "reason": "shadow_language_mismatch"}
 
 
+def test_memorial_shadow_stt_requires_anchor_for_large_unrelated_overwrite() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Ich habe gestern mit meiner Schwester gesprochen.",
+        shadow_transcript="Manfred sitzt am Fenster und lächelt leise.",
+    )
+
+    assert correction["should_correct"] is False
+    assert correction["reason"] == "shadow_semantic_anchor_missing"
+
+
+def test_memorial_shadow_stt_allows_question_like_upgrade_from_low_information_primary() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Ich höre dich.",
+        shadow_transcript="Wie ist das Wetter heute in Wien?",
+    )
+
+    assert correction["should_correct"] is True
+    assert correction["corrected_transcript"] == "Wie ist das Wetter heute in Wien?"
+
+
 def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> None:
     from app.api.routes import public_memorials
 

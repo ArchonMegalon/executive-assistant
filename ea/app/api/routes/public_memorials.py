@@ -6788,8 +6788,41 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
     }
     if primary_tokens & german_markers and shadow_tokens & english_markers and not shadow_tokens & german_markers:
         return {"should_correct": False, "reason": "shadow_language_mismatch"}
+    primary_is_low_information = (
+        len(primary_tokens) <= 3
+        or _looks_like_memorial_contact_opening_transcript(primary)
+        or _is_known_bad_memorial_subtitle_transcript(primary)
+    )
+    shadow_looks_like_user_question = bool(
+        shadow_tokens
+        & {
+            "wie",
+            "was",
+            "wo",
+            "wann",
+            "warum",
+            "wieso",
+            "weshalb",
+            "welche",
+            "welcher",
+            "wetter",
+            "ort",
+            "heute",
+            "jetzt",
+            "kannst",
+            "kann",
+            "sprichst",
+            "sprechen",
+        }
+    )
     overlap = len(primary_tokens & shadow_tokens) / max(1, len(primary_tokens | shadow_tokens))
     length_gain = len(shadow) - len(primary)
+    if overlap < 0.15 and not primary_is_low_information and not shadow_looks_like_user_question:
+        return {
+            "should_correct": False,
+            "reason": "shadow_semantic_anchor_missing",
+            "token_overlap": round(overlap, 4),
+        }
     if overlap < 0.58 or length_gain >= 18:
         return {
             "should_correct": True,
