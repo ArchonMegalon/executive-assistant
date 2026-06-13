@@ -1,30 +1,46 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T07:41:46Z",
+  "generated_at": "2026-06-13T08:06:47Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "2e95feec11e5fb27a4e96ea2fd5bfab0ad56cdbb",
+  "git_head": "d2841751862740f4ca476c8cc205d24df9b12f61",
+  "dirty_worktree": false,
   "status": "pass",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
-  "direct_text": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+  "gold_mode": false,
+  "require_public_origin": false,
+  "direct_min_f1": 0.92,
+  "conversation_min_f1": 0.9,
+  "critical_tokens": [
+    "direkt",
+    "stand"
+  ],
+  "direct_text": "Die aktuelle Lage sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf.",
   "conversation_question": "Wie geht das weiter?",
   "present_world_question": "Wie ist das Wetter heute?",
   "failed_codes": [],
   "warned_codes": [],
   "metrics": {
+    "speech_synthesize_ms": 77,
     "direct_tts_audio_status": "pass",
+    "speech_transcribe_ms": 9964,
     "direct_tts_transcriber": "1min.ai/whisper-1",
-    "direct_tts_expected_chars": 110,
-    "direct_tts_actual_chars": 112,
-    "direct_tts_f1": 0.9,
+    "direct_tts_expected_chars": 104,
+    "direct_tts_actual_chars": 104,
+    "direct_tts_f1": 1.0,
+    "chat_reference_ms": 104,
     "reference_answer_chars": 104,
+    "present_world_chat_ms": 28,
     "present_world_answer_chars": 110,
+    "synthetic_prompt_synthesize_ms": 51,
+    "conversation_turn_total_ms": 7492,
     "conversation_turn_audio_status": "pass",
+    "conversation_answer_transcribe_ms": 7809,
     "conversation_turn_transcriber": "1min.ai/whisper-1",
     "conversation_turn_audio_expected_chars": 104,
-    "conversation_turn_audio_actual_chars": 106,
-    "conversation_turn_audio_f1": 0.9412
+    "conversation_turn_audio_actual_chars": 104,
+    "conversation_turn_audio_f1": 1.0
   },
   "artifacts": {
     "direct_tts_audio": "/tmp/memorial_voice_roundtrip_exit_gate/manfred-direct-tts.wav",
@@ -43,11 +59,11 @@
       "code": "direct_tts_similarity_ok",
       "message": "Transcript matches the expected spoken content closely.",
       "detail": {
-        "expected": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
-        "actual": "Das aktuelle Wetter sehe ich hier nicht direkt. Sagt mir den Ort oder schaut kurz hinaus, dann reden wir weiter.",
-        "precision": 0.9,
-        "recall": 0.9,
-        "f1": 0.9
+        "expected": "Die aktuelle Lage sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf.",
+        "actual": "Die aktuelle Lage sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf.",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
       }
     },
     {
@@ -77,12 +93,12 @@
       "message": "Transcript matches the expected spoken content closely.",
       "detail": {
         "expected": "Die aktuelle Lage sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf.",
-        "actual": "Die aktuelle Lage sehe ich hier nicht geregelt. Sag mir den konkreten Stand. Dann antworte ich dir darauf.",
-        "precision": 0.9412,
-        "recall": 0.9412,
-        "f1": 0.9412
+        "actual": "Die aktuelle Lage sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf.",
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
       }
     }
   ],
-  "gold_claim_allowed": true
+  "gold_claim_allowed": false
 }
