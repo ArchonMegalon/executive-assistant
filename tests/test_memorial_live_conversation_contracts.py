@@ -161,9 +161,12 @@ def test_memorial_speech_transcribe_rejects_silent_wav_before_provider_upload(
 
 def test_memorial_shadow_stt_defaults_to_blipai_without_external_send_when_url_missing(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from app.api.routes import public_memorials
 
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(tmp_path / "missing-shadow-token.json"))
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_PROVIDER", raising=False)
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
     monkeypatch.delenv("BLIPAI_APP_API_TOKEN", raising=False)
@@ -226,10 +229,12 @@ def test_memorial_shadow_stt_blipai_receives_only_user_question_audio(
 
 def test_memorial_shadow_stt_blipai_defaults_to_official_multipart_api(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from app.api.routes import public_memorials
 
     seen: dict[str, object] = {}
+    public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
 
     class _Response:
         status_code = 200
@@ -245,6 +250,7 @@ def test_memorial_shadow_stt_blipai_defaults_to_official_multipart_api(
         seen["timeout"] = timeout
         return _Response()
 
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(tmp_path / "missing-shadow-token.json"))
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_API_KEY", raising=False)
     monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "blip-unit-token")
@@ -328,11 +334,13 @@ def test_memorial_shadow_stt_skips_requests_during_provider_cooldown(
 
 def test_memorial_shadow_stt_refreshes_expired_blipai_access_token(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     from app.api.routes import public_memorials
 
     public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
     public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+    monkeypatch.setenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH", str(tmp_path / "missing-shadow-token.json"))
     monkeypatch.setenv("BLIPAI_APP_API_TOKEN", "expired-token")
     monkeypatch.setenv("BLIPAI_APP_REFRESH_TOKEN", "refresh-token")
     monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
@@ -538,6 +546,17 @@ def test_memorial_shadow_stt_marks_substantial_user_question_correction() -> Non
     assert correction["should_correct"] is True
     assert correction["corrected_transcript"] == "Wie ist das Wetter heute in Wien?"
     assert minor["should_correct"] is False
+
+
+def test_memorial_shadow_stt_ignores_too_brief_shadow_transcript() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Ich höre dich.",
+        shadow_transcript="Bye.",
+    )
+
+    assert correction == {"should_correct": False, "reason": "shadow_too_brief"}
 
 
 def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> None:

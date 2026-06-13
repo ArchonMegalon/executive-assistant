@@ -6747,6 +6747,8 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
     shadow_tokens = set(re.findall(r"[a-z0-9äöüß]+", shadow.lower()))
     if not shadow_tokens:
         return {"should_correct": False, "reason": "shadow_empty"}
+    if len(shadow_tokens) < 2:
+        return {"should_correct": False, "reason": "shadow_too_brief"}
     overlap = len(primary_tokens & shadow_tokens) / max(1, len(primary_tokens | shadow_tokens))
     length_gain = len(shadow) - len(primary)
     if overlap < 0.58 or length_gain >= 18:
