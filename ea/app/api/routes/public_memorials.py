@@ -3506,12 +3506,12 @@ def _is_memorial_present_world_question(question: str) -> bool:
 def _memorial_present_world_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("wetter", "regnet", "regen", "sonnig", "sonne", "temperatur", "grad", "draussen", "draußen")):
-        return "Ich habe keine Antwort."
+        return "Ich weiss es wirklich nicht."
     if any(token in lowered for token in ("uhrzeit", "wie spaet", "wie spät", "wieviel uhr", "wie viel uhr")):
-        return "Ich habe keine Antwort."
+        return "Ich weiss es wirklich nicht."
     if any(token in lowered for token in ("welcher tag", "welches datum", "welchen tag haben wir")):
-        return "Ich habe keine Antwort."
-    return "Ich habe keine Antwort."
+        return "Ich weiss es wirklich nicht."
+    return "Ich weiss es wirklich nicht."
 
 
 def _memorial_present_world_search_cache_path(*, question: str) -> Path:
