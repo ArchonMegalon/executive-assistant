@@ -39,7 +39,21 @@ def _summary(values: list[float]) -> dict[str, float | None]:
     }
 
 
-def run_stability_gate(*, slug: str, base_url: str, output_dir: Path, runs: int, require_stt: bool) -> dict[str, Any]:
+def _timing_summary(receipts: list[dict[str, Any]], key: str) -> dict[str, float | None]:
+    values = [value for receipt in receipts if (value := _metric(receipt, key)) is not None]
+    return _summary(values)
+
+
+def run_stability_gate(
+    *,
+    slug: str,
+    base_url: str,
+    output_dir: Path,
+    runs: int,
+    require_stt: bool,
+    gold_mode: bool = False,
+    require_public_origin: bool = False,
+) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     receipts: list[dict[str, Any]] = []
     for index in range(1, runs + 1):
@@ -48,12 +62,15 @@ def run_stability_gate(*, slug: str, base_url: str, output_dir: Path, runs: int,
             base_url=base_url,
             output_dir=output_dir / f"run-{index:02d}",
             direct_text=(
-                "Das aktuelle Wetter sehe ich hier nicht direkt. "
-                "Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter."
+                "Die aktuelle Lage sehe ich hier nicht direkt. "
+                "Sag mir den konkreten Stand, dann antworte ich dir darauf."
             ),
             conversation_question="Wie geht das weiter?",
             present_world_question="Wie ist das Wetter heute?",
             require_stt=require_stt,
+            gold_mode=gold_mode,
+            require_public_origin=require_public_origin,
+            critical_tokens=("direkt", "stand"),
         )
         receipts.append(receipt)
 
@@ -81,9 +98,20 @@ def run_stability_gate(*, slug: str, base_url: str, output_dir: Path, runs: int,
         "runs_required": runs,
         "runs_completed": len(receipts),
         "status": "pass" if not failed_runs and len(receipts) == runs else "fail",
+        "gold_mode": bool(gold_mode),
+        "require_public_origin": bool(require_public_origin),
         "failed_runs": failed_runs,
         "direct_tts_f1": _summary(direct_f1),
         "conversation_turn_audio_f1": _summary(conversation_f1),
+        "latency_ms": {
+            "speech_synthesize": _timing_summary(receipts, "speech_synthesize_ms"),
+            "speech_transcribe": _timing_summary(receipts, "speech_transcribe_ms"),
+            "chat_reference": _timing_summary(receipts, "chat_reference_ms"),
+            "present_world_chat": _timing_summary(receipts, "present_world_chat_ms"),
+            "synthetic_prompt_synthesize": _timing_summary(receipts, "synthetic_prompt_synthesize_ms"),
+            "conversation_turn_total": _timing_summary(receipts, "conversation_turn_total_ms"),
+            "conversation_answer_transcribe": _timing_summary(receipts, "conversation_answer_transcribe_ms"),
+        },
         "receipts": receipts,
     }
 
@@ -96,6 +124,8 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=Path("/tmp/memorial_voice_stability_gate"))
     parser.add_argument("--output", type=Path, default=Path("/tmp/memorial_voice_stability_gate.generated.json"))
     parser.add_argument("--allow-missing-stt", action="store_true")
+    parser.add_argument("--gold-mode", action="store_true")
+    parser.add_argument("--require-public-origin", action="store_true")
     args = parser.parse_args()
     runs = max(1, int(args.runs or 1))
     payload = run_stability_gate(
@@ -104,6 +134,8 @@ def main() -> int:
         output_dir=args.output_dir,
         runs=runs,
         require_stt=not args.allow_missing_stt,
+        gold_mode=bool(args.gold_mode),
+        require_public_origin=bool(args.require_public_origin),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

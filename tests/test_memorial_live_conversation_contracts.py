@@ -347,6 +347,28 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
     assert "schach" not in body["answer"].lower()
 
 
+def test_memorial_present_world_search_request_is_disabled_for_local_source_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _setup_memorial(monkeypatch, tmp_path)
+    monkeypatch.setenv("EA_MEMORIAL_ENABLE_WEB_SEARCH", "1")
+    monkeypatch.setenv("EA_MEMORIAL_WEB_SEARCH_PROVIDER", "brave")
+    monkeypatch.setenv("EA_MEMORIAL_WEB_SEARCH_API_KEY", "unit-test-key")
+    from app.api.routes import public_memorials
+
+    payload = public_memorials._memorial_present_world_search_request("Wie ist das Wetter heute?")
+
+    assert payload["provider"] == "disabled"
+    assert payload["results"] == []
+    assert payload["disabled_reason"] == "memorial_current_world_policy_local_memories_and_conversation_only"
+    assert public_memorials._memorial_present_world_search_answer(
+        "Wie ist das Wetter heute?",
+        requested_model="unit-test-model",
+        person_name="Manfred",
+    ) is None
+
+
 def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_direct_audio_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

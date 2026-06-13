@@ -3584,6 +3584,12 @@ def _memorial_present_world_result_rows(raw: object) -> list[dict[str, str]]:
 
 
 def _memorial_present_world_search_request(question: str) -> dict[str, object]:
+    return {
+        "provider": "disabled",
+        "query": " ".join(_text(question, "").split()),
+        "results": [],
+        "disabled_reason": "memorial_current_world_policy_local_memories_and_conversation_only",
+    }
     provider = _memorial_web_search_provider()
     timeout = _memorial_web_search_timeout_seconds()
     max_results = _memorial_web_search_max_results()
@@ -3721,6 +3727,7 @@ def _memorial_present_world_search_request(question: str) -> dict[str, object]:
 
 
 def _memorial_present_world_search_answer(question: str, *, requested_model: str, person_name: str = "Manfred") -> dict[str, object] | None:
+    return None
     if not _memorial_web_search_enabled():
         return None
     search_payload = _memorial_present_world_search_request(question)
@@ -6917,6 +6924,17 @@ def _minimal_public_memorial_html(
         color: var(--blue);
         font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
       }}
+      .chat-answer {{
+        margin-top: 14px;
+        padding: 14px 15px;
+        border: 1px solid rgba(65, 53, 43, 0.12);
+        border-radius: 16px;
+        background: rgba(255, 252, 247, 0.92);
+        color: var(--ink);
+        white-space: pre-wrap;
+        text-align: left;
+        font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
         main {{ bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }}
@@ -6948,6 +6966,7 @@ def _minimal_public_memorial_html(
           </div>
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
+        <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
         <audio id="memorial-speech-audio" preload="none"></audio>
       </section>
     </main>
@@ -6962,6 +6981,7 @@ def _minimal_public_memorial_html(
       const speechMessage = document.getElementById("memorial-speech-message");
       const speechPhase = document.getElementById("memorial-speech-phase");
       const speechDetail = document.getElementById("memorial-speech-detail");
+      const answer = document.getElementById("memorial-chat-answer");
       let deferredInstallPrompt = null;
       let memorialWarmupPromise = null;
       let memorialLandingReady = false;
@@ -7020,6 +7040,13 @@ def _minimal_public_memorial_html(
           error: "Bitte noch einmal"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
+      }}
+
+      function showAnswerText(value) {{
+        const text = String(value || "").trim();
+        if (!answer || !text) return;
+        answer.textContent = text;
+        answer.hidden = false;
       }}
 
       function syncConversationButton() {{
@@ -7424,6 +7451,7 @@ def _minimal_public_memorial_html(
         if (type === "response.output_audio_transcript.done" || type === "response.output_text.done") {{
           liveAnswerTranscript = String(event.transcript || event.text || liveAnswerTranscript || "").trim();
           setSpeechStatus("Ich spreche.", "playing", liveAnswerTranscript);
+          showAnswerText(liveAnswerTranscript);
           return;
         }}
         if (type === "response.done") {{
@@ -7680,6 +7708,7 @@ def _minimal_public_memorial_html(
               payload.answer = String(message.text || "").trim();
               payload.sources = Array.isArray(message.sources) ? message.sources : [];
               payload.llm_model = String(message.llm_model || "");
+              showAnswerText(payload.answer);
               return;
             }}
             if (type === "audio") {{
@@ -7850,6 +7879,7 @@ def _minimal_public_memorial_html(
             ? await realtimeTurnOverride.finish()
             : await sendConversationTurn(blob, generation);
           if (generation !== activeGeneration) return;
+          showAnswerText(payload && payload.answer);
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) {{
             await playMemorialAudio(audioBlob, generation);
@@ -9166,7 +9196,7 @@ def _memorial_html(
         opacity: .9;
       }}
       .speech-transcript {{
-        display: none !important;
+        display: block;
       }}
       .speech-turn {{
         border: 1px solid rgba(132,104,74,.14);
@@ -9686,6 +9716,7 @@ def _memorial_html(
           </div>
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
+        <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
         <div class="minimal-hidden" hidden aria-hidden="true">
           <form class="chat-form" id="memorial-chat-form">
             <select id="memorial-chat-model" class="voice-input chat-model-select" hidden>
@@ -9695,7 +9726,6 @@ def _memorial_html(
             <span id="memorial-chat-status"></span>
           </form>
           <span data-realtime-endpoint="/memorials/{html.escape(slug)}/realtime"></span>
-          <div class="chat-answer" id="memorial-chat-answer" hidden></div>
         </div>
         <audio id="memorial-speech-audio" preload="none"></audio>
       </section>
@@ -10569,7 +10599,7 @@ def _memorial_html(
           realtimeTurnData.llm_model = String(payload.llm_model || "");
           if (answer && realtimeTurnData.answer) {{
             lastAnswerText = realtimeTurnData.answer;
-            answer.textContent = realtimeTurnData.answer + (realtimeTurnData.sources.length ? "\\n\\nQuellen: " + realtimeTurnData.sources.join(", ") : "");
+            showAnswerText(realtimeTurnData.answer + (realtimeTurnData.sources.length ? "\\n\\nQuellen: " + realtimeTurnData.sources.join(", ") : ""));
           }}
           const transcript = normalizeTranscriptText(realtimeTurnData.transcript_text || "");
           if (looksLiveInteractionTurn(transcript)) {{
@@ -10968,6 +10998,12 @@ def _memorial_html(
       function normalizeTranscriptText(value) {{
         return String(value || "").replace(/\\s+/g, " ").trim();
       }}
+      function showAnswerText(value) {{
+        const text = normalizeTranscriptText(value || "");
+        if (!answer || !text) return;
+        answer.textContent = text;
+        answer.hidden = false;
+      }}
       function normalizeConversationCompareText(value) {{
         return normalizeTranscriptText(value || "")
           .toLowerCase()
@@ -11305,6 +11341,7 @@ def _memorial_html(
         if (!text) return;
         statusNode.textContent = "Formuliere...";
         answer.textContent = "";
+        answer.hidden = true;
         appendSpeechTurn("user", text);
         setSpeechStatus("", "thinking", "");
         const selectedModel = chatModelSelect ? String(chatModelSelect.value || "").trim() : "";
@@ -11324,7 +11361,7 @@ def _memorial_html(
             updatePersonalMemoryStatusUi();
           }}
           lastAnswerText = String(payload.answer || "");
-          answer.textContent = lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          showAnswerText(lastAnswerText + "\\n\\nQuellen: " + (payload.sources || []).join(", "));
           appendSpeechTurn("assistant", lastAnswerText);
           statusNode.textContent = "";
           if (options.continueConversation) setSpeechStatus("Ich antworte gleich.", "working", "Meine Stimme wird gestartet");
@@ -11598,7 +11635,7 @@ def _memorial_html(
                 payload.llm_model = String(message.llm_model || "");
                 if (payload.answer) {{
                   lastAnswerText = payload.answer;
-                  answer.textContent = payload.answer + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+                  showAnswerText(payload.answer + "\\n\\nQuellen: " + (payload.sources || []).join(", "));
                   appendSpeechTurn("assistant", payload.answer);
                 }}
                 return;
@@ -11683,7 +11720,7 @@ def _memorial_html(
         const assistantText = normalizeTranscriptText(payload.answer || "");
         if (assistantText) {{
           lastAnswerText = assistantText;
-          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          showAnswerText(assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", "));
         }}
         const audioPayload = decodeConversationAudioPayload(payload);
         if (audioPayload.ok) {{
@@ -12225,7 +12262,7 @@ def _memorial_html(
           const payload = await sendRealtimeTurn({{ text: normalized }});
           const assistantText = normalizeTranscriptText(payload.answer || "");
           lastAnswerText = assistantText;
-          answer.textContent = assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", ");
+          showAnswerText(assistantText + "\\n\\nQuellen: " + (payload.sources || []).join(", "));
           appendSpeechTurn("assistant", assistantText);
           const audioPayload = decodeConversationAudioPayload(payload);
           if (audioPayload.ok) {{

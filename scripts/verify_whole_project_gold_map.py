@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,13 @@ REQUIRED_PLANES = {
     "memorial_voice_demo",
     "ltd_provider_lanes",
 }
+GENERATED_RECEIPT_PATHS = {
+    ".codex-design/product/PROJECT_MODES.generated.json",
+    ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+    ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+    ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+}
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -40,6 +48,41 @@ def _json(path: Path) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _git_head(path: Path = ROOT) -> str:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
+    recorded = str(recorded_head or "").strip()
+    if not recorded or not current_head:
+        return False
+    if recorded == current_head:
+        return True
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(ROOT), "diff", "--name-only", f"{recorded}..{current_head}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    changed = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    return bool(changed) and changed <= GENERATED_RECEIPT_PATHS
+
+
 def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
     issues: list[str] = []
     receipt = _json(path)
@@ -48,6 +91,9 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
 
     if receipt.get("contract_name") != "ea.whole_project_gold_map":
         issues.append("contract_name must be ea.whole_project_gold_map")
+    current_head = _git_head()
+    if current_head and not _fresh_enough(str(receipt.get("git_head") or ""), current_head=current_head):
+        issues.append("whole-project gold map is stale relative to current HEAD")
 
     planes = receipt.get("planes")
     if not isinstance(planes, list):
@@ -61,6 +107,14 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
     ea_plane = by_key.get("ea_release_control") or {}
     if ea_plane.get("status") != "pass":
         issues.append("EA release-control plane must be pass before this map can pass")
+
+    memorial_plane = by_key.get("memorial_voice_demo") or {}
+    if str(memorial_plane.get("status") or "").strip().lower() == "pass":
+        evidence = [Path(str(item)) for item in list(memorial_plane.get("evidence") or []) if str(item)]
+        for evidence_path in evidence:
+            payload = _json(evidence_path if evidence_path.is_absolute() else ROOT / evidence_path)
+            if payload and current_head and not _fresh_enough(str(payload.get("git_head") or ""), current_head=current_head):
+                issues.append("memorial voice receipt is stale relative to current HEAD")
 
     blocking_planes = [
         key

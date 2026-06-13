@@ -891,6 +891,7 @@ def test_public_memorial_page_keeps_archive_and_voice_feedback_collapsed(
     assert "Originalaufnahmen" not in body
     assert "Belegte Erinnerungen" not in body
     assert 'id="memorial-voice-config-form"' not in body
+    assert 'id="memorial-chat-answer"' in body
     assert "Gespräch beginnen" in body
     assert "Am Handy/Desktop installieren" in body
     assert "Tippen, sprechen, kurz warten, einfach weiterreden." not in body

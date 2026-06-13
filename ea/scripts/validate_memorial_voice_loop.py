@@ -6,6 +6,7 @@ import base64
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -125,6 +126,20 @@ def _token_overlap(expected: str, actual: str) -> dict[str, float]:
     return {"precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4)}
 
 
+def _critical_tokens_missing(actual: str, critical_tokens: tuple[str, ...]) -> list[str]:
+    actual_tokens = set(_normalize_compare_text(actual).split())
+    missing: list[str] = []
+    for token in critical_tokens:
+        normalized = _normalize_compare_text(token)
+        if normalized and normalized not in actual_tokens:
+            missing.append(token)
+    return missing
+
+
+def _elapsed_ms(started: float) -> int:
+    return int(round((time.perf_counter() - started) * 1000.0))
+
+
 def _speech_transcriber_unavailable(status_code: int, payload: dict[str, Any]) -> bool:
     if int(status_code) != 503:
         return False
@@ -199,13 +214,34 @@ def _save_bytes(path: Path, payload: bytes) -> None:
     path.write_bytes(payload)
 
 
-def _evaluate_similarity(report: ValidationReport, *, code_prefix: str, expected: str, actual: str) -> None:
+def _evaluate_similarity(
+    report: ValidationReport,
+    *,
+    code_prefix: str,
+    expected: str,
+    actual: str,
+    min_f1: float = 0.82,
+    gold_mode: bool = False,
+    critical_tokens: tuple[str, ...] = (),
+) -> None:
     overlap = _token_overlap(expected, actual)
     report.metrics[f"{code_prefix}_expected_chars"] = len(expected)
     report.metrics[f"{code_prefix}_actual_chars"] = len(actual)
     report.metrics[f"{code_prefix}_f1"] = overlap["f1"]
     if not _normalize_compare_text(actual):
         report.add("fail", f"{code_prefix}_transcript_empty", "No transcript came back from speech-to-text.", expected=expected, actual=actual)
+        return
+    missing_critical_tokens = _critical_tokens_missing(actual, critical_tokens)
+    if missing_critical_tokens:
+        report.add(
+            "fail",
+            f"{code_prefix}_critical_tokens_missing",
+            "Transcript dropped or substituted critical memorial-gold words.",
+            expected=expected,
+            actual=actual,
+            missing_tokens=missing_critical_tokens,
+            **overlap,
+        )
         return
     expected_tokens = _normalize_compare_text(expected).split()
     actual_tokens = set(_normalize_compare_text(actual).split())
@@ -216,6 +252,28 @@ def _evaluate_similarity(report: ValidationReport, *, code_prefix: str, expected
             "Transcript contains the complete expected short phrase.",
             expected=expected,
             actual=actual,
+            **overlap,
+        )
+        return
+    if gold_mode:
+        if overlap["f1"] >= min_f1:
+            report.add(
+                "pass",
+                f"{code_prefix}_gold_similarity_ok",
+                "Transcript meets the stricter memorial-gold similarity threshold.",
+                expected=expected,
+                actual=actual,
+                min_f1=min_f1,
+                **overlap,
+            )
+            return
+        report.add(
+            "fail",
+            f"{code_prefix}_gold_similarity_bad",
+            "Transcript does not meet the stricter memorial-gold similarity threshold.",
+            expected=expected,
+            actual=actual,
+            min_f1=min_f1,
             **overlap,
         )
         return
@@ -237,15 +295,21 @@ def validate_memorial_voice_loop(
     conversation_question: str,
     present_world_question: str = "Welches Wetter haben wir heute?",
     require_stt: bool = False,
+    gold_mode: bool = False,
+    direct_min_f1: float = 0.92,
+    conversation_min_f1: float = 0.90,
+    critical_tokens: tuple[str, ...] = (),
 ) -> ValidationReport:
     normalized_base_url = _normalize_base_url(base_url)
     report = ValidationReport(slug=slug, base_url=normalized_base_url, output_dir=str(output_dir))
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    started = time.perf_counter()
     synth_status, synth_audio, synth_content_type = _post_json_binary_response(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-synthesize",
         {"text": direct_text},
     )
+    report.metrics["speech_synthesize_ms"] = _elapsed_ms(started)
     if synth_status != 200 or not synth_audio:
         report.add("fail", "direct_tts_failed", "Direct speech synthesis did not return audio.", status_code=synth_status)
         return report
@@ -271,11 +335,13 @@ def validate_memorial_voice_loop(
         report.add("pass", "direct_tts_audio_ok", "Synthesized audio passed signal checks.")
 
     transcriber_available = True
+    started = time.perf_counter()
     transcribe_status, transcribe_payload = _post_binary(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-transcribe",
         synth_audio,
         content_type=synth_content_type,
     )
+    report.metrics["speech_transcribe_ms"] = _elapsed_ms(started)
     if transcribe_status != 200:
         if _speech_transcriber_unavailable(transcribe_status, transcribe_payload):
             transcriber_available = False
@@ -293,12 +359,22 @@ def validate_memorial_voice_loop(
     else:
         direct_transcript = str(transcribe_payload.get("transcript_text") or "")
         report.metrics["direct_tts_transcriber"] = str(transcribe_payload.get("transcriber") or "")
-        _evaluate_similarity(report, code_prefix="direct_tts", expected=direct_text, actual=direct_transcript)
+        _evaluate_similarity(
+            report,
+            code_prefix="direct_tts",
+            expected=direct_text,
+            actual=direct_transcript,
+            min_f1=direct_min_f1,
+            gold_mode=gold_mode,
+            critical_tokens=critical_tokens,
+        )
 
+    started = time.perf_counter()
     chat_status, chat_payload = _post_json(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/chat",
         {"question": conversation_question},
     )
+    report.metrics["chat_reference_ms"] = _elapsed_ms(started)
     if chat_status != 200:
         report.add("fail", "chat_reference_failed", "Reference chat answer could not be generated.", status_code=chat_status, payload=chat_payload)
         return report
@@ -317,10 +393,12 @@ def validate_memorial_voice_loop(
         )
         return report
 
+    started = time.perf_counter()
     present_status, present_payload = _post_json(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/chat",
         {"question": present_world_question},
     )
+    report.metrics["present_world_chat_ms"] = _elapsed_ms(started)
     if present_status != 200:
         report.add(
             "fail",
@@ -332,6 +410,7 @@ def validate_memorial_voice_loop(
         return report
     present_answer = str(present_payload.get("answer") or "")
     present_reason = str(present_payload.get("fallback_reason") or "")
+    present_policy = str(present_payload.get("current_world_policy") or "")
     report.metrics["present_world_answer_chars"] = len(present_answer)
     if present_reason == "present_world_search":
         report.add(
@@ -349,6 +428,27 @@ def validate_memorial_voice_loop(
             "Present-world question did not route through the dedicated current-world handling.",
             question=present_world_question,
             fallback_reason=present_reason,
+            answer=present_answer,
+        )
+        return report
+    if present_policy != "local_memories_and_conversation_only_no_internet_search":
+        report.add(
+            "fail",
+            "present_world_policy_not_local_only",
+            "Memorial current-world handling must explicitly stay local-source-only.",
+            question=present_world_question,
+            fallback_reason=present_reason,
+            current_world_policy=present_policy,
+            answer=present_answer,
+        )
+        return report
+    if present_payload.get("sources"):
+        report.add(
+            "fail",
+            "present_world_sources_forbidden",
+            "Memorial current-world handling must not return internet/current-world sources.",
+            question=present_world_question,
+            sources=present_payload.get("sources"),
             answer=present_answer,
         )
         return report
@@ -379,10 +479,12 @@ def validate_memorial_voice_loop(
         fallback_reason=present_reason,
     )
 
+    started = time.perf_counter()
     prompt_status, prompt_audio, prompt_content_type = _post_json_binary_response(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-synthesize",
         {"text": conversation_question},
     )
+    report.metrics["synthetic_prompt_synthesize_ms"] = _elapsed_ms(started)
     if prompt_status != 200 or not prompt_audio:
         report.add("fail", "synthetic_prompt_failed", "Could not synthesize the synthetic question loop prompt.", status_code=prompt_status)
         return report
@@ -390,11 +492,13 @@ def validate_memorial_voice_loop(
     _save_bytes(prompt_audio_path, prompt_audio)
     report.artifacts["synthetic_question_audio"] = str(prompt_audio_path)
 
+    started = time.perf_counter()
     turn_status, turn_payload = _post_binary(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/conversation-turn",
         prompt_audio,
         content_type=prompt_content_type,
     )
+    report.metrics["conversation_turn_total_ms"] = _elapsed_ms(started)
     if turn_status != 200:
         report.add("fail", "conversation_turn_failed", "Conversation turn did not return a valid response.", status_code=turn_status, payload=turn_payload)
         return report
@@ -436,13 +540,23 @@ def validate_memorial_voice_loop(
     elif _normalize_compare_text(answer_text) == _normalize_compare_text(reference_answer):
         report.add("pass", "conversation_answer_text_ok", "Conversation-turn answer text matches the reference chat answer.")
     else:
-        _evaluate_similarity(report, code_prefix="conversation_answer_text", expected=reference_answer, actual=answer_text)
+        _evaluate_similarity(
+            report,
+            code_prefix="conversation_answer_text",
+            expected=reference_answer,
+            actual=answer_text,
+            min_f1=conversation_min_f1,
+            gold_mode=gold_mode,
+            critical_tokens=critical_tokens,
+        )
 
+    started = time.perf_counter()
     answer_transcribe_status, answer_transcribe_payload = _post_binary(
         f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-transcribe",
         answer_audio_bytes,
         content_type=str(turn_payload.get("audio_content_type") or "audio/wav"),
     )
+    report.metrics["conversation_answer_transcribe_ms"] = _elapsed_ms(started)
     if answer_transcribe_status != 200:
         if _speech_transcriber_unavailable(answer_transcribe_status, answer_transcribe_payload):
             status = "fail" if require_stt else "info"
@@ -458,7 +572,15 @@ def validate_memorial_voice_loop(
         return report
     answer_transcript = str(answer_transcribe_payload.get("transcript_text") or "")
     report.metrics["conversation_turn_transcriber"] = str(answer_transcribe_payload.get("transcriber") or "")
-    _evaluate_similarity(report, code_prefix="conversation_turn_audio", expected=answer_text, actual=answer_transcript)
+    _evaluate_similarity(
+        report,
+        code_prefix="conversation_turn_audio",
+        expected=answer_text,
+        actual=answer_transcript,
+        min_f1=conversation_min_f1,
+        gold_mode=gold_mode,
+        critical_tokens=critical_tokens,
+    )
 
     return report
 
@@ -477,6 +599,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--conversation-question", default="Hallo Manfred, kannst du direkt mit mir reden?")
     parser.add_argument("--present-world-question", default="Welches Wetter haben wir heute?")
     parser.add_argument("--require-stt", action="store_true", help="Fail when live speech-to-text is unavailable.")
+    parser.add_argument("--gold-mode", action="store_true", help="Use stricter memorial-gold voice thresholds and critical-token checks.")
+    parser.add_argument("--direct-min-f1", type=float, default=0.92)
+    parser.add_argument("--conversation-min-f1", type=float, default=0.90)
+    parser.add_argument("--critical-token", action="append", default=[])
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output", default="")
     parser.add_argument("--json-output", default="")
@@ -492,6 +618,10 @@ def main(argv: list[str] | None = None) -> int:
         conversation_question=args.conversation_question,
         present_world_question=args.present_world_question,
         require_stt=args.require_stt,
+        gold_mode=args.gold_mode,
+        direct_min_f1=float(args.direct_min_f1),
+        conversation_min_f1=float(args.conversation_min_f1),
+        critical_tokens=tuple(str(token) for token in args.critical_token),
     )
     payload = json.dumps(report.as_dict(), ensure_ascii=False, indent=2)
     markdown = "\n".join(

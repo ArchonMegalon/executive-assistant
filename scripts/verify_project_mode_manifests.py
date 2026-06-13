@@ -2,12 +2,20 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_MODES = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
 SHOW_SURFACE = ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
+GENERATED_RECEIPT_PATHS = {
+    ".codex-design/product/PROJECT_MODES.generated.json",
+    ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+    ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+    ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+}
 
 
 def _load(path: Path) -> dict:
@@ -17,9 +25,49 @@ def _load(path: Path) -> dict:
     return payload
 
 
+def _git_head() -> str:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
+    recorded = str(recorded_head or "").strip()
+    if not recorded or not current_head:
+        return False
+    if recorded == current_head:
+        return True
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(ROOT), "diff", "--name-only", f"{recorded}..{current_head}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    changed = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    return bool(changed) and changed <= GENERATED_RECEIPT_PATHS
+
+
 def main() -> int:
     modes = _load(PROJECT_MODES)
     show = _load(SHOW_SURFACE)
+    current_head = _git_head()
+    if current_head and not _fresh_enough(str(modes.get("git_head") or ""), current_head=current_head):
+        raise SystemExit("project_modes_manifest_stale")
+    if current_head and not _fresh_enough(str(show.get("git_head") or ""), current_head=current_head):
+        raise SystemExit("show_surface_manifest_stale")
     keys = {str(item.get("key") or "") for item in modes.get("modes", []) if isinstance(item, dict)}
     required = {"EA_CORE", "MEMORIAL", "PROVIDER_LAB", "CHUMMER_RELEASE_CONTROL", "PROPERTY"}
     missing = required - keys
@@ -52,6 +100,8 @@ def main() -> int:
     except Exception as exc:
         raise SystemExit(f"memorial_hard_gate_receipt_invalid:{exc}") from exc
     memorial_status = str(memorial_receipt.get("status") or "").strip().lower()
+    if current_head and memorial_status == "pass" and not _fresh_enough(str(memorial_receipt.get("git_head") or ""), current_head=current_head):
+        raise SystemExit("memorial_hard_gate_receipt_stale")
     if by_key["MEMORIAL"].get("status") == "shipping_memorial" and memorial_status != "pass":
         raise SystemExit("shipping_memorial_gate_not_passing")
     if by_key["MEMORIAL"].get("status") == "separate_risk_zone" and memorial_status == "pass":

@@ -362,7 +362,7 @@ def build_gold_map(
     }
 
 
-VOLATILE_KEYS = {"generated_at", "git_head"}
+VOLATILE_KEYS = {"generated_at"}
 
 
 def _normalize(value: Any) -> Any:

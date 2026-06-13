@@ -61,6 +61,8 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
                 return 200, {
                     "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                     "fallback_reason": "present_world_guardrail",
+                    "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                    "sources": [],
                 }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
         raise AssertionError(url)
@@ -175,6 +177,8 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
             return 200, {
                 "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                 "fallback_reason": "present_world_guardrail",
+                "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                "sources": [],
             }
         return 200, {"answer": "Ich antworte dir direkt."}
 
@@ -229,6 +233,8 @@ def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unava
                 return 200, {
                     "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                     "fallback_reason": "present_world_guardrail",
+                    "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                    "sources": [],
                 }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
         raise AssertionError(url)
@@ -280,6 +286,8 @@ def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp
                 return 200, {
                     "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
                     "fallback_reason": "present_world_guardrail",
+                    "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                    "sources": [],
                 }
             return 200, {"answer": "Ich antworte dir direkt und bleibe bei der Sache."}
         raise AssertionError(url)
@@ -353,3 +361,58 @@ def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(t
 
     assert report.status == "fail"
     assert any(item.code == "present_world_wrong_route" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_gold_mode_rejects_critical_token_substitution(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Ich hoere dich gut. Sag mir bitte den Ort.")
+    answer_wav = _generated_wav(b"Ich hoere dich gut. Sag mir bitte den Ort.")
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if url.endswith("/chat"):
+            if payload.get("question") == "Wie ist das Wetter heute?":
+                return 200, {
+                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "fallback_reason": "present_world_guardrail",
+                    "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                    "sources": [],
+                }
+            return 200, {"answer": "Ich höre dich gut. Sag mir bitte den Ort."}
+        raise AssertionError(url)
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/speech-transcribe"):
+            return 200, {"transcript_text": "Ich höre dich gut. Sag mir bitte Geloren.", "transcriber": "stub"}
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Ich höre dich gut. Sag mir bitte den Ort.",
+                "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(
+        validator,
+        "_post_json_binary_response",
+        lambda *args, **kwargs: (200, direct_wav, "audio/wav"),
+    )
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Ich höre dich gut. Sag mir bitte den Ort.",
+        conversation_question="Wie geht das weiter?",
+        present_world_question="Wie ist das Wetter heute?",
+        require_stt=True,
+        gold_mode=True,
+        critical_tokens=("Ort",),
+    )
+
+    assert report.status == "fail"
+    assert any(item.code == "direct_tts_critical_tokens_missing" for item in report.checks)
