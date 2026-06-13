@@ -219,6 +219,7 @@ _VIDEO_MEETING_RUNTIME_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_video_m
 _MEMORIAL_TTS_RENDER_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_tts_render_cache"
 _MEMORIAL_PRESENT_WORLD_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_present_world_cache"
 _PUBLIC_MEMORIAL_RATE_DB = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_rate_limits.sqlite3"
+_MEMORIAL_CONTACT_TTS_CACHE_VALIDATE_ATTEMPTS = 3
 
 
 def _memorial_dir_candidates() -> list[Path]:
@@ -2508,6 +2509,41 @@ def _normalize_tts_text(value: object) -> str:
     return text[:_TTS_MAX_TEXT_LEN]
 
 
+def _normalize_memorial_tts_compare_text(value: object) -> str:
+    lowered = str(value or "").lower().replace("ß", "ss")
+    lowered = (
+        lowered.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("á", "a")
+        .replace("à", "a")
+        .replace("é", "e")
+        .replace("è", "e")
+    )
+    lowered = re.sub(r"[^a-z0-9]+", " ", lowered)
+    return " ".join(lowered.split())
+
+
+def _memorial_tts_phrase_overlap(expected: str, actual: str) -> dict[str, object]:
+    expected_tokens = set(_normalize_memorial_tts_compare_text(expected).split())
+    actual_tokens = set(_normalize_memorial_tts_compare_text(actual).split())
+    if not expected_tokens or not actual_tokens:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "missing_tokens": sorted(expected_tokens)}
+    shared = expected_tokens & actual_tokens
+    precision = len(shared) / max(1, len(actual_tokens))
+    recall = len(shared) / max(1, len(expected_tokens))
+    if precision + recall <= 0:
+        f1 = 0.0
+    else:
+        f1 = (2.0 * precision * recall) / (precision + recall)
+    return {
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1": round(f1, 4),
+        "missing_tokens": sorted(expected_tokens - actual_tokens),
+    }
+
+
 def _normalize_memorial_spoken_tts_text(value: object) -> str:
     text = _normalize_tts_text(value)
     if not text:
@@ -3885,7 +3921,7 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
 
 
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Ja. Sag es mir."
+    return "Worum geht es?"
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -3893,6 +3929,7 @@ def _is_memorial_direct_contact_opening_text(text: str) -> bool:
     return normalized in {
         "ja.",
         "ja, ich bin da.",
+        "worum geht es?",
         "ja. sag es mir.",
         "ja. ich höre dich gut.",
         "ja. ich hoere dich gut.",
@@ -5575,6 +5612,21 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
     return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
 
 
+def _prioritize_memorial_transcription_variants(
+    variants: list[tuple[bytes, str, str, str]],
+) -> list[tuple[bytes, str, str, str]]:
+    if len(variants) < 2:
+        return list(variants)
+    preferred_order = {
+        "enhanced_wav": 0,
+        "converted_wav": 1,
+        "original": 2,
+    }
+    indexed = list(enumerate(variants))
+    indexed.sort(key=lambda item: (preferred_order.get(item[1][3], 9), item[0]))
+    return [variant for _, variant in indexed]
+
+
 def _memorial_meta_self_reference_answer(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
@@ -5828,53 +5880,122 @@ def _render_memorial_tts_audio(
         ),
     }
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
+    direct_contact_phrase = _is_memorial_direct_contact_opening_text(normalized_text)
+    contact_phrase_validation: dict[str, object] = {}
     if cache_audio_path.is_file() and cache_audio_path.stat().st_size > 0:
-        return cache_audio_path.read_bytes(), "audio/wav"
-    if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
-        audio, content_type = piper_fast_synthesize_request(
-            text=normalized_text,
-            lang=_text(merged_config.get("lang"), "de-AT"),
-            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+        if not direct_contact_phrase:
+            return cache_audio_path.read_bytes(), "audio/wav"
+        try:
+            cached_meta = json.loads(cache_meta_path.read_text(encoding="utf-8")) if cache_meta_path.is_file() else {}
+        except Exception:
+            cached_meta = {}
+        cached_validation = dict(cached_meta.get("contact_phrase_validation") or {}) if isinstance(cached_meta, dict) else {}
+        if str(cached_validation.get("status") or "").lower() == "pass":
+            return cache_audio_path.read_bytes(), "audio/wav"
+
+    def _synthesize_once() -> tuple[bytes, str]:
+        if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
+            synthesized_audio, synthesized_content_type = piper_fast_synthesize_request(
+                text=normalized_text,
+                lang=_text(merged_config.get("lang"), "de-AT"),
+                base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+            )
+        elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
+            if not voice_ref:
+                raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+            synthesized_audio, synthesized_content_type = unmixr_synthesize_request(
+                text=normalized_text,
+                voice_id=voice_ref,
+                lang=_text(merged_config.get("lang"), "de"),
+                speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
+                speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
+                speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
+            )
+        elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
+            if not voice_ref:
+                raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+            synthesized_audio, synthesized_content_type = voicewave_synthesize_request(
+                text=normalized_text,
+                voice_label=voice_ref,
+            )
+        elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
+            if not voice_ref:
+                raise HTTPException(status_code=409, detail="tts_voice_id_missing")
+            synthesized_audio, synthesized_content_type = openvoice_synthesize_request_with_variant(
+                text=normalized_text,
+                voice_id=voice_ref,
+                lang=_text(merged_config.get("lang"), "de-AT"),
+                base_voice_variant=_effective_tts_base_voice_variant(merged_config),
+            )
+        else:
+            raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+        return _pad_speech_audio_lead_in(
+            payload=synthesized_audio,
+            content_type=synthesized_content_type,
+            silence_ms=lead_in_ms,
+            tail_silence_ms=tail_silence_ms,
+            extra_filters=extra_filters,
         )
-    elif selected_plugin == UNMIXR_TTS_PLUGIN_ID:
-        if not voice_ref:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        audio, content_type = unmixr_synthesize_request(
-            text=normalized_text,
-            voice_id=voice_ref,
-            lang=_text(merged_config.get("lang"), "de"),
-            speaking_rate=_text(merged_config.get("unmixr_speaking_rate"), ""),
-            speaking_pitch=_text(merged_config.get("unmixr_speaking_pitch"), ""),
-            speaking_volume=_text(merged_config.get("unmixr_speaking_volume"), ""),
-        )
-    elif selected_plugin == VOICEWAVE_TTS_PLUGIN_ID:
-        if not voice_ref:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        audio, content_type = voicewave_synthesize_request(
-            text=normalized_text,
-            voice_label=voice_ref,
-        )
-    elif selected_plugin == OPENVOICE_TTS_PLUGIN_ID:
-        if not voice_ref:
-            raise HTTPException(status_code=409, detail="tts_voice_id_missing")
-        audio, content_type = openvoice_synthesize_request_with_variant(
-            text=normalized_text,
-            voice_id=voice_ref,
-            lang=_text(merged_config.get("lang"), "de-AT"),
-            base_voice_variant=_effective_tts_base_voice_variant(merged_config),
-        )
+
+    audio = b""
+    content_type = "audio/wav"
+    if direct_contact_phrase and selected_plugin in {UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+        best_audio = b""
+        best_content_type = "audio/wav"
+        best_validation: dict[str, object] = {"status": "unchecked", "f1": 0.0, "transcript_text": ""}
+        best_score = -1.0
+        for attempt in range(1, _MEMORIAL_CONTACT_TTS_CACHE_VALIDATE_ATTEMPTS + 1):
+            candidate_audio, candidate_content_type = _synthesize_once()
+            validation_payload: dict[str, object] = {
+                "status": "unchecked",
+                "attempt": attempt,
+                "f1": 0.0,
+                "transcript_text": "",
+                "missing_tokens": [],
+            }
+            try:
+                transcript_payload = _memorial_transcribe_audio_blob(payload=candidate_audio, content_type=candidate_content_type)
+                transcript_text = _repair_memorial_transcript_text(transcript_payload.get("transcript_text"))
+                overlap = _memorial_tts_phrase_overlap(normalized_text, transcript_text)
+                validation_payload.update(
+                    {
+                        "status": "pass" if float(overlap["f1"]) >= 0.92 and not overlap["missing_tokens"] else "fail",
+                        "transcript_text": transcript_text,
+                        "precision": overlap["precision"],
+                        "recall": overlap["recall"],
+                        "f1": overlap["f1"],
+                        "missing_tokens": list(overlap["missing_tokens"]),
+                        "transcriber": _text(transcript_payload.get("transcriber")),
+                    }
+                )
+                current_score = float(overlap["f1"])
+            except Exception as exc:
+                validation_payload.update({"status": "error", "detail": str(exc)[:160]})
+                current_score = -1.0
+            if current_score > best_score:
+                best_score = current_score
+                best_audio = candidate_audio
+                best_content_type = candidate_content_type
+                best_validation = dict(validation_payload)
+            if str(validation_payload.get("status")) == "pass":
+                break
+        audio, content_type = best_audio, best_content_type
+        contact_phrase_validation = best_validation
     else:
-        raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
-    audio, content_type = _pad_speech_audio_lead_in(
-        payload=audio,
-        content_type=content_type,
-        silence_ms=lead_in_ms,
-        tail_silence_ms=tail_silence_ms,
-        extra_filters=extra_filters,
-    )
+        audio, content_type = _synthesize_once()
     try:
         cache_audio_path.write_bytes(audio)
-        cache_meta_path.write_text(json.dumps(cache_payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        cache_meta_path.write_text(
+            json.dumps(
+                {
+                    **cache_payload,
+                    "contact_phrase_validation": contact_phrase_validation,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
     except OSError:
         pass
     return audio, content_type
@@ -6253,6 +6374,13 @@ def _schedule_memorial_live_warmup(slug: str) -> dict[str, object]:
     return {"status": "queued", "scheduled": True, "ttl_seconds": _MEMORIAL_LIVE_WARMUP_TTL_SECONDS}
 
 
+def _prime_memorial_live_warmup_on_page_render(slug: str) -> None:
+    try:
+        _schedule_memorial_live_warmup(slug)
+    except Exception as exc:
+        logger.warning("memorial_warmup_page_prime_failed slug=%s detail=%s", _safe_slug(slug), str(exc)[:160])
+
+
 def _prefer_fast_tts_for_conversation_turn(slug: str) -> tuple[bool, str]:
     # Live memorial conversations should keep a single consistent speaker identity.
     return False, ""
@@ -6532,6 +6660,7 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
             enhanced_payload = b""
         if enhanced_payload and not any(item[0] == enhanced_payload for item in upload_variants):
             upload_variants.append((enhanced_payload, "audio/wav", ".wav", "enhanced_wav"))
+        upload_variants = _prioritize_memorial_transcription_variants(upload_variants)
         last_error: Exception | None = None
         transcript_candidates: list[dict[str, object]] = []
         for api_key in keys:
@@ -12971,6 +13100,7 @@ def public_memorial_archive_manifest(slug: str) -> JSONResponse:
 def public_memorial_archive_index(slug: str, request: Request) -> HTMLResponse:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
+    _prime_memorial_live_warmup_on_page_render(slug)
     response = HTMLResponse(
         _memorial_html(
             payload,
@@ -14066,7 +14196,7 @@ def _build_memorial_gemini_live_instruction(
         _language_instruction(language),
         "Antworte ruhig, knapp und in kurzen gesprochenen Saetzen.",
         "Bleibe im Erinnerungsmodus: keine Behauptung, dass die verstorbene Person real anwesend ist.",
-        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Variiere zwischen: Ja. Sag es mir. / Ich hoere dich. Sag es mir in Ruhe. / Sprich weiter. Ich antworte direkt. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
+        "Wenn die Frage nur Kontaktaufnahme ist, antworte mit einem kurzen, natuerlichen Satz. Bevorzuge: Worum geht es? Weitere moegliche Varianten: Ich hoere dich. Sag es mir in Ruhe. / Sprich weiter. Ich antworte direkt. Vermeide 'Jo' und wiederhole nicht staendig denselben Satz.",
         "Bei Gegenwartsfragen wie Wetter, Datum oder aktuellen Ereignissen sage, dass du Ort/Zeit brauchst oder keine Live-Fakten behauptest.",
         "Keine Diagnosen, keine privaten Hypothesen und keine rohen internen Notizen ausgeben.",
         "Wenn du unsicher bist, bitte knapp um Wiederholung statt etwas zu erfinden.",
@@ -15050,6 +15180,7 @@ def public_memorial_page(slug: str, request: Request) -> HTMLResponse:
     payload = _load_memorial(slug)
     private_profile = _load_private_profile(slug)
     hostname = request_hostname(request)
+    _prime_memorial_live_warmup_on_page_render(slug)
     response = HTMLResponse(
         _public_memorial_page_html(
             payload,

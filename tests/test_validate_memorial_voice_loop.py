@@ -71,7 +71,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
             if b"Ja sag es mir." in raw:
-                return 200, {"transcript_text": "Ja. Sag es mir.", "transcriber": "stub"}
+                return 200, {"transcript_text": "Worum geht es?", "transcriber": "stub"}
             return 200, {
                 "transcript_text": "Ich antworte dir direkt und bleibe bei der Sache.",
                 "transcriber": "stub",
@@ -87,7 +87,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         raise AssertionError(url)
 
     def fake_post_json_binary_response(url: str, payload: dict[str, object], *, timeout: float = 120.0):
-        if payload.get("text") == "Ja. Sag es mir.":
+        if payload.get("text") == "Worum geht es?":
             return 200, direct_wav, "audio/wav"
         return 200, _generated_wav(str(payload.get("text") or "").encode("utf-8") or b"question"), "audio/wav"
 
@@ -99,7 +99,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -132,7 +132,7 @@ def test_validate_memorial_voice_loop_rejects_present_world_search_sources(tmp_p
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
             if b"Ja sag es mir." in raw:
-                return 200, {"transcript_text": "Ja. Sag es mir.", "transcriber": "stub"}
+                return 200, {"transcript_text": "Worum geht es?", "transcriber": "stub"}
             return 200, {"transcript_text": "Ich ordne dir das aus aktuellen Quellen ein.", "transcriber": "stub"}
         if url.endswith("/conversation-turn"):
             import base64
@@ -156,7 +156,7 @@ def test_validate_memorial_voice_loop_rejects_present_world_search_sources(tmp_p
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -202,7 +202,7 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -228,14 +228,14 @@ def test_validate_memorial_voice_loop_retries_contact_turn_and_prefers_better_se
                     "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                     "sources": [],
                 }
-            return 200, {"answer": "Ja. Sag es mir.", "fallback_reason": "direct_contact_opening"}
+            return 200, {"answer": "Worum geht es?", "fallback_reason": "direct_contact_opening"}
         raise AssertionError(url)
 
     def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
         if url.endswith("/speech-transcribe"):
             raw = bytes(payload)
             if b"Ja sag es mir." in raw:
-                return 200, {"transcript_text": "Ja. Sag es mir.", "transcriber": "stub"}
+                return 200, {"transcript_text": "Worum geht es?", "transcriber": "stub"}
             return 200, {"transcript_text": "Ja, sag es mir.", "transcriber": "stub"}
         if url.endswith("/conversation-turn"):
             import base64
@@ -249,7 +249,7 @@ def test_validate_memorial_voice_loop_retries_contact_turn_and_prefers_better_se
                     "audio_content_type": "audio/wav",
                 }
             return 200, {
-                "answer": "Ja. Sag es mir.",
+                "answer": "Worum geht es?",
                 "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
                 "fallback_reason": "direct_contact_opening",
                 "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
@@ -266,7 +266,7 @@ def test_validate_memorial_voice_loop_retries_contact_turn_and_prefers_better_se
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du jetzt mit mir sprechen?",
     )
 
@@ -329,7 +329,7 @@ def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unava
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 
@@ -378,7 +378,7 @@ def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
         require_stt=True,
     )
@@ -420,7 +420,7 @@ def test_validate_memorial_voice_loop_fails_when_present_world_question_drifts(t
         slug="manfred",
         base_url="https://example.test",
         output_dir=tmp_path,
-        direct_text="Ja. Sag es mir.",
+        direct_text="Worum geht es?",
         conversation_question="Hallo Manfred, kannst du direkt mit mir reden?",
     )
 

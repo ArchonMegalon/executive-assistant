@@ -649,7 +649,7 @@ def validate_memorial_voice_loop(
         report.add("fail", "conversation_turn_failed", "Conversation turn did not return a valid response.", status_code=turn_status, payload=turn_payload)
         return report
     if _normalize_compare_text(reference_answer) in {
-        _normalize_compare_text("Ja. Sag es mir."),
+        _normalize_compare_text("Worum geht es?"),
         _normalize_compare_text("Ich höre dich. Sag es mir in Ruhe."),
     }:
         first_score, _, _ = _contact_turn_candidate_score(
@@ -772,7 +772,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--slug", default="manfred")
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--output-dir", default="")
-    parser.add_argument("--direct-text", default="Ja. Sag es mir.")
+    parser.add_argument("--direct-text", default="Worum geht es?")
     parser.add_argument("--conversation-question", default="Hallo Manfred, kannst du jetzt mit mir sprechen?")
     parser.add_argument("--present-world-question", default="Welches Wetter haben wir heute?")
     parser.add_argument("--require-stt", action="store_true", help="Fail when live speech-to-text is unavailable.")

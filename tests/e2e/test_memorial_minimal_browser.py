@@ -606,6 +606,7 @@ def test_memorial_minimal_browser_voice_exit_gate_roundtrips_tts_to_stt(
         assert result["audioContentType"] == "audio/wav"
         assert result["ttsPlugin"] == "unmixr_clone"
         assert result["assistantText"] in {
+            "Worum geht es?",
             "Ja. Ich höre dich.",
             "Ich höre dich. Sag es mir in Ruhe.",
             "Ja. Sag mir, was dich gerade beschäftigt.",
