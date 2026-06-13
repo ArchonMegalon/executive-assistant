@@ -59,7 +59,7 @@ def test_validate_memorial_voice_loop_passes_with_stubbed_endpoints(tmp_path: Pa
         if url.endswith("/chat"):
             if payload.get("question") == "Welches Wetter haben wir heute?":
                 return 200, {
-                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "answer": "Dazu habe ich keine Erinnerung.",
                     "fallback_reason": "present_world_guardrail",
                     "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                     "sources": [],
@@ -175,7 +175,7 @@ def test_validate_memorial_voice_loop_fails_on_empty_transcript(tmp_path: Path, 
             payload = args[1]
         if isinstance(payload, dict) and payload.get("question") == "Welches Wetter haben wir heute?":
             return 200, {
-                "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                "answer": "Dazu habe ich keine Erinnerung.",
                 "fallback_reason": "present_world_guardrail",
                 "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                 "sources": [],
@@ -231,7 +231,7 @@ def test_validate_memorial_voice_loop_passes_with_info_when_transcriber_is_unava
         if url.endswith("/chat"):
             if payload.get("question") == "Welches Wetter haben wir heute?":
                 return 200, {
-                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "answer": "Dazu habe ich keine Erinnerung.",
                     "fallback_reason": "present_world_guardrail",
                     "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                     "sources": [],
@@ -284,7 +284,7 @@ def test_validate_memorial_voice_loop_fails_when_required_stt_is_unavailable(tmp
         if url.endswith("/chat"):
             if payload.get("question") == "Welches Wetter haben wir heute?":
                 return 200, {
-                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "answer": "Dazu habe ich keine Erinnerung.",
                     "fallback_reason": "present_world_guardrail",
                     "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                     "sources": [],
@@ -373,7 +373,7 @@ def test_validate_memorial_voice_loop_gold_mode_rejects_critical_token_substitut
         if url.endswith("/chat"):
             if payload.get("question") == "Wie ist das Wetter heute?":
                 return 200, {
-                    "answer": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter.",
+                    "answer": "Dazu habe ich keine Erinnerung.",
                     "fallback_reason": "present_world_guardrail",
                     "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
                     "sources": [],
