@@ -3506,10 +3506,7 @@ def _is_memorial_present_world_question(question: str) -> bool:
 def _memorial_present_world_answer_body(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("wetter", "regnet", "regen", "sonnig", "sonne", "temperatur", "grad", "draussen", "draußen")):
-        return (
-            "Das aktuelle Wetter sehe ich hier nicht direkt. "
-            "Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter."
-        )
+        return "Zum Wetter brauche ich den Ort. Sag mir bitte den Ort."
     if any(token in lowered for token in ("uhrzeit", "wie spaet", "wie spät", "wieviel uhr", "wie viel uhr")):
         return (
             "Die Uhrzeit sehe ich hier nicht direkt. "
