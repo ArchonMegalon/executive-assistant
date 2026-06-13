@@ -1,35 +1,35 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T04:59:14Z",
+  "generated_at": "2026-06-13T05:10:08Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "9d63b8c80f28b9bacd00e36a529fb9ee92e03f82",
+  "git_head": "9e628599e809a74d3db8e74940b9975327e538b7",
   "status": "pass",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
-  "direct_text": "Sprich ruhig weiter. Ich antworte dir direkt.",
-  "conversation_question": "Wie ist das Wetter?",
+  "direct_text": "Ich höre dich gut. Sag mir bitte den Ort.",
+  "conversation_question": "Wie ist heute das Wetter?",
   "present_world_question": "Wie ist das Wetter heute?",
   "failed_codes": [],
   "warned_codes": [],
   "metrics": {
     "direct_tts_audio_status": "pass",
     "direct_tts_transcriber": "1min.ai/whisper-1",
-    "direct_tts_expected_chars": 45,
-    "direct_tts_actual_chars": 45,
+    "direct_tts_expected_chars": 41,
+    "direct_tts_actual_chars": 41,
     "direct_tts_f1": 1.0,
     "reference_answer_chars": 108,
     "present_world_answer_chars": 108,
     "conversation_turn_audio_status": "pass",
     "conversation_turn_transcriber": "1min.ai/whisper-1",
     "conversation_turn_audio_expected_chars": 108,
-    "conversation_turn_audio_actual_chars": 107,
-    "conversation_turn_audio_f1": 0.9474
+    "conversation_turn_audio_actual_chars": 115,
+    "conversation_turn_audio_f1": 0.8718
   },
   "artifacts": {
-    "direct_tts_audio": "/tmp/memorial_voice_roundtrip_exit_gate_published/manfred-direct-tts.wav",
-    "synthetic_question_audio": "/tmp/memorial_voice_roundtrip_exit_gate_published/manfred-synthetic-question.wav",
-    "conversation_turn_audio": "/tmp/memorial_voice_roundtrip_exit_gate_published/manfred-conversation-turn-answer.wav"
+    "direct_tts_audio": "/tmp/memorial_voice_roundtrip_exit_gate_published_stable/manfred-direct-tts.wav",
+    "synthetic_question_audio": "/tmp/memorial_voice_roundtrip_exit_gate_published_stable/manfred-synthetic-question.wav",
+    "conversation_turn_audio": "/tmp/memorial_voice_roundtrip_exit_gate_published_stable/manfred-conversation-turn-answer.wav"
   },
   "checks": [
     {
@@ -43,8 +43,8 @@
       "code": "direct_tts_similarity_ok",
       "message": "Transcript matches the expected spoken content closely.",
       "detail": {
-        "expected": "Sprich ruhig weiter. Ich antworte dir direkt.",
-        "actual": "Sprich ruhig weiter, ich antworte dir direkt.",
+        "expected": "Ich höre dich gut. Sag mir bitte den Ort.",
+        "actual": "Ich höre Dich gut. Sag mir bitte den Ort.",
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
@@ -77,10 +77,10 @@
       "message": "Transcript matches the expected spoken content closely.",
       "detail": {
         "expected": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort, dann ordnen wir Regen, Temperatur und Wind.",
-        "actual": "Das aktuelle Wetter sehe ich hier nicht direkt. Sag mir den Ort, dann ormen wir Regen, Temperatur und Wind.",
-        "precision": 0.9474,
-        "recall": 0.9474,
-        "f1": 0.9474
+        "actual": "Das aktuelle Wetter sehe ich hier nicht geregelt. Sagst du mir den Ort? Dann ordnen wir Regen, Temperatur und Wind.",
+        "precision": 0.85,
+        "recall": 0.8947,
+        "f1": 0.8718
       }
     }
   ],
