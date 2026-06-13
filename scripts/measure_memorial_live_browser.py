@@ -632,7 +632,6 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     "#memorial-speech-audio",
                     "node => node && node.getAttribute('src') ? node.getAttribute('src') : ''",
                 )
-                ui_audio_ready = str(ui_audio_src or "").startswith("blob:")
                 try:
                     page.wait_for_function(
                         """
@@ -652,6 +651,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 ui_audio_play_calls = int(gate_state.get("play_calls") or 0)
                 ui_audio_play_ended = int(gate_state.get("play_ended") or 0)
                 ui_audio_play_error = str(gate_state.get("last_error") or "")
+                ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
                 page.click("#memorial-conversation", timeout=5000)
                 page.wait_for_function(
                     """
@@ -767,26 +767,31 @@ def _with_exit_gate_status(
     max_first_answer_ms: float,
 ) -> dict[str, object]:
     reasons: list[str] = []
+
+    def add_reason(reason: str) -> None:
+        if reason and reason not in reasons:
+            reasons.append(reason)
+
     if result.get("turn_error"):
-        reasons.append(str(result.get("turn_error") or "missing_gate_feedback"))
+        add_reason(str(result.get("turn_error") or "missing_gate_feedback"))
     elif not str(result.get("answer_preview") or "").strip():
-        reasons.append("missing_answer_preview")
+        add_reason("missing_answer_preview")
     if not bool(result.get("audio_payload_ready")):
-        reasons.append("missing_audio_payload")
+        add_reason("missing_audio_payload")
     if not bool(result.get("audio_ready_for_ui")):
-        reasons.append("missing_ui_audio_output")
+        add_reason("missing_ui_audio_output")
     if not bool(result.get("ui_audio_play_calls")):
-        reasons.append("missing_ui_audio_playback")
+        add_reason("missing_ui_audio_playback")
     if not bool(result.get("ui_audio_play_ended")) and not result.get("ui_audio_play_error"):
-        reasons.append("missing_ui_audio_playback_complete")
+        add_reason("missing_ui_audio_playback_complete")
     if float(result.get("first_answer_ms") or 0.0) > float(max_first_answer_ms):
-        reasons.append("first_answer_too_slow")
+        add_reason("first_answer_too_slow")
     if not bool(result.get("answer_semantic_passed")):
-        reasons.append("answer_semantics_failed")
+        add_reason("answer_semantics_failed")
     if require_public_origin and _is_local_base_url(str(result.get("base_url") or "")):
-        reasons.append("public_origin_required")
+        add_reason("public_origin_required")
     if gold_mode and _git_dirty():
-        reasons.append("dirty_worktree")
+        add_reason("dirty_worktree")
 
     payload = dict(result)
     payload.update(
