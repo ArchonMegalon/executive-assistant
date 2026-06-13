@@ -3560,3 +3560,9 @@ def test_memorial_live_page_stays_voice_only_without_legacy_video_call_ui(
     assert 'id="memorial-video-call-avatar-video"' not in source
     assert 'id="memorial-voice-config-form"' not in source
     assert 'id="memorial-voice-ab-wrap"' not in source
+    assert "/voice-config" not in source
+    assert "/voice-ab" not in source
+    assert "/voice-clone" not in source
+    assert "write_token" not in source
+    assert "memorial_write_token" not in source
+    assert "x-memorial-write-token" not in source

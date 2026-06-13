@@ -9508,7 +9508,6 @@ def _memorial_html(
       const memorialAutostartStorageKey = "memorial_autostart_enabled_v1";
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
-      const memorialWriteTokenStorageKey = "memorial_write_token_v1";
       const browserPreferredLanguage = "de-AT";
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
@@ -9613,24 +9612,7 @@ def _memorial_html(
         return Boolean(personalMemoryOptin && personalMemoryOptin.checked);
       }}
       function memorialWriteToken() {{
-        try {{
-          const url = new URL(window.location.href);
-          const queryToken = String(
-            url.searchParams.get("write_token")
-            || url.searchParams.get("memorial_write_token")
-            || ""
-          ).trim();
-          if (queryToken) {{
-            window.localStorage.setItem(memorialWriteTokenStorageKey, queryToken);
-            url.searchParams.delete("write_token");
-            url.searchParams.delete("memorial_write_token");
-            window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
-            return queryToken;
-          }}
-          return String(window.localStorage.getItem(memorialWriteTokenStorageKey) || "").trim();
-        }} catch (error) {{
-          return "";
-        }}
+        return "";
       }}
       function memorialAdminHeaders() {{
         const token = memorialWriteToken();
