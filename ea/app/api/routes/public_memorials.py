@@ -2810,6 +2810,11 @@ def _public_memorial_operator_surfaces_enabled() -> bool:
     }
 
 
+def _require_public_memorial_operator_surface_enabled() -> None:
+    if not _public_memorial_operator_surfaces_enabled():
+        raise HTTPException(status_code=404, detail="memorial_operator_surface_disabled")
+
+
 def _env_flag(name: str) -> bool:
     return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -12674,6 +12679,7 @@ async def public_memorial_voice_ab_rate(slug: str, request: Request) -> JSONResp
 
 @router.post("/memorials/{slug}/voice-ab-admin/finalize")
 async def public_memorial_voice_ab_admin_finalize(slug: str, request: Request) -> JSONResponse:
+    _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     try:
@@ -12701,6 +12707,7 @@ async def public_memorial_voice_ab_admin_finalize(slug: str, request: Request) -
 
 @router.get("/memorials/{slug}/voice-ab-admin")
 async def public_memorial_voice_ab_admin(slug: str, request: Request) -> JSONResponse:
+    _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     ratings = _load_voice_ab_ratings(slug)
@@ -12723,6 +12730,7 @@ async def public_memorial_voice_ab_admin(slug: str, request: Request) -> JSONRes
 
 @router.post("/memorials/{slug}/voice-ab-admin/maintain")
 async def public_memorial_voice_ab_admin_maintain(slug: str, request: Request) -> JSONResponse:
+    _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     maintenance = _voice_ab_maintain_pool(slug)
@@ -12741,6 +12749,7 @@ async def public_memorial_voice_ab_admin_maintain(slug: str, request: Request) -
 
 @router.post("/memorials/{slug}/voice-config")
 async def public_memorial_voice_config_update(slug: str, request: Request) -> JSONResponse:
+    _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     try:
@@ -12761,6 +12770,7 @@ def public_memorial_voice_profile(slug: str) -> JSONResponse:
 
 @router.post("/memorials/{slug}/voice-profile/build")
 async def public_memorial_voice_profile_build(slug: str, request: Request) -> JSONResponse:
+    _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     _require_voice_consent(_payload_with_slug(slug, memorial), "profile_build")
@@ -14372,8 +14382,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
 
 @router.post("/memorials/{slug}/voice-clone")
 async def public_memorial_voice_clone(slug: str, request: Request) -> JSONResponse:
-    if not _public_memorial_operator_surfaces_enabled():
-        raise HTTPException(status_code=404, detail="memorial_operator_surface_disabled")
+    _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
     _require_voice_consent(_payload_with_slug(slug, memorial), "clone")

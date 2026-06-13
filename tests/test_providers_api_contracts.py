@@ -8906,6 +8906,7 @@ def test_public_memorial_speech_transcribe_returns_retryable_json_for_provider_a
 
 def test_public_memorial_voice_profile_routes_support_config_and_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
     slug = "manfred"
     public_root = tmp_path / "public"
     private_root = tmp_path / "private"

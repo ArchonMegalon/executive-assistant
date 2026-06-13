@@ -1281,6 +1281,7 @@ def test_public_voice_ab_admin_requires_write_access(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
     public_root = tmp_path / "public"
     slug = "manfred"
     _write_public_memorial(public_root, slug, {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []})
@@ -1291,6 +1292,64 @@ def test_public_voice_ab_admin_requires_write_access(
     response = client.get(f"/memorials/{slug}/voice-ab-admin")
 
     assert response.status_code in {403, 503}
+
+
+def test_public_memorial_operator_write_routes_are_disabled_without_operator_surface_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.delenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", raising=False)
+    public_root = tmp_path / "public"
+    private_root = tmp_path / "private"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    profile_dir = private_root / slug
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "tts_voice.json").write_text(
+        json.dumps(
+            {
+                "tts_mode": "browser_speech_synthesis",
+                "voice_consent": {
+                    "status": "approved",
+                    "scope": ["profile_build", "clone", "synthesize", "conversation_turn", "realtime"],
+                    "authorized_by": "test-family",
+                    "authorized_at": "2026-06-05T16:25:00Z",
+                    "source_assets_reviewed": True,
+                    "revoked": False,
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    monkeypatch.setenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR", str(private_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-operator-disabled")
+    headers = {"x-memorial-write-token": "unit-write-token"}
+
+    checks = [
+        client.post(f"/memorials/{slug}/voice-config", headers=headers, json={"voice_label": "Nope"}),
+        client.post(f"/memorials/{slug}/voice-profile/build", headers=headers, json={"youtube_query": "Manfred"}),
+        client.post(f"/memorials/{slug}/voice-ab-admin/finalize", headers=headers, json={"winner_variant": "a"}),
+        client.get(f"/memorials/{slug}/voice-ab-admin", headers=headers),
+        client.post(f"/memorials/{slug}/voice-ab-admin/maintain", headers=headers, json={}),
+        client.post(f"/memorials/{slug}/voice-clone", headers=headers, json={"voice_label": "Nope"}),
+    ]
+
+    assert [response.status_code for response in checks] == [404, 404, 404, 404, 404, 404]
+    assert all("memorial_operator_surface_disabled" in response.text for response in checks)
 
 
 def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(
