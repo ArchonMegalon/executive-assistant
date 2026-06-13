@@ -1,25 +1,27 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-13T09:03:04Z",
+  "generated_at": "2026-06-13T09:26:40Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "67e63a098c9e24284bc84ccf3e25fc1ecaf2050e",
+  "git_head": "0f550a0094a072d2ef3c13bd2b3cf5f81d9baffb",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
-  "overall_status": "gold",
-  "gold_claim_allowed": true,
-  "claim_scope": "ea_controlled_receipt_set",
-  "claim_scope_label": "EA-controlled receipt-set gold; not a blanket authority claim for every owning repo.",
-  "operator_summary": "EA-controlled receipt-set gold is permitted by the current receipts. Owning repos remain authoritative for their planes.",
+  "overall_status": "not_gold",
+  "gold_claim_allowed": false,
+  "claim_scope": "whole_project_plane_set",
+  "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
+  "operator_summary": "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes.",
   "rules": [
     "EA flagship readiness does not imply whole Chummer project readiness.",
     "Unknown external planes block whole-project gold claims.",
-    "Gold here means EA-controlled receipt-set gold, not universal authority over every owning repo.",
+    "Whole-project gold requires every listed plane to pass; EA receipt-set gold is only a narrower local label.",
     "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
     "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
     "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
     "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
     "Memorial public-origin gold requires both the public voice roundtrip receipt and public browser realtime receipt."
   ],
-  "blocking_planes": [],
+  "blocking_planes": [
+    "memorial_public_origin_gold"
+  ],
   "planes": [
     {
       "key": "ea_release_control",
@@ -146,6 +148,22 @@
         "public_origin_gold_status=blocked",
         "public-origin memorial voice+STT+TTS gold receipt",
         "public-origin browser realtime/audio playback gold receipt"
+      ]
+    },
+    {
+      "key": "memorial_public_origin_gold",
+      "title": "Memorial Public-Origin Experience Gold",
+      "owner_repo": "memorial runtime",
+      "status": "blocked",
+      "claim": "The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
+      "evidence": [],
+      "missing_evidence": [
+        "public-origin memorial voice+STT+TTS gold receipt",
+        "public-origin browser realtime/audio playback gold receipt"
+      ],
+      "design_notes": [
+        "Guest-facing copy must never say simply gold while this plane is blocked.",
+        "Use: Memorial public-origin gold: blocked."
       ]
     },
     {
