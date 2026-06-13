@@ -33,9 +33,12 @@ REQUIRED_PLANES = {
     "ltd_provider_lanes",
 }
 GENERATED_RECEIPT_PATHS = {
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     ".codex-design/product/PROJECT_MODES.generated.json",
     ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+    ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
