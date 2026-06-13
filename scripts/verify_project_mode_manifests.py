@@ -40,8 +40,9 @@ def main() -> int:
     operator_surfaces = set(show.get("operator_surfaces") or [])
     if "/modes" not in operator_surfaces:
         raise SystemExit("operator_modes_surface_missing")
+    runtime_image_without_tests = ROOT == Path("/app") and not (ROOT / "tests").exists()
     ea_gate = ROOT / str(by_key["EA_CORE"].get("hard_gate") or "")
-    if not ea_gate.is_file():
+    if not ea_gate.is_file() and not runtime_image_without_tests:
         raise SystemExit("ea_core_hard_gate_path_missing")
     memorial_gate = ROOT / str(by_key["MEMORIAL"].get("hard_gate") or "")
     if not memorial_gate.is_file():
