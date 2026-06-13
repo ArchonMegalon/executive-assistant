@@ -6749,6 +6749,45 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
         return {"should_correct": False, "reason": "shadow_empty"}
     if len(shadow_tokens) < 2:
         return {"should_correct": False, "reason": "shadow_too_brief"}
+    german_markers = {
+        "ich",
+        "du",
+        "dich",
+        "mir",
+        "bitte",
+        "wie",
+        "ist",
+        "das",
+        "heute",
+        "jetzt",
+        "wetter",
+        "kann",
+        "nicht",
+        "sagen",
+        "ort",
+        "sprechen",
+        "hallo",
+        "manfred",
+    }
+    english_markers = {
+        "i",
+        "you",
+        "your",
+        "bye",
+        "hello",
+        "weather",
+        "today",
+        "can",
+        "not",
+        "say",
+        "please",
+        "hear",
+        "speak",
+        "hi",
+        "now",
+    }
+    if primary_tokens & german_markers and shadow_tokens & english_markers and not shadow_tokens & german_markers:
+        return {"should_correct": False, "reason": "shadow_language_mismatch"}
     overlap = len(primary_tokens & shadow_tokens) / max(1, len(primary_tokens | shadow_tokens))
     length_gain = len(shadow) - len(primary)
     if overlap < 0.58 or length_gain >= 18:
