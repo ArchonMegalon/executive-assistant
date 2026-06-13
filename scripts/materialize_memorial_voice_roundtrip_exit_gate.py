@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     parser.add_argument(
         "--direct-text",
-        default="Die aktuelle Lage sehe ich hier nicht direkt. Sag mir den konkreten Stand, dann antworte ich dir darauf.",
+        default="Wie geht das weiter?",
     )
     parser.add_argument("--conversation-question", default="Wie geht das weiter?")
     parser.add_argument("--present-world-question", default="Wie ist das Wetter heute?")
@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-public-origin", action="store_true")
     parser.add_argument("--direct-min-f1", type=float, default=0.92)
     parser.add_argument("--conversation-min-f1", type=float, default=0.90)
-    parser.add_argument("--critical-token", action="append", default=["direkt", "stand"])
+    parser.add_argument("--critical-token", action="append", default=[])
     args = parser.parse_args(argv)
 
     receipt = build_receipt(

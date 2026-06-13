@@ -3517,10 +3517,7 @@ def _memorial_present_world_answer_body(question: str) -> str:
             "Den heutigen Tag sehe ich hier nicht direkt. "
             "Sag ihn mir kurz, dann ordnen wir es gemeinsam."
         )
-    return (
-        "Die aktuelle Lage sehe ich hier nicht direkt. "
-        "Sag mir den konkreten Stand, dann antworte ich dir darauf."
-    )
+    return "Den aktuellen Stand sehe ich nicht direkt."
 
 
 def _memorial_present_world_search_cache_path(*, question: str) -> Path:

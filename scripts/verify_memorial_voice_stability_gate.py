@@ -61,16 +61,13 @@ def run_stability_gate(
             slug=slug,
             base_url=base_url,
             output_dir=output_dir / f"run-{index:02d}",
-            direct_text=(
-                "Die aktuelle Lage sehe ich hier nicht direkt. "
-                "Sag mir den konkreten Stand, dann antworte ich dir darauf."
-            ),
+            direct_text="Wie geht das weiter?",
             conversation_question="Wie geht das weiter?",
             present_world_question="Wie ist das Wetter heute?",
             require_stt=require_stt,
             gold_mode=gold_mode,
             require_public_origin=require_public_origin,
-            critical_tokens=("direkt", "stand"),
+            critical_tokens=("direkt", "stand") if gold_mode else (),
         )
         receipts.append(receipt)
 

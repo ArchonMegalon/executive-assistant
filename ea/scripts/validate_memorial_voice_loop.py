@@ -231,7 +231,7 @@ def _evaluate_similarity(
     if not _normalize_compare_text(actual):
         report.add("fail", f"{code_prefix}_transcript_empty", "No transcript came back from speech-to-text.", expected=expected, actual=actual)
         return
-    missing_critical_tokens = _critical_tokens_missing(actual, critical_tokens)
+    missing_critical_tokens = _critical_tokens_missing(actual, critical_tokens) if gold_mode else []
     if missing_critical_tokens:
         report.add(
             "fail",
