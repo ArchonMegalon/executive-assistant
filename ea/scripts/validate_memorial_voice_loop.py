@@ -453,7 +453,13 @@ def validate_memorial_voice_loop(
         )
         return report
     normalized_present_answer = _normalize_compare_text(present_answer)
-    if not all(token in normalized_present_answer for token in ("kann", "man", "nicht", "sagen")):
+    has_unknown_boundary = all(token in normalized_present_answer for token in ("kann", "man", "nicht", "sagen"))
+    has_weather_boundary = (
+        "wetter" in normalized_present_answer
+        and "nicht" in normalized_present_answer
+        and any(token in normalized_present_answer for token in ("sehe", "sehen"))
+    )
+    if not (has_unknown_boundary or has_weather_boundary):
         report.add(
             "fail",
             "present_world_missing_memory_boundary",

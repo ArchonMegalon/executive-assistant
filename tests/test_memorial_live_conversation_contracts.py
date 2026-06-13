@@ -164,6 +164,87 @@ def test_memorial_speech_transcribe_rejects_silent_wav_before_provider_upload(
     assert result["detail"] == "audio_silence"
 
 
+def test_memorial_shadow_stt_defaults_to_blipai_without_external_send_when_url_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_PROVIDER", raising=False)
+    monkeypatch.delenv("EA_MEMORIAL_SHADOW_STT_URL", raising=False)
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute?"),
+        content_type="audio/wav",
+        primary_transcript="Wie ist das Wetter heute?",
+        primary_transcriber="1min.ai/whisper-1",
+    )
+
+    assert result == {"enabled": False, "mode": "shadow_only", "provider": "blipai", "reason": "url_missing"}
+
+
+def test_memorial_shadow_stt_blipai_receives_only_user_question_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+
+    seen: dict[str, object] = {}
+
+    class _Response:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return {"transcript_text": "Wie ist das Wetter heute?"}
+
+    def _fake_post(url, *, headers, json, timeout):
+        seen["url"] = url
+        seen["headers"] = headers
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_URL", "https://blipai.example/shadow-stt")
+    monkeypatch.setenv("EA_MEMORIAL_SHADOW_STT_API_KEY", "unit-key")
+    monkeypatch.setattr(public_memorials.requests, "post", _fake_post)
+
+    result = public_memorials._memorial_shadow_stt_result(
+        user_audio_payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute?"),
+        content_type="audio/wav",
+        primary_transcript="Wie ist das Wetter heute?",
+        primary_transcriber="1min.ai/whisper-1",
+    )
+
+    assert result["enabled"] is True
+    assert result["provider"] == "blipai"
+    assert result["status"] == "ok"
+    assert result["may_override_primary"] is False
+    payload = seen["json"]
+    assert payload["mode"] == "shadow_only_user_question_stt"
+    assert payload["primary_transcript"] == "Wie ist das Wetter heute?"
+    assert payload["primary_transcriber"] == "1min.ai/whisper-1"
+    assert payload["may_override_primary"] is False
+    assert payload["include_memorial_answer"] is False
+    assert payload["include_private_memory"] is False
+    assert "audio_base64" in payload
+    assert "answer" not in payload
+    assert "private_memory" not in payload
+
+
+def test_memorial_shadow_stt_marks_substantial_user_question_correction() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Ich höre dich.",
+        shadow_transcript="Wie ist das Wetter heute in Wien?",
+    )
+    minor = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Wie ist das Wetter heute?",
+        shadow_transcript="Wie ist das Wetter heute bitte?",
+    )
+
+    assert correction["should_correct"] is True
+    assert correction["corrected_transcript"] == "Wie ist das Wetter heute in Wien?"
+    assert minor["should_correct"] is False
+
+
 @pytest.mark.parametrize(
     ("question", "expected_fragment"),
     [
@@ -273,7 +354,7 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert body["sources"] == []
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "present_world_guardrail"
-    assert body["answer"] == "Das kann man nicht sagen."
+    assert body["answer"] == "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -294,6 +375,16 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     assert "schach" not in body["answer"].lower()
 
     response = client.post(f"/memorials/{slug}/chat", json={"question": "Wie ist der aktuelle Stand?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "present_world_guardrail"
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["answer"] == "Das kann man nicht sagen."
+    assert body["sources"] == []
+    assert "famil" not in body["answer"].lower()
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Und jetzt könnt ihr los."})
 
     assert response.status_code == 200
     body = response.json()
@@ -351,6 +442,7 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["sources"] == []
     assert body["current_world_policy"] == "local_memories_and_conversation_only_no_internet_search"
+    assert body["answer"] == "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -626,7 +718,7 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["sources"] == []
-    assert body["answer"] == "Das kann man nicht sagen."
+    assert body["answer"] == "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -2105,6 +2197,15 @@ def test_memorial_live_page_source_primes_audio_output_before_playback() -> None
     assert "void primeMemorialAudioOutput(900);" in source
 
 
+def test_memorial_live_page_source_rejects_cut_off_audio_before_next_turn() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "audio_too_short_for_answer" in source
+    assert "const tooShortThresholdMs = normalizedText.length >= 36" in source
+    assert 'setSpeechStatus("Manfreds Stimme wurde zu kurz wiedergegeben.", "error", "Antwort steht als Text bereit");' in source
+    assert 'failPlayback("audio_too_short_for_answer"' in source
+
+
 def test_memorial_voicewave_postprocess_trims_dead_tail_silence() -> None:
     from app.api.routes import public_memorials
 
@@ -2493,6 +2594,15 @@ def test_memorial_realtime_answer_compaction_keeps_live_voice_short() -> None:
     )
 
     assert compact == "Erstens ordnen wir die Sache ruhig und ohne Theater. Zweitens bleiben wir bei dem, was belegt ist."
+
+    long_compact = public_memorials._compact_memorial_realtime_answer(
+        "Ich ordne das ruhig mit dir. "
+        "Der erste Punkt ist belegt und bleibt wichtig. "
+        "Der zweite Punkt ist noch offen und braucht eine klare Frage. "
+        "Der dritte Punkt kommt erst danach."
+    )
+
+    assert len(long_compact) <= 160
 
 
 def test_memorial_gemini_live_websocket_streams_pcm_to_upstream(

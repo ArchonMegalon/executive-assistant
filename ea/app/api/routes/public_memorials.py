@@ -114,6 +114,7 @@ _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 560
 _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 620
+_MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
 _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
 _MEMORIAL_VERTEX_GEMINI_LIVE_MODEL = "gemini-live-2.5-flash-native-audio"
 _MEMORIAL_GEMINI_LIVE_VOICE = "Kore"
@@ -3484,6 +3485,10 @@ def _is_memorial_present_world_question(question: str) -> bool:
         "nachrichten heute",
         "aktuelle nachrichten",
         "was ist heute los",
+        "und jetzt koennt ihr los",
+        "und jetzt könnt ihr los",
+        "jetzt koennt ihr los",
+        "jetzt könnt ihr los",
         "was passiert heute",
         "aktuelles",
         "news heute",
@@ -3501,7 +3506,31 @@ def _is_memorial_present_world_question(question: str) -> bool:
     return any(token in lowered for token in (*weather_terms, *time_terms, *current_terms))
 
 
+def _is_memorial_weather_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    weather_terms = (
+        "wetter",
+        "regnet",
+        "regen",
+        "sonnig",
+        "sonne",
+        "temperatur",
+        "grad",
+        "warm heute",
+        "kalt heute",
+        "wie ist es draussen",
+        "wie ist es draußen",
+        "wie schaut es draussen aus",
+        "wie schaut es draußen aus",
+    )
+    return any(token in lowered for token in weather_terms)
+
+
 def _memorial_present_world_answer_body(question: str) -> str:
+    if _is_memorial_weather_question(question):
+        return "Live-Wetter sehe ich nicht. Sag mir, was du draußen bemerkst, dann ordne ich es mit dir."
     return "Das kann man nicht sagen."
 
 
@@ -5517,10 +5546,11 @@ def _compact_memorial_realtime_answer(value: object) -> str:
         if total_length >= 180:
             break
     compact = " ".join(compact_parts).strip() or sentences[0].strip()
-    if len(compact) <= 220:
+    realtime_char_limit = 160
+    if len(compact) <= realtime_char_limit:
         return compact
-    shortened = compact[:220].rsplit(" ", 1)[0].strip()
-    return (shortened or compact[:220].strip()).rstrip(",;:")
+    shortened = compact[:realtime_char_limit].rsplit(" ", 1)[0].strip()
+    return (shortened or compact[:realtime_char_limit].strip()).rstrip(",;:")
 
 
 def _pad_speech_audio_lead_in(
@@ -6366,6 +6396,12 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         "transcription_status": "transcribed",
                         "transcript_text": text,
                         "transcriber": transcriber,
+                        "shadow_stt": _memorial_shadow_stt_result(
+                            user_audio_payload=variant_payload,
+                            content_type=variant_content_type,
+                            primary_transcript=text,
+                            primary_transcriber=transcriber,
+                        ),
                     }
                 except Exception as exc:
                     last_error = exc
@@ -6382,6 +6418,104 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"speech_transcription_failed:{str(exc)[:120]}") from exc
+
+
+def _memorial_shadow_stt_result(
+    *,
+    user_audio_payload: bytes,
+    content_type: str,
+    primary_transcript: str,
+    primary_transcriber: str,
+) -> dict[str, object]:
+    provider = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_PROVIDER"), "blipai").strip().lower()
+    if provider not in _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS:
+        return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "provider_not_allowed"}
+    url = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_URL")).strip()
+    if not url:
+        return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "url_missing"}
+    max_bytes = max(1, int(float(os.getenv("EA_MEMORIAL_SHADOW_STT_MAX_BYTES") or "6000000")))
+    if len(user_audio_payload or b"") > max_bytes:
+        return {"enabled": False, "mode": "shadow_only", "provider": provider, "reason": "audio_too_large"}
+    timeout = max(0.25, min(5.0, float(os.getenv("EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS") or "1.6")))
+    headers = {"Content-Type": "application/json"}
+    api_key = _text(os.getenv("EA_MEMORIAL_SHADOW_STT_API_KEY")).strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request_payload = {
+        "provider": provider,
+        "mode": "shadow_only_user_question_stt",
+        "content_type": _text(content_type, "application/octet-stream"),
+        "audio_base64": base64.b64encode(user_audio_payload or b"").decode("ascii"),
+        "primary_transcript": _text(primary_transcript),
+        "primary_transcriber": _text(primary_transcriber),
+        "may_override_primary": False,
+        "include_memorial_answer": False,
+        "include_private_memory": False,
+    }
+    try:
+        response = requests.post(url, headers=headers, json=request_payload, timeout=timeout)
+        if response.status_code >= 400:
+            return {
+                "enabled": True,
+                "mode": "shadow_only",
+                "provider": provider,
+                "status": "error",
+                "reason": f"http_{response.status_code}",
+                "may_override_primary": False,
+            }
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        shadow_text = _repair_memorial_transcript_text(
+            _text(body.get("transcript_text") or body.get("text") or body.get("transcript"))
+        )
+        return {
+            "enabled": True,
+            "mode": "shadow_only",
+            "provider": provider,
+            "status": "ok" if shadow_text else "empty",
+            "transcript_text": shadow_text,
+            "primary_transcript": _text(primary_transcript),
+            "primary_transcriber": _text(primary_transcriber),
+            "may_override_primary": False,
+            "correction": _memorial_shadow_stt_correction_decision(
+                primary_transcript=primary_transcript,
+                shadow_transcript=shadow_text,
+            ),
+        }
+    except Exception as exc:
+        return {
+            "enabled": True,
+            "mode": "shadow_only",
+            "provider": provider,
+            "status": "error",
+            "reason": str(exc)[:120],
+            "may_override_primary": False,
+        }
+
+
+def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_transcript: str) -> dict[str, object]:
+    primary = _repair_memorial_transcript_text(primary_transcript)
+    shadow = _repair_memorial_transcript_text(shadow_transcript)
+    if not shadow:
+        return {"should_correct": False, "reason": "shadow_empty"}
+    if not primary:
+        return {"should_correct": True, "reason": "primary_empty", "corrected_transcript": shadow}
+    primary_tokens = set(re.findall(r"[a-z0-9äöüß]+", primary.lower()))
+    shadow_tokens = set(re.findall(r"[a-z0-9äöüß]+", shadow.lower()))
+    if not shadow_tokens:
+        return {"should_correct": False, "reason": "shadow_empty"}
+    overlap = len(primary_tokens & shadow_tokens) / max(1, len(primary_tokens | shadow_tokens))
+    length_gain = len(shadow) - len(primary)
+    if overlap < 0.58 or length_gain >= 18:
+        return {
+            "should_correct": True,
+            "reason": "substantial_shadow_difference",
+            "corrected_transcript": shadow,
+            "token_overlap": round(overlap, 4),
+        }
+    return {"should_correct": False, "reason": "minor_difference", "token_overlap": round(overlap, 4)}
 
 
 def _wav_payload_has_speech_energy(payload: bytes) -> bool:
@@ -6968,23 +7102,43 @@ def _minimal_public_memorial_html(
         return new Blob([bytes], {{ type: String((payload && payload.audio_content_type) || "audio/wav") }});
       }}
 
-      async function playMemorialAudio(blob, generation) {{
+      async function playMemorialAudio(blob, generation, answerText = "") {{
         stopSpeechPlayback();
         speechObjectUrl = URL.createObjectURL(blob);
         speechAudio.src = speechObjectUrl;
         speechAudio.preload = "auto";
         setSpeechStatus("Ich spreche.", "playing", "");
+        const normalizedText = String(answerText || "").trim();
+        const expectedMinMs = Math.max(1400, Math.min(9000, normalizedText.length * 28));
+        const tooShortThresholdMs = normalizedText.length >= 36 ? Math.max(900, expectedMinMs * 0.58) : 0;
         await new Promise((resolve, reject) => {{
           let settled = false;
+          let metadataDurationMs = 0;
           const finish = (error = null) => {{
             if (settled) return;
             settled = true;
+            speechAudio.onloadedmetadata = null;
             speechAudio.onended = null;
             speechAudio.onerror = null;
             if (error) reject(error);
             else resolve();
           }};
-          speechAudio.onended = () => window.setTimeout(() => finish(), 350);
+          speechAudio.onloadedmetadata = () => {{
+            const duration = Number(speechAudio.duration || 0);
+            if (Number.isFinite(duration) && duration > 0) metadataDurationMs = duration * 1000.0;
+            if (tooShortThresholdMs && metadataDurationMs > 0 && metadataDurationMs < tooShortThresholdMs) {{
+              finish(new Error("audio_too_short_for_answer"));
+            }}
+          }};
+          const startedAt = Date.now();
+          speechAudio.onended = () => window.setTimeout(() => {{
+            const elapsedMs = Date.now() - startedAt;
+            if (tooShortThresholdMs && (metadataDurationMs || elapsedMs) < tooShortThresholdMs) {{
+              finish(new Error("audio_too_short_for_answer"));
+              return;
+            }}
+            finish();
+          }}, 350);
           speechAudio.onerror = () => finish(new Error("audio_playback_failed"));
           speechAudio.play().then(() => {{
             if (generation !== activeGeneration) finish(new Error("playback_cancelled"));
@@ -7144,9 +7298,8 @@ def _minimal_public_memorial_html(
           }});
           if (!blob) return;
           liveServerAudioPlaybackPending = true;
-          void playMemorialAudio(blob, generation)
-            .catch(() => null)
-            .finally(() => {{
+          void playMemorialAudio(blob, generation, liveAnswerTranscript)
+            .then(() => {{
               liveServerAudioPlaybackPending = false;
               liveAnswerTranscript = "";
               liveInputTranscript = "";
@@ -7154,6 +7307,10 @@ def _minimal_public_memorial_html(
                 setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
                 scheduleNextLiveRealtimeTurn(generation, 900);
               }}
+            }})
+            .catch(() => {{
+              liveServerAudioPlaybackPending = false;
+              setSpeechStatus("Manfreds Stimme wurde zu kurz wiedergegeben.", "error", "Antwort steht als Text bereit");
             }});
           return;
         }}
@@ -7596,7 +7753,7 @@ def _minimal_public_memorial_html(
           showAnswerText(payload && payload.answer);
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) {{
-            await playMemorialAudio(audioBlob, generation);
+            await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
             if (generation !== activeGeneration) return;
           }} else if (!String((payload && payload.answer) || "").trim()) {{
             throw new Error("missing_memorial_audio");
@@ -10943,6 +11100,7 @@ def _memorial_html(
         let playbackSettled = false;
         let metadataDurationMs = 0;
         const expectedMinMs = Math.max(1400, Math.min(9000, normalizedText.length * 28));
+        const tooShortThresholdMs = normalizedText.length >= 36 ? Math.max(900, expectedMinMs * 0.58) : 0;
         const safePluginLabel = String(pluginLabel || "Memorial Audio");
         const safePluginId = String(pluginId || "");
         stopSpeechPlayback();
@@ -10982,14 +11140,16 @@ def _memorial_html(
             text: normalizedText,
           }});
           stopSpeechPlayback();
-          setSpeechStatus("Manfreds Stimme konnte gerade nicht sauber starten.", "error", "Bitte noch einmal versuchen");
-          if (onDone) onDone();
+          setSpeechStatus("Manfreds Stimme wurde zu kurz wiedergegeben.", "error", "Antwort steht als Text bereit");
         }};
         speechObjectUrl = URL.createObjectURL(blob);
         speechAudio.src = speechObjectUrl;
         speechAudio.onloadedmetadata = () => {{
           const duration = Number(speechAudio.duration || 0);
           if (Number.isFinite(duration) && duration > 0) metadataDurationMs = duration * 1000.0;
+          if (tooShortThresholdMs && metadataDurationMs > 0 && metadataDurationMs < tooShortThresholdMs && !playbackSettled) {{
+            failPlayback("audio_too_short_for_answer", "duration_" + String(Math.round(metadataDurationMs)) + "_expected_" + String(Math.round(expectedMinMs)));
+          }}
         }};
         speechAudio.oncanplay = () => {{
           if (!playbackStarted) {{
@@ -11022,6 +11182,10 @@ def _memorial_html(
           }}
           if (playbackStarted && elapsedMs < 220 && (metadataDurationMs || expectedMinMs) > 900) {{
             failPlayback("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
+            return;
+          }}
+          if (tooShortThresholdMs && (metadataDurationMs || elapsedMs) < tooShortThresholdMs) {{
+            failPlayback("audio_too_short_for_answer", "ended_after_" + String(elapsedMs) + "_expected_" + String(Math.round(expectedMinMs)));
             return;
           }}
           stopSpeechPlayback();
