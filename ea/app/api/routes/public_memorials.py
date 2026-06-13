@@ -3508,7 +3508,7 @@ def _memorial_present_world_answer_body(question: str) -> str:
     if any(token in lowered for token in ("wetter", "regnet", "regen", "sonnig", "sonne", "temperatur", "grad", "draussen", "draußen")):
         return (
             "Das aktuelle Wetter sehe ich hier nicht direkt. "
-            "Sag mir den Ort, dann ordnen wir Regen, Temperatur und Wind."
+            "Sag mir den Ort oder schau kurz hinaus, dann reden wir weiter."
         )
     if any(token in lowered for token in ("uhrzeit", "wie spaet", "wie spät", "wieviel uhr", "wie viel uhr")):
         return (
