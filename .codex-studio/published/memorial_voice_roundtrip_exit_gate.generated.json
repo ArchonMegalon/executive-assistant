@@ -1,39 +1,43 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T09:03:04Z",
+  "generated_at": "2026-06-13T09:31:53Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "67e63a098c9e24284bc84ccf3e25fc1ecaf2050e",
+  "git_head": "e1bb1c328e46df5976a3d5e5d51f6724b4055cbb",
   "dirty_worktree": false,
   "status": "pass",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
-  "gold_mode": false,
+  "gold_mode": true,
   "require_public_origin": false,
   "direct_min_f1": 0.92,
   "conversation_min_f1": 0.9,
-  "critical_tokens": [],
+  "critical_tokens": [
+    "Das",
+    "sehe",
+    "hier"
+  ],
   "direct_text": "Das sehe ich hier nicht.",
   "conversation_question": "Was ist der aktuelle Stand?",
   "present_world_question": "Wie ist das Wetter heute?",
   "failed_codes": [],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 44,
+    "speech_synthesize_ms": 48,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 7638,
+    "speech_transcribe_ms": 8549,
     "direct_tts_transcriber": "1min.ai/whisper-1",
     "direct_tts_expected_chars": 24,
     "direct_tts_actual_chars": 24,
     "direct_tts_f1": 1.0,
-    "chat_reference_ms": 22,
+    "chat_reference_ms": 25,
     "reference_answer_chars": 24,
-    "present_world_chat_ms": 9,
+    "present_world_chat_ms": 20,
     "present_world_answer_chars": 110,
-    "synthetic_prompt_synthesize_ms": 29,
-    "conversation_turn_total_ms": 8500,
+    "synthetic_prompt_synthesize_ms": 23,
+    "conversation_turn_total_ms": 8177,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 8093,
+    "conversation_answer_transcribe_ms": 8673,
     "conversation_turn_transcriber": "1min.ai/whisper-1",
     "conversation_turn_audio_expected_chars": 24,
     "conversation_turn_audio_actual_chars": 24,
@@ -53,11 +57,12 @@
     },
     {
       "status": "pass",
-      "code": "direct_tts_similarity_ok",
-      "message": "Transcript matches the expected spoken content closely.",
+      "code": "direct_tts_gold_similarity_ok",
+      "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
         "expected": "Das sehe ich hier nicht.",
         "actual": "Das sehe ich hier nicht.",
+        "min_f1": 0.92,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
@@ -86,16 +91,17 @@
     },
     {
       "status": "pass",
-      "code": "conversation_turn_audio_similarity_ok",
-      "message": "Transcript matches the expected spoken content closely.",
+      "code": "conversation_turn_audio_gold_similarity_ok",
+      "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
         "expected": "Das sehe ich hier nicht.",
         "actual": "Das sehe ich hier nicht.",
+        "min_f1": 0.9,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
       }
     }
   ],
-  "gold_claim_allowed": false
+  "gold_claim_allowed": true
 }
