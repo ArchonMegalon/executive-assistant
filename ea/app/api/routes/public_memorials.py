@@ -5464,11 +5464,11 @@ def _memorial_transcript_quality_score(
     }
     score = 0
     if _looks_like_memorial_contact_opening_transcript(text):
-        score += 70
+        score += 8
     if _is_memorial_present_world_question(text):
-        score += 55
+        score += 52
     if _is_memorial_live_interaction_question(text):
-        score += 35
+        score += 24
     if any(marker in tokens for marker in question_markers):
         score += 18
     if _is_known_bad_memorial_subtitle_transcript(lowered):
@@ -6512,11 +6512,6 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                         and not _looks_like_memorial_contact_opening_transcript(text)
                         and not _is_known_bad_memorial_subtitle_transcript(text)
                         and variant_label == "enhanced_wav"
-                    ):
-                        break
-                    if (
-                        _looks_like_memorial_contact_opening_transcript(effective_text)
-                        and not _is_known_bad_memorial_subtitle_transcript(effective_text)
                     ):
                         break
                 except Exception as exc:

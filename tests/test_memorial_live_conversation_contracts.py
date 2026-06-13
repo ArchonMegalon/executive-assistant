@@ -719,6 +719,56 @@ def test_memorial_transcribe_prefers_best_provider_variant_over_first_garbage_re
     assert result["transcriber"].endswith("converted_wav") or result["transcriber"].endswith("enhanced_wav")
 
 
+def test_memorial_transcribe_prefers_question_candidate_over_early_contact_opening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _generated_wav_bytes(
+            textish_seed="Wie ist das Wetter heute in Wien?" if kwargs.get("enhance_for_speech") else "Hallo Manfred"
+        ),
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    upload_count = {"value": 0}
+
+    def _fake_upload(**kwargs):
+        upload_count["value"] += 1
+        return {
+            "asset": {"key": f"audio-key-{upload_count['value']}"},
+            "fileContent": {"path": f"path-{upload_count['value']}-{kwargs['filename']}"},
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
+
+    seen_paths: list[str] = []
+
+    def _fake_stt(**kwargs):
+        audio_path = str(kwargs.get("audio_path") or "")
+        seen_paths.append(audio_path)
+        if audio_path.endswith("1-memorial-speech.wav"):
+            text = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+        else:
+            text = "Wie ist das Wetter heute in Wien?"
+        return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": text}}}}
+
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=b"not-a-real-webm",
+        content_type="audio/webm",
+    )
+
+    assert len(seen_paths) >= 2
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["primary_transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"].endswith("enhanced_wav")
+
+
 @pytest.mark.parametrize(
     ("question", "expected_fragment"),
     [

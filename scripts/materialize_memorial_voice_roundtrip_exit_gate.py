@@ -216,8 +216,8 @@ def main(argv: list[str] | None = None) -> int:
         "--direct-text",
         default="Das weiß ich nicht.",
     )
-    parser.add_argument("--conversation-question", default="Was ist heute los?")
-    parser.add_argument("--present-world-question", default="Was ist heute los?")
+    parser.add_argument("--conversation-question", default="Hallo Manfred, kannst du jetzt mit mir sprechen?")
+    parser.add_argument("--present-world-question", default="Welches Wetter haben wir heute?")
     parser.add_argument("--allow-missing-stt", action="store_true")
     parser.add_argument("--gold-mode", action="store_true")
     parser.add_argument("--require-public-origin", action="store_true")

@@ -72,3 +72,4 @@ decision_brief.md
 
 # Local runtime proxy pool secrets
 state/fastestvpn-proxy-pool/
+state/memorial_blipai_shadow_stt_tokens.json
