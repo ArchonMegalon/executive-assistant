@@ -380,7 +380,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das kann ich aus meinen Erinnerungen nicht sagen."
+    assert body["answer"] == "Das kann ich aus meiner Erinnerung nicht sagen."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -390,7 +390,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das kann ich aus meinen Erinnerungen nicht sagen."
+    assert body["answer"] == "Das kann ich aus meiner Erinnerung nicht sagen."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
