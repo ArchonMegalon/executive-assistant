@@ -21,6 +21,7 @@ from app.api.routes.landing import (
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.google_oauth import (
+    browser_google_oauth_redirect_uri,
     complete_google_oauth_callback,
     google_bundle_supports_workspace_sync,
     read_google_oauth_state,
@@ -285,7 +286,7 @@ async def google_connect_browser(
     result = container.onboarding.start_google(
         principal_id=principal_id,
         scope_bundle=_form_value(form_data, "scope_bundle", "identity"),
-        redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
+        redirect_uri_override=browser_google_oauth_redirect_uri(public_base_url=_public_app_base_url(request)),
         return_to=return_to,
         browser_source="public_setup",
     )

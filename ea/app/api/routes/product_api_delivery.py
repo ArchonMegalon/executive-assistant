@@ -64,6 +64,7 @@ from app.api.routes.product_api_contracts import (
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.google_oauth import browser_google_oauth_redirect_uri
 from app.services.property_billing import (
     capture_paypal_property_order,
     create_payfunnels_property_checkout,
@@ -333,7 +334,7 @@ def start_google_location_history_connect(
     payload = service.start_google_location_history_connect(
         principal_id=context.principal_id,
         actor=actor,
-        redirect_uri_override=f"{_public_base_url(request)}/google/callback",
+        redirect_uri_override=browser_google_oauth_redirect_uri(public_base_url=_public_base_url(request)),
     )
     return GoogleLocationHistoryConnectStartOut(**payload)
 

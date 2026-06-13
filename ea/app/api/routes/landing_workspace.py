@@ -1935,7 +1935,9 @@ def app_google_connect(
         started = container.onboarding.start_google(
             principal_id=context.principal_id,
             scope_bundle=scope_bundle,
-            redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
+            redirect_uri_override=google_oauth_service.browser_google_oauth_redirect_uri(
+                public_base_url=_public_app_base_url(request)
+            ),
             return_to=return_to,
             browser_source="settings_google",
         )

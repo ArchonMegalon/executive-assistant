@@ -555,6 +555,19 @@ def build_google_oauth_start(
     )
 
 
+def browser_google_oauth_redirect_uri(*, public_base_url: str | None = None) -> str:
+    config = load_google_oauth_config()
+    redirect_uri = str(config.redirect_uri or "").strip()
+    if redirect_uri:
+        parsed = urllib.parse.urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}/google/callback"
+    normalized_public_base = str(public_base_url or "").strip().rstrip("/")
+    if normalized_public_base:
+        return f"{normalized_public_base}/google/callback"
+    raise RuntimeError("google_oauth_redirect_uri_missing")
+
+
 def read_google_oauth_state(state: str) -> dict[str, Any]:
     config = load_google_oauth_config()
     return _decode_signed_state(state, secret=config.state_secret)

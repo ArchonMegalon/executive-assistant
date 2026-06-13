@@ -745,6 +745,27 @@ def test_google_settings_surface_connect_action_and_browser_connect_route(monkey
     assert "https://accounts.google.com/o/oauth2/v2/auth" in started_head.headers["location"]
 
 
+def test_google_settings_surface_prefers_configured_google_callback_host_over_public_brand_host(monkeypatch) -> None:
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://propertyquarry.com/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+    principal_id = "exec-browser-google-connect-canonical-host"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Founder Office")
+
+    started = client.get("/app/actions/google/connect", params={"return_to": "/app/settings/google"}, follow_redirects=False)
+    assert started.status_code == 303
+    parsed = urllib.parse.urlparse(started.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert query["redirect_uri"][0] == "https://propertyquarry.com/google/callback"
+    state = read_google_oauth_state(query["state"][0])
+    assert state["redirect_uri"] == "https://propertyquarry.com/google/callback"
+    assert state["return_to"] == "/app/settings/google"
+
+
 def test_google_settings_surface_can_email_full_access_connect_link(monkeypatch) -> None:
     principal_id = "cf-email:browser.office@example.com"
     client = build_product_client(principal_id=principal_id)

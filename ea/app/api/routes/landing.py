@@ -1057,13 +1057,13 @@ async def sign_in_google(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> RedirectResponse:
-    from app.services.google_oauth import build_google_oauth_start
+    from app.services.google_oauth import build_google_oauth_start, browser_google_oauth_redirect_uri
 
     try:
         packet = build_google_oauth_start(
             principal_id="",
             scope_bundle="identity",
-            redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
+            redirect_uri_override=browser_google_oauth_redirect_uri(public_base_url=_public_app_base_url(request)),
             return_to="/sign-in?google_connected=1",
             browser_source="sign_in",
         )

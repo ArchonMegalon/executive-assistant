@@ -16,6 +16,7 @@ from app.api.dependencies import RequestContext, get_container, get_request_cont
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.google_oauth import (
+    browser_google_oauth_redirect_uri,
     complete_google_oauth_callback,
     GOOGLE_PROVIDER_KEY,
 )
@@ -490,7 +491,11 @@ def register_verify(
         google_status = container.onboarding.start_google(
             principal_id=principal_id,
             scope_bundle=str(body.scope_bundle or "identity").strip() or "identity",
-            redirect_uri_override=f"{_registration_base_url(request)}/google/callback" if request is not None else None,
+            redirect_uri_override=browser_google_oauth_redirect_uri(
+                public_base_url=_registration_base_url(request)
+            )
+            if request is not None
+            else None,
             return_to="/register?ready=1",
             browser_source="register",
         )
