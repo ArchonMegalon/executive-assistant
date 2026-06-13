@@ -61,13 +61,13 @@ def run_stability_gate(
             slug=slug,
             base_url=base_url,
             output_dir=output_dir / f"run-{index:02d}",
-            direct_text="Dazu habe ich nichts.",
+            direct_text="Ich habe keine Antwort.",
             conversation_question="Wie ist das Wetter heute?",
             present_world_question="Wie ist das Wetter heute?",
             require_stt=require_stt,
             gold_mode=gold_mode,
             require_public_origin=require_public_origin,
-            critical_tokens=("habe", "nichts") if gold_mode else (),
+            critical_tokens=("habe", "antwort") if gold_mode else (),
         )
         receipts.append(receipt)
 
