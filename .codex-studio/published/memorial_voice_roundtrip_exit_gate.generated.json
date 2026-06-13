@@ -1,10 +1,10 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T11:53:30Z",
+  "generated_at": "2026-06-13T12:02:24Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "71a6180bcf80406032896e289979fe4a302e366c",
-  "source_git_head": "71a6180bcf80406032896e289979fe4a302e366c",
-  "source_tree_fingerprint": "dccf3ed4e4b987197d2d47d892b81000bc1f30b5094139ad0c4769e027ab4f43",
+  "git_head": "4bf0b1cc4eb0ec811b0a184d61b6ec4030618894",
+  "source_git_head": "4bf0b1cc4eb0ec811b0a184d61b6ec4030618894",
+  "source_tree_fingerprint": "f27c2ac963d8b463d40d9d20dd253c7d93022e5de26e56152b2339ce8e52bf3a",
   "dirty_worktree": false,
   "status": "pass",
   "slug": "manfred",
@@ -26,26 +26,26 @@
   "failed_codes": [],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 54,
+    "speech_synthesize_ms": 3944,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 8758,
+    "speech_transcribe_ms": 8806,
     "direct_tts_transcriber": "1min.ai/whisper-1",
     "direct_tts_expected_chars": 25,
-    "direct_tts_actual_chars": 43,
-    "direct_tts_f1": 0.9091,
-    "chat_reference_ms": 20,
+    "direct_tts_actual_chars": 25,
+    "direct_tts_f1": 1.0,
+    "chat_reference_ms": 27,
     "reference_answer_chars": 25,
-    "present_world_chat_ms": 18,
+    "present_world_chat_ms": 31,
     "present_world_answer_chars": 25,
-    "synthetic_prompt_synthesize_ms": 38,
-    "conversation_turn_total_ms": 7339,
+    "synthetic_prompt_synthesize_ms": 3567,
+    "conversation_turn_total_ms": 9023,
     "conversation_turn_transcript_chars": 18,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 8003,
+    "conversation_answer_transcribe_ms": 7949,
     "conversation_turn_transcriber": "1min.ai/whisper-1",
     "conversation_turn_audio_expected_chars": 25,
-    "conversation_turn_audio_actual_chars": 43,
-    "conversation_turn_audio_f1": 0.9091
+    "conversation_turn_audio_actual_chars": 25,
+    "conversation_turn_audio_f1": 1.0
   },
   "artifacts": {
     "direct_tts_audio": "/tmp/memorial_voice_roundtrip_exit_gate/manfred-direct-tts.wav",
@@ -66,11 +66,11 @@
       "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
         "expected": "Das kann man nicht sagen.",
-        "actual": "Das kann man nicht sagen, möchte man sagen.",
+        "actual": "Das kann man nicht sagen.",
         "min_f1": 0.9,
-        "precision": 0.8333,
+        "precision": 1.0,
         "recall": 1.0,
-        "f1": 0.9091
+        "f1": 1.0
       }
     },
     {
@@ -100,11 +100,11 @@
       "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
         "expected": "Das kann man nicht sagen.",
-        "actual": "Das kann man nicht sagen, möchte man sagen.",
+        "actual": "Das kann man nicht sagen.",
         "min_f1": 0.9,
-        "precision": 0.8333,
+        "precision": 1.0,
         "recall": 1.0,
-        "f1": 0.9091
+        "f1": 1.0
       }
     }
   ],
