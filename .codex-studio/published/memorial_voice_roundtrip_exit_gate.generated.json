@@ -1,12 +1,12 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T18:15:59Z",
+  "generated_at": "2026-06-13T19:18:13Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "33125a3aeb186f42c4441496593e4f240a83861a",
-  "source_git_head": "33125a3aeb186f42c4441496593e4f240a83861a",
-  "source_tree_fingerprint": "7d343a46d10437c5976650f85c985ce6ad84d25381203ae25671f08175c03046",
-  "dirty_worktree": true,
-  "status": "fail",
+  "git_head": "44b05582595aa92a302f3c505531a44ad35363a5",
+  "source_git_head": "44b05582595aa92a302f3c505531a44ad35363a5",
+  "source_tree_fingerprint": "0765d326a4d7da68f60609b3aed7ef450ead0d1dca3175e1a1675ff5c5f2f274",
+  "dirty_worktree": false,
+  "status": "pass",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
@@ -15,38 +15,32 @@
   "direct_min_f1": 0.92,
   "conversation_min_f1": 0.9,
   "critical_tokens": [],
-  "direct_text": "Das weiß ich nicht.",
-  "conversation_question": "Was ist heute los?",
-  "present_world_question": "Was ist heute los?",
-  "failed_codes": [
-    "conversation_answer_text_gold_similarity_bad",
-    "dirty_worktree"
-  ],
+  "direct_text": "Ja. Sag es mir.",
+  "conversation_question": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+  "present_world_question": "Welches Wetter haben wir heute?",
+  "failed_codes": [],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 4006,
+    "speech_synthesize_ms": 21,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 18749,
+    "speech_transcribe_ms": 19097,
     "direct_tts_transcriber": "1min.ai/whisper-1+enhanced_wav",
-    "direct_tts_expected_chars": 19,
-    "direct_tts_actual_chars": 19,
+    "direct_tts_expected_chars": 15,
+    "direct_tts_actual_chars": 15,
     "direct_tts_f1": 1.0,
     "chat_reference_ms": 6,
-    "reference_answer_chars": 19,
-    "present_world_chat_ms": 3,
-    "present_world_answer_chars": 19,
-    "synthetic_prompt_synthesize_ms": 19,
+    "reference_answer_chars": 15,
+    "present_world_chat_ms": 4,
+    "present_world_answer_chars": 71,
+    "synthetic_prompt_synthesize_ms": 24,
     "synthetic_prompt_source": "local_neutral_prompt",
-    "conversation_turn_total_ms": 29983,
+    "conversation_turn_total_ms": 18897,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_text_expected_chars": 19,
-    "conversation_answer_text_actual_chars": 18,
-    "conversation_answer_text_f1": 0.25,
-    "conversation_answer_transcribe_ms": 17149,
+    "conversation_answer_transcribe_ms": 18568,
     "conversation_turn_transcriber": "1min.ai/whisper-1+enhanced_wav",
-    "conversation_turn_audio_expected_chars": 18,
-    "conversation_turn_audio_actual_chars": 18,
+    "conversation_turn_audio_expected_chars": 15,
+    "conversation_turn_audio_actual_chars": 15,
     "conversation_turn_audio_f1": 1.0
   },
   "artifacts": {
@@ -67,8 +61,8 @@
       "code": "direct_tts_gold_similarity_ok",
       "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
-        "expected": "Das weiß ich nicht.",
-        "actual": "Das weiß ich nicht.",
+        "expected": "Ja. Sag es mir.",
+        "actual": "Ja, sag es mir.",
         "min_f1": 0.92,
         "precision": 1.0,
         "recall": 1.0,
@@ -80,7 +74,7 @@
       "code": "present_world_route_ok",
       "message": "Present-world question stayed on the dedicated direct-answer route.",
       "detail": {
-        "question": "Was ist heute los?",
+        "question": "Welches Wetter haben wir heute?",
         "fallback_reason": "present_world_guardrail"
       }
     },
@@ -91,37 +85,24 @@
       "detail": {}
     },
     {
-      "status": "fail",
-      "code": "conversation_answer_text_gold_similarity_bad",
-      "message": "Transcript does not meet the stricter memorial-gold similarity threshold.",
-      "detail": {
-        "expected": "Das weiß ich nicht.",
-        "actual": "Ja. Ich höre dich.",
-        "min_f1": 0.9,
-        "precision": 0.25,
-        "recall": 0.25,
-        "f1": 0.25
-      }
+      "status": "pass",
+      "code": "conversation_answer_text_ok",
+      "message": "Conversation-turn answer text matches the reference chat answer.",
+      "detail": {}
     },
     {
       "status": "pass",
       "code": "conversation_turn_audio_gold_similarity_ok",
       "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
-        "expected": "Ja. Ich höre dich.",
-        "actual": "Ja, ich höre dich.",
+        "expected": "Ja. Sag es mir.",
+        "actual": "Ja, sag es mir.",
         "min_f1": 0.9,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
       }
-    },
-    {
-      "status": "fail",
-      "code": "dirty_worktree",
-      "message": "Memorial-gold voice proof requires a clean worktree.",
-      "detail": {}
     }
   ],
-  "gold_claim_allowed": false
+  "gold_claim_allowed": true
 }
