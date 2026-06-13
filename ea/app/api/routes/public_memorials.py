@@ -3497,7 +3497,7 @@ def _is_memorial_present_world_question(question: str) -> bool:
 
 
 def _memorial_present_world_answer_body(question: str) -> str:
-    return "Das kann ich nicht sagen."
+    return "Das kann man nicht sagen."
 
 
 def _memorial_present_world_search_request(question: str) -> dict[str, object]:
