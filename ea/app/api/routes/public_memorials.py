@@ -6097,10 +6097,10 @@ def _memorial_live_warmup_snapshot(slug: str) -> dict[str, object]:
     completed_at = float(current.get("completed_at") or 0.0)
     inflight = bool(current.get("inflight"))
     errors = list(current.get("errors") or [])
-    voice_completed_at = float(current.get("voicewave_contact_completed_at") or 0.0)
-    voice_inflight = bool(current.get("voicewave_contact_inflight"))
-    voice_errors = list(current.get("voicewave_contact_errors") or [])
-    voice_required = bool(current.get("voicewave_contact_required"))
+    voice_completed_at = float(current.get("voice_contact_completed_at") or current.get("voicewave_contact_completed_at") or 0.0)
+    voice_inflight = bool(current.get("voice_contact_inflight") or current.get("voicewave_contact_inflight"))
+    voice_errors = list(current.get("voice_contact_errors") or current.get("voicewave_contact_errors") or [])
+    voice_required = bool(current.get("voice_contact_required") or current.get("voicewave_contact_required"))
     voice_ready = bool(
         voice_completed_at
         and not voice_errors
@@ -6204,6 +6204,10 @@ def _run_memorial_live_warmup(slug: str) -> None:
             if voice_label:
                 with _MEMORIAL_LIVE_WARMUP_LOCK:
                     current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+                    current["voice_contact_required"] = True
+                    current["voice_contact_inflight"] = True
+                    current["voice_contact_completed_at"] = 0.0
+                    current["voice_contact_errors"] = []
                     current["voicewave_contact_required"] = True
                     current["voicewave_contact_inflight"] = True
                     current["voicewave_contact_completed_at"] = 0.0
@@ -6211,6 +6215,13 @@ def _run_memorial_live_warmup(slug: str) -> None:
                     _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
                 _schedule_memorial_voicewave_contact_prewarm(slug, voice_label)
         elif _safe_tts_plugin_id(base_config.get("tts_plugin")) in {UNMIXR_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+            with _MEMORIAL_LIVE_WARMUP_LOCK:
+                current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+                current["voice_contact_required"] = True
+                current["voice_contact_inflight"] = True
+                current["voice_contact_completed_at"] = 0.0
+                current["voice_contact_errors"] = []
+                _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
             _schedule_memorial_server_voice_contact_prewarm(slug)
     finally:
         total_ms = (time.perf_counter() - started_clock) * 1000.0
@@ -6252,17 +6263,22 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
         selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
         if selected_plugin != VOICEWAVE_TTS_PLUGIN_ID or not bool(selected_option.get("tts_plugin_enabled")):
             return
-        seed_questions = (
-            "Kann ich jetzt mit dir reden?",
-            "Bist du da?",
-            "Hoerst du zu?",
+        seed_texts = tuple(
+            dict.fromkeys(
+                _memorial_contact_answer_body(seed_question)
+                for seed_question in (
+                    "Kann ich jetzt mit dir reden?",
+                    "Bist du da?",
+                    "Hoerst du zu?",
+                )
+            )
         )
         first_ready_marked = False
-        for seed_question in seed_questions:
+        for seed_text in seed_texts:
             try:
                 _render_memorial_tts_audio(
                     slug=slug,
-                    text=_memorial_contact_answer_body(seed_question),
+                    text=seed_text,
                     merged_config=merged_config,
                     base_config=base_config,
                     selected_plugin=selected_plugin,
@@ -6273,6 +6289,9 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
                 if not first_ready_marked:
                     with _MEMORIAL_LIVE_WARMUP_LOCK:
                         current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+                        current["voice_contact_completed_at"] = time.time()
+                        current["voice_contact_errors"] = []
+                        current["voice_contact_inflight"] = False
                         current["voicewave_contact_completed_at"] = time.time()
                         current["voicewave_contact_errors"] = []
                         _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
@@ -6290,6 +6309,10 @@ def _run_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None
         )
         with _MEMORIAL_LIVE_WARMUP_LOCK:
             current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            current["voice_contact_inflight"] = False
+            if not errors and not float(current.get("voice_contact_completed_at") or 0.0):
+                current["voice_contact_completed_at"] = time.time()
+            current["voice_contact_errors"] = errors[:6]
             current["voicewave_contact_inflight"] = False
             if not errors and not float(current.get("voicewave_contact_completed_at") or 0.0):
                 current["voicewave_contact_completed_at"] = time.time()
@@ -6302,6 +6325,12 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
     started_clock = time.perf_counter()
     selected_plugin = ""
     try:
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            current["voice_contact_required"] = True
+            current["voice_contact_inflight"] = True
+            current["voice_contact_errors"] = []
+            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
         base_config = _load_voice_config(slug)
         merged_config = dict(base_config)
         tts_options = _tts_plugin_options(
@@ -6313,14 +6342,20 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
             return
         if not bool(selected_option.get("tts_plugin_enabled")):
             return
-        for seed_question in (
-            "Kann ich jetzt mit dir reden?",
-            "Bist du da?",
-            "Hoerst du zu?",
-        ):
+        seed_texts = tuple(
+            dict.fromkeys(
+                _memorial_contact_answer_body(seed_question)
+                for seed_question in (
+                    "Kann ich jetzt mit dir reden?",
+                    "Bist du da?",
+                    "Hoerst du zu?",
+                )
+            )
+        )
+        for seed_text in seed_texts:
             _render_memorial_tts_audio(
                 slug=slug,
-                text=_memorial_contact_answer_body(seed_question),
+                text=seed_text,
                 merged_config=merged_config,
                 base_config=base_config,
                 selected_plugin=selected_plugin,
@@ -6338,6 +6373,15 @@ def _run_memorial_server_voice_contact_prewarm(slug: str) -> None:
             tts_plugin=selected_plugin,
             errors="|".join(errors[:6]) if errors else "-",
         )
+        with _MEMORIAL_LIVE_WARMUP_LOCK:
+            current = dict(_MEMORIAL_LIVE_WARMUP_STATE.get(slug, {}))
+            current["voice_contact_inflight"] = False
+            if not errors:
+                current["voice_contact_completed_at"] = time.time()
+                current["voice_contact_errors"] = []
+            else:
+                current["voice_contact_errors"] = errors[:6]
+            _MEMORIAL_LIVE_WARMUP_STATE[slug] = current
 
 
 def _schedule_memorial_voicewave_contact_prewarm(slug: str, voice_label: str) -> None:
@@ -7872,6 +7916,14 @@ def _minimal_public_memorial_html(
           setSpeechStatus("Einen Moment.", "working", liveInputTranscript);
           return;
         }}
+        if (type === "answer") {{
+          liveAnswerTranscript = String(event.text || liveAnswerTranscript || "").trim();
+          if (liveAnswerTranscript) {{
+            setSpeechStatus("Ich spreche.", "playing", liveAnswerTranscript);
+            showAnswerText(liveAnswerTranscript);
+          }}
+          return;
+        }}
         if (type === "response.output_audio.delta" || type === "response.audio.delta") {{
           setSpeechStatus("Ich spreche.", "playing", "");
           return;
@@ -7962,12 +8014,16 @@ def _minimal_public_memorial_html(
         livePeerConnection = audioContext;
         const sourceRate = audioContext.sampleRate || 48000;
         const targetRate = 16000;
+        const speechThreshold = 0.0075;
+        const preSpeechMaxBytes = Math.max(8192, Math.floor(targetRate * 2 * 0.72));
         let resampleCarry = 0;
         let speechSeen = false;
         let liveTurnStarted = false;
         let liveTurnEnded = false;
         let lastVoiceAt = Date.now();
         const startedAt = Date.now();
+        const preSpeechChunks = [];
+        let preSpeechBytes = 0;
         function floatToPcm16(samples) {{
           const ratio = sourceRate / targetRate;
           const length = Math.max(1, Math.floor((samples.length + resampleCarry) / ratio));
@@ -7991,7 +8047,16 @@ def _minimal_public_memorial_html(
           for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
           const rms = Math.sqrt(sum / samples.length);
           const now = Date.now();
-          if (rms >= 0.01) {{
+          const pcmBuffer = floatToPcm16(samples);
+          if (!speechSeen && pcmBuffer && pcmBuffer.byteLength > 0) {{
+            preSpeechChunks.push(pcmBuffer);
+            preSpeechBytes += pcmBuffer.byteLength;
+            while (preSpeechBytes > preSpeechMaxBytes && preSpeechChunks.length > 1) {{
+              const removed = preSpeechChunks.shift();
+              preSpeechBytes -= removed ? removed.byteLength : 0;
+            }}
+          }}
+          if (rms >= speechThreshold) {{
             speechSeen = true;
             activeRecordingHadSpeech = true;
             lastVoiceAt = now;
@@ -8008,8 +8073,13 @@ def _minimal_public_memorial_html(
               personal_memory_enabled: true,
               browser_language: browserPreferredLanguage
             }}));
+            for (const bufferedChunk of preSpeechChunks) {{
+              try {{ socket.send(bufferedChunk); }} catch (error) {{}}
+            }}
+            preSpeechChunks.length = 0;
+            preSpeechBytes = 0;
           }}
-          socket.send(floatToPcm16(samples));
+          socket.send(pcmBuffer);
           if (!liveTurnEnded && speechSeen && now - startedAt > 900 && now - lastVoiceAt > 920) {{
             liveTurnEnded = true;
             try {{ socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }})); }} catch (error) {{}}
@@ -8095,7 +8165,7 @@ def _minimal_public_memorial_html(
             let lastLoudAt = startedAt;
             const minimumRecordMs = 2600;
             const silenceAfterSpeechMs = 1200;
-            const speechThreshold = 0.01;
+            const speechThreshold = 0.0075;
             activeRecordingSpeechGateReady = true;
             activeLevelTimer = window.setInterval(() => {{
               if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
@@ -12024,7 +12094,10 @@ def _memorial_html(
         const maxNoSpeechMs = Math.max(1500, Number(options.autoStopMs || 2100));
         const silenceAfterSpeechMs = Math.max(420, Number(options.silenceMs || 520));
         const minSpeechMs = 520;
-        const speechThreshold = Math.max(0.008, Number(options.silenceThreshold || 0.011));
+        const speechThreshold = Math.max(0.0065, Number(options.silenceThreshold || 0.0085));
+        const preSpeechMaxBytes = Math.max(8192, Math.floor(targetRate * 2 * 0.72));
+        const preSpeechChunks = [];
+        let preSpeechBytes = 0;
         const finish = (resolve, reject, timeoutId, error = null) => {{
           if (settled) return;
           settled = true;
@@ -12135,6 +12208,15 @@ def _memorial_html(
               for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
               const rms = Math.sqrt(sum / Math.max(1, samples.length));
               const now = Date.now();
+              const pcmBuffer = floatToPcm16(samples);
+              if (!speechSeen && pcmBuffer && pcmBuffer.byteLength > 0) {{
+                preSpeechChunks.push(pcmBuffer);
+                preSpeechBytes += pcmBuffer.byteLength;
+                while (preSpeechBytes > preSpeechMaxBytes && preSpeechChunks.length > 1) {{
+                  const removed = preSpeechChunks.shift();
+                  preSpeechBytes -= removed ? removed.byteLength : 0;
+                }}
+              }}
               setSpeechMeterLevel(Math.min(1, 0.08 + (rms / Math.max(0.01, speechThreshold * 4.2)) * 0.92));
               if (rms >= speechThreshold) {{
                 speechSeen = true;
@@ -12156,8 +12238,13 @@ def _memorial_html(
                   browser_language: browserPreferredLanguage,
                   voice_ab_variant: activeVoiceVariant()
                 }}));
+                for (const bufferedChunk of preSpeechChunks) {{
+                  try {{ socket.send(bufferedChunk); }} catch (error) {{}}
+                }}
+                preSpeechChunks.length = 0;
+                preSpeechBytes = 0;
               }}
-              socket.send(floatToPcm16(samples));
+              socket.send(pcmBuffer);
               if (!liveTurnEnded && now - startedAt > minSpeechMs && now - lastVoiceAt > silenceAfterSpeechMs) {{
                 liveTurnEnded = true;
                 setSpeechStatus("", "thinking", "");

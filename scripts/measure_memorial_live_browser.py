@@ -27,6 +27,8 @@ DEFAULT_EXIT_GATE_CONTEXT_TOKENS = (
     "da",
     "sprich",
     "sag",
+    "worum",
+    "geht",
     "antworte",
     "beschaeftigt",
     "reagiere",
@@ -42,6 +44,7 @@ EXIT_GATE_SEMANTIC_PROFILES = (
         "required_any": (
             ("ja", "da"),
             ("sprich", "sag"),
+            ("worum", "geht"),
             ("antworte", "direkt"),
             ("beschaeftigt", "reagiere"),
         ),
@@ -237,63 +240,11 @@ def _synthesized_prompt_wav_bytes(text: str) -> bytes:
         return normalized_wav.read_bytes()
 
 
-def _fake_media_init_script(audio_base64: str) -> str:
+def _browser_audio_gate_init_script() -> str:
     return f"""
 (() => {{
-  const audioBase64 = {json.dumps(audio_base64)};
-  const decodeBase64 = (value) => Uint8Array.from(atob(String(value || "")), (char) => char.charCodeAt(0));
-  const wavBytes = decodeBase64(audioBase64);
-  const wavBlob = new Blob([wavBytes], {{ type: "audio/wav" }});
-
-  class FakeTrack {{
-    stop() {{}}
-  }}
-
-  class FakeStream {{
-    getTracks() {{
-      return [new FakeTrack()];
-    }}
-  }}
-
-  class FakeMediaRecorder {{
-    constructor(stream, options = {{}}) {{
-      this.stream = stream;
-      const requestedMimeType = (options && options.mimeType) ? String(options.mimeType) : "";
-      this.mimeType = requestedMimeType.includes("wav") ? requestedMimeType : "audio/wav";
-      this.state = "inactive";
-      this.ondataavailable = null;
-      this.onstart = null;
-      this.onstop = null;
-      this.onerror = null;
-    }}
-      start() {{
-      this.state = "recording";
-      setTimeout(() => {{
-        if (this.onstart) this.onstart();
-        this.stop();
-      }}, 240);
-    }}
-    stop() {{
-      if (this.state !== "recording") return;
-      this.state = "inactive";
-      setTimeout(() => {{
-        if (this.ondataavailable) this.ondataavailable({{ data: wavBlob, size: wavBlob.size }});
-        if (this.onstop) this.onstop();
-      }}, 24);
-    }}
-    static isTypeSupported() {{
-      return true;
-    }}
-  }}
-
   Object.defineProperty(window, "SpeechRecognition", {{ configurable: true, value: undefined }});
   Object.defineProperty(window, "webkitSpeechRecognition", {{ configurable: true, value: undefined }});
-  Object.defineProperty(window, "MediaRecorder", {{ configurable: true, value: FakeMediaRecorder }});
-
-  if (!navigator.mediaDevices) {{
-    Object.defineProperty(navigator, "mediaDevices", {{ configurable: true, value: {{}} }});
-  }}
-  navigator.mediaDevices.getUserMedia = async () => new FakeStream();
   window.__memorial_audio_gate = {{ play_calls: 0, play_ended: 0, last_error: "" }};
   HTMLMediaElement.prototype.play = function play() {{
     window.__memorial_audio_gate.play_calls += 1;
@@ -501,6 +452,13 @@ def _wait_for_realtime_turn(
                 state["payload"]["sources"] = list(parsed.get("sources"))
             if parsed.get("llm_model"):
                 state["payload"]["llm_model"] = str(parsed.get("llm_model"))
+        elif event_type in {"response.output_audio_transcript.done", "response.output_text.done"}:
+            state["payload"]["answer"] = str(parsed.get("transcript") or parsed.get("text") or "").strip()
+        elif event_type in {"response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.output_text.delta"}:
+            delta = str(parsed.get("delta") or "").strip()
+            if delta:
+                existing = str(state["payload"].get("answer", "")).strip()
+                state["payload"]["answer"] = f"{existing} {delta}".strip() if existing else delta
         elif event_type == "audio":
             state["payload"]["audio_base64"] = str(parsed.get("audio_base64", ""))
             state["payload"]["audio_content_type"] = str(parsed.get("content_type", "audio/wav"))
@@ -521,7 +479,20 @@ def _wait_for_realtime_turn(
             if isinstance(collected, list) and not str(state["payload"].get("audio_base64", "")).strip():
                 state["payload"]["audio_base64"] = "".join(str(chunk) for chunk in collected)
             state.pop("payload_audio_chunks", None)
-        if event_type in {"turn_complete", "error", "cancelled", "audio", "audio_complete", "answer", "audio_chunk"}:
+        if event_type in {
+            "turn_complete",
+            "error",
+            "cancelled",
+            "audio",
+            "audio_complete",
+            "answer",
+            "audio_chunk",
+            "response.output_audio_transcript.done",
+            "response.output_text.done",
+            "response.output_audio_transcript.delta",
+            "response.audio_transcript.delta",
+            "response.output_text.delta",
+        }:
             state["turn_id"] = str(parsed.get("turn_id", state.get("turn_id", "")) or "")
 
     def _on_frame(frame) -> None:
@@ -568,153 +539,56 @@ def _wait_for_realtime_turn(
 def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: bool = True) -> dict[str, object]:
     sync_playwright = _require_playwright()
     audio_bytes = _synthesized_prompt_wav_bytes(prompt_text)
-    audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
     page_url = f"{base_url.rstrip('/')}/memorials/{slug}"
     warmup_url = f"{page_url}/warmup-status"
     semantic_profile = _semantic_profile_for_prompt(prompt_text)
     started = time.perf_counter()
-    with sync_playwright() as playwright:  # pragma: no cover - exercised in live runs
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
-                "--no-proxy-server",
-            ],
-        )
-        context = browser.new_context(viewport={"width": 1440, "height": 1100})
-        context.add_init_script(_fake_media_init_script(audio_base64))
-        if stub_transcribe:
-            context.add_init_script(_realtime_stub_turn_init_script(prompt_text))
-            stub_body = json.dumps(_transcribe_stub_payload(prompt_text), ensure_ascii=False)
-            context.route(
-                f"**/memorials/{slug}/speech-transcribe",
-                lambda route: route.fulfill(status=200, content_type="application/json", body=stub_body),
+    with tempfile.TemporaryDirectory(prefix="memorial-live-browser-capture-") as tmpdir:
+        fake_capture_path = Path(tmpdir) / "prompt.16k.wav"
+        fake_capture_path.write_bytes(audio_bytes)
+        with sync_playwright() as playwright:  # pragma: no cover - exercised in live runs
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--no-proxy-server",
+                    "--use-fake-ui-for-media-stream",
+                    "--use-fake-device-for-media-stream",
+                    f"--use-file-for-fake-audio-capture={fake_capture_path}",
+                ],
             )
-        page = context.new_page()
-        try:
-            response = page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
-            if response is None or not response.ok:
-                raise SystemExit("page_load_failed")
+            context = browser.new_context(viewport={"width": 1440, "height": 1100})
+            context.grant_permissions(["microphone"], origin=base_url.rstrip("/"))
+            context.add_init_script(_browser_audio_gate_init_script())
+            if stub_transcribe:
+                context.add_init_script(_realtime_stub_turn_init_script(prompt_text))
+                stub_body = json.dumps(_transcribe_stub_payload(prompt_text), ensure_ascii=False)
+                context.route(
+                    f"**/memorials/{slug}/speech-transcribe",
+                    lambda route: route.fulfill(status=200, content_type="application/json", body=stub_body),
+                )
+            page = context.new_page()
             try:
-                page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            load_ms = (time.perf_counter() - started) * 1000.0
-            warmup_before = page.evaluate(
-                """async (url) => {
-                  const response = await fetch(url);
-                  return response.json();
-                }""",
-                warmup_url,
-            )
-            ready_started = time.perf_counter()
-            page.wait_for_function(
-                """
-                () => {
-                  const button = document.getElementById("memorial-conversation");
-                  return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
-                }
-                """,
-                timeout=30000,
-            )
-            cta_ready_ms = (time.perf_counter() - ready_started) * 1000.0
-            answer_started = time.perf_counter()
-            turn_error = ""
-            answer_text = ""
-            answer_visible = False
-            phase_text = ""
-            detail_text = ""
-            conversation_turn_payload: dict[str, object] | None = None
-            ui_audio_play_calls = 0
-            ui_audio_play_ended = 0
-            ui_audio_play_error = ""
-            ui_audio_ready = False
-            try:
-                turn_state = _wait_for_realtime_turn(
-                    context,
-                    slug,
-                    lambda: page.click("#memorial-conversation", timeout=5000),
-                    page=page,
-                    timeout_seconds=35.0,
-                )
-                if not bool(turn_state.get("done")):
-                    raise TimeoutError("realtime_turn_incomplete")
-                payload_state = turn_state.get("payload")
-                if isinstance(payload_state, dict):
-                    conversation_turn_payload = dict(payload_state)
-                else:
-                    conversation_turn_payload = {
-                        "payload_type": "unexpected",
-                        "payload": str(payload_state or ""),
-                    }
-                page.wait_for_function(
-                    """
-                    () => {
-                      const answer = document.getElementById("memorial-chat-answer");
-                      const audio = document.getElementById("memorial-speech-audio");
-                      const answerReady = Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
-                      const audioReady = Boolean(audio && audio.getAttribute("src") && audio.getAttribute("src").startsWith("blob:"));
-                      return answerReady || audioReady;
-                    }
-                    """,
-                    timeout=35000,
-                )
+                response = page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+                if response is None or not response.ok:
+                    raise SystemExit("page_load_failed")
                 try:
-                    answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
-                except Exception:
-                    answer_text = ""
-                try:
-                    answer_visible = bool(
-                        page.eval_on_selector(
-                            "#memorial-chat-answer",
-                            """node => {
-                              const style = window.getComputedStyle(node);
-                              const rect = node.getBoundingClientRect();
-                              return Boolean(
-                                node.textContent &&
-                                node.textContent.trim().length > 0 &&
-                                !node.hidden &&
-                                style.display !== "none" &&
-                                style.visibility !== "hidden" &&
-                                rect.width > 0 &&
-                                rect.height > 0
-                              );
-                            }""",
-                        )
-                    )
-                except Exception:
-                    answer_visible = False
-                phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
-                detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
-                ui_audio_src = page.eval_on_selector(
-                    "#memorial-speech-audio",
-                    "node => node && node.getAttribute('src') ? node.getAttribute('src') : ''",
-                )
-                try:
-                    page.wait_for_function(
-                        """
-                        () => Boolean(
-                          window.__memorial_audio_gate &&
-                          window.__memorial_audio_gate.play_calls > 0 &&
-                          (window.__memorial_audio_gate.play_ended > 0 || window.__memorial_audio_gate.last_error)
-                        )
-                        """,
-                        timeout=5000,
-                    )
+                    page.wait_for_load_state("networkidle", timeout=5000)
                 except Exception:
                     pass
-                gate_state = page.evaluate(
-                    "() => window.__memorial_audio_gate || { play_calls: 0, play_ended: 0, last_error: \"\" }"
+                load_ms = (time.perf_counter() - started) * 1000.0
+                warmup_before = page.evaluate(
+                    """async (url) => {
+                      const response = await fetch(url);
+                      return response.json();
+                    }""",
+                    warmup_url,
                 )
-                ui_audio_play_calls = int(gate_state.get("play_calls") or 0)
-                ui_audio_play_ended = int(gate_state.get("play_ended") or 0)
-                ui_audio_play_error = str(gate_state.get("last_error") or "")
-                ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
-                page.click("#memorial-conversation", timeout=5000)
+                ready_started = time.perf_counter()
                 page.wait_for_function(
                     """
                     () => {
@@ -724,102 +598,205 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     """,
                     timeout=30000,
                 )
-            except Exception as exc:
-                turn_error = str(exc)
+                cta_ready_ms = (time.perf_counter() - ready_started) * 1000.0
+                answer_started = time.perf_counter()
+                turn_error = ""
+                answer_text = ""
+                answer_visible = False
+                phase_text = ""
+                detail_text = ""
+                conversation_turn_payload: dict[str, object] | None = None
+                ui_audio_play_calls = 0
+                ui_audio_play_ended = 0
+                ui_audio_play_error = ""
+                ui_audio_ready = False
                 try:
-                    answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
-                except Exception:
-                    answer_text = ""
-                try:
+                    turn_state = _wait_for_realtime_turn(
+                        context,
+                        slug,
+                        lambda: page.click("#memorial-conversation", timeout=5000),
+                        page=page,
+                        timeout_seconds=35.0,
+                    )
+                    if not bool(turn_state.get("done")):
+                        raise TimeoutError("realtime_turn_incomplete")
+                    payload_state = turn_state.get("payload")
+                    if isinstance(payload_state, dict):
+                        conversation_turn_payload = dict(payload_state)
+                    else:
+                        conversation_turn_payload = {
+                            "payload_type": "unexpected",
+                            "payload": str(payload_state or ""),
+                        }
+                    page.wait_for_function(
+                        """
+                        () => {
+                          const answer = document.getElementById("memorial-chat-answer");
+                          const audio = document.getElementById("memorial-speech-audio");
+                          const answerReady = Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
+                          const audioReady = Boolean(audio && audio.getAttribute("src") && audio.getAttribute("src").startsWith("blob:"));
+                          return answerReady || audioReady;
+                        }
+                        """,
+                        timeout=35000,
+                    )
+                    try:
+                        answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
+                    except Exception:
+                        answer_text = ""
+                    try:
+                        answer_visible = bool(
+                            page.eval_on_selector(
+                                "#memorial-chat-answer",
+                                """node => {
+                                  const style = window.getComputedStyle(node);
+                                  const rect = node.getBoundingClientRect();
+                                  return Boolean(
+                                    node.textContent &&
+                                    node.textContent.trim().length > 0 &&
+                                    !node.hidden &&
+                                    style.display !== "none" &&
+                                    style.visibility !== "hidden" &&
+                                    rect.width > 0 &&
+                                    rect.height > 0
+                                  );
+                                }""",
+                            )
+                        )
+                    except Exception:
+                        answer_visible = False
                     phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
-                except Exception:
-                    phase_text = ""
-                try:
                     detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
-                except Exception:
-                    detail_text = ""
-            first_answer_ms = (time.perf_counter() - answer_started) * 1000.0
-            warmup_after = page.evaluate(
-                """async (url) => {
-                  const response = await fetch(url);
-                  return response.json();
-                }""",
-                warmup_url,
-            )
-            payload = dict(conversation_turn_payload or {})
-            answer_text_from_payload = str(payload.get("answer") or "").strip()
-            if not answer_text:
-                answer_text = answer_text_from_payload
-            audio_base64 = str(payload.get("audio_base64") or "").strip()
-            audio_chunks = payload.get("audio_chunks")
-            audio_chunks_present = False
-            if isinstance(audio_chunks, list):
-                audio_chunks_present = any(str(chunk).strip() for chunk in audio_chunks)
-            audio_payload_ready = bool(audio_base64 or audio_chunks_present)
-            audio_unavailable = bool(payload.get("audio_unavailable"))
-
-            if not turn_error:
+                    ui_audio_src = page.eval_on_selector(
+                        "#memorial-speech-audio",
+                        "node => node && node.getAttribute('src') ? node.getAttribute('src') : ''",
+                    )
+                    try:
+                        page.wait_for_function(
+                            """
+                            () => Boolean(
+                              window.__memorial_audio_gate &&
+                              window.__memorial_audio_gate.play_calls > 0 &&
+                              (window.__memorial_audio_gate.play_ended > 0 || window.__memorial_audio_gate.last_error)
+                            )
+                            """,
+                            timeout=5000,
+                        )
+                    except Exception:
+                        pass
+                    gate_state = page.evaluate(
+                        "() => window.__memorial_audio_gate || { play_calls: 0, play_ended: 0, last_error: \"\" }"
+                    )
+                    ui_audio_play_calls = int(gate_state.get("play_calls") or 0)
+                    ui_audio_play_ended = int(gate_state.get("play_ended") or 0)
+                    ui_audio_play_error = str(gate_state.get("last_error") or "")
+                    ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
+                    page.click("#memorial-conversation", timeout=5000)
+                    page.wait_for_function(
+                        """
+                        () => {
+                          const button = document.getElementById("memorial-conversation");
+                          return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
+                        }
+                        """,
+                        timeout=30000,
+                    )
+                except Exception as exc:
+                    turn_error = str(exc)
+                    try:
+                        answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
+                    except Exception:
+                        answer_text = ""
+                    try:
+                        phase_text = page.eval_on_selector("#memorial-speech-phase", "node => node.textContent || ''")
+                    except Exception:
+                        phase_text = ""
+                    try:
+                        detail_text = page.eval_on_selector("#memorial-speech-detail", "node => node.textContent || ''")
+                    except Exception:
+                        detail_text = ""
+                first_answer_ms = (time.perf_counter() - answer_started) * 1000.0
+                warmup_after = page.evaluate(
+                    """async (url) => {
+                      const response = await fetch(url);
+                      return response.json();
+                    }""",
+                    warmup_url,
+                )
+                payload = dict(conversation_turn_payload or {})
+                answer_text_from_payload = str(payload.get("answer") or "").strip()
                 if not answer_text:
-                    turn_error = "missing_answer"
-                elif not answer_visible:
-                    turn_error = "missing_visible_answer_text"
-                elif not audio_payload_ready and not audio_unavailable:
-                    turn_error = "missing_audio_payload"
-                elif not ui_audio_ready and not audio_unavailable:
-                    turn_error = "missing_ui_audio_output"
-                elif not ui_audio_play_calls:
-                    turn_error = "missing_ui_audio_playback"
-                elif not ui_audio_play_ended and not ui_audio_play_error:
-                    turn_error = "missing_ui_audio_playback_complete"
+                    answer_text = answer_text_from_payload
+                audio_base64 = str(payload.get("audio_base64") or "").strip()
+                audio_chunks = payload.get("audio_chunks")
+                audio_chunks_present = False
+                if isinstance(audio_chunks, list):
+                    audio_chunks_present = any(str(chunk).strip() for chunk in audio_chunks)
+                audio_payload_ready = bool(audio_base64 or audio_chunks_present)
+                audio_unavailable = bool(payload.get("audio_unavailable"))
 
-            result = {
-                "base_url": base_url,
-                "slug": slug,
-                "prompt_text": prompt_text,
-                "page_load_ms": round(load_ms, 1),
-                "cta_ready_ms": round(cta_ready_ms, 1),
-                "first_answer_ms": round(first_answer_ms, 1),
-                "speech_transcribe_mode": "transcript_injected" if stub_transcribe else "live",
-                "warmup_status_before": warmup_before,
-                "warmup_status_after": warmup_after,
-                "semantic_profile_id": str(semantic_profile.get("id") or ""),
-                "answer_preview": str(answer_text).strip()[:240],
-                "answer_context_match_count": 0,
-                "answer_context_matches": [],
-                "answer_semantic_group_match_count": 0,
-                "answer_semantic_matched_groups": [],
-                "answer_semantic_passed": False,
-                "phase_text": str(phase_text).strip(),
-                "detail_text": str(detail_text).strip(),
-                "turn_error": turn_error[:240],
-                "conversation_turn_payload": payload,
-                "audio_ready_for_ui": bool(ui_audio_ready),
-                "audio_payload_ready": bool(audio_payload_ready),
-                "answer_text_visible": bool(answer_visible),
-                "audio_unavailable": bool(audio_unavailable),
-                "ui_audio_play_calls": int(ui_audio_play_calls),
-                "ui_audio_play_ended": int(ui_audio_play_ended),
-                "ui_audio_play_error": str(ui_audio_play_error),
-            }
-            context_match_count, context_matches = _count_context_matches(
-                result["answer_preview"],
-                DEFAULT_EXIT_GATE_CONTEXT_TOKENS,
-            )
-            result["answer_context_match_count"] = int(context_match_count)
-            result["answer_context_matches"] = list(context_matches)
-            semantic_passed, semantic_details = _answer_satisfies_semantic_profile(
-                result["answer_preview"],
-                semantic_profile,
-            )
-            result["semantic_profile_id"] = str(semantic_details.get("profile_id") or result["semantic_profile_id"])
-            result["answer_context_match_count"] = int(semantic_details.get("context_match_count") or result["answer_context_match_count"])
-            result["answer_context_matches"] = list(semantic_details.get("context_matches") or result["answer_context_matches"])
-            result["answer_semantic_group_match_count"] = int(semantic_details.get("group_match_count") or 0)
-            result["answer_semantic_matched_groups"] = list(semantic_details.get("matched_groups") or [])
-            result["answer_semantic_passed"] = bool(semantic_passed)
-        finally:
-            context.close()
-            browser.close()
+                if not turn_error:
+                    if not answer_text:
+                        turn_error = "missing_answer"
+                    elif not answer_visible:
+                        turn_error = "missing_visible_answer_text"
+                    elif not audio_payload_ready and not audio_unavailable:
+                        turn_error = "missing_audio_payload"
+                    elif not ui_audio_ready and not audio_unavailable:
+                        turn_error = "missing_ui_audio_output"
+                    elif not ui_audio_play_calls:
+                        turn_error = "missing_ui_audio_playback"
+                    elif not ui_audio_play_ended and not ui_audio_play_error:
+                        turn_error = "missing_ui_audio_playback_complete"
+
+                result = {
+                    "base_url": base_url,
+                    "slug": slug,
+                    "prompt_text": prompt_text,
+                    "page_load_ms": round(load_ms, 1),
+                    "cta_ready_ms": round(cta_ready_ms, 1),
+                    "first_answer_ms": round(first_answer_ms, 1),
+                    "speech_transcribe_mode": "transcript_injected" if stub_transcribe else "live",
+                    "warmup_status_before": warmup_before,
+                    "warmup_status_after": warmup_after,
+                    "semantic_profile_id": str(semantic_profile.get("id") or ""),
+                    "answer_preview": str(answer_text).strip()[:240],
+                    "answer_context_match_count": 0,
+                    "answer_context_matches": [],
+                    "answer_semantic_group_match_count": 0,
+                    "answer_semantic_matched_groups": [],
+                    "answer_semantic_passed": False,
+                    "phase_text": str(phase_text).strip(),
+                    "detail_text": str(detail_text).strip(),
+                    "turn_error": turn_error[:240],
+                    "conversation_turn_payload": payload,
+                    "audio_ready_for_ui": bool(ui_audio_ready),
+                    "audio_payload_ready": bool(audio_payload_ready),
+                    "answer_text_visible": bool(answer_visible),
+                    "audio_unavailable": bool(audio_unavailable),
+                    "ui_audio_play_calls": int(ui_audio_play_calls),
+                    "ui_audio_play_ended": int(ui_audio_play_ended),
+                    "ui_audio_play_error": str(ui_audio_play_error),
+                }
+                context_match_count, context_matches = _count_context_matches(
+                    result["answer_preview"],
+                    DEFAULT_EXIT_GATE_CONTEXT_TOKENS,
+                )
+                result["answer_context_match_count"] = int(context_match_count)
+                result["answer_context_matches"] = list(context_matches)
+                semantic_passed, semantic_details = _answer_satisfies_semantic_profile(
+                    result["answer_preview"],
+                    semantic_profile,
+                )
+                result["semantic_profile_id"] = str(semantic_details.get("profile_id") or result["semantic_profile_id"])
+                result["answer_context_match_count"] = int(semantic_details.get("context_match_count") or result["answer_context_match_count"])
+                result["answer_context_matches"] = list(semantic_details.get("context_matches") or result["answer_context_matches"])
+                result["answer_semantic_group_match_count"] = int(semantic_details.get("group_match_count") or 0)
+                result["answer_semantic_matched_groups"] = list(semantic_details.get("matched_groups") or [])
+                result["answer_semantic_passed"] = bool(semantic_passed)
+            finally:
+                context.close()
+                browser.close()
     return result
 
 

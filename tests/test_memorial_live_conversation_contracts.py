@@ -2049,7 +2049,7 @@ def test_memorial_warmup_primes_voicewave_contact_openings(
 
     public_memorials._run_memorial_live_warmup(slug)
 
-    assert len(seen_render_calls) == 3
+    assert len(seen_render_calls) == 1
     assert {item["text"] for item in seen_render_calls} <= CONTACT_REPLY_VARIANTS
     assert all(item["slug"] == slug for item in seen_render_calls)
     assert all(item["selected_plugin"] == public_memorials.VOICEWAVE_TTS_PLUGIN_ID for item in seen_render_calls)
@@ -2117,7 +2117,7 @@ def test_memorial_warmup_primes_unmixr_contact_openings(
 
     public_memorials._run_memorial_live_warmup(slug)
 
-    assert len(seen_render_calls) == 3
+    assert len(seen_render_calls) == 1
     assert {item["text"] for item in seen_render_calls} <= CONTACT_REPLY_VARIANTS
     assert all(item["slug"] == slug for item in seen_render_calls)
     assert all(item["selected_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID for item in seen_render_calls)
@@ -3119,6 +3119,63 @@ def test_memorial_warmup_snapshot_tracks_voicewave_contact_readiness(monkeypatch
     assert snapshot["voice_ready"] is False
 
 
+def test_memorial_warmup_snapshot_tracks_server_voice_contact_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    now = 1_234_567.0
+    monkeypatch.setattr(public_memorials.time, "time", lambda: now)
+    monkeypatch.setattr(
+        public_memorials,
+        "_MEMORIAL_LIVE_WARMUP_STATE",
+        {
+            "manfred": {
+                "inflight": False,
+                "started_at": now - 30.0,
+                "completed_at": now - 8.0,
+                "errors": [],
+                "voice_contact_required": True,
+                "voice_contact_inflight": True,
+                "voice_contact_completed_at": 0.0,
+                "voice_contact_errors": [],
+            }
+        },
+    )
+
+    snapshot = public_memorials._memorial_live_warmup_snapshot("manfred")
+
+    assert snapshot["status"] == "warming_voice"
+    assert snapshot["warm"] is True
+    assert snapshot["voice_required"] is True
+    assert snapshot["voice_inflight"] is True
+    assert snapshot["voice_ready"] is False
+
+
+def test_memorial_server_voice_contact_prewarm_deduplicates_canonical_contact_phrase(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(public_memorials, "_load_voice_config", lambda slug: {"tts_plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID})
+    monkeypatch.setattr(
+        public_memorials,
+        "_tts_plugin_options",
+        lambda **kwargs: {public_memorials.UNMIXR_TTS_PLUGIN_ID: {"tts_plugin_enabled": True}},
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_resolve_server_tts_plugin",
+        lambda **kwargs: (public_memorials.UNMIXR_TTS_PLUGIN_ID, {"tts_plugin_enabled": True}),
+    )
+    seen_texts: list[str] = []
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: seen_texts.append(str(kwargs.get("text") or "")) or (b"audio", "audio/wav"),
+    )
+
+    public_memorials._run_memorial_server_voice_contact_prewarm("manfred")
+
+    assert seen_texts == [public_memorials._memorial_contact_answer_body("Bist du da?")]
+
+
 def test_memorial_live_page_uses_minimal_realtime_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3148,6 +3205,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "blob.arrayBuffer().then" in source
     assert "user_audio_start" in source
     assert "user_audio_end" in source
+    assert 'if (type === "answer")' in source
+    assert "showAnswerText(liveAnswerTranscript);" in source
     assert "turn_complete" in source
     assert "activeRecordingHadSpeech" in source
     assert "Ich habe kaum Stimme gehört" in source
