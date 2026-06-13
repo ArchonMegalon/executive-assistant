@@ -137,6 +137,14 @@ Runtime mode:
 - Set `EA_RUNTIME_MODE=prod` for durable environments; the app will fail fast instead of falling back from `EA_STORAGE_BACKEND=auto` or `memory` to in-process storage.
 - For the durable runtime profile, run `bash scripts/deploy.sh`.
 
+Memorial shadow STT:
+- The memorial `speech-transcribe` path can run a shadow STT lane for user-question audio only; it never ships Manfred's answer audio, private memorial memory, or authority truth to the provider.
+- Current supported provider is BlipAI. Runtime calls it in shadow-only mode, scores the returned correction, and can replace only the user transcript, never the answer policy.
+- If BlipAI returns `401`/`403`, the runtime attempts one refresh-token recovery before entering cooldown.
+- Refreshed BlipAI tokens are persisted locally at `/docker/EA/state/memorial_blipai_shadow_stt_tokens.json` unless `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH` overrides that path.
+- If BlipAI returns `401`, `403`, or `429` after refresh handling, the lane enters cooldown for `EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS` and primary STT remains authoritative.
+- The memorial remains fail-closed without BlipAI credentials: primary STT still answers; shadow STT simply reports `url_missing`, `provider_cooldown_active`, or another bounded reason.
+
 Policy notes:
 - Rewrite policy denies empty input, oversized input, and disallowed tool usage.
 - Rewrite policy requires approval for explicit approval classes, long inputs, and high-risk/high-budget or external-send actions.

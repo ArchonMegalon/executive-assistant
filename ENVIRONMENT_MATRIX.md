@@ -37,6 +37,31 @@
 - `EA_SURVIVAL_CHATPLAYGROUND_SINGLE_ROLE`: limits the last-resort ChatPlayground tie-break to a single role instead of the normal multi-role jury lane.
 - `EA_UI_CHALLENGE_COOLDOWN_SECONDS` and `EA_UI_CHALLENGE_MAX_CONSECUTIVE`: control how long survival skips a UI-backed backend after a Cloudflare/Turnstile/human-verification or session-expiry failure before retrying it.
 
+## Memorial Voice Variables
+
+- `EA_MEMORIAL_SHADOW_STT_PROVIDER`: shadow speech-to-text provider for memorial user-question audio. Current allowed value is `blipai`.
+- `EA_MEMORIAL_SHADOW_STT_URL`: optional explicit shadow STT endpoint. If unset and a BlipAI token is available, the memorial route falls back to BlipAI's official STT endpoint.
+- `EA_MEMORIAL_SHADOW_STT_API_KEY`: explicit shadow STT bearer token. If unset for `blipai`, runtime lookup falls back to the persisted BlipAI token state and then `BLIPAI_APP_API_TOKEN`.
+- `EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN`: preferred refresh token used to recover an expired BlipAI access token before the lane enters cooldown.
+- `BLIPAI_APP_API_TOKEN`: fallback BlipAI access token used when no explicit memorial shadow token is configured.
+- `BLIPAI_APP_REFRESH_TOKEN`: fallback BlipAI refresh token used when no explicit memorial refresh token is configured.
+- `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`: optional override for the persisted refreshed-token state file. Default is `/docker/EA/state/memorial_blipai_shadow_stt_tokens.json`.
+- `EA_MEMORIAL_SHADOW_STT_TIMEOUT_SECONDS`: per-request timeout for the shadow STT provider call.
+- `EA_MEMORIAL_SHADOW_STT_MAX_BYTES`: upper bound for user-question audio sent to the shadow STT lane.
+- `EA_MEMORIAL_SHADOW_STT_ERROR_COOLDOWN_SECONDS`: cooldown after BlipAI auth/rate-limit errors (`401`, `403`, `429`) so one bad token does not slow every memorial turn.
+
+Memorial shadow STT lookup order:
+
+1. `EA_MEMORIAL_SHADOW_STT_API_KEY`
+2. persisted refreshed token state at `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`
+3. `BLIPAI_APP_API_TOKEN`
+
+Memorial shadow STT refresh-token lookup order:
+
+1. `EA_MEMORIAL_SHADOW_STT_REFRESH_TOKEN`
+2. persisted refreshed token state at `EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH`
+3. `BLIPAI_APP_REFRESH_TOKEN`
+
 ## Recommended Profiles
 
 | Environment | EA_STORAGE_BACKEND | DATABASE_URL | EA_BOOTSTRAP_DB | Rationale |
