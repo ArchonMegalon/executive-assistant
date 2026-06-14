@@ -7,14 +7,14 @@
   "public_voice_receipt": "pass",
   "public_browser_receipt": "pass",
   "room_audio_receipt": "missing_or_blocked",
-  "whole_project_gold": "pass",
+  "whole_project_gold": "blocked",
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
     "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin."
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "5ddec0c6f59dbb668d1db95025eec32a15dcbc15",
+    "current_head": "ed5f85f6e7069efd201aa459646a2e0b343718f8",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -48,5 +48,12 @@
   "whole_project": {
     "status": "pass",
     "message": "whole-project gold map is honest and fail-closed."
+  },
+  "whole_project_map_summary": {
+    "overall_status": "not_gold",
+    "gold_claim_allowed": false,
+    "blocking_planes": [
+      "memorial_public_origin_gold"
+    ]
   }
 }
