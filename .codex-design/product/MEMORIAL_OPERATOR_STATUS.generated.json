@@ -15,19 +15,19 @@
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "c800a5317ac1332bed66ed9f7574acd00ad3fa83",
+    "current_head": "7670b47e79685a1251fc5692619ff91bb2acf2c7",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
       "memorial_public": "Memorial public-origin gold"
     },
-    "local_release_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    "local_release_receipt": "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     "local_release_issues": [],
-    "public_gold_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    "public_gold_receipt": "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_gold_issues": [],
-    "public_browser_gold_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    "public_browser_gold_receipt": "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [],
-    "room_audio_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "room_audio_receipt": "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
     "room_audio_issues": [
       "room_receipt_missing_or_invalid"
     ],
@@ -49,7 +49,8 @@
   "whole_project": {
     "status": "blocked",
     "issues": [
-      "whole-project gold map is stale relative to current HEAD"
+      "whole-project gold map is stale relative to current HEAD",
+      "memorial voice receipt is stale relative to current HEAD"
     ]
   },
   "whole_project_map_summary": {

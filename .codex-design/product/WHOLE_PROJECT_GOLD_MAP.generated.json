@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T12:42:34Z",
+  "generated_at": "2026-06-14T13:58:25Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "c800a5317ac1332bed66ed9f7574acd00ad3fa83",
+  "git_head": "7670b47e79685a1251fc5692619ff91bb2acf2c7",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -140,7 +140,7 @@
       "status": "pass",
       "claim": "Memorial local voice release can pass separately from Memorial public-origin gold. Manfred remains local memories/conversation only, with no internet search.",
       "evidence": [
-        "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+        "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
       ],
       "missing_evidence": [],
       "design_notes": [
@@ -156,8 +156,8 @@
       "status": "blocked",
       "claim": "The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
       "evidence": [
-        "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-        "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+        "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
       ],
       "missing_evidence": [
         "public-origin room/device audio intelligibility receipt"
