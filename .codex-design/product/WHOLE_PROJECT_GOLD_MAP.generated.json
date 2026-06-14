@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T08:36:22Z",
+  "generated_at": "2026-06-14T08:55:10Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "ec1b38fb20a440f80345453c0dab3bef9e061b26",
+  "git_head": "a47664ba585bb08196375ad3559c15f2f1e15c4c",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -157,7 +157,10 @@
       "owner_repo": "memorial runtime",
       "status": "blocked",
       "claim": "The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
-      "evidence": [],
+      "evidence": [
+        "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+      ],
       "missing_evidence": [
         "public-origin memorial voice+STT+TTS gold receipt",
         "public-origin browser realtime/audio playback gold receipt",

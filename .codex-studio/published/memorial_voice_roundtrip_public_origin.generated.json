@@ -1,45 +1,52 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-14T08:55:56Z",
+  "generated_at": "2026-06-14T08:54:20Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
   "git_head": "a47664ba585bb08196375ad3559c15f2f1e15c4c",
   "source_git_head": "a47664ba585bb08196375ad3559c15f2f1e15c4c",
-  "source_tree_fingerprint": "b20f171bab029059a8c32ce8f032727c7208c86a7857876880291d1876552059",
-  "dirty_worktree": true,
-  "status": "pass",
+  "source_tree_fingerprint": "558d7deca818ca1b11accf31c355a804a280c567b6656cf458fc094bc9882a5c",
+  "dirty_worktree": false,
+  "status": "fail",
   "slug": "manfred",
-  "base_url": "http://127.0.0.1:8090",
+  "base_url": "https://myexternalbrain.com",
   "require_stt": true,
-  "gold_mode": false,
-  "require_public_origin": false,
+  "gold_mode": true,
+  "require_public_origin": true,
   "direct_min_f1": 0.92,
   "conversation_min_f1": 0.9,
   "max_conversation_turn_ms": 4500.0,
   "max_speech_transcribe_ms": 2500.0,
-  "critical_tokens": [],
+  "critical_tokens": [
+    "worum",
+    "geht",
+    "es"
+  ],
   "direct_text": "Worum geht es?",
   "conversation_question": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
   "present_world_question": "Welches Wetter haben wir heute?",
-  "failed_codes": [],
+  "failed_codes": [
+    "conversation_turn_total_ms_above_gold_threshold",
+    "speech_transcribe_ms_above_gold_threshold"
+  ],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 28,
+    "speech_synthesize_ms": 105,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 13462,
+    "speech_transcribe_ms": 15266,
     "direct_tts_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "direct_tts_expected_chars": 14,
     "direct_tts_actual_chars": 14,
     "direct_tts_f1": 1.0,
-    "chat_reference_ms": 4,
+    "chat_reference_ms": 57,
     "reference_answer_chars": 14,
-    "present_world_chat_ms": 5,
+    "present_world_chat_ms": 106,
     "present_world_answer_chars": 89,
     "synthetic_prompt_synthesize_ms": 40,
     "synthetic_prompt_source": "local_neutral_prompt",
-    "conversation_turn_total_ms": 18267,
+    "conversation_turn_total_ms": 19833,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 13479,
+    "conversation_answer_transcribe_ms": 13805,
     "conversation_turn_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "conversation_turn_audio_expected_chars": 14,
     "conversation_turn_audio_actual_chars": 14,
@@ -60,11 +67,12 @@
     },
     {
       "status": "pass",
-      "code": "direct_tts_similarity_ok",
-      "message": "Transcript matches the expected spoken content closely.",
+      "code": "direct_tts_gold_similarity_ok",
+      "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
         "expected": "Worum geht es?",
         "actual": "Worum geht es?",
+        "min_f1": 0.92,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
@@ -93,14 +101,33 @@
     },
     {
       "status": "pass",
-      "code": "conversation_turn_audio_similarity_ok",
-      "message": "Transcript matches the expected spoken content closely.",
+      "code": "conversation_turn_audio_gold_similarity_ok",
+      "message": "Transcript meets the stricter memorial-gold similarity threshold.",
       "detail": {
         "expected": "Worum geht es?",
         "actual": "Worum geht es?",
+        "min_f1": 0.9,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
+      }
+    },
+    {
+      "status": "fail",
+      "code": "conversation_turn_total_ms_above_gold_threshold",
+      "message": "Memorial-gold voice proof exceeded the conversation-turn latency threshold.",
+      "detail": {
+        "conversation_turn_total_ms": 19833.0,
+        "max_allowed_ms": 4500.0
+      }
+    },
+    {
+      "status": "fail",
+      "code": "speech_transcribe_ms_above_gold_threshold",
+      "message": "Memorial-gold voice proof exceeded the speech-transcribe latency threshold.",
+      "detail": {
+        "speech_transcribe_ms": 15266.0,
+        "max_allowed_ms": 2500.0
       }
     }
   ],

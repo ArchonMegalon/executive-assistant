@@ -3,34 +3,39 @@
   "generated_by": "scripts/materialize_memorial_operator_status.py",
   "slug": "manfred",
   "current_label": "Memorial public-origin gold: blocked",
-  "local_release_candidate": "blocked",
+  "local_release_candidate": "pass",
   "public_voice_receipt": "missing_or_blocked",
   "public_browser_receipt": "missing_or_blocked",
   "room_audio_receipt": "missing_or_blocked",
-  "whole_project_gold": "unknown",
+  "whole_project_gold": "pass",
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
     "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin."
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "ec1b38fb20a440f80345453c0dab3bef9e061b26",
+    "current_head": "a47664ba585bb08196375ad3559c15f2f1e15c4c",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
       "memorial_public": "Memorial public-origin gold"
     },
     "local_release_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
-    "local_release_issues": [
-      "receipt_stale_relative_to_current_head"
-    ],
+    "local_release_issues": [],
     "public_gold_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_gold_issues": [
-      "receipt_missing_or_invalid"
+      "receipt_status_not_pass",
+      "receipt_failed_codes_present",
+      "public_gold_claim_not_allowed_by_receipt",
+      "conversation_turn_total_ms_above_gold_threshold",
+      "speech_transcribe_ms_above_gold_threshold"
     ],
     "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [
-      "browser_receipt_missing_or_invalid"
+      "browser_receipt_status_not_pass",
+      "browser_gold_claim_not_allowed_by_receipt",
+      "browser_failed_codes_present",
+      "browser_first_answer_ms_above_gold_threshold"
     ],
     "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
     "room_audio_issues": [
@@ -51,5 +56,8 @@
       "room_receipt": "Memorial public room/device playback proof"
     }
   },
-  "whole_project": {}
+  "whole_project": {
+    "status": "pass",
+    "message": "whole-project gold map is honest and fail-closed."
+  }
 }
