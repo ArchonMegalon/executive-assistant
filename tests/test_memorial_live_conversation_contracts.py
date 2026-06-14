@@ -652,6 +652,23 @@ def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> 
     )
 
 
+def test_memorial_canonical_question_rescues_weather_and_current_state_intents() -> None:
+    from app.api.routes import public_memorials
+
+    assert (
+        public_memorials._canonical_memorial_contact_opening_question("wie ist wetter heute in wien")
+        == "Wie ist das Wetter heute?"
+    )
+    assert (
+        public_memorials._canonical_memorial_contact_opening_question("aktueller stand jetzt")
+        == "Was ist der aktuelle Stand?"
+    )
+    assert (
+        public_memorials._canonical_memorial_contact_opening_question("ich habe gestern mit meiner Schwester gesprochen")
+        == "ich habe gestern mit meiner Schwester gesprochen"
+    )
+
+
 def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -3635,6 +3635,7 @@ def _is_memorial_present_world_question(question: str) -> bool:
         "was passiert damit jetzt",
         "was ist der aktuelle stand",
         "wie ist der aktuelle stand",
+        "aktueller stand",
         "wie sieht der stand aus",
     )
     return any(token in lowered for token in (*weather_terms, *time_terms, *current_terms))
@@ -4012,9 +4013,16 @@ def _is_known_bad_memorial_subtitle_transcript(question: str) -> bool:
 
 
 def _canonical_memorial_contact_opening_question(question: str) -> str:
-    if _looks_like_memorial_contact_opening_transcript(question):
+    normalized = _normalize_memorial_transcript_text(question)
+    if not normalized:
+        return ""
+    if _looks_like_memorial_contact_opening_transcript(normalized):
         return "Hallo Manfred, kannst du jetzt mit mir sprechen?"
-    return _normalize_memorial_transcript_text(question)
+    if _is_memorial_weather_question(normalized):
+        return "Wie ist das Wetter heute?"
+    if _is_memorial_present_world_question(normalized):
+        return "Was ist der aktuelle Stand?"
+    return normalized
 
 
 def _memorial_phrase_bank_entry(phrase_id: str) -> dict[str, object]:
