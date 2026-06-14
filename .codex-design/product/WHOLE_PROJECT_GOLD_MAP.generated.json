@@ -1,0 +1,211 @@
+{
+  "contract_name": "ea.whole_project_gold_map",
+  "generated_at": "2026-06-14T12:00:38Z",
+  "generated_by": "scripts/materialize_whole_project_gold_map.py",
+  "git_head": "425258e0bceabbed56098af23315164bdc896f38",
+  "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+  "overall_status": "not_gold",
+  "gold_claim_allowed": false,
+  "claim_scope": "whole_project_plane_set",
+  "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
+  "operator_summary": "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes.",
+  "rules": [
+    "EA flagship readiness does not imply whole Chummer project readiness.",
+    "Unknown external planes block whole-project gold claims.",
+    "Whole-project gold requires every listed plane to pass; EA receipt-set gold is only a narrower local label.",
+    "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
+    "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
+    "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
+    "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
+    "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
+  ],
+  "blocking_planes": [
+    "memorial_public_origin_gold"
+  ],
+  "planes": [
+    {
+      "key": "ea_release_control",
+      "title": "Executive Assistant Release Control",
+      "owner_repo": "EA",
+      "status": "pass",
+      "claim": "EA core workspace and release-control proof are green only when the EA receipt, weekly pulse, and browser workflow proof are green.",
+      "evidence": [
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "fleet_journey_gates",
+      "title": "Fleet Journey Gates",
+      "owner_repo": "fleet",
+      "status": "pass",
+      "claim": "Fleet journey gates are separate evidence; EA only consumes their generated summary.",
+      "evidence": [
+        "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "design_surface",
+      "title": "Design Surface And Mirror Boundary",
+      "owner_repo": "design-front-door / EA mirror",
+      "status": "bounded_pass",
+      "claim": "EA owns a bounded mirror and cannot infer all Chummer product design readiness from mirrored docs alone.",
+      "evidence": [
+        ".codex-design/repo/MIRROR_SCOPE_BOUNDARY.md"
+      ],
+      "missing_evidence": [],
+      "design_notes": [
+        "Whole-project design gold requires canonical product/UI review receipts outside the EA mirror.",
+        "The EA mirror may be green while product-wide visual polish remains unproven."
+      ]
+    },
+    {
+      "key": "chummer_core_rules",
+      "title": "Chummer Core Rules And Data Correctness",
+      "owner_repo": "chummer6-core",
+      "status": "pass",
+      "claim": "Chummer core rules/data correctness is accepted only when the external rule-authority gold and completion receipts pass.",
+      "evidence": [
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "chummer_desktop_ui",
+      "title": "Chummer Desktop/UI Product Surface",
+      "owner_repo": "chummer6-ui",
+      "status": "pass",
+      "claim": "Desktop/UI readiness is accepted only when executable, visual familiarity, and layout hard-gate receipts pass.",
+      "evidence": [
+        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_EXECUTABLE_EXIT_GATE.generated.json",
+        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json",
+        "/docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_LAYOUT_HARD_GATE.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "chummer_hub_public_web",
+      "title": "Chummer Hub And Public Web",
+      "owner_repo": "chummer6-hub",
+      "status": "pass",
+      "claim": "Hub/public web readiness is accepted only when flagship readiness, public origin reachability, and shell clickability receipts pass.",
+      "evidence": [
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_ORIGIN_REACHABILITY_GATE.generated.json",
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/PUBLIC_SHELL_CLICKABILITY_GATE.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "mobile_and_second_device",
+      "title": "Mobile And Second-Device Continuation",
+      "owner_repo": "mobile / hub",
+      "status": "pass",
+      "claim": "Mobile readiness is accepted only when the Chummer play/mobile local release proof passes.",
+      "evidence": [
+        "/docker/chummercomplete/chummer-play/.codex-studio/published/MOBILE_LOCAL_RELEASE_PROOF.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": []
+    },
+    {
+      "key": "media_factory_publication",
+      "title": "Media Factory And Video Publication",
+      "owner_repo": "EA / Chummer media factory",
+      "status": "bounded_pass",
+      "claim": "Published Black Ledger live media is accepted when its live media proof passes; future provider candidates remain draft/operator until asset-specific receipts exist.",
+      "evidence": [
+        "/docker/chummercomplete/chummer.run-services/.codex-studio/published/BLACK_LEDGER_LIVE_MEDIA_PROOF.generated.json",
+        "scripts/verify_ltd_provider_lanes.py",
+        ".codex-design/ea/POPPY_DRAFT_WORKFLOW.md"
+      ],
+      "missing_evidence": [],
+      "design_notes": [
+        "This is a bounded publication pass for current Black Ledger live media, not a blanket promotion of MagicFit, JoggAI, Poppy, or avatar candidate lanes."
+      ]
+    },
+    {
+      "key": "memorial_voice_demo",
+      "title": "Memorial Voice / Realtime Demo",
+      "owner_repo": "memorial runtime",
+      "status": "pass",
+      "claim": "Memorial local voice release can pass separately from Memorial public-origin gold. Manfred remains local memories/conversation only, with no internet search.",
+      "evidence": [
+        "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+      ],
+      "missing_evidence": [],
+      "design_notes": [
+        "Public copy must not collapse this into a generic gold claim.",
+        "public_origin_gold_status=blocked",
+        "public-origin room/device audio intelligibility receipt"
+      ]
+    },
+    {
+      "key": "memorial_public_origin_gold",
+      "title": "Memorial Public-Origin Experience Gold",
+      "owner_repo": "memorial runtime",
+      "status": "blocked",
+      "claim": "The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
+      "evidence": [
+        "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+      ],
+      "missing_evidence": [
+        "public-origin room/device audio intelligibility receipt"
+      ],
+      "design_notes": [
+        "Guest-facing copy must never say simply gold while this plane is blocked.",
+        "Use: Memorial public-origin gold: blocked."
+      ]
+    },
+    {
+      "key": "ltd_provider_lanes",
+      "title": "LTD Provider Lanes",
+      "owner_repo": "EA",
+      "status": "mixed",
+      "claim": "Provider lanes may be verified runtime, draft/operator, or parked inventory; they are not product truth.",
+      "evidence": [
+        "scripts/verify_ltd_provider_lanes.py"
+      ],
+      "missing_evidence": [],
+      "design_notes": [
+        "lane_count=11",
+        "runtime_lane_count=3",
+        "draft_or_operator_lane_count=8"
+      ]
+    }
+  ],
+  "ltd_provider_lane_summary": {
+    "contract_name": "ea.verify_ltd_provider_lanes",
+    "status": "pass",
+    "lane_count": 11,
+    "runtime_lane_count": 3,
+    "draft_or_operator_lane_count": 8,
+    "poppy_runtime_enabled": false,
+    "poppy_lane_state": "verified_draft_operator_lane",
+    "draft_or_operator_lanes": [
+      "magicfit_media_factory_candidate",
+      "poppy_draft_workbench",
+      "public_signal_ingest",
+      "docs_draft_factory",
+      "prompt_foundry",
+      "operator_control_plane",
+      "video_provider_bakeoff",
+      "commercial_ops"
+    ]
+  },
+  "required_next_receipts": [
+    "memorial_voice_roundtrip_public_origin.generated.json",
+    "memorial_realtime_browser_public_origin.generated.json",
+    "memorial_room_audio_public_origin.generated.json"
+  ]
+}
