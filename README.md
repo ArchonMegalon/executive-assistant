@@ -119,6 +119,8 @@ Then open `http://localhost:8090/health`.
 - `python3 scripts/verify_ltd_provider_lanes.py` materializes governed provider-lane receipts for the high-value LTD lanes, including source-of-truth boundaries, off-switches, allowed/forbidden inputs, and missing proof receipts.
 - `python3 scripts/materialize_poppy_draft_packet.py --source-packet <packet.json> --draft-output <draft.txt>` records a Poppy draft-workbench receipt for public or operator-approved source packets. It keeps Poppy draft/operator only: runtime stays off, output remains pending human review, and EA/Chummer source material remains truth.
 - `python3 scripts/materialize_memorial_voice_roundtrip_exit_gate.py --base-url http://127.0.0.1:8090` records the live memorial voice roundtrip receipt. It must pass before the whole-project map can clear the memorial voice/realtime blocker.
+- `python3 scripts/materialize_memorial_phrase_bank.py` writes the approved Manfred memorial phrase bank with separate stable audio text and warmer visible fallback text.
+- `python3 scripts/materialize_memorial_operator_status.py` writes `.codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json`, the operator-readable memorial status card showing local release-candidate state and whether the three public-origin gold receipts are still missing.
 - `python3 scripts/materialize_whole_project_gold_map.py` writes `.codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json`, the conservative map that keeps EA flagship readiness separate from owning-repo authority. A `gold` status means EA-controlled receipt-set gold only; it is not a blanket claim that EA owns Chummer, Fleet, Property, media-provider, or design truth.
 - `python3 scripts/verify_whole_project_gold_map.py` fails closed if that map overclaims gold or promotes Poppy/media/memorial lanes beyond their governed receipt state.
 - `python3 scripts/verify_memorial_voice_stability_gate.py` runs repeated deployed memorial voice loops. Use it before any public memorial demo claim; the single published receipt is necessary but not an endurance proof.
@@ -131,6 +133,8 @@ Then open `http://localhost:8090/health`.
 ## Operator Shortcuts
 
 - `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, and bounded design-mirror bundle
+- `make materialize-memorial-phrase-bank`: regenerate the approved Manfred memorial phrase bank artifact
+- `make materialize-memorial-operator-status`: regenerate the operator-readable memorial local/public-gold status artifact
 - `make verify-design-mirror-bundle`: inspect only the bounded EA design-mirror bundle parity
 - `make repair-design-mirror-bundle`: restore the bounded EA design-mirror bundle from canonical sources
 

@@ -155,6 +155,7 @@ profiles = {
     for item in _codex_profiles()
     if isinstance(item, dict)
 }
+
 governance = _codex_governance_payload()
 cadence = dict(governance.get("review_cadence") or {})
 support = dict(governance.get("support_help_boundary") or {})
@@ -169,6 +170,42 @@ for key, label in (
     print(f"{label}:           {compact(row.get('expectation_summary'))}")
 print(f"review cadence:  {compact(cadence.get('review') or 'weekly')} / {compact(cadence.get('snapshot_owner') or 'product_governor')}")
 print(f"support/help:    {compact(support.get('summary'))}")
+PY
+}
+
+print_memorial_status_summary() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+root = Path.cwd()
+status_path = root / ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
+
+def compact(value: object) -> str:
+    return " ".join(str(value or "").split()).strip() or "missing"
+
+def receipt_state(payload: dict[str, object], key: str) -> str:
+    row = payload.get(key)
+    if row is None:
+        return "missing"
+    if isinstance(row, dict):
+        return compact(row.get("status"))
+    return compact(row)
+
+if not status_path.exists():
+    print("memorial status:   missing")
+    print("memorial action:   make materialize-memorial-operator-status")
+    raise SystemExit(0)
+
+payload = json.loads(status_path.read_text(encoding="utf-8"))
+print(f"memorial status:   {compact(payload.get('current_label'))}")
+print(f"local candidate:   {receipt_state(payload, 'local_release_candidate')}")
+print(f"public voice:      {receipt_state(payload, 'public_voice_receipt')}")
+print(f"public browser:    {receipt_state(payload, 'public_browser_receipt')}")
+print(f"room audio:        {receipt_state(payload, 'room_audio_receipt')}")
+print(f"whole gold:        {receipt_state(payload, 'whole_project_gold')}")
 PY
 }
 
@@ -205,6 +242,8 @@ echo "all local:         make all-local"
 echo "verify assets:     make verify-release-assets"
 echo "flagship ready:    make verify-flagship-release-readiness"
 echo "whole gold map:    make verify-whole-project-gold-map"
+echo "memorial status:   make materialize-memorial-operator-status"
+echo "phrase bank:       make materialize-memorial-phrase-bank"
 echo "release docs:      make release-docs"
 echo "release preflight: make release-preflight"
 echo "operator help:     make operator-help"
@@ -240,6 +279,10 @@ echo
 
 echo "-- codex governance --"
 print_codex_governance_summary
+echo
+
+echo "-- memorial status --"
+print_memorial_status_summary
 echo
 
 echo "-- queued task --"

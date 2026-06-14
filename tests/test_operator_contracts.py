@@ -68,6 +68,8 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "ltd gates:         make ltd-release-gates" in operator_summary
     assert "ltd critical:      make verify-ltd-critical-entries" in operator_summary
     assert "ltd flagship:      make verify-ltd-flagship-subset" in operator_summary
+    assert "memorial status:   make materialize-memorial-operator-status" in operator_summary
+    assert "phrase bank:       make materialize-memorial-phrase-bank" in operator_summary
 
 
 def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:

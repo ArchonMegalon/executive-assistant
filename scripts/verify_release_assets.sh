@@ -1266,6 +1266,8 @@ if grep -Fq "make smoke-postgres-legacy" "scripts/operator_summary.sh" && \
    grep -Fq "make provider-readiness" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-flagship-release-readiness" "scripts/operator_summary.sh" && \
    grep -Fq "make verify-whole-project-gold-map" "scripts/operator_summary.sh" && \
+   grep -Fq "make materialize-memorial-operator-status" "scripts/operator_summary.sh" && \
+   grep -Fq "make materialize-memorial-phrase-bank" "scripts/operator_summary.sh" && \
    grep -Fq "make release-preflight" "scripts/operator_summary.sh" && \
    grep -Fq "make support-bundle" "scripts/operator_summary.sh" && \
    grep -Fq "make tasks-archive" "scripts/operator_summary.sh" && \
