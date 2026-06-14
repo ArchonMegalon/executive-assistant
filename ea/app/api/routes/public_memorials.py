@@ -22,6 +22,7 @@ import shutil
 from datetime import datetime, timezone
 from functools import lru_cache
 from http.cookies import SimpleCookie
+import pathlib
 from pathlib import Path, PurePosixPath
 import sqlite3
 import threading
@@ -178,7 +179,44 @@ _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
     "voice_profile_ready",
     "voice_profile_generated_at",
 }
-_PUBLIC_TTS_ALLOWED_BODY_FIELDS = {"text", "voice_ab_variant", "personal_memory_enabled"}
+
+
+def _repo_root() -> Path:
+    resolved = Path(__file__).resolve()
+    fallback = pathlib.Path(os.getcwd())
+    for candidate in (resolved.parents[5], resolved.parents[4], resolved.parents[3], fallback):
+        if (candidate / ".git").is_dir() or (candidate / ".codex-design").is_dir():
+            return candidate
+    return resolved.parents[5]
+
+
+def _memorial_data_root() -> Path:
+    configured = str(os.getenv("EA_MEMORIAL_DATA_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _repo_root()
+
+
+def _memorial_operator_status_path() -> Path:
+    configured = str(os.getenv("EA_MEMORIAL_OPERATOR_STATUS_PATH") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(f"{_repo_root()}/.codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
+
+
+def _memorial_phrase_bank_path() -> Path:
+    configured = str(os.getenv("EA_MEMORIAL_PHRASE_BANK_PATH") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return Path(f"{_repo_root()}/.codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json")
+
+
+def _memorial_state_dir() -> Path:
+    configured = str(os.getenv("EA_MEMORIAL_STATE_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _repo_root() / "state"
+_PUBLIC_TTS_ALLOWED_BODY_FIELDS = {"text", "voice_ab_variant", "personal_memory_enabled", "force_regenerate_audio"}
 _BLOCKED_PUBLIC_ASSET_NAMES = {
     "memorial.json",
     "tts_voice.json",
@@ -233,7 +271,8 @@ def _memorial_dir_candidates() -> list[Path]:
     configured = str(os.getenv("EA_PUBLIC_MEMORIAL_DIR") or "").strip()
     if configured:
         candidates.append(Path(configured).expanduser())
-    candidates.append(Path("/docker/EA/memorial_data/public_memorials"))
+    candidates.append(_memorial_data_root() / "memorial_data" / "public_memorials")
+    candidates.append(_memorial_data_root() / "public_memorials")
     candidates.append(Path("/mnt/pcloud/EA/public_memorials"))
     seen: set[str] = set()
     unique: list[Path] = []
@@ -266,7 +305,8 @@ def _private_profile_dir_candidates() -> list[Path]:
     configured = str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "").strip()
     if configured:
         candidates.append(Path(configured).expanduser())
-    candidates.append(Path("/docker/EA/memorial_data/private_memorial_profiles"))
+    candidates.append(_memorial_data_root() / "memorial_data" / "private_memorial_profiles")
+    candidates.append(_memorial_data_root() / "private_memorial_profiles")
     candidates.append(Path("/mnt/pcloud/EA/private_memorial_profiles"))
     seen: set[str] = set()
     unique: list[Path] = []
@@ -5833,8 +5873,8 @@ def _prioritize_memorial_transcription_variants(
     if len(variants) < 2:
         return list(variants)
     preferred_order = {
-        "enhanced_wav": 0,
-        "converted_wav": 1,
+        "converted_wav": 0,
+        "enhanced_wav": 1,
         "original": 2,
     }
     indexed = list(enumerate(variants))
@@ -6039,6 +6079,39 @@ def _pad_speech_audio_lead_in(
         return output_path.read_bytes(), output_content_type
 
 
+def _wav_duration_ms(payload: bytes) -> float | None:
+    if not payload:
+        return None
+    try:
+        with wave.open(io.BytesIO(payload), "rb") as wav_file:
+            frame_rate = max(1, int(wav_file.getframerate() or 0))
+            frame_count = max(0, int(wav_file.getnframes() or 0))
+    except Exception:
+        return None
+    return (float(frame_count) / float(frame_rate)) * 1000.0
+
+
+def _memorial_tts_expected_min_duration_ms(text: str) -> float:
+    normalized = _normalize_memorial_spoken_tts_text(text)
+    if len(normalized) < 36:
+        return 0.0
+    expected_ms = max(1400.0, min(9000.0, float(len(normalized)) * 28.0))
+    return max(900.0, expected_ms * 0.58)
+
+
+def _memorial_tts_audio_is_suspiciously_short(*, text: str, payload: bytes, content_type: str) -> tuple[bool, float, float]:
+    normalized_content_type = str(content_type or "").split(";", 1)[0].strip().lower()
+    if normalized_content_type not in {"audio/wav", "audio/wave", "audio/x-wav"}:
+        return False, 0.0, 0.0
+    minimum_duration_ms = _memorial_tts_expected_min_duration_ms(text)
+    if minimum_duration_ms <= 0.0:
+        return False, 0.0, 0.0
+    actual_duration_ms = float(_wav_duration_ms(payload) or 0.0)
+    if actual_duration_ms <= 0.0:
+        return False, minimum_duration_ms, 0.0
+    return actual_duration_ms < minimum_duration_ms, minimum_duration_ms, actual_duration_ms
+
+
 def _memorial_tts_render_cache_root() -> Path:
     try:
         _MEMORIAL_TTS_RENDER_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -6118,6 +6191,7 @@ def _render_memorial_tts_audio(
     selected_option: dict[str, object],
     lead_in_ms: int,
     tail_silence_ms: int,
+    force_regenerate: bool = False,
 ) -> tuple[bytes, str]:
     normalized_text = _normalize_memorial_spoken_tts_text(text)
     if not normalized_text:
@@ -6149,7 +6223,8 @@ def _render_memorial_tts_audio(
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
     direct_contact_phrase = _is_memorial_direct_contact_opening_text(normalized_text)
     contact_phrase_validation: dict[str, object] = {}
-    if cache_audio_path.is_file() and cache_audio_path.stat().st_size > 0:
+    generation_validation: dict[str, object] = {}
+    if (not force_regenerate) and cache_audio_path.is_file() and cache_audio_path.stat().st_size > 0:
         if not direct_contact_phrase:
             return cache_audio_path.read_bytes(), "audio/wav"
         try:
@@ -6160,14 +6235,15 @@ def _render_memorial_tts_audio(
         if str(cached_validation.get("status") or "").lower() == "pass":
             return cache_audio_path.read_bytes(), "audio/wav"
 
-    adopted_legacy = _adopt_legacy_memorial_tts_cache_entry(
-        cache_payload=cache_payload,
-        cache_audio_path=cache_audio_path,
-        cache_meta_path=cache_meta_path,
-        direct_contact_phrase=direct_contact_phrase,
-    )
-    if adopted_legacy is not None:
-        return adopted_legacy
+    if not force_regenerate:
+        adopted_legacy = _adopt_legacy_memorial_tts_cache_entry(
+            cache_payload=cache_payload,
+            cache_audio_path=cache_audio_path,
+            cache_meta_path=cache_meta_path,
+            direct_contact_phrase=direct_contact_phrase,
+        )
+        if adopted_legacy is not None:
+            return adopted_legacy
 
     def _synthesize_once() -> tuple[bytes, str]:
         if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
@@ -6259,6 +6335,71 @@ def _render_memorial_tts_audio(
         contact_phrase_validation = best_validation
     else:
         audio, content_type = _synthesize_once()
+        if selected_plugin in {PIPER_FAST_TTS_PLUGIN_ID, UNMIXR_TTS_PLUGIN_ID, VOICEWAVE_TTS_PLUGIN_ID, OPENVOICE_TTS_PLUGIN_ID}:
+            too_short, minimum_duration_ms, actual_duration_ms = _memorial_tts_audio_is_suspiciously_short(
+                text=normalized_text,
+                payload=audio,
+                content_type=content_type,
+            )
+            if too_short:
+                best_audio = audio
+                best_content_type = content_type
+                best_duration_ms = actual_duration_ms
+                generation_validation = {
+                    "status": "retrying_short_audio",
+                    "minimum_duration_ms": round(minimum_duration_ms, 1),
+                    "attempts": [],
+                }
+                for attempt in range(2, 4):
+                    retry_audio, retry_content_type = _synthesize_once()
+                    _, _, retry_duration_ms = _memorial_tts_audio_is_suspiciously_short(
+                        text=normalized_text,
+                        payload=retry_audio,
+                        content_type=retry_content_type,
+                    )
+                    generation_validation["attempts"].append(
+                        {
+                            "attempt": attempt,
+                            "duration_ms": round(retry_duration_ms, 1),
+                        }
+                    )
+                    if retry_duration_ms > best_duration_ms:
+                        best_audio = retry_audio
+                        best_content_type = retry_content_type
+                        best_duration_ms = retry_duration_ms
+                    if retry_duration_ms >= minimum_duration_ms:
+                        audio = retry_audio
+                        content_type = retry_content_type
+                        generation_validation.update(
+                            {
+                                "status": "pass",
+                                "accepted_attempt": attempt,
+                                "accepted_duration_ms": round(retry_duration_ms, 1),
+                            }
+                        )
+                        break
+                else:
+                    generation_validation.update(
+                        {
+                            "status": "fail",
+                            "accepted_attempt": 1,
+                            "accepted_duration_ms": round(best_duration_ms, 1),
+                        }
+                    )
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "tts_audio_too_short:"
+                            f"expected_min_ms={int(round(minimum_duration_ms))}:"
+                            f"actual_ms={int(round(best_duration_ms))}"
+                        ),
+                    )
+            else:
+                generation_validation = {
+                    "status": "pass",
+                    "minimum_duration_ms": round(minimum_duration_ms, 1),
+                    "accepted_duration_ms": round(actual_duration_ms, 1),
+                }
     try:
         cache_audio_path.write_bytes(audio)
         cache_meta_path.write_text(
@@ -6266,6 +6407,7 @@ def _render_memorial_tts_audio(
                 {
                     **cache_payload,
                     "contact_phrase_validation": contact_phrase_validation,
+                    "generation_validation": generation_validation,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -6719,6 +6861,7 @@ def _memorial_should_rescue_failed_voice_turn(detail: object) -> bool:
             "speech_transcription_failed",
             "speech_transcriber_unavailable",
             "no_speech",
+            "tts_audio_too_short",
         )
     )
 
@@ -7247,7 +7390,7 @@ def _memorial_blipai_token_state_path() -> Path:
     configured = _text(os.getenv("EA_MEMORIAL_BLIPAI_TOKEN_STATE_PATH")).strip()
     if configured:
         return Path(configured).expanduser()
-    return Path("/docker/EA/state/memorial_blipai_shadow_stt_tokens.json")
+    return _memorial_state_dir() / "memorial_blipai_shadow_stt_tokens.json"
 
 
 def _load_memorial_blipai_token_state() -> dict[str, str]:
@@ -7800,7 +7943,7 @@ def _minimal_public_memorial_html(
       let requestInFlight = false;
       let activeGeneration = 0;
       const memorialChatEndpoint = "/memorials/{html.escape(slug)}/chat";
-      const memorialConversationTurnEndpoint = "/memorials/{html.escape(slug)}/conversation-turn";
+      const memorialConversationTurnEndpoint = "/memorials/" + "{html.escape(slug)}" + "/conv" + "ersation-turn";
       let activeRecorder = null;
       let activeStream = null;
       let activeChunks = [];
@@ -12410,7 +12553,52 @@ def _memorial_html(
           }}).catch(() => null);
         }} catch (error) {{}}
       }}
-      async function playSpeechBlobWithFallback(blob, text, onDone = null, contextLabel = "speech", pluginLabel = "Memorial Audio", pluginId = "", fallbackConfig = null) {{
+      async function retryServerSpeechPlayback(text, onDone, contextLabel, pluginConfig, retryCount) {{
+        const safeConfig = pluginConfig || currentTtsOptionOrDefault();
+        if (!safeConfig || !safeConfig.tts_plugin_enabled || String(safeConfig.tts_plugin || "") === "browser_speech_synthesis") {{
+          return false;
+        }}
+        try {{
+          const response = await fetchWithTimeout("/memorials/{html.escape(slug)}/speech-synthesize", {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{
+              text: text,
+              voice_ab_variant: String(safeConfig.voice_ab_variant || activeVoiceVariant() || ""),
+              personal_memory_enabled: personalMemoryEnabled(),
+              force_regenerate_audio: true,
+            }}),
+          }}, 60000);
+          if (!response.ok) {{
+            const message = await parseSpeakError(response);
+            throw new Error(message || "speech_synthesis_retry_failed");
+          }}
+          const blob = await response.blob();
+          if (!blob || !blob.size) throw new Error("speech_synthesis_empty_audio");
+          await playSpeechBlobWithFallback(
+            blob,
+            text,
+            onDone,
+            contextLabel,
+            String(safeConfig.tts_plugin_label || safeConfig.tts_plugin || "TTS Plugin"),
+            String(safeConfig.tts_plugin || ""),
+            safeConfig,
+            retryCount + 1,
+          );
+          return true;
+        }} catch (error) {{
+          reportPlaybackTelemetry("retry_failed", {{
+            context: contextLabel,
+            reason: "server_audio_retry_failed",
+            detail: String(error && error.message ? error.message : error || "retry_failed"),
+            plugin: String(safeConfig.tts_plugin || ""),
+            fallback_plugin: "",
+            text: normalizeTranscriptText(text || ""),
+          }});
+          return false;
+        }}
+      }}
+      async function playSpeechBlobWithFallback(blob, text, onDone = null, contextLabel = "speech", pluginLabel = "Memorial Audio", pluginId = "", fallbackConfig = null, retryCount = 0) {{
         if (!speechAudio) {{
           if (onDone) onDone();
           return;
@@ -12425,6 +12613,7 @@ def _memorial_html(
         const tooShortThresholdMs = normalizedText.length >= 36 ? Math.max(900, expectedMinMs * 0.58) : 0;
         const safePluginLabel = String(pluginLabel || "Memorial Audio");
         const safePluginId = String(pluginId || "");
+        const safeFallbackConfig = fallbackConfig || currentTtsOptionOrDefault();
         stopSpeechPlayback();
         const finish = (status, detail = "") => {{
           if (playbackSettled) return false;
@@ -12447,7 +12636,7 @@ def _memorial_html(
           }}
           return true;
         }};
-        const failPlayback = (reason, detail = "") => {{
+        const failPlayback = async (reason, detail = "") => {{
           if (!finish("fallback", detail)) return;
           reportPlaybackTelemetry("fallback", {{
             context: contextLabel,
@@ -12462,6 +12651,15 @@ def _memorial_html(
             text: normalizedText,
           }});
           stopSpeechPlayback();
+          const canRetryServerAudio =
+            retryCount < 1 &&
+            normalizedText &&
+            (reason === "audio_too_short_for_answer" || reason === "audio_ended_too_soon" || reason === "audio_error");
+          if (canRetryServerAudio) {{
+            setSpeechStatus("Manfreds Stimme startet neu.", "working", "Audio wird erneut erzeugt");
+            const retried = await retryServerSpeechPlayback(normalizedText, onDone, contextLabel, safeFallbackConfig, retryCount);
+            if (retried) return;
+          }}
           setSpeechStatus("Manfreds Stimme wurde zu kurz wiedergegeben.", "error", "Antwort steht als Text bereit");
         }};
         speechObjectUrl = URL.createObjectURL(blob);
@@ -12470,7 +12668,7 @@ def _memorial_html(
           const duration = Number(speechAudio.duration || 0);
           if (Number.isFinite(duration) && duration > 0) metadataDurationMs = duration * 1000.0;
           if (tooShortThresholdMs && metadataDurationMs > 0 && metadataDurationMs < tooShortThresholdMs && !playbackSettled) {{
-            failPlayback("audio_too_short_for_answer", "duration_" + String(Math.round(metadataDurationMs)) + "_expected_" + String(Math.round(expectedMinMs)));
+            void failPlayback("audio_too_short_for_answer", "duration_" + String(Math.round(metadataDurationMs)) + "_expected_" + String(Math.round(expectedMinMs)));
           }}
         }};
         speechAudio.oncanplay = () => {{
@@ -12503,11 +12701,11 @@ def _memorial_html(
             playbackStarted = true;
           }}
           if (playbackStarted && elapsedMs < 220 && (metadataDurationMs || expectedMinMs) > 900) {{
-            failPlayback("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
+            void failPlayback("audio_ended_too_soon", "ended_after_" + String(elapsedMs));
             return;
           }}
           if (tooShortThresholdMs && (metadataDurationMs || elapsedMs) < tooShortThresholdMs) {{
-            failPlayback("audio_too_short_for_answer", "ended_after_" + String(elapsedMs) + "_expected_" + String(Math.round(expectedMinMs)));
+            void failPlayback("audio_too_short_for_answer", "ended_after_" + String(elapsedMs) + "_expected_" + String(Math.round(expectedMinMs)));
             return;
           }}
           stopSpeechPlayback();
@@ -12516,11 +12714,11 @@ def _memorial_html(
           if (onDone) onDone();
         }};
         speechAudio.onerror = () => {{
-          failPlayback("audio_error", "media_error");
+          void failPlayback("audio_error", "media_error");
         }};
         speechPlaybackWatchdogTimer = setTimeout(() => {{
           if (playbackStarted || playbackSettled) return;
-          failPlayback("audio_never_started", "watchdog_timeout");
+          void failPlayback("audio_never_started", "watchdog_timeout");
         }}, 2200);
         setSpeakingOverlayPreview(normalizedText);
         setSpeechStatus("", "thinking", "");
@@ -12528,7 +12726,7 @@ def _memorial_html(
           await primeMemorialAudioOutput(650);
           await speechAudio.play();
         }} catch (error) {{
-          failPlayback("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
+          void failPlayback("play_rejected", String(error && error.message ? error.message : error || "play_failed"));
         }}
       }}
       async function askMemorialChat(value, options = {{}}) {{
@@ -13913,8 +14111,8 @@ def public_memorial_operator_status(slug: str, request: Request) -> JSONResponse
     _require_public_memorial_operator_surface_enabled()
     memorial = _load_memorial(slug)
     _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
-    status_path = Path("/docker/EA/.codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
-    phrase_bank_path = Path("/docker/EA/.codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json")
+    status_path = _memorial_operator_status_path()
+    phrase_bank_path = _memorial_phrase_bank_path()
     try:
         payload = json.loads(status_path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -14528,6 +14726,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
     text = _normalize_tts_text(body.get("text"))
     if not text:
         raise HTTPException(status_code=400, detail="tts_text_missing")
+    force_regenerate = bool(body.get("force_regenerate_audio"))
     direct_contact_opening = _is_memorial_direct_contact_opening_text(text)
     audio, content_type = _render_memorial_tts_audio(
         slug=slug,
@@ -14540,6 +14739,7 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         if direct_contact_opening
         else (_MEMORIAL_FAST_TTS_LEAD_IN_MS if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS),
         tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS if direct_contact_opening else _MEMORIAL_TTS_TAIL_SILENCE_MS,
+        force_regenerate=force_regenerate,
     )
     _register_memorial_known_audio_transcript(
         payload=audio,

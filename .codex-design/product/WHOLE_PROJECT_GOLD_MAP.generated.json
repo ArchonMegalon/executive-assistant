@@ -1,14 +1,14 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T14:21:21Z",
+  "generated_at": "2026-06-14T18:24:50Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "3ff24bd46d4087780fc41a2206884e00e6265f62",
+  "git_head": "a6cb81acec2e5dbf56e71efddd3aef1618c93815",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
-  "overall_status": "not_gold",
-  "gold_claim_allowed": false,
+  "overall_status": "gold",
+  "gold_claim_allowed": true,
   "claim_scope": "whole_project_plane_set",
   "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
-  "operator_summary": "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes.",
+  "operator_summary": "Whole-project gold is permitted by the current receipts. Owning repos remain authoritative for their planes.",
   "rules": [
     "EA flagship readiness does not imply whole Chummer project readiness.",
     "Unknown external planes block whole-project gold claims.",
@@ -19,9 +19,7 @@
     "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
     "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
   ],
-  "blocking_planes": [
-    "memorial_public_origin_gold"
-  ],
+  "blocking_planes": [],
   "planes": [
     {
       "key": "ea_release_control",
@@ -145,23 +143,21 @@
       "missing_evidence": [],
       "design_notes": [
         "Public copy must not collapse this into a generic gold claim.",
-        "public_origin_gold_status=blocked",
-        "public-origin room/device audio intelligibility receipt"
+        "public_origin_gold_status=pass"
       ]
     },
     {
       "key": "memorial_public_origin_gold",
       "title": "Memorial Public-Origin Experience Gold",
       "owner_repo": "memorial runtime",
-      "status": "blocked",
+      "status": "pass",
       "claim": "The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
       "evidence": [
         "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-        "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+        "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json"
       ],
-      "missing_evidence": [
-        "public-origin room/device audio intelligibility receipt"
-      ],
+      "missing_evidence": [],
       "design_notes": [
         "Guest-facing copy must never say simply gold while this plane is blocked.",
         "Use: Memorial public-origin gold: blocked."

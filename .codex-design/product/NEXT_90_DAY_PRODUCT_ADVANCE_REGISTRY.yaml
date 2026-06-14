@@ -1302,7 +1302,7 @@ milestones:
           - /docker/chummercomplete/chummer-design/scripts/ai/publish_local_mirrors.py remains the pruning and mirror-parity authority for repo-local `.codex-design` subsets, and the refreshed mirror publish keeps Fleet and sibling repos on the same successor-wave canon without reopening unrelated architecture-cleanup debt.
 
   - id: 107
-    title: Artifact factory and public proof gallery
+    title: Artifact factory and public detail gallery
     wave: W9
     owners:
       - chummer6-hub
@@ -2698,6 +2698,17 @@ milestones:
       owner: chummer6-design
       title: Close public-auth, identity/channel-linking, participation, account-aware front-door, and community-ledger canon
         coverage.
+      status: complete
+      evidence:
+      - products/chummer/PUBLIC_AUTH_FLOW.md
+      - products/chummer/PUBLIC_USER_MODEL.md
+      - products/chummer/IDENTITY_AND_CHANNEL_LINKING_MODEL.md
+      - products/chummer/ACCOUNT_AWARE_INSTALL_AND_SUPPORT_LINKING.md
+      - products/chummer/NEXT_WAVE_ACCOUNT_AWARE_FRONT_DOOR.md
+      - products/chummer/COMMUNITY_SPONSORSHIP_BACKLOG.md
+      - products/chummer/PUBLIC_PART_REGISTRY.yaml
+      - scripts/ai/validate_next90_m129_design_account_community_canon.py
+      - products/chummer/maintenance/feedback_archive/2026-05-05-next90-m129-design-account-community-canon-closeout.md
   - id: 130
     title: External tools, LTD provider stewardship, and governed integration adapter completion
     wave: W19
@@ -3551,7 +3562,7 @@ milestones:
       owner: fleet
       title: Fail closeout when these families remain green only by broad family prose, missing outputs, or stale route-local receipts.
   - id: 144
-    title: Desktop executable proof integrity and publishable flagship-route closure
+    title: Desktop executable release integrity and publishable flagship-route closure
     wave: W22P
     owners:
     - chummer6-hub
@@ -3565,14 +3576,14 @@ milestones:
     - 102
     - 127
     exit_criteria:
-    - UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json reports passing status for the promoted Windows flagship desktop build, and its startup-smoke
-      receipt version, artifactDigest, bytes, and readyCheckpoint all match the currently promoted installer bytes; any mismatch, stale
-      receipt, or carried-forward proof blocks closeout.
+    - UI_WINDOWS_DESKTOP_EXIT_GATE.generated.json reports passing status for the promoted Windows flagship desktop build, and its startup
+      verification receipt version, digest, bytes, and ready checkpoint all match the currently promoted installer bytes; any mismatch, stale
+      receipt, or carried-forward verification blocks closeout.
     - DESKTOP_EXECUTABLE_EXIT_GATE.generated.json reports passing status with `local_blocking_findings_count = 0`; any local blocking
-      finding, stale platform gate receipt, or missing receipt path blocks closeout.
+      finding, stale platform verification receipt, or missing receipt path blocks closeout.
     - RELEASE_CHANNEL.generated.json reports `desktopTupleCoverage.missingRequiredPlatforms = []`,
       `desktopTupleCoverage.missingRequiredPlatformHeadPairs = []`, and `desktopTupleCoverage.missingRequiredPlatformHeadRidTuples = []`;
-      any split-brain between registry manifest, portal bytes, startup-smoke receipts, and promoted tuple truth blocks closeout.
+      any split-brain between registry manifest, portal bytes, startup verification receipts, and promoted tuple truth blocks closeout.
     - FLAGSHIP_PRODUCT_READINESS.generated.json reports `status = pass` and `coverage.desktop_client = ready`; any desktop-client fail,
       warning, or missing state blocks closeout.
     work_tasks:

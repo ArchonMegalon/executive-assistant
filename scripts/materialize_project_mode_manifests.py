@@ -59,7 +59,7 @@ def _memorial_public_gold_status() -> str:
         and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE)
         and _receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE)
     ):
-        return "public_origin_gold_candidate"
+        return "public_origin_gold_pass"
     return "public_origin_gold_blocked"
 
 

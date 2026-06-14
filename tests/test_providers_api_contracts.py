@@ -446,6 +446,27 @@ def test_onboarding_flagship_start_continues_without_google_secret(monkeypatch: 
     assert body["channels"]["whatsapp"]["status"] == "export_planned"
 
 
+def test_onboarding_flagship_start_defaults_to_ea_workspace_and_google_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_ID", "google-client")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_REDIRECT_URI", "https://ea.example/v1/providers/google/oauth/callback")
+    monkeypatch.setenv("EA_GOOGLE_OAUTH_STATE_SECRET", "google-state-secret")
+    monkeypatch.setenv("EA_PROVIDER_SECRET_KEY", "provider-secret-key")
+
+    owner = _client(principal_id="exec-flagship-defaults")
+
+    payload = owner.post("/v1/onboarding/flagship/start", json={})
+
+    assert payload.status_code == 200
+    body = payload.json()
+    assert body["workspace"]["name"] == "Executive Assistant Workspace"
+    assert body["workspace"]["mode"] == "executive_ops"
+    assert body["selected_channels"] == ["google"]
+    assert body["channels"]["google"]["status"] == "ready_to_connect"
+    assert "telegram" not in body["selected_channels"]
+    assert "whatsapp" not in body["selected_channels"]
+
+
 def test_onboarding_flagship_start_marks_partial_if_google_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("EA_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
@@ -8512,7 +8533,7 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert "beginConversationRecording" in page.text
     assert "sendConversationTurn" in page.text
     assert "startRealtimeAudioTurn" in page.text
-    assert "activeRealtimeAudioTurn.sendBlob(event.data)" in page.text
+    assert "turn.sendBlob(blob);" in page.text
     assert "blob.arrayBuffer().then" in page.text
     assert "ensureRealtimeSocket" in page.text
     assert "user_audio_start" in page.text
@@ -9190,6 +9211,7 @@ def test_public_memorial_speech_synthesize_pads_audio_for_clean_start_and_end(mo
     from app.api.routes import public_memorials
 
     seen: dict[str, object] = {}
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_TTS_RENDER_CACHE_ROOT", tmp_path / "memorial-tts-cache")
 
     monkeypatch.setattr(
         public_memorials,

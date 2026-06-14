@@ -295,12 +295,12 @@ def test_public_memorial_speech_synthesize_supports_voicewave_clone(
 
     from app.api.routes import public_memorials
 
-    seen: dict[str, object] = {}
+    seen_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         public_memorials,
         "voicewave_synthesize_request",
-        lambda **kwargs: seen.update(kwargs) or (b"voicewave-audio", "audio/wav"),
+        lambda **kwargs: seen_calls.append(dict(kwargs)) or (b"voicewave-audio", "audio/wav"),
     )
 
     client = _client(principal_id="exec-memorial-voicewave-tts")
@@ -309,7 +309,7 @@ def test_public_memorial_speech_synthesize_supports_voicewave_clone(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")
     assert response.content
-    assert seen == {"text": "Ich bin da.", "voice_label": "Manfred Hoza Memorial"}
+    assert {"text": "Ich bin da.", "voice_label": "Manfred Hoza Memorial"} in seen_calls
 
 
 def test_public_memorial_speech_synthesize_uses_contact_pads_for_direct_opening(

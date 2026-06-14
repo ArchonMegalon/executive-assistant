@@ -893,6 +893,8 @@ class OnboardingService(AssistantOnboardingService):
         connectors: list[ConnectorBinding],
     ) -> dict[str, dict[str, object]]:
         channel_prefs = dict(state.channel_preferences_json) if state is not None else {}
+        normalized_workspace_mode = self._normalize_workspace_mode(state.workspace_mode if state is not None else "personal")
+        office_mode = normalized_workspace_mode in {"executive_ops", "team"}
         by_name: dict[str, list[ConnectorBinding]] = {}
         for binding in connectors:
             by_name.setdefault(binding.connector_name, []).append(binding)
@@ -915,7 +917,11 @@ class OnboardingService(AssistantOnboardingService):
                 google_detail = f"{google_bundle['label']} can be connected through the existing OAuth flow."
             else:
                 google_status = "available"
-                google_detail = "Google onboarding is available. PropertyQuarry only needs the narrow Google sign-in bundle by default."
+                google_detail = (
+                    "Google onboarding is available. Executive Assistant only needs the narrow Google sign-in bundle by default."
+                    if office_mode
+                    else "Google onboarding is available. The narrow Google sign-in bundle is enough for a clean return path by default."
+                )
         elif google_state is not None:
             google_status = "credentials_missing"
             google_detail = (
@@ -969,7 +975,11 @@ class OnboardingService(AssistantOnboardingService):
                 "bundle_options": [
                     google_scope_bundle_details("identity"),
                 ],
-                "history_import_posture": "PropertyQuarry treats Google as optional account access. It does not assume mailbox or calendar ingestion from sign-in alone.",
+                "history_import_posture": (
+                    "Executive Assistant treats Google as optional account access first. It does not assume mailbox or calendar ingestion from sign-in alone."
+                    if office_mode
+                    else "This workspace treats Google as optional account access first. It does not assume mailbox or calendar ingestion from sign-in alone."
+                ),
             },
             "telegram": {
                 "status": telegram_status,
@@ -1009,6 +1019,7 @@ class OnboardingService(AssistantOnboardingService):
                 ],
                 "limitations": [
                     "No blanket promise that EA can pull every WhatsApp message automatically",
+                    "No claim that live outbound WhatsApp sending is already enabled",
                 ],
                 "bindings": [binding.binding_id for binding in by_name.get(WHATSAPP_BUSINESS_CONNECTOR, []) + by_name.get(WHATSAPP_EXPORT_CONNECTOR, [])],
             },
@@ -1103,7 +1114,11 @@ class OnboardingService(AssistantOnboardingService):
             "The assistant only claims history it can actually import or observe through supported channel paths.",
         ]
         return {
-            "headline": f"{workspace_name} keeps one accountable property search workspace instead of scattered tabs and half-tracked listings.",
+            "headline": (
+                f"{workspace_name} keeps one accountable office loop instead of scattered inboxes, chats, and half-tracked commitments."
+                if normalized_workspace_mode in {"executive_ops", "team"}
+                else f"{workspace_name} keeps one accountable assistant workspace instead of scattered tabs and half-tracked follow-through."
+            ),
             "principal_id": principal_id,
             "workspace_mode": normalized_workspace_mode,
             "who_you_are": [
@@ -1147,12 +1162,16 @@ class OnboardingService(AssistantOnboardingService):
         if "whatsapp" in state.selected_channels and str(dict(channel_statuses.get("whatsapp") or {}).get("status") or "") in {"planned_business", "export_planned", "not_selected"}:
             return "Choose the WhatsApp path: supported business onboarding or export-planned intake."
         if not dict(state.privacy_preferences_json):
-            return "Finalize your workspace preferences so PropertyQuarry can open the first useful property workflow cleanly."
+            if self._normalize_workspace_mode(state.workspace_mode) in {"executive_ops", "team"}:
+                return "Finalize your workspace preferences so the first useful office loop opens cleanly."
+            return "Finalize your workspace preferences so the first useful assistant workflow opens cleanly."
         if bool(dict(state.privacy_preferences_json).get("allow_auto_briefs")) and not bool(
             dict(morning_memo_schedule or {}).get("resolved_recipient_email")
         ):
             return "Connect Google or set a delivery email so notifications can actually send when you enable them."
-        return "Review the first shortlist, save feedback, and only then add more providers or delivery lanes."
+        if self._normalize_workspace_mode(state.workspace_mode) in {"executive_ops", "team"}:
+            return "Review the first morning memo and decision queue, then add more channels or delivery lanes."
+        return "Review the first loop, save feedback, and only then add more providers or delivery lanes."
 
     @staticmethod
     def _normalize_auto_brief_cadence(value: str) -> str:

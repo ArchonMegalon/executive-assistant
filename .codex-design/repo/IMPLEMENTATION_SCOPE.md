@@ -46,14 +46,16 @@ That does not mean:
 ## Required inputs
 
 * mirrored `.codex-design/product/*`
-* EA product surface canon under `.codex-design/ea/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
+* `.codex-design/ea/*`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
 * `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
 * `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
 * `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
 * `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
 * `EXTERNAL_TOOLS_PLANE.md`
+
+EA product surface canon under `.codex-design/ea/*` is the required read-only reference plane.
 
 ## Boundary rules
 

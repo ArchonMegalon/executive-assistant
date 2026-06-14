@@ -59,6 +59,14 @@ Forbidden public wording:
 * `/participate` remains the public explainer and must not require sign-in
 * guest-visible participation CTAs should prefer `/participate` first; the deep `/participate/codex` lane is a later step, not the first public landing target
 
+## Account-aware front-door rule
+
+`/participate` is the guest-readable account-aware front door.
+
+`/home` and `/account` are the signed-in community-ledger shell.
+
+The public/auth split must describe one product story, not parallel intent models.
+
 ## Discoverability rule
 
 * guest-visible chrome must expose both `Sign in` and `Create account`

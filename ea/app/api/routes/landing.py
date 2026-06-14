@@ -114,6 +114,13 @@ _ARCHIVE_HOSTNAME = "archive.myexternalbrain.com"
 _ARCHIVE_MEMORIAL_SLUG = "manfred"
 
 
+def _memorial_archive_dir() -> Path:
+    configured = str(os.getenv("EA_MEMORIAL_ARCHIVE_DIR") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return _repo_root() / "memorial_archive"
+
+
 def _is_archive_host(request: Request) -> bool:
     return _request_hostname(request) == _ARCHIVE_HOSTNAME
 
@@ -129,7 +136,7 @@ def _archive_public_registry() -> dict[str, object]:
 
 
 def _archive_publication_html_path(publication_slug: str) -> Path:
-    base = Path("/docker/EA/memorial_archive") / _ARCHIVE_MEMORIAL_SLUG / "public" / publication_slug / "build" / "index.html"
+    base = _memorial_archive_dir() / _ARCHIVE_MEMORIAL_SLUG / "public" / publication_slug / "build" / "index.html"
     return base.resolve()
 
 
@@ -204,13 +211,12 @@ def _principal_for_page(
 
 
 
-def _anonymous_onboarding_status() -> dict[str, object]:
-    payfunnels_plus = payfunnels_configured(plan_key="plus")
-    paypal_enabled = paypal_configured()
+def _anonymous_onboarding_status(request: Request | None = None) -> dict[str, object]:
+    brand = request_brand(request) if request is not None else {"key": "ea", "name": "Executive Assistant"}
     return {
         "principal_id": "",
         "status": "anonymous",
-        "workspace": {"name": "PropertyQuarry"},
+        "workspace": {"name": str(brand.get("name") or "Executive Assistant")},
         "selected_channels": [],
         "privacy": {},
         "assistant_modes": [],
@@ -226,12 +232,13 @@ def _anonymous_onboarding_status() -> dict[str, object]:
 
 def _load_status(
     *,
+    request: Request,
     container: AppContainer,
     access_identity: CloudflareAccessIdentity | None,
 ) -> tuple[str, dict[str, object]]:
     principal_id = _principal_for_page(container=container, access_identity=access_identity)
     if not principal_id:
-        return "", _anonymous_onboarding_status()
+        return "", _anonymous_onboarding_status(request)
     return principal_id, container.onboarding.status(principal_id=principal_id)
 
 
@@ -370,6 +377,30 @@ def _public_context(
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     brand = request_brand(request)
+    default_first_brief = (
+        (
+            "Connect Google sign-in if you want easier return access from the same account.",
+            "Keep one reviewable office loop before widening the channel footprint.",
+            "Make approvals and memory rules explicit before automating actions.",
+        )
+        if str(brand.get("key") or "") == "ea"
+        else (
+            "Connect Google sign-in if you want easier return access from the same account.",
+            "Keep one reviewable property workflow before widening the channel footprint.",
+            "Make approvals and memory rules explicit before automating actions.",
+        )
+    )
+    default_suggested_actions = (
+        (
+            "Turn the workspace posture into a useful morning memo and decision loop.",
+            "Add more channels only after the first loop already feels useful.",
+        )
+        if str(brand.get("key") or "") == "ea"
+        else (
+            "Turn the workspace posture into a useful shortlist and research loop.",
+            "Add more channels only after the first loop already feels useful.",
+        )
+    )
     workspace = dict(status.get("workspace") or {})
     channels = dict(status.get("channels") or {})
     preview = dict(status.get("brief_preview") or {})
@@ -391,18 +422,11 @@ def _public_context(
         "brief_headline": str(preview.get("headline") or "Turn your channels into a prioritized day."),
         "first_brief_items": _list_rows(
             preview.get("first_brief_preview") or preview.get("first_brief"),
-            (
-                "Connect Google sign-in if you want easier return access from the same account.",
-                "Keep one reviewable property workflow before widening the channel footprint.",
-                "Make approvals and memory rules explicit before automating actions.",
-            ),
+            default_first_brief,
         ),
         "suggested_actions": _list_rows(
             preview.get("suggested_actions"),
-            (
-                "Turn the workspace posture into a useful shortlist and research loop.",
-                "Add more channels only after the first loop already feels useful.",
-            ),
+            default_suggested_actions,
         ),
         "trust_notes": _list_rows(
             preview.get("trust_notes"),
@@ -494,7 +518,7 @@ def _render_secure_link_page(
             current_nav=current_nav,
             page_title=page_title,
             principal_id="",
-            status=_anonymous_onboarding_status(),
+            status=_anonymous_onboarding_status(request),
             access_identity=None,
             extra={
                 "link_kicker": link_kicker,
@@ -702,7 +726,7 @@ def landing(
 ) -> HTMLResponse:
     if _is_archive_host(request):
         return HTMLResponse(_archive_home_html(), headers={"Cache-Control": "no-store"})
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
     return _render_public_template(
         request,
@@ -744,7 +768,7 @@ def project_modes_page(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
     _: None = Depends(require_operator_context),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     modes_payload, show_payload = _load_project_mode_payloads()
     mode_rows = []
     display_names = {
@@ -798,7 +822,7 @@ def integrations_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
     return _render_public_template(
         request,
@@ -821,7 +845,8 @@ def integration_detail(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
     channels = dict(status.get("channels") or {})
     mapping = {
         "google": {
@@ -829,7 +854,7 @@ def integration_detail(
             "eyebrow": "Google",
             "detail_points": (
                 "Start with Google sign-in unless you already know you need broader workspace actions.",
-                "PropertyQuarry only needs Google identity by default so the same account can return cleanly.",
+                f"{brand['name']} only needs Google identity by default so the same account can return cleanly.",
                 "Broader Gmail or Drive context stays an explicit upgrade path instead of the default.",
             ),
             "body_points": (
@@ -858,12 +883,12 @@ def integration_detail(
             "detail_points": (
                 "Business onboarding and export intake are separate supported paths.",
                 "The assistant does not promise generic automated history download outside those paths.",
-                "Live messaging and manual history intake stay visibly distinct in the product contract.",
+                "Live messaging, manual history intake, and any future outbound sender stay visibly distinct in the product contract.",
             ),
             "body_points": (
-                "Use Business onboarding for the long-term live assistant path.",
-                "Use export intake for personal or unsupported cases without pretending it is live sync.",
-                "Keep media inclusion, history source, and future live sync as separate explicit choices.",
+                "Use Business onboarding only for the supported account-linking path that could later unlock live messaging.",
+                "Use export intake for personal or unsupported cases without pretending it is live sync or live outbound send.",
+                "Keep media inclusion, history source, future live sync, and future outbound send as separate explicit choices.",
             ),
         },
     }
@@ -877,7 +902,7 @@ def integration_detail(
         **_public_context(
             request=request,
             current_nav="integrations",
-            page_title=f"PropertyQuarry {current['title']}",
+            page_title=f"{brand['name']} {current['title']}",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -898,14 +923,15 @@ def security_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
     return _render_public_template(
         request,
         "security_page.html",
         **_public_context(
             request=request,
             current_nav="security",
-            page_title="PropertyQuarry Security",
+            page_title=f"{brand['name']} Security",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -920,14 +946,15 @@ def pricing_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
     return _render_public_template(
         request,
         "pricing_page.html",
         **_public_context(
             request=request,
             current_nav="pricing",
-            page_title="PropertyQuarry Pricing",
+            page_title=f"{brand['name']} Pricing",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -942,14 +969,15 @@ def docs_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
     return _render_public_template(
         request,
         "docs_page.html",
         **_public_context(
             request=request,
             current_nav="docs",
-            page_title="PropertyQuarry Docs",
+            page_title=f"{brand['name']} Docs",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -964,7 +992,7 @@ def sign_in_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     link_status = str(request.query_params.get("link_status") or "").strip()
     link_email = str(request.query_params.get("link_email") or "").strip()
     link_count = int(request.query_params.get("link_count") or 0)
@@ -1086,7 +1114,7 @@ def register_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(container=container, access_identity=access_identity)
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     if principal_id:
         build_product_service(container).record_surface_event(
             principal_id=principal_id,

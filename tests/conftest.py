@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,28 @@ def _reset_shared_runtime_state() -> None:
         cloudflare_access._jwks_client.cache_clear()
     except Exception:
         pass
+    try:
+        from app.api.routes import public_memorials
+
+        public_memorials._MEMORIAL_LIVE_WARMUP_STATE.clear()
+        public_memorials._MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS.clear()
+        public_memorials._MEMORIAL_BLIPAI_TOKEN_STATE.clear()
+        with public_memorials._MEMORIAL_KNOWN_AUDIO_LOCK:
+            public_memorials._MEMORIAL_KNOWN_AUDIO_TRANSCRIPTS.clear()
+        public_memorials._memorial_known_prompt_transcript_cache.cache_clear()
+        public_memorials._memorial_guest_cookie_secret.cache_clear()
+        public_memorials._public_memorial_redis_client.cache_clear()
+        public_memorials._memorial_property_search_rows.cache_clear()
+        public_memorials._memorial_property_live_research.cache_clear()
+        public_memorials._memorial_fetch_page_title.cache_clear()
+        public_memorials._PUBLIC_MEMORIAL_RATE_BACKEND_CACHE = None
+    except Exception:
+        pass
+    for thread in list(threading.enumerate()):
+        if thread is threading.current_thread():
+            continue
+        if thread.name.startswith("memorial-"):
+            thread.join(timeout=0.2)
     try:
         from app.services import responses_upstream
 

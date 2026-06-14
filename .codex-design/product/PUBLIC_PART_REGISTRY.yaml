@@ -78,7 +78,7 @@ parts:
     public_noteworthy_limits:
       - it is not the rules engine
       - some deeper support and admin screens are still being simplified
-    current_truth: Hub already powers sign-in, landing and home views, participation, and community features, and it is still getting simpler behind the scenes.
+    current_truth: Hub already powers sign-in, landing and home views, participation, and community features, and it is still getting simpler behind the scenes. It now carries account-aware home and account posture for claim, participation, reward, and recovery on the same community-ledger path.
     go_deeper_links:
       - ../NOW/current-status.md
       - ../WHERE_TO_GO_DEEPER.md

@@ -122,6 +122,43 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     assert payload["public_browser_meaningful_receipt"] == "pass"
 
 
+def test_memorial_operator_status_marks_memorial_pass_blocked_if_whole_project_gold_disallowed(tmp_path, monkeypatch) -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_whole_project_blocked")
+    monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
+    whole_project_map = tmp_path / "whole-project-gold-map.json"
+    whole_project_map.write_text(
+        json.dumps(
+            {
+                "overall_status": "not_gold",
+                "gold_claim_allowed": False,
+                "blocking_planes": ["chummer_desktop_ui"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "WHOLE_PROJECT_GOLD_MAP", whole_project_map)
+    monkeypatch.setattr(
+        module,
+        "_run_json",
+        lambda script: (
+            {
+                "memorial_voice_gold_claim_allowed": True,
+                "local_release_issues": [],
+                "public_gold_issues": [],
+                "public_browser_gold_issues": [],
+                "room_audio_issues": [],
+            }
+            if "verify_memorial_gold_readiness" in script
+            else {"status": "pass"}
+        ),
+    )
+
+    assert module.main() == 0
+    payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
+    assert payload["current_label"] == "Memorial public-origin gold: blocked"
+    assert payload["whole_project_gold"] == "blocked"
+
+
 def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command() -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_room_audio_receipt_clean.py", "materialize_memorial_room_audio_receipt_clean")
 

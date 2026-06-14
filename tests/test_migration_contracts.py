@@ -245,6 +245,7 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "make verify-pocket-audio-archive" in full_gate
     assert "make verify-ltd-critical-entries" in full_gate
     assert "make verify-ltd-flagship-subset" in full_gate
+    assert "make verify-memorial-gold-readiness" in full_gate
     assert "pytest -q" in full_gate
 
     assert "EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0" in deploy

@@ -56,7 +56,7 @@ flagship_release_rules:
   - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup proof.
   - Claim and restore guidance must not imply that a recovered workspace is safe when required rule packs or amend packages are missing locally.
 default_public_channel_label: Preview channel
-unpublished_build_label: Current preview build
+unpublished_build_label: Current release build
 build_label_prefix: Build
 public_channel_labels:
   - id: stable

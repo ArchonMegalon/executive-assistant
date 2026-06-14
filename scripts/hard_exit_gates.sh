@@ -37,6 +37,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q
 make release-preflight
 make verify-project-mode-runtime
 make verify-memorial-voice-stability
+make verify-memorial-gold-readiness
 make verify-ltd-critical-entries
 make verify-ltd-flagship-subset
 make test-postgres-contracts

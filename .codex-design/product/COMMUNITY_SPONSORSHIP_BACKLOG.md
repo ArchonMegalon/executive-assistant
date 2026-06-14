@@ -4,6 +4,9 @@ Purpose: capture the Hub-first community sponsorship wave as executable canon in
 
 ## Canonical split
 
+* Hub = account / community / ledger / entitlement plane
+* Fleet = sponsored worker / execution plane
+* EA = provider / lane / telemetry plane
 * `chummer6-hub` owns the product plane: user accounts, generic groups, memberships, join/boost codes, fact ledger, reward journal, entitlement journal, participation UX, and receipt-derived community projections.
 * `fleet` owns the execution plane: dynamic participant lanes, lane-local device-auth execution, worker lifecycle, mission telemetry, and signed contribution receipts.
 * `executive-assistant` owns provider/lane telemetry and synthesis support, not community product truth.
@@ -24,6 +27,10 @@ The next wave is therefore not a fresh architecture rewrite. It is a convergence
 * durable Hub community storage instead of process-local demo state
 * one participation-intent story on top of the community spine instead of parallel intent models
 * richer community/product surfaces built on the same user/group/ledger substrate
+
+## Public front-door coherence
+
+linked identities, linked channels, and claimed installs attach to the Hub community ledger.
 
 ## Product rules
 

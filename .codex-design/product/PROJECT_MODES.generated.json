@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-06-14T14:21:21Z",
+  "generated_at": "2026-06-14T20:42:05Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "git_head": "3ff24bd46d4087780fc41a2206884e00e6265f62",
+  "git_head": "a6cb81acec2e5dbf56e71efddd3aef1618c93815",
   "modes": [
     {
       "key": "EA_CORE",
@@ -26,7 +26,7 @@
     {
       "key": "MEMORIAL",
       "status": "shipping_memorial",
-      "public_gold_status": "public_origin_gold_blocked",
+      "public_gold_status": "public_origin_gold_pass",
       "claim_labels": {
         "local": "Memorial local release candidate",
         "public": "Memorial public-origin gold"

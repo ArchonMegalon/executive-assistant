@@ -85,7 +85,7 @@ Exit: launch, freeze, canary, rollback, feedback followthrough, and public statu
 
 ## Wave 9 - make artifact proof and concierge first-party
 
-### 107. Artifact factory and public proof gallery
+### 107. Artifact factory and public detail gallery
 Owners: `chummer6-hub`, `chummer6-media-factory`, `chummer6-hub-registry`, `chummer6-design`
 Exit: release, fix, support, and publication explainers ship as approved video, audio, preview, and packet bundles from the same release and support truth, with registry-backed proof shelf surfaces and first-class media receipts.
 
@@ -253,9 +253,9 @@ Exit: dense builder/career, dice/initiative, and identity/contacts/lifestyles/hi
 Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `executive-assistant`, `fleet`, `chummer6-design`
 Exit: print/export/exchange plus SR6 supplement/house-rule families all flip to direct `yes/yes` parity with current screenshot/runtime proof and receipt-backed outputs.
 
-### 144. Desktop executable proof integrity and publishable flagship-route closure
+### 144. Desktop executable release integrity and publishable flagship-route closure
 Owners: `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `fleet`, `chummer6-design`
-Exit: Windows, Linux, and macOS promoted desktop tuples have matching startup-smoke receipts, executable-gate proof, release-channel tuple truth, and `desktop_client` readiness with no stale or inherited trust.
+Exit: Windows, Linux, and macOS promoted desktop tuples have matching startup verification receipts, desktop executable verification, release-channel tuple truth, and `desktop_client` readiness with no stale or inherited trust.
 
 ## Wave 23 - close calm-under-pressure payoff and veteran continuity
 

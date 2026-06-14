@@ -123,7 +123,7 @@ def main() -> int:
     if by_key["MEMORIAL"].get("status") == "separate_risk_zone" and memorial_status == "pass":
         raise SystemExit("memorial_pass_receipt_still_marked_risk_zone")
     public_gold_status = str(by_key["MEMORIAL"].get("public_gold_status") or "")
-    if public_gold_status not in {"public_origin_gold_blocked", "public_origin_gold_candidate"}:
+    if public_gold_status not in {"public_origin_gold_blocked", "public_origin_gold_pass"}:
         raise SystemExit("memorial_public_gold_status_invalid")
     public_gold_gates = [str(item) for item in list(by_key["MEMORIAL"].get("public_gold_gates") or []) if str(item)]
     expected_public_gates = {
@@ -142,8 +142,8 @@ def main() -> int:
             except Exception:
                 public_gate_payloads.append({})
     public_gate_pass_count = sum(1 for payload in public_gate_payloads if str(payload.get("status") or "").strip().lower() == "pass")
-    if public_gold_status == "public_origin_gold_candidate" and public_gate_pass_count != len(expected_public_gates):
-        raise SystemExit("memorial_public_gold_candidate_without_all_public_gates")
+    if public_gold_status == "public_origin_gold_pass" and public_gate_pass_count != len(expected_public_gates):
+        raise SystemExit("memorial_public_gold_pass_without_all_public_gates")
     if public_gold_status == "public_origin_gold_blocked" and public_gate_pass_count == len(expected_public_gates):
         raise SystemExit("memorial_public_gold_blocked_despite_public_gates")
     forbidden = set(show.get("forbidden_surfaces") or [])

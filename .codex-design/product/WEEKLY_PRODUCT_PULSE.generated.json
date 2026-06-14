@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-06-14T12:00:38Z",
+  "generated_at": "2026-06-14T17:09:25Z",
   "as_of": "2026-06-14",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -10,10 +10,10 @@
     "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
     "size_bytes": 5892,
-    "mtime_utc": "2026-06-14T12:00:38Z",
-    "sha256": "97d2e782090bdfddcccc51fabace879c19fc3ef113ec13ceefc461e59a8bc2d2",
+    "mtime_utc": "2026-06-14T12:07:02Z",
+    "sha256": "96e36fc8bd6b80e86f5d885f034a55f0cd3148f43ebb6a91f2900f1f6a38be80",
     "git_repo_root": "/docker/EA",
-    "git_head": "425258e0bceabbed56098af23315164bdc896f38",
+    "git_head": "a6cb81acec2e5dbf56e71efddd3aef1618c93815",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -125,13 +125,13 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
-      "review_due": "2026-06-21T12:00:38Z",
+      "review_due": "2026-06-21T17:09:25Z",
       "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "9374a4a11b26dad8b7892da6d8c4ee43cb6438cd",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "425258e0bceabbed56098af23315164bdc896f38",
+    "flagship_release_receipt_git_head": "a6cb81acec2e5dbf56e71efddd3aef1618c93815",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",

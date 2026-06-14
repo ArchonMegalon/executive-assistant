@@ -544,7 +544,7 @@ cards:
     microproof: Capability matrix|Policy boundary|Hosted-first fallback
   - id: artifact_preview_build
     bucket: featured_artifacts
-    title: Current preview build
+    title: Current release build
     summary: The installer shelf, release channel, and integrity trail are live right now.
     href: /downloads
     badge: Available today
@@ -552,13 +552,13 @@ cards:
     image_family: facility_exterior
     asset_slot: release_current_build
     detail_route: /artifacts/current-preview-build
-    action_label: Inspect the preview build
+    action_label: Inspect the release build
     detail_primary_href: /downloads
     detail_primary_label: Open downloads
     pain: Early-access products stop feeling real when the current build is vague or hard to verify.
-    payoff: One visible build, one truthful channel label, and one clean install path make the preview feel dependable instead of improvised.
-    proof_note: "Proof: the current preview has a real installer path, explicit release posture, and a first-party download path."
-    microproof: Installer path|Preview channel|Account-aware handoff
+    payoff: One visible build, one truthful channel label, and one clean install path make the release feel dependable instead of improvised.
+    proof_note: "Detail: the current release has a real installer path, explicit release posture, and a first-party download path."
+    microproof: Installer path|Release channel|Account-aware handoff
   - id: artifact_mac_release_pipeline
     bucket: featured_artifacts
     title: Mac release pipeline
@@ -742,7 +742,7 @@ cards:
     action_label: Join beta waitlist
   - id: release_latest
     bucket: release_shelf
-    title: Current preview build
+    title: Current release build
     summary: Current published installers, release notes, and integrity details in one shelf.
     href: /downloads
     badge: Preview

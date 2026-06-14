@@ -55,11 +55,30 @@ def main() -> int:
         whole_project_gold = "blocked"
     else:
         whole_project_gold = "unknown"
+
+    readiness_status = str(readiness.get("status") or "blocked").strip().lower()
+    has_any_readiness_issues = bool(
+        list(readiness.get("local_release_issues") or [])
+        or list(readiness.get("public_gold_issues") or [])
+        or list(readiness.get("public_browser_gold_issues") or [])
+        or list(readiness.get("room_audio_issues") or [])
+    )
+    memorial_public_gold_claim_allowed = (
+        readiness_status == "pass"
+        or (
+            readiness.get("memorial_voice_gold_claim_allowed") is True
+            and not has_any_readiness_issues
+        )
+    )
+    whole_project_gold_allowed = whole_project_gold == "pass"
+    memorial_public_gold_allowed = memorial_public_gold_claim_allowed and whole_project_gold_allowed
     payload = {
         "contract_name": "ea.memorial_operator_status",
         "generated_by": "scripts/materialize_memorial_operator_status.py",
         "slug": "manfred",
-        "current_label": "Memorial public-origin gold: blocked" if readiness.get("memorial_voice_gold_claim_allowed") is not True else "Memorial public-origin gold: pass",
+        "current_label": "Memorial public-origin gold: pass"
+        if memorial_public_gold_allowed
+        else "Memorial public-origin gold: blocked",
         "local_release_candidate": "pass" if not list(readiness.get("local_release_issues") or []) else "blocked",
         "public_voice_receipt": "pass" if not list(readiness.get("public_gold_issues") or []) else "missing_or_blocked",
         "public_browser_receipt": "pass" if not list(readiness.get("public_browser_gold_issues") or []) else "missing_or_blocked",
@@ -80,7 +99,16 @@ def main() -> int:
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": "pass", "output": OUTPUT.as_posix(), "current_label": payload["current_label"]}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "status": readiness_status if memorial_public_gold_allowed else "blocked",
+                "output": OUTPUT.as_posix(),
+                "current_label": payload["current_label"],
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

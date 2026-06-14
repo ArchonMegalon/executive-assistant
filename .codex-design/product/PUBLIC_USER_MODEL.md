@@ -35,6 +35,14 @@ A registered user may, in addition to guest behavior:
 
 Downloads and installs are related to user classes, but they are not the same thing.
 
+## Community-ledger relationship states
+
+These are Hub community-ledger facts.
+
+a guest does not receive implied ledger membership.
+
+The first public model needs explicit claim, membership, participation, linked-channel, reward journal and entitlement journal state so public surfaces do not fake one giant account blob.
+
 ### Guest install
 
 A guest install may:

@@ -33,7 +33,18 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     assert ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_room_audio_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
-    assert modes["MEMORIAL"]["public_gold_status"] in {"public_origin_gold_blocked", "public_origin_gold_candidate"}
+    public_gold_gate_paths = [ROOT / path for path in modes["MEMORIAL"]["public_gold_gates"]]
+    expected_public_gold_status = (
+        "public_origin_gold_pass"
+        if all(
+            json.loads(path.read_text(encoding="utf-8")).get("status") == "pass"
+            for path in public_gold_gate_paths
+            if path.is_file()
+        )
+        and all(path.is_file() for path in public_gold_gate_paths)
+        else "public_origin_gold_blocked"
+    )
+    assert modes["MEMORIAL"]["public_gold_status"] == expected_public_gold_status
     assert "No internet search for Manfred" in modes["MEMORIAL"]["purpose"]
     assert "/memorials/" in modes["MEMORIAL"]["route_prefixes"]
 

@@ -86,6 +86,14 @@ Canonical distinction:
 * linked channels route messages, notifications, and companion behavior
 * installations authenticate desktop clients and bind support/update history to one local copy
 
+## Community-ledger rule
+
+Linked identities and linked channels attach to the Hub community ledger.
+
+a linked channel is never proof of reward, entitlement, or sponsor-session completion.
+
+`/home` and `/account` may explain identity, channel, participation, reward, and recovery posture together.
+
 These are separate records and separate policy decisions.
 
 ## Install claim rule

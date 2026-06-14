@@ -2,20 +2,20 @@
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
   "slug": "manfred",
-  "current_label": "Memorial public-origin gold: blocked",
+  "current_label": "Memorial public-origin gold: pass",
   "local_release_candidate": "pass",
   "public_voice_receipt": "pass",
   "public_browser_receipt": "pass",
   "public_browser_meaningful_receipt": "pass",
-  "room_audio_receipt": "missing_or_blocked",
-  "whole_project_gold": "blocked",
+  "room_audio_receipt": "pass",
+  "whole_project_gold": "pass",
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
     "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin."
   ],
   "readiness": {
-    "status": "blocked",
-    "current_head": "3ff24bd46d4087780fc41a2206884e00e6265f62",
+    "status": "pass",
+    "current_head": "a6cb81acec2e5dbf56e71efddd3aef1618c93815",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -27,10 +27,10 @@
     "public_gold_issues": [],
     "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [],
+    "public_meaningful_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+    "public_meaningful_browser_gold_issues": [],
     "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
-    "room_audio_issues": [
-      "room_receipt_missing_or_invalid"
-    ],
+    "room_audio_issues": [],
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
       "conversation_turn_audio_f1_min": 0.9,
@@ -38,7 +38,7 @@
       "speech_transcribe_ms_max": 2500.0,
       "browser_first_answer_ms_max": 4500.0
     },
-    "memorial_voice_gold_claim_allowed": false,
+    "memorial_voice_gold_claim_allowed": true,
     "labels": {
       "local_receipt": "Memorial voice release-candidate proof",
       "public_receipt": "Memorial voice gold proof",
@@ -47,17 +47,12 @@
     }
   },
   "whole_project": {
-    "status": "blocked",
-    "issues": [
-      "whole-project gold map is stale relative to current HEAD",
-      "memorial voice receipt is stale relative to current HEAD"
-    ]
+    "status": "pass",
+    "message": "whole-project gold map is honest and fail-closed."
   },
   "whole_project_map_summary": {
-    "overall_status": "not_gold",
-    "gold_claim_allowed": false,
-    "blocking_planes": [
-      "memorial_public_origin_gold"
-    ]
+    "overall_status": "gold",
+    "gold_claim_allowed": true,
+    "blocking_planes": []
   }
 }

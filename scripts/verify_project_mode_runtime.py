@@ -49,6 +49,52 @@ def _internal_hrefs(html: str) -> set[str]:
     return {match for match in re.findall(r'href="([^"]+)"', html) if match.startswith("/")}
 
 
+FORBIDDEN_ROUTE_STATUS_CODES = {401, 403, 404, 405, 409}
+
+
+def _forbidden_route_paths() -> tuple[str, ...]:
+    slug = "manfred"
+    return (
+        f"/memorials/{slug}",
+        f"/memorials/{slug}/archive",
+        f"/memorials/{slug}/archive.json",
+        f"/memorials/{slug}/warmup",
+        f"/memorials/{slug}/warmup-status",
+        f"/memorials/{slug}/operator-status",
+        f"/memorials/{slug}/video-meeting/status",
+        f"/memorials/{slug}/video-meeting/session",
+        f"/memorials/{slug}/video-meeting/provider-callback",
+        f"/memorials/{slug}/playback-telemetry",
+        f"/memorials/{slug}/realtime",
+        f"/memorials/{slug}/realtime/webrtc",
+        f"/memorials/{slug}/voice-config",
+        f"/memorials/{slug}/voice-ab",
+        f"/memorials/{slug}/voice-ab/rate",
+        f"/memorials/{slug}/voice-ab-admin",
+        f"/memorials/{slug}/voice-ab-admin/finalize",
+        f"/memorials/{slug}/voice-ab-admin/maintain",
+        f"/memorials/{slug}/voice-profile",
+        f"/memorials/{slug}/voice-profile/build",
+        f"/memorials/{slug}/voice-clone",
+        f"/memorials/{slug}/chat",
+        f"/memorials/{slug}/speech-transcribe",
+        f"/memorials/{slug}/speech-synthesize",
+        f"/memorials/{slug}/conversation-turn",
+        f"/memorials/{slug}/personal-memory",
+        f"/memorials/{slug}/app.webmanifest",
+        f"/memorials/{slug}/service-worker.js",
+        f"/memorials/{slug}/icon-180.png",
+        f"/memorials/{slug}/icon-192.png",
+        f"/memorials/{slug}/icon-512.png",
+        f"/memorials/{slug}/icon.svg",
+        "/memorials/files/manfred/memorial.json",
+        "/memorials/files/manfred/tts_voice.json",
+        "/properties",
+        "/property",
+        "/results",
+    )
+
+
 def main() -> int:
     if any(arg in {"--help", "-h"} for arg in sys.argv[1:]):
         print("Usage: python scripts/verify_project_mode_runtime.py")
@@ -79,10 +125,12 @@ def main() -> int:
             if any(href.startswith(prefix) for prefix in forbidden_surfaces):
                 raise SystemExit(f"forbidden_surface_linked:{path}:{href}")
 
-    for path in ("/memorials/manfred", "/memorials/files/manfred/memorial.json", "/properties", "/property"):
+    for path in _forbidden_route_paths():
         response = client.get(path, follow_redirects=False)
-        if response.status_code not in {404, 405, 409}:
-            raise SystemExit(f"forbidden_route_open_in_ea_core:{path}:{response.status_code}")
+        if response.status_code not in FORBIDDEN_ROUTE_STATUS_CODES:
+            raise SystemExit(
+                f"forbidden_route_open_in_ea_core:{path}:{response.status_code}"
+            )
 
     print(json.dumps({"status": "pass", "message": "project mode runtime surfaces obey the EA core show manifest."}))
     return 0

@@ -82,6 +82,30 @@ def test_integrations_page_uses_ea_brand_title_not_propertyquarry() -> None:
     assert "PropertyQuarry Integrations" not in response.text
 
 
+def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None:
+    client = build_product_client(principal_id="exec-public-brand-copy")
+
+    security = client.get("/security")
+    pricing = client.get("/pricing")
+    docs = client.get("/docs")
+    register = client.get("/register")
+    google = client.get("/integrations/google")
+    whatsapp = client.get("/integrations/whatsapp")
+
+    assert security.status_code == 200
+    assert pricing.status_code == 200
+    assert docs.status_code == 200
+    assert register.status_code == 200
+    assert google.status_code == 200
+    assert whatsapp.status_code == 200
+    assert "Executive Assistant Security" in security.text
+    assert "Executive Assistant Pricing" in pricing.text
+    assert "Executive Assistant Docs" in docs.text
+    assert "Create your property workspace" not in register.text
+    assert "PropertyQuarry only needs Google identity" not in google.text
+    assert "live assistant path" not in whatsapp.text
+
+
 def test_ea_core_allowed_surfaces_do_not_leak_forbidden_planes() -> None:
     manifest = json.loads((ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json").read_text(encoding="utf-8"))
     forbidden_paths = tuple(str(value).replace("*", "") for value in manifest["forbidden_surfaces"])
@@ -98,3 +122,65 @@ def test_ea_core_allowed_surfaces_do_not_leak_forbidden_planes() -> None:
             assert f"href='{forbidden}" not in body
         for provider_name in forbidden_provider_names:
             assert provider_name not in body
+
+
+def test_ea_core_does_not_expose_memorial_nested_operator_routes() -> None:
+    client = build_product_client(principal_id="exec-memorial-mode-operator-surface")
+    blocked_get_paths: tuple[str, ...] = (
+        "/memorials/manfred",
+        "/memorials/manfred/archive",
+        "/memorials/manfred/archive.json",
+        "/memorials/manfred/warmup",
+        "/memorials/manfred/warmup-status",
+        "/memorials/manfred/operator-status",
+        "/memorials/manfred/video-meeting/status",
+        "/memorials/manfred/video-meeting/session",
+        "/memorials/manfred/video-meeting/provider-callback",
+        "/memorials/manfred/playback-telemetry",
+        "/memorials/manfred/realtime",
+        "/memorials/manfred/realtime/webrtc",
+        "/memorials/manfred/voice-config",
+        "/memorials/manfred/voice-ab",
+        "/memorials/manfred/voice-ab/rate",
+        "/memorials/manfred/voice-ab-admin",
+        "/memorials/manfred/voice-ab-admin/finalize",
+        "/memorials/manfred/voice-ab-admin/maintain",
+        "/memorials/manfred/voice-profile",
+        "/memorials/manfred/voice-profile/build",
+        "/memorials/manfred/voice-clone",
+        "/memorials/manfred/chat",
+        "/memorials/manfred/speech-transcribe",
+        "/memorials/manfred/speech-synthesize",
+        "/memorials/manfred/conversation-turn",
+        "/memorials/manfred/personal-memory",
+        "/memorials/files/manfred/memorial.json",
+        "/memorials/files/manfred/tts_voice.json",
+        "/memorials/manfred/app.webmanifest",
+        "/memorials/manfred/service-worker.js",
+        "/memorials/manfred/icon-180.png",
+        "/memorials/manfred/icon.svg",
+    )
+    for path in blocked_get_paths:
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code in {401, 403, 404, 405, 409}
+
+    blocked_post_paths: tuple[str, ...] = (
+        "/memorials/manfred/warmup",
+        "/memorials/manfred/voice-clone",
+        "/memorials/manfred/voice-ab/rate",
+        "/memorials/manfred/voice-ab-admin/finalize",
+        "/memorials/manfred/voice-ab-admin/maintain",
+        "/memorials/manfred/voice-config",
+        "/memorials/manfred/voice-profile/build",
+        "/memorials/manfred/conversation-turn",
+        "/memorials/manfred/personal-memory",
+        "/memorials/manfred/video-meeting/session",
+        "/memorials/manfred/video-meeting/provider-callback",
+        "/memorials/manfred/playback-telemetry",
+        "/memorials/manfred/speech-transcribe",
+        "/memorials/manfred/speech-synthesize",
+        "/memorials/manfred/chat",
+    )
+    for path in blocked_post_paths:
+        response = client.post(path, json={}, follow_redirects=False)
+        assert response.status_code in {401, 403, 404, 405, 409}

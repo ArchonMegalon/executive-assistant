@@ -6,6 +6,14 @@
 
 This wave turns `chummer.run` into a real account-aware install, update, and support surface backed by Hub + Registry + UI while tightening the design/control loop in `chummer6-design` and Fleet.
 
+## Canon closure for M129
+
+This package closes the rule that one public account-aware front door exists.
+
+claim, participation, reward, entitlement, channel, and recovery posture must map back to the same Hub-owned community ledger.
+
+Fleet receipt semantics stay downstream evidence, not account truth.
+
 Some `M0` ingredients already exist in canon today.
 This wave closes the remaining coherence, coverage, and runtime-loop gaps so those surfaces stop feeling provisional.
 

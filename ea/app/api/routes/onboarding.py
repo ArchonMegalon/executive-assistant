@@ -33,6 +33,23 @@ def _registration_secret(container: AppContainer) -> str:
     return f"register:{runtime_mode}:{api_token or default_principal or 'local-user'}"
 
 
+_REGISTER_GOOGLE_OAUTH_MISSING_CONFIG_HELP: dict[str, str] = {
+    "google_oauth_client_id_missing": "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET.",
+    "google_oauth_client_secret_missing": "Set EA_GOOGLE_OAUTH_CLIENT_ID and EA_GOOGLE_OAUTH_CLIENT_SECRET.",
+    "google_oauth_redirect_uri_missing": "Set EA_GOOGLE_OAUTH_REDIRECT_URI.",
+    "google_oauth_state_secret_missing": "Set EA_GOOGLE_OAUTH_STATE_SECRET.",
+    "google_oauth_provider_secret_key_missing": "Set EA_PROVIDER_SECRET_KEY.",
+}
+
+
+def _register_google_oauth_missing_detail(error_code: str) -> str:
+    normalized = str(error_code or "").strip()
+    return _REGISTER_GOOGLE_OAUTH_MISSING_CONFIG_HELP.get(
+        normalized,
+        normalized or "Google OAuth is not configured for this host.",
+    )
+
+
 def _urlsafe_b64encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
@@ -299,12 +316,12 @@ class OnboardingPropertySearchPreferencesOut(OnboardingEnvelopeOut):
 
 class OnboardingFlagshipStartIn(BaseModel):
     principal_id: str | None = Field(default=None, min_length=1, max_length=200)
-    workspace_name: str = Field(default="PropertyQuarry Workspace", min_length=1, max_length=200)
+    workspace_name: str = Field(default="Executive Assistant Workspace", min_length=1, max_length=200)
     workspace_mode: str = Field(default="executive_ops", min_length=1, max_length=50)
     region: str = Field(default="AT", max_length=80)
     language: str = Field(default="en", max_length=80)
     timezone: str = Field(default="Europe/Vienna", max_length=80)
-    selected_channels: list[str] = Field(default_factory=lambda: ["google", "telegram", "whatsapp"])
+    selected_channels: list[str] = Field(default_factory=lambda: ["google"])
     scope_bundle: str = Field(default="identity", min_length=1, max_length=50)
     telegram_ref: str = Field(default="", max_length=200)
     telegram_identity_mode: str = Field(default="login_widget", min_length=1, max_length=80)
@@ -486,11 +503,12 @@ def register_verify(
         timezone=timezone,
         selected_channels=("google",),
     )
+    requested_bundle = str(body.scope_bundle or "identity").strip() or "identity"
     google_start: dict[str, object] = {}
     try:
         google_status = container.onboarding.start_google(
             principal_id=principal_id,
-            scope_bundle=str(body.scope_bundle or "identity").strip() or "identity",
+            scope_bundle=requested_bundle,
             redirect_uri_override=browser_google_oauth_redirect_uri(
                 public_base_url=_registration_base_url(request)
             )
@@ -502,7 +520,23 @@ def register_verify(
         google_start = dict(google_status.get("google_start") or {})
         status = google_status
     except RuntimeError as exc:
-        google_start = {"error": str(exc or "google_oauth_not_ready")}
+        error_code = str(exc or "google_oauth_not_ready").strip()
+        detail = _register_google_oauth_missing_detail(error_code)
+        google_start = {
+            "ready": False,
+            "requested_bundle": requested_bundle,
+            "oauth_bundle": requested_bundle,
+            "bundle_label": "",
+            "bundle_summary": "",
+            "start_url": "",
+            "auth_url": "",
+            "requested_scopes": [],
+            "capabilities": [],
+            "limitations": [],
+            "next_step": detail,
+            "error": error_code,
+            "detail": detail,
+        }
     access = build_product_service(container).issue_workspace_access_session(
         principal_id=principal_id,
         email=email,
