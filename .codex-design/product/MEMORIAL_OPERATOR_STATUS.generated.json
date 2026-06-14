@@ -5,7 +5,7 @@
   "current_label": "Memorial public-origin gold: blocked",
   "local_release_candidate": "pass",
   "public_voice_receipt": "missing_or_blocked",
-  "public_browser_receipt": "missing_or_blocked",
+  "public_browser_receipt": "pass",
   "room_audio_receipt": "missing_or_blocked",
   "whole_project_gold": "pass",
   "operator_notes": [
@@ -14,7 +14,7 @@
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "a47664ba585bb08196375ad3559c15f2f1e15c4c",
+    "current_head": "ee15e585630e670e4f4fc560e24ed920d8b3746d",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -31,12 +31,7 @@
       "speech_transcribe_ms_above_gold_threshold"
     ],
     "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
-    "public_browser_gold_issues": [
-      "browser_receipt_status_not_pass",
-      "browser_gold_claim_not_allowed_by_receipt",
-      "browser_failed_codes_present",
-      "browser_first_answer_ms_above_gold_threshold"
-    ],
+    "public_browser_gold_issues": [],
     "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
     "room_audio_issues": [
       "room_receipt_missing_or_invalid"

@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T08:55:10Z",
+  "generated_at": "2026-06-14T09:26:59Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "a47664ba585bb08196375ad3559c15f2f1e15c4c",
+  "git_head": "ee15e585630e670e4f4fc560e24ed920d8b3746d",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -147,7 +147,6 @@
         "Public copy must not collapse this into a generic gold claim.",
         "public_origin_gold_status=blocked",
         "public-origin memorial voice+STT+TTS gold receipt",
-        "public-origin browser realtime/audio playback gold receipt",
         "public-origin room/device audio intelligibility receipt"
       ]
     },
@@ -163,7 +162,6 @@
       ],
       "missing_evidence": [
         "public-origin memorial voice+STT+TTS gold receipt",
-        "public-origin browser realtime/audio playback gold receipt",
         "public-origin room/device audio intelligibility receipt"
       ],
       "design_notes": [
