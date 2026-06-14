@@ -90,3 +90,9 @@ def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) 
 def test_materialized_whole_project_gold_map_exists() -> None:
     if not GOLD_MAP_PATH.exists():
         pytest.fail("Run `make materialize-release-assets` to write WHOLE_PROJECT_GOLD_MAP.generated.json")
+
+
+def test_whole_project_gold_map_treats_operator_status_as_generated_only_artifact() -> None:
+    from scripts import verify_whole_project_gold_map as module
+
+    assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" in module.GENERATED_RECEIPT_PATHS

@@ -232,3 +232,9 @@ def test_memorial_gold_readiness_allows_generated_only_receipt_commit_delta(tmp_
     monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "SOURCE_HEAD" and current_head == "CURRENT_HEAD")
 
     assert readiness.main() == 0
+
+
+def test_memorial_gold_readiness_treats_operator_status_as_generated_only_artifact() -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" in readiness.GENERATED_RECEIPT_PATHS
