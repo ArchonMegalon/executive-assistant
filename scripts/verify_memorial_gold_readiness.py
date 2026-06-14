@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOCAL_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 PUBLIC_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json"
 ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -233,6 +234,10 @@ def _check_room_receipt(
     return issues
 
 
+def _should_require_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def main() -> int:
     current_head = _git_head()
     max_conversation_turn_ms = _float_env("MEMORIAL_GOLD_MAX_CONVERSATION_TURN_MS", 4500.0)
@@ -265,6 +270,19 @@ def main() -> int:
         current_head=current_head,
         max_first_answer_ms=max_browser_first_answer_ms,
     )
+
+    meaningful_browser_issues: list[str] = []
+    meaningful_browser_receipt_path = Path(os.getenv("MEMORIAL_PUBLIC_MEANINGFUL_BROWSER_RECEIPT") or MEANINGFUL_BROWSER_RECEIPT)
+    if _should_require_truthy(os.getenv("MEMORIAL_REQUIRE_MEANINGFUL_BROWSER_RECEIPT")):
+        meaningful_browser_receipt = _json(meaningful_browser_receipt_path)
+        meaningful_browser_issues = _check_browser_receipt(
+            meaningful_browser_receipt,
+            current_head=current_head,
+            max_first_answer_ms=_float_env(
+                "MEMORIAL_GOLD_MAX_MEANINGFUL_BROWSER_FIRST_ANSWER_MS",
+                8000.0,
+            ),
+        )
     room_receipt_path = Path(os.getenv("MEMORIAL_ROOM_AUDIO_RECEIPT") or ROOM_RECEIPT)
     room = _json(room_receipt_path)
     room_issues = _check_room_receipt(
@@ -272,7 +290,15 @@ def main() -> int:
         current_head=current_head,
     )
 
-    status = "pass" if not local_issues and not public_issues and not browser_issues and not room_issues else "blocked"
+    status = (
+        "pass"
+        if not local_issues
+        and not public_issues
+        and not browser_issues
+        and not meaningful_browser_issues
+        and not room_issues
+        else "blocked"
+    )
     payload = {
         "status": status,
         "current_head": current_head,
@@ -287,6 +313,8 @@ def main() -> int:
         "public_gold_issues": public_issues,
         "public_browser_gold_receipt": browser_receipt_path.as_posix(),
         "public_browser_gold_issues": browser_issues,
+        "public_meaningful_browser_gold_receipt": meaningful_browser_receipt_path.as_posix(),
+        "public_meaningful_browser_gold_issues": meaningful_browser_issues,
         "room_audio_receipt": room_receipt_path.as_posix(),
         "room_audio_issues": room_issues,
         "gold_thresholds": {

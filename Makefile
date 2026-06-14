@@ -258,8 +258,9 @@ materialize-memorial-room-audio-gold-clean:
 materialize-memorial-public-gold:
 	$(MAKE) materialize-memorial-public-voice-gold
 	$(MAKE) materialize-memorial-public-browser-gold
+	$(MAKE) materialize-memorial-public-browser-meaningful-gold
 	$(MAKE) materialize-memorial-room-audio-gold-clean
-	$(MAKE) verify-memorial-gold-readiness
+	MEMORIAL_REQUIRE_MEANINGFUL_BROWSER_RECEIPT=1 $(MAKE) verify-memorial-gold-readiness
 
 materialize-memorial-phrase-bank:
 	$(PYTHON_BIN) scripts/materialize_memorial_phrase_bank.py
