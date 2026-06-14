@@ -204,6 +204,7 @@ print(f"memorial status:   {compact(payload.get('current_label'))}")
 print(f"local candidate:   {receipt_state(payload, 'local_release_candidate')}")
 print(f"public voice:      {receipt_state(payload, 'public_voice_receipt')}")
 print(f"public browser:    {receipt_state(payload, 'public_browser_receipt')}")
+print(f"meaningful probe:  {receipt_state(payload, 'public_browser_meaningful_receipt')}")
 print(f"room audio:        {receipt_state(payload, 'room_audio_receipt')}")
 print(f"whole gold:        {receipt_state(payload, 'whole_project_gold')}")
 PY

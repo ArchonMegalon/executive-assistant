@@ -25,6 +25,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
 }
 

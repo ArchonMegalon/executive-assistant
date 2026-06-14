@@ -21,6 +21,7 @@ from pathlib import Path
 
 
 LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+MEANINGFUL_PROMPT_TEXT = "Was war dir bei Gerechtigkeit wichtig?"
 DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS = 10000.0
 DEFAULT_GOLD_MAX_FIRST_ANSWER_MS = 4500.0
 DEFAULT_EXIT_GATE_REQUIRED_CONTEXT_MATCHES = 2
@@ -61,6 +62,17 @@ EXIT_GATE_SEMANTIC_PROFILES = (
             ("vorlaeufig", "urteil"),
             ("tatsachen", "unterlagen", "fakten"),
             ("risiko", "belegt"),
+        ),
+        "required_group_matches": 2,
+    },
+    {
+        "id": "memorial_values",
+        "prompt_tokens": ("gerechtigkeit", "opferschutz", "schach"),
+        "answer_tokens": ("konkreten", "punkt", "enger", "antworte", "allgemein"),
+        "minimum_context_matches": 3,
+        "required_any": (
+            ("konkreten", "punkt"),
+            ("enger", "antworte"),
         ),
         "required_group_matches": 2,
     },

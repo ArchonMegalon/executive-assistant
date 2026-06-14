@@ -75,6 +75,14 @@ def test_semantic_profile_for_prompt_prefers_decision_lane() -> None:
     assert profile["id"] == "decision_reflection"
 
 
+def test_semantic_profile_for_prompt_detects_memorial_values_lane() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt("Was war dir bei Gerechtigkeit wichtig?")
+
+    assert profile["id"] == "memorial_values"
+
+
 def test_answer_satisfies_semantic_profile_requires_group_structure() -> None:
     module = _load_module()
 

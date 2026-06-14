@@ -669,6 +669,40 @@ def test_memorial_canonical_question_rescues_weather_and_current_state_intents()
     )
 
 
+def test_memorial_visible_transcript_preserves_original_user_wording() -> None:
+    from app.api.routes import public_memorials
+
+    assert (
+        public_memorials._memorial_visible_transcript_text(
+            transcript_text="wie ist wetter heute in wien",
+            effective_question="Wie ist das Wetter heute?",
+        )
+        == "wie ist wetter heute in wien"
+    )
+
+
+def test_memorial_transcript_selection_prefers_routable_weather_question_over_generic_narrative() -> None:
+    from app.api.routes import public_memorials
+
+    best = public_memorials._select_best_memorial_transcription(
+        [
+            {
+                "transcript_text": "ich habe heute im garten gearbeitet",
+                "primary_transcript_text": "ich habe heute im garten gearbeitet",
+                "transcriber": "1min.ai/original",
+            },
+            {
+                "transcript_text": "wie ist wetter heute in wien",
+                "primary_transcript_text": "wie ist wetter heute in wien",
+                "transcriber": "1min.ai/original",
+            },
+        ]
+    )
+
+    assert best is not None
+    assert best["transcript_text"] == "wie ist wetter heute in wien"
+
+
 def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1491,6 +1525,45 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert body["answer_audio_text"] == "Zum Wetter brauche ich den Ort."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
+
+
+def test_memorial_conversation_turn_exposes_original_and_effective_transcript_text(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    input_audio = _generated_wav_bytes(textish_seed="wie ist wetter heute in wien")
+    output_audio = _generated_wav_bytes(textish_seed="Zum Wetter brauche ich den Ort.")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "wie ist wetter heute in wien",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "openvoice_synthesize_request_with_variant",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+
+    client = _client(principal_id="exec-memorial-visible-transcript")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcript_text"] == "Wie ist das Wetter heute?"
+    assert body["transcript_effective_text"] == "Wie ist das Wetter heute?"
+    assert body["transcript_original_text"] == "wie ist wetter heute in wien"
 
 
 def test_memorial_conversation_turn_requests_gemini_for_live_voice_without_explicit_model_catalog(
@@ -3450,6 +3523,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "user_audio_end" in source
     assert 'if (type === "answer")' in source
     assert 'if (type === "audio_complete")' in source
+    assert 'message.effective_text || payload.transcript_text || ""' in source
+    assert 'Verstanden als: ' in source
     assert "showAnswerText(liveAnswerTranscript);" in source
     assert "turn_complete" in source
     assert "activeRecordingHadSpeech" in source

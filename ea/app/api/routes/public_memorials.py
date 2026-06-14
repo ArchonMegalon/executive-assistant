@@ -4025,6 +4025,12 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
     return normalized
 
 
+def _memorial_visible_transcript_text(*, transcript_text: str, effective_question: str) -> str:
+    original = _normalize_memorial_transcript_text(transcript_text)
+    effective = _normalize_memorial_transcript_text(effective_question)
+    return original or effective
+
+
 def _memorial_phrase_bank_entry(phrase_id: str) -> dict[str, object]:
     phrase_bank: dict[str, dict[str, object]] = {
         "contact_opening": {
@@ -5660,10 +5666,20 @@ def _memorial_transcript_quality_score(
     score = 0
     if _looks_like_memorial_contact_opening_transcript(text):
         score += 8
+    if _is_memorial_weather_question(text):
+        score += 20
     if _is_memorial_present_world_question(text):
         score += 52
     if _is_memorial_live_interaction_question(text):
         score += 24
+    canonical = _canonical_memorial_contact_opening_question(text)
+    if canonical and canonical != text:
+        if _is_memorial_weather_question(canonical):
+            score += 10
+        if _is_memorial_present_world_question(canonical):
+            score += 10
+        if _looks_like_memorial_contact_opening_transcript(canonical):
+            score += 6
     if any(marker in tokens for marker in question_markers):
         score += 18
     if _is_known_bad_memorial_subtitle_transcript(lowered):
@@ -6773,6 +6789,10 @@ def _build_memorial_conversation_turn_payload(
     if not transcript_text:
         raise HTTPException(status_code=400, detail="speech_transcription_empty")
     effective_question = _canonical_memorial_contact_opening_question(transcript_text)
+    visible_transcript = _memorial_visible_transcript_text(
+        transcript_text=transcript_text,
+        effective_question=effective_question,
+    )
     selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, effective_question)
     llm_started = time.perf_counter()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{slug}")
@@ -6850,6 +6870,8 @@ def _build_memorial_conversation_turn_payload(
     pad_ms = 0.0
     response_payload = dict(answer_payload)
     response_payload["transcript_text"] = effective_question
+    response_payload["transcript_effective_text"] = effective_question
+    response_payload["transcript_original_text"] = visible_transcript
     response_payload["audio_content_type"] = audio_content_type
     response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
     actual_fast_path = bool(prefer_fast_tts and selected_plugin == PIPER_FAST_TTS_PLUGIN_ID)
@@ -6871,7 +6893,7 @@ def _build_memorial_conversation_turn_payload(
         "conversation_turn",
         slug=slug,
         content_type=content_type,
-        transcript_chars=len(effective_question),
+        transcript_chars=len(visible_transcript),
         answer_chars=len(answer_text),
         requested_model=selected_model,
         effective_model=_text(answer_payload.get("llm_model")),
@@ -8130,6 +8152,11 @@ def _minimal_public_memorial_html(
         }}
         if (generation !== activeGeneration) throw new Error("turn_superseded");
         const statusBits = [];
+        const originalTranscript = normalizeTranscriptText((payload && payload.transcript_original_text) || "");
+        const effectiveTranscript = normalizeTranscriptText((payload && payload.transcript_effective_text) || (payload && payload.transcript_text) || "");
+        if (originalTranscript && effectiveTranscript && originalTranscript !== effectiveTranscript) {{
+          statusBits.push("Verstanden als: " + effectiveTranscript);
+        }}
         if (payload && payload.fallback_reason) statusBits.push("Pfad: " + String(payload.fallback_reason || ""));
         if (payload && payload.current_world_policy) statusBits.push("Policy: " + String(payload.current_world_policy || ""));
         if (payload && Array.isArray(payload.sources) && payload.sources.length) statusBits.push("Quellen: " + payload.sources.join(", "));
@@ -8807,6 +8834,7 @@ def _minimal_public_memorial_html(
             }}
             if (type === "transcript") {{
               payload.transcript_text = String(message.text || "").trim();
+              payload.transcript_effective_text = String(message.effective_text || payload.transcript_text || "").trim();
               return;
             }}
             if (type === "answer") {{
@@ -11720,8 +11748,11 @@ def _memorial_html(
         if (!realtimeTurnData) realtimeTurnData = {{}};
         if (type === "transcript") {{
           const text = normalizeTranscriptText(payload.text || "");
+          const effectiveText = normalizeTranscriptText(payload.effective_text || text);
           realtimeTurnData.transcript_text = text;
+          realtimeTurnData.transcript_effective_text = effectiveText;
           if (text) question.value = text;
+          if (text && effectiveText && effectiveText !== text) setAnswerStatus("Verstanden als: " + effectiveText);
           return;
         }}
         if (type === "answer") {{
@@ -12764,9 +12795,13 @@ def _memorial_html(
               }}
               if (type === "transcript") {{
                 payload.transcript_text = normalizeTranscriptText(message.text || "");
+                payload.transcript_effective_text = normalizeTranscriptText(message.effective_text || payload.transcript_text || "");
                 if (payload.transcript_text) {{
                   question.value = payload.transcript_text;
                   appendSpeechTurn("user", payload.transcript_text);
+                  if (payload.transcript_effective_text && payload.transcript_effective_text !== payload.transcript_text) {{
+                    setAnswerStatus("Verstanden als: " + payload.transcript_effective_text);
+                  }}
                 }}
                 return;
               }}
@@ -13080,10 +13115,11 @@ def _memorial_html(
             try {{
               const payload = await transcribeAudioBlob(blob);
               const transcript = normalizeTranscriptText(payload.transcript_text || "");
+              const originalTranscript = normalizeTranscriptText(payload.transcript_original_text || transcript);
               serverTranscriptFailureCount = 0;
               serverTranscriptCooldownUntil = 0;
-              question.value = transcript;
-              resolve({{ transcript, blob }});
+              question.value = originalTranscript || transcript;
+              resolve({{ transcript: originalTranscript || transcript, blob, effectiveTranscript: transcript }});
             }} catch (error) {{
               const retryDelay = serverTranscriptRetryDelayMs(error);
               if (retryDelay > 0) {{
@@ -15394,6 +15430,10 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             if not transcript_text:
                 raise HTTPException(status_code=400, detail="speech_transcription_empty")
             effective_question = _canonical_memorial_contact_opening_question(transcript_text)
+            visible_transcript = _memorial_visible_transcript_text(
+                transcript_text=transcript_text,
+                effective_question=effective_question,
+            )
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return
@@ -15401,7 +15441,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 {
                     "type": "transcript",
                     "turn_id": turn_id,
-                    "text": effective_question,
+                    "text": visible_transcript,
+                    "effective_text": effective_question,
                 }
             ):
                 return

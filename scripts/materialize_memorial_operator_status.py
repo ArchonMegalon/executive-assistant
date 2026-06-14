@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
 WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOLD_MAP.generated.json"
+MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_meaningful_public_origin.generated.json"
 
 
 def _run_json(script: str) -> dict:
@@ -34,6 +35,15 @@ def _load_json(path: Path) -> dict:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _receipt_state(path: Path) -> str:
+    payload = _load_json(path)
+    if str(payload.get("status") or "").strip().lower() == "pass":
+        return "pass"
+    if path.exists():
+        return "blocked"
+    return "missing_or_blocked"
+
+
 def main() -> int:
     readiness = _run_json("scripts/verify_memorial_gold_readiness.py")
     whole_project = _run_json("scripts/verify_whole_project_gold_map.py")
@@ -53,6 +63,7 @@ def main() -> int:
         "local_release_candidate": "pass" if not list(readiness.get("local_release_issues") or []) else "blocked",
         "public_voice_receipt": "pass" if not list(readiness.get("public_gold_issues") or []) else "missing_or_blocked",
         "public_browser_receipt": "pass" if not list(readiness.get("public_browser_gold_issues") or []) else "missing_or_blocked",
+        "public_browser_meaningful_receipt": _receipt_state(MEANINGFUL_BROWSER_RECEIPT),
         "room_audio_receipt": "pass" if not list(readiness.get("room_audio_issues") or []) else "missing_or_blocked",
         "whole_project_gold": whole_project_gold,
         "operator_notes": [

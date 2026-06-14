@@ -26,6 +26,7 @@ def test_memorial_phrase_bank_materializer_writes_expected_ids(tmp_path, monkeyp
 def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tmp_path, monkeypatch) -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status")
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
+    monkeypatch.setattr(module, "MEANINGFUL_BROWSER_RECEIPT", tmp_path / "meaningful-browser.json")
     whole_project_map = tmp_path / "whole-project-gold-map.json"
     whole_project_map.write_text(
         json.dumps(
@@ -58,6 +59,7 @@ def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tm
     assert payload["current_label"] == "Memorial public-origin gold: blocked"
     assert payload["local_release_candidate"] == "pass"
     assert payload["public_voice_receipt"] == "missing_or_blocked"
+    assert payload["public_browser_meaningful_receipt"] == "missing_or_blocked"
     assert payload["whole_project_gold"] == "blocked"
     assert payload["whole_project_map_summary"]["blocking_planes"] == ["memorial_public_origin_gold"]
 
@@ -84,6 +86,9 @@ def test_memorial_operator_status_run_json_reads_blocked_json_from_stderr(tmp_pa
 def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_allows_it(tmp_path, monkeypatch) -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_gold_pass")
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
+    meaningful_receipt = tmp_path / "meaningful-browser.json"
+    meaningful_receipt.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+    monkeypatch.setattr(module, "MEANINGFUL_BROWSER_RECEIPT", meaningful_receipt)
     whole_project_map = tmp_path / "whole-project-gold-map.json"
     whole_project_map.write_text(
         json.dumps(
@@ -114,3 +119,4 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     assert module.main() == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "pass"
+    assert payload["public_browser_meaningful_receipt"] == "pass"
