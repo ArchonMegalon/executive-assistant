@@ -11,9 +11,16 @@ OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generate
 
 
 def _run_json(script: str) -> dict:
-    proc = subprocess.run([sys.executable, str(ROOT / script)], capture_output=True, text=True, timeout=30)
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / script)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=ROOT,
+    )
+    output = (proc.stdout or "").strip() or (proc.stderr or "").strip()
     try:
-        return json.loads(proc.stdout.strip() or "{}")
+        return json.loads(output or "{}")
     except Exception:
         return {"status": "error", "script": script, "stdout": proc.stdout[:800], "stderr": proc.stderr[:800]}
 

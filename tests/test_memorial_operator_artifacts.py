@@ -45,3 +45,22 @@ def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tm
     assert payload["current_label"] == "Memorial public-origin gold: blocked"
     assert payload["local_release_candidate"] == "pass"
     assert payload["public_voice_receipt"] == "missing_or_blocked"
+
+
+def test_memorial_operator_status_run_json_reads_blocked_json_from_stderr(tmp_path, monkeypatch) -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_stderr")
+
+    class _Proc:
+        stdout = ""
+        stderr = '{"status":"blocked","issues":["stale_receipt"]}'
+
+    calls: dict[str, object] = {}
+
+    def _fake_run(*args, **kwargs):
+        calls["cwd"] = kwargs.get("cwd")
+        return _Proc()
+
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    payload = module._run_json("scripts/verify_whole_project_gold_map.py")
+    assert payload["status"] == "blocked"
+    assert calls["cwd"] == module.ROOT
