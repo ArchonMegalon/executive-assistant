@@ -5779,6 +5779,18 @@ def _memorial_transcript_is_confident_early_accept(
     return score >= 78
 
 
+def _memorial_fast_shadow_stt_has_clear_user_intent(transcript_text: str) -> bool:
+    text = _repair_memorial_transcript_text(transcript_text)
+    if not text:
+        return False
+    return bool(
+        _looks_like_memorial_contact_opening_transcript(text)
+        or _looks_like_memorial_theme_question(text)
+        or _is_memorial_live_interaction_question(text)
+        or _is_memorial_present_world_question(text)
+    )
+
+
 def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool:
     text = _repair_memorial_transcript_text(transcript_text)
     if not text:
@@ -5810,38 +5822,7 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
     english_markers = {"i", "you", "your", "bye", "hello", "weather", "today", "can", "please", "speak", "hi", "now"}
     if tokens & english_markers and not tokens & german_markers:
         return False
-    if _looks_like_memorial_contact_opening_transcript(text):
-        return "manfred" in tokens and bool(tokens & {"kann", "kannst", "reden", "sprechen", "hoerst", "hörst"})
-    strong_fast_question_markers = {
-        "wie",
-        "was",
-        "wo",
-        "wann",
-        "warum",
-        "wieso",
-        "weshalb",
-        "welches",
-        "welche",
-        "welcher",
-        "wetter",
-        "ort",
-        "stand",
-    }
-    soft_fast_contact_markers = {
-        "manfred",
-        "hallo",
-        "kannst",
-        "sprichst",
-        "sprechen",
-        "reden",
-        "hörst",
-        "hoerst",
-    }
-    if len(tokens) >= 3 and tokens & strong_fast_question_markers:
-        return True
-    if len(tokens) >= 4 and _looks_like_memorial_theme_question(text):
-        return True
-    if len(tokens) >= 5 and len(tokens & soft_fast_contact_markers) >= 2:
+    if _memorial_fast_shadow_stt_has_clear_user_intent(text):
         return True
     return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
 

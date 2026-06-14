@@ -641,6 +641,10 @@ def test_memorial_shadow_stt_fast_primary_candidate_rejects_brief_or_language_dr
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("manfred am fenster leise") is False
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("heute ist die lampe kaputt") is False
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("reden wir später darüber") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("wie ist es") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("wie ist dein Name") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("wie geht es") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("wie läufts") is False
 
 
 def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> None:
