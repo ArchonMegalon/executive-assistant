@@ -5825,12 +5825,11 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         "welcher",
         "wetter",
         "ort",
+        "stand",
     }
     soft_fast_contact_markers = {
         "manfred",
         "hallo",
-        "bitte",
-        "kann",
         "kannst",
         "sprichst",
         "sprechen",
@@ -5842,7 +5841,7 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         return True
     if len(tokens) >= 4 and _looks_like_memorial_theme_question(text):
         return True
-    if len(tokens) >= 4 and len(tokens & soft_fast_contact_markers) >= 2:
+    if len(tokens) >= 5 and len(tokens & soft_fast_contact_markers) >= 2:
         return True
     return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
 

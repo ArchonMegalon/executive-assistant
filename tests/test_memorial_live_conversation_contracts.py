@@ -624,6 +624,7 @@ def test_memorial_shadow_stt_fast_primary_candidate_accepts_plausible_user_quest
 
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Wie ist das Wetter heute in Wien?") is True
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Hallo Manfred, kannst du jetzt mit mir sprechen?") is True
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Kannst du mit mir reden?") is True
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Was ist der aktuelle Stand?") is True
 
 
