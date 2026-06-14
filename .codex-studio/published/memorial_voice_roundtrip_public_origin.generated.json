@@ -1,10 +1,10 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-14T09:26:27Z",
+  "generated_at": "2026-06-14T09:40:07Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "ee15e585630e670e4f4fc560e24ed920d8b3746d",
-  "source_git_head": "ee15e585630e670e4f4fc560e24ed920d8b3746d",
-  "source_tree_fingerprint": "6d3111517e4c87e92b5c015fbafccd34d00b7ce03fe71aa2ae7bbddbccac6fe3",
+  "git_head": "7bb389aafdc673c37cd953f3e059262505c88a75",
+  "source_git_head": "7bb389aafdc673c37cd953f3e059262505c88a75",
+  "source_tree_fingerprint": "ebc37f3a42b53d5f3fa028cbd726c2e24478ca028afc465bdd7b2f3e550d0783",
   "dirty_worktree": false,
   "status": "fail",
   "slug": "manfred",
@@ -30,23 +30,23 @@
   ],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 81,
+    "speech_synthesize_ms": 13602,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 13991,
+    "speech_transcribe_ms": 29771,
     "direct_tts_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "direct_tts_expected_chars": 14,
     "direct_tts_actual_chars": 14,
     "direct_tts_f1": 1.0,
-    "chat_reference_ms": 50,
+    "chat_reference_ms": 14870,
     "reference_answer_chars": 14,
-    "present_world_chat_ms": 59,
+    "present_world_chat_ms": 69,
     "present_world_answer_chars": 89,
     "synthetic_prompt_synthesize_ms": 25,
     "synthetic_prompt_source": "local_neutral_prompt",
-    "conversation_turn_total_ms": 18211,
+    "conversation_turn_total_ms": 15529,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 15530,
+    "conversation_answer_transcribe_ms": 15033,
     "conversation_turn_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "conversation_turn_audio_expected_chars": 14,
     "conversation_turn_audio_actual_chars": 14,
@@ -117,7 +117,7 @@
       "code": "conversation_turn_total_ms_above_gold_threshold",
       "message": "Memorial-gold voice proof exceeded the conversation-turn latency threshold.",
       "detail": {
-        "conversation_turn_total_ms": 18211.0,
+        "conversation_turn_total_ms": 15529.0,
         "max_allowed_ms": 4500.0
       }
     },
@@ -126,7 +126,7 @@
       "code": "speech_transcribe_ms_above_gold_threshold",
       "message": "Memorial-gold voice proof exceeded the speech-transcribe latency threshold.",
       "detail": {
-        "speech_transcribe_ms": 13991.0,
+        "speech_transcribe_ms": 29771.0,
         "max_allowed_ms": 2500.0
       }
     }

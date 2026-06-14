@@ -14,7 +14,7 @@
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "ee15e585630e670e4f4fc560e24ed920d8b3746d",
+    "current_head": "7bb389aafdc673c37cd953f3e059262505c88a75",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
