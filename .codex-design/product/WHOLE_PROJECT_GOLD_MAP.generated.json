@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T13:58:25Z",
+  "generated_at": "2026-06-14T14:21:21Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "7670b47e79685a1251fc5692619ff91bb2acf2c7",
+  "git_head": "3ff24bd46d4087780fc41a2206884e00e6265f62",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -140,7 +140,7 @@
       "status": "pass",
       "claim": "Memorial local voice release can pass separately from Memorial public-origin gold. Manfred remains local memories/conversation only, with no internet search.",
       "evidence": [
-        "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+        "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
       ],
       "missing_evidence": [],
       "design_notes": [
@@ -156,8 +156,8 @@
       "status": "blocked",
       "claim": "The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
       "evidence": [
-        "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-        "/tmp/ea-artifact.5W9l97/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+        "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
       ],
       "missing_evidence": [
         "public-origin room/device audio intelligibility receipt"
@@ -179,8 +179,8 @@
       "missing_evidence": [],
       "design_notes": [
         "lane_count=11",
-        "runtime_lane_count=2",
-        "draft_or_operator_lane_count=9"
+        "runtime_lane_count=3",
+        "draft_or_operator_lane_count=8"
       ]
     }
   ],
@@ -188,12 +188,11 @@
     "contract_name": "ea.verify_ltd_provider_lanes",
     "status": "pass",
     "lane_count": 11,
-    "runtime_lane_count": 2,
-    "draft_or_operator_lane_count": 9,
+    "runtime_lane_count": 3,
+    "draft_or_operator_lane_count": 8,
     "poppy_runtime_enabled": false,
     "poppy_lane_state": "verified_draft_operator_lane",
     "draft_or_operator_lanes": [
-      "unmixr_voice_runtime",
       "magicfit_media_factory_candidate",
       "poppy_draft_workbench",
       "public_signal_ingest",
