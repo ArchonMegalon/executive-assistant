@@ -589,6 +589,29 @@ def seed_memorial_source_memories(
         )
 
     if isinstance(private_profile, dict):
+        for index, note in enumerate(private_profile.get('public_source_notes') or []):
+            if not isinstance(note, dict):
+                continue
+            label = _normalize_text(note.get('label'))
+            source_url = _normalize_text(note.get('source_url'))
+            note_text = _normalize_text(note.get('note'))
+            confidence = _normalize_text(note.get('confidence'))
+            if not note_text:
+                continue
+            create_seed_item(
+                seed_key=f'public_source_note:{index}:{hashlib.sha1((label + source_url + note_text).encode("utf-8")).hexdigest()[:12]}',
+                category='memorial_public_source_note',
+                summary=_normalize_text(f'{label or "public source"}: {note_text}')[:280],
+                fact_json={
+                    'memorial_slug': slug,
+                    'memory_kind': 'public_source_note',
+                    'label': label,
+                    'source_url': source_url,
+                    'note': note_text,
+                    'confidence_label': confidence,
+                    'memory_axis': _infer_memory_axis(kind='public_source_note', title=label, body=note_text),
+                },
+            )
         for index, note in enumerate(private_profile.get('family_context_notes') or []):
             if not isinstance(note, dict):
                 continue

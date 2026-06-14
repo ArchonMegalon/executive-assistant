@@ -5609,7 +5609,7 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         return False
     if _looks_like_memorial_contact_opening_transcript(text):
         return "manfred" in tokens and bool(tokens & {"kann", "kannst", "reden", "sprechen", "hoerst", "hörst"})
-    fast_question_markers = {
+    strong_fast_question_markers = {
         "wie",
         "was",
         "wo",
@@ -5621,9 +5621,9 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         "welche",
         "welcher",
         "wetter",
-        "heute",
-        "jetzt",
         "ort",
+    }
+    soft_fast_contact_markers = {
         "manfred",
         "hallo",
         "bitte",
@@ -5635,7 +5635,9 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         "hörst",
         "hoerst",
     }
-    if len(tokens) >= 3 and tokens & fast_question_markers:
+    if len(tokens) >= 3 and tokens & strong_fast_question_markers:
+        return True
+    if len(tokens) >= 4 and len(tokens & soft_fast_contact_markers) >= 2:
         return True
     return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
 

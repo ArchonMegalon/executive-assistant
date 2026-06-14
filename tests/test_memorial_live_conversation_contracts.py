@@ -624,6 +624,7 @@ def test_memorial_shadow_stt_fast_primary_candidate_accepts_plausible_user_quest
 
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Wie ist das Wetter heute in Wien?") is True
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Hallo Manfred, kannst du jetzt mit mir sprechen?") is True
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Was ist der aktuelle Stand?") is True
 
 
 def test_memorial_shadow_stt_fast_primary_candidate_rejects_brief_or_language_drift() -> None:
@@ -632,6 +633,13 @@ def test_memorial_shadow_stt_fast_primary_candidate_rejects_brief_or_language_dr
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("you") is False
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("hello weather today") is False
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Worum geht es?") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Manfred sitzt am Fenster und lächelt leise.") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("bitte morgen kaffee holen") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("hallo das fenster ist offen") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("kann sein dass musik läuft") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("manfred am fenster leise") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("heute ist die lampe kaputt") is False
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("reden wir später darüber") is False
 
 
 def test_memorial_contact_opening_recognizes_known_bad_subtitle_transcript() -> None:
