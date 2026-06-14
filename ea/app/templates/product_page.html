@@ -43,29 +43,48 @@
 
 <section class="section panel product-hero">
   <div class="kicker">Product</div>
+  {% if brand.key == 'ea' %}
+  <h1>One executive office workspace for the loop that usually gets rebuilt by hand every day.</h1>
+  <p class="lead">Executive Assistant is designed around one morning memo, one decision queue, one commitment system, visible approvals, and durable office memory. It is strongest when the office already has too many inboxes, follow-ups, and half-finished decisions.</p>
+  {% else %}
   <h1>One property research workspace for the search that usually gets rebuilt by hand.</h1>
   <p class="lead">PropertyQuarry is designed for the daily loop around search posture, shortlist ranking, research packets, 3D tour review, and buyer-specific fit signals. It is strongest when the search is real, recurring, and spread across too many portals.</p>
+  {% endif %}
 </section>
 
 <section class="section workflow-grid">
   <section class="workflow-card">
     <div class="kicker">A normal day</div>
-    <h2>Start with the shortlist</h2>
+    <h2>{% if brand.key == 'ea' %}Start with the office loop{% else %}Start with the shortlist{% endif %}</h2>
     <ul class="muted-list">
+      {% if brand.key == 'ea' %}
+      <li>See what changed since the last office cycle.</li>
+      <li>See which decisions need a response now.</li>
+      <li>See which commitments are still open or slipping.</li>
+      <li>See what needs review before anything gets sent.</li>
+      {% else %}
       <li>See which listings actually match your profile.</li>
       <li>See what stands out and what still needs checking.</li>
       <li>See where the shortlist is weak or incomplete.</li>
       <li>See which items deserve a deeper research run.</li>
+      {% endif %}
     </ul>
   </section>
   <section class="workflow-card">
     <div class="kicker">What it replaces</div>
-    <h2>Less manual portal-hopping</h2>
+    <h2>{% if brand.key == 'ea' %}Less manual office stitching{% else %}Less manual portal-hopping{% endif %}</h2>
     <ul class="muted-list">
+      {% if brand.key == 'ea' %}
+      <li>Less reopening inboxes, calendars, and notes just to reconstruct what matters.</li>
+      <li>Less manual forwarding and follow-up tracking.</li>
+      <li>Less hidden approvals and ambiguous ownership.</li>
+      <li>Less shallow AI output with no evidence trail or review boundary.</li>
+      {% else %}
       <li>Less reopening the same search filters on every portal.</li>
       <li>Less manual comparison across listings that look similar but are not.</li>
       <li>Less switching between maps, floor plans, galleries, and agent emails just to decide what is next.</li>
       <li>Less shallow AI summary with no source trail or review point.</li>
+      {% endif %}
     </ul>
   </section>
 </section>
@@ -76,15 +95,30 @@
       <div class="kicker">Core workflow</div>
       <h2>What the workspace helps with every day</h2>
     </div>
-    <p>The product works best when it turns scattered listings into one operating loop: search posture, shortlist, review, research, tours, and evidence.</p>
+    <p>{% if brand.key == 'ea' %}The product works best when it turns scattered office signals into one operating loop: morning memo, queue, commitments, approvals, and evidence.{% else %}The product works best when it turns scattered listings into one operating loop: search posture, shortlist, review, research, tours, and evidence.{% endif %}</p>
   </div>
   <div class="module-grid">
+    {% if brand.key == 'ea' %}
+    <section class="module-card">
+      <h3>Morning memo</h3>
+      <p class="copy">One concise readout of what changed, what needs a decision, what needs approval, and what is slipping.</p>
+    </section>
+    <section class="module-card">
+      <h3>Decision queue</h3>
+      <p class="copy">One place to review drafts, resolve questions, and keep the office moving without losing auditability.</p>
+    </section>
+    <section class="module-card">
+      <h3>Commitment ledger</h3>
+      <p class="copy">Follow-ups, ownership, deadlines, and evidence stay visible instead of dissolving into chat and email.</p>
+    </section>
+    {% else %}
     {% for module in product_modules %}
     <section class="module-card">
       <h3>{{ module.title }}</h3>
       <p class="copy">{{ module.body }}</p>
     </section>
     {% endfor %}
+    {% endif %}
   </div>
 </section>
 
@@ -92,7 +126,7 @@
   <section class="promise-card">
     <div class="kicker">Day one</div>
     <h2>Useful on day one</h2>
-    <p class="copy">The first saved search already produces a better shortlist and a clearer review path.</p>
+    <p class="copy">{% if brand.key == 'ea' %}The first workspace and first queue item should already make tomorrow morning clearer.{% else %}The first saved search already produces a better shortlist and a clearer review path.{% endif %}</p>
   </section>
   <section class="promise-card">
     <div class="kicker">Safety</div>
@@ -102,14 +136,14 @@
   <section class="promise-card">
     <div class="kicker">What lasts</div>
     <h2>Durable context</h2>
-    <p class="copy">Preferences, property facts, and recurring fit signals stay attached to the search instead of disappearing into one-off prompts.</p>
+    <p class="copy">{% if brand.key == 'ea' %}Decisions, commitments, people context, and recurring office patterns stay attached to the work instead of disappearing into one-off prompts.{% else %}Preferences, property facts, and recurring fit signals stay attached to the search instead of disappearing into one-off prompts.{% endif %}</p>
   </section>
 </section>
 
 <section class="section detail-grid">
   <section class="detail-card">
     <div class="kicker">In the app</div>
-    <h2>Navigation built around the search</h2>
+    <h2>{% if brand.key == 'ea' %}Navigation built around the office loop{% else %}Navigation built around the search{% endif %}</h2>
     <ul class="muted-list">
       {% for group in app_nav_groups %}
         {% for item in group["items"] %}
@@ -122,9 +156,15 @@
       <div class="kicker">Workspace shapes</div>
       <h2>One product, different operating rhythms</h2>
       <ul class="muted-list">
+        {% if brand.key == 'ea' %}
+        <li>Personal workspaces keep one executive office clear and reviewable.</li>
+        <li>Shared workspaces keep operator and executive context aligned without losing approvals.</li>
+        <li>Executive support workspaces carry denser follow-up, heavier prep, and stricter delivery review.</li>
+        {% else %}
         <li>Personal workspaces move fast around one buyer or renter.</li>
         <li>Shared workspaces keep the same shortlist, comments, and evidence trail visible to a small group.</li>
         <li>Concierge search workspaces carry heavier stakeholder traffic, stricter review, and denser research follow-up.</li>
+        {% endif %}
       </ul>
   </section>
 </section>

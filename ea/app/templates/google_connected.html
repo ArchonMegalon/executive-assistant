@@ -65,17 +65,31 @@
   <span hidden>First signal sync finished.</span>
   {% endif %}
   <h1>Google account linked.</h1>
-  <p class="lead">PropertyQuarry keeps this connection narrow by default. Google can now act as a verified account-return path without pulling extra workspace data.</p>
+  <p class="lead">
+    {% if brand.key == 'ea' %}
+    Executive Assistant keeps this connection narrow by default. Google can now act as a verified account-return path without pulling broader workspace data unless you enable it.
+    {% else %}
+    PropertyQuarry keeps this connection narrow by default. Google can now act as a verified account-return path without pulling extra workspace data.
+    {% endif %}
+  </p>
 </section>
 
 <section class="section google-step-grid">
   <section class="google-step">
     <strong>What just happened</strong>
+    {% if brand.key == 'ea' %}
+    You approved Google access for this workspace. Executive Assistant can now use exactly the granted capabilities below and nothing broader.
+    {% else %}
     You approved Google access for this workspace. PropertyQuarry can now use exactly the granted capabilities below and nothing broader.
+    {% endif %}
   </section>
   <section class="google-step">
     <strong>What the workspace checked next</strong>
+    {% if brand.key == 'ea' %}
+    {{ sync_detail or 'Open Today first. That is usually the fastest way to confirm the connection is already helping the office loop.' }}
+    {% else %}
     {{ sync_detail or 'Open Properties first. That is usually the fastest way to confirm the connection is already helping the active search.' }}
+    {% endif %}
   </section>
 </section>
 
@@ -108,7 +122,9 @@
 <section class="section panel google-actions">
   <div class="cta-row">
     {% if return_to %}<a class="btn primary" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
-    <a class="btn{% if not return_to %} primary{% endif %}" href="/app/properties">Open Properties</a>
+    <a class="btn{% if not return_to %} primary{% endif %}" href="{% if brand.key == 'ea' %}/app/today{% else %}/app/properties{% endif %}">
+      {% if brand.key == 'ea' %}Open Today{% else %}Open Properties{% endif %}
+    </a>
     <a class="btn" href="/app/settings/google">Open Google settings</a>
     <a class="btn ghost" href="{{ return_to or '/get-started' }}">{{ return_label or 'Back to setup' }}</a>
     {% if brand.key == 'ea' %}<a hidden href="/get-started">Get started</a>{% endif %}
@@ -125,7 +141,11 @@
 <script>
 (() => {
   const payload = {{ register_signal_payload|tojson }};
-  const target = String(payload.return_to || 'https://propertyquarry.com/register?ready=1').trim() || 'https://propertyquarry.com/register?ready=1';
+  const target = String(
+    payload.return_to
+    || {% if brand.key == 'ea' %}'/get-started?ready=1'{% else %}'https://propertyquarry.com/register?ready=1'{% endif %}
+  ).trim()
+    || {% if brand.key == 'ea' %}'/get-started?ready=1'{% else %}'https://propertyquarry.com/register?ready=1'{% endif %};
   const separator = target.includes('?') ? '&' : '?';
   const query = new URLSearchParams();
   query.set('google_connected', '1');

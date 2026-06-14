@@ -2,25 +2,31 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 1</div>
-      <h2>Choose the property workflow this workspace should support.</h2>
+      <h2>{% if brand.key == 'ea' %}Choose the office workflow this workspace should support.{% else %}Choose the property workflow this workspace should support.{% endif %}</h2>
     </div>
-    <p class="step-context">Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.</p>
+    <p class="step-context">
+      {% if brand.key == 'ea' %}
+      Pick the option that matches the real office rhythm. The right choice is about who reviews decisions, who receives follow-up, and how much support depth the workspace should assume.
+      {% else %}
+      Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.
+      {% endif %}
+    </p>
   </div>
 
   <div class="mode-grid">
     <div class="mode-card">
       <strong>Personal</strong>
-      <p class="copy">Best when one person is driving the search and wants one profile, one shortlist, and one feedback loop.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Best when one executive office needs one memo loop, one queue, and one visible follow-up system.{% else %}Best when one person is driving the search and wants one profile, one shortlist, and one feedback loop.{% endif %}</p>
       <button class="btn ghost" type="button" data-set-mode="personal">Use solo workspace</button>
     </div>
     <div class="mode-card">
       <strong>Shared workspace</strong>
-      <p class="copy">Best when a couple, family, or small team needs the same shortlist, shared comments, and coordinated review decisions.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Best when an executive and operator need the same queue, shared context, and visible approvals.{% else %}Best when a couple, family, or small team needs the same shortlist, shared comments, and coordinated review decisions.{% endif %}</p>
       <button class="btn ghost" type="button" data-set-mode="team">Use shared workspace</button>
     </div>
     <div class="mode-card">
-      <strong>Concierge search</strong>
-      <p class="copy">Best when the search needs heavier research, more follow-up, and more explicit delivery to clients, family members, or other stakeholders.</p>
+      <strong>{% if brand.key == 'ea' %}Executive support{% else %}Concierge search{% endif %}</strong>
+      <p class="copy">{% if brand.key == 'ea' %}Best when the office needs denser preparation, more follow-up, and stricter decision delivery.{% else %}Best when the search needs heavier research, more follow-up, and more explicit delivery to clients, family members, or other stakeholders.{% endif %}</p>
       <button class="btn ghost" type="button" data-set-mode="executive_ops">Use executive support</button>
     </div>
   </div>
@@ -30,7 +36,7 @@
     <div class="field-grid two">
       <div>
         <label for="workspace_name">Workspace name</label>
-        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or 'PropertyQuarry Workspace' }}" required>
+        <input id="workspace_name" name="workspace_name" value="{{ workspace.name or ('Executive Assistant Workspace' if brand.key == 'ea' else 'PropertyQuarry Workspace') }}" required>
       </div>
       <div>
       <label for="workspace_mode">Workspace type</label>
@@ -39,7 +45,7 @@
           <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
           <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Concierge search</option>
       </select>
-        <div class="field-help">You can change this later. It helps the product start with the right review depth and collaboration posture.</div>
+        <div class="field-help">{% if brand.key == 'ea' %}You can change this later. It helps the product start with the right office loop and review posture.{% else %}You can change this later. It helps the product start with the right review depth and collaboration posture.{% endif %}</div>
       </div>
     </div>
     <div class="field-grid two">
@@ -59,14 +65,14 @@
       </div>
       <div>
         <label>Activation path</label>
-        <div class="field-help">Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.</div>
+        <div class="field-help">{% if brand.key == 'ea' %}Keep the first loop narrow: workspace, optional Google identity, first morning memo, first queue item. Broader delivery lanes can wait until value is obvious.{% else %}Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.{% endif %}</div>
       </div>
     </div>
     <input type="hidden" name="selected_channels" value="google">
     <div class="finish-grid">
       <div class="finish-card">
       <strong>Google is optional and narrow</strong>
-        Account creation and a saved property brief are enough to prove whether the product is useful. Broader Google scope is not the default.
+        {% if brand.key == 'ea' %}Account creation and a visible office loop are enough to prove whether the product is useful. Broader Google scope is not the default.{% else %}Account creation and a saved property brief are enough to prove whether the product is useful. Broader Google scope is not the default.{% endif %}
       </div>
       <div class="finish-card">
       <strong>Notifications come later</strong>
@@ -74,7 +80,7 @@
       </div>
     </div>
     <div class="wizard-actions">
-      <div class="callout">If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.</div>
+      <div class="callout">{% if brand.key == 'ea' %}If you are unsure, choose personal and move on. The first useful office loop matters more than perfect setup.{% else %}If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.{% endif %}</div>
       <div class="right">
         <button class="btn primary" type="submit">Save workspace and continue</button>
       </div>

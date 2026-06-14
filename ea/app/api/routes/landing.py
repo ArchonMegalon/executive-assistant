@@ -812,8 +812,29 @@ def project_modes_page(
 
 
 @router.get("/product", response_class=HTMLResponse)
-def product_page() -> RedirectResponse:
-    return RedirectResponse("/", status_code=307)
+def product_page(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
+    return _render_public_template(
+        request,
+        "product_page.html",
+        **_public_context(
+            request=request,
+            current_nav="product",
+            page_title=f"{brand['name']} Product",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "product_modules": PRODUCT_MODULES,
+                "app_nav_groups": app_nav_groups_for_brand(brand["key"]),
+            },
+        ),
+    )
 
 
 @router.get("/integrations", response_class=HTMLResponse)
@@ -2633,7 +2654,7 @@ def app_shell(
                 console_title=str(pack.get("headline") or "Inline loop"),
                 console_summary=str(pack.get("summary") or "Clear the compact office loop."),
                 nav_groups=nav_groups,
-                workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+                workspace_label=str(workspace.get("name") or ("Executive Assistant Workspace" if request_brand(request)["key"] == "ea" else "PropertyQuarry Workspace")),
                 cards=[
                     {
                         "eyebrow": "Inline loop",
@@ -2759,7 +2780,7 @@ def app_shell(
             console_title=str(payload["title"]),
             console_summary=str(payload["summary"]),
             nav_groups=nav_groups,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
+            workspace_label=str(workspace.get("name") or ("Executive Assistant Workspace" if request_brand(request)["key"] == "ea" else "PropertyQuarry Workspace")),
             cards=list(payload["cards"]),
             stats=list(payload["stats"]),
             console_form=dict(payload.get("console_form") or {}),

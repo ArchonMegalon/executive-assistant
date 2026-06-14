@@ -184,10 +184,17 @@ _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
 def _repo_root() -> Path:
     resolved = Path(__file__).resolve()
     fallback = pathlib.Path(os.getcwd())
-    for candidate in (resolved.parents[5], resolved.parents[4], resolved.parents[3], fallback):
+    candidates: list[Path] = []
+    for index in (5, 4, 3):
+        if len(resolved.parents) > index:
+            candidates.append(resolved.parents[index])
+    candidates.append(fallback)
+    for candidate in candidates:
         if (candidate / ".git").is_dir() or (candidate / ".codex-design").is_dir():
             return candidate
-    return resolved.parents[5]
+    if len(resolved.parents) > 3:
+        return resolved.parents[3]
+    return fallback
 
 
 def _memorial_data_root() -> Path:

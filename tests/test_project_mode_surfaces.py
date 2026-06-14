@@ -85,6 +85,8 @@ def test_integrations_page_uses_ea_brand_title_not_propertyquarry() -> None:
 def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None:
     client = build_product_client(principal_id="exec-public-brand-copy")
 
+    product = client.get("/product")
+    get_started = client.get("/get-started")
     security = client.get("/security")
     pricing = client.get("/pricing")
     docs = client.get("/docs")
@@ -92,12 +94,18 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     google = client.get("/integrations/google")
     whatsapp = client.get("/integrations/whatsapp")
 
+    assert product.status_code == 200
+    assert get_started.status_code == 200
     assert security.status_code == 200
     assert pricing.status_code == 200
     assert docs.status_code == 200
     assert register.status_code == 200
     assert google.status_code == 200
     assert whatsapp.status_code == 200
+    assert "One executive office workspace" in product.text
+    assert "PropertyQuarry is designed for the daily loop" not in product.text
+    assert "Choose the property workflow" not in get_started.text
+    assert "PropertyQuarry Workspace" not in get_started.text
     assert "Executive Assistant Security" in security.text
     assert "Executive Assistant Pricing" in pricing.text
     assert "Executive Assistant Docs" in docs.text

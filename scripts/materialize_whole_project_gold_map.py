@@ -230,6 +230,17 @@ def build_gold_map(
         memorial_public_missing.append("public-origin browser realtime/audio playback gold receipt")
     if memorial_public_room_status != "pass":
         memorial_public_missing.append("public-origin room/device audio intelligibility receipt")
+    memorial_public_design_notes = (
+        [
+            "Use: Memorial public-origin gold: pass.",
+            "Do not collapse this memorial-specific proof into generic whole-project authority.",
+        ]
+        if memorial_public_gold_status == "pass"
+        else [
+            "Guest-facing copy must never say simply gold while this plane is blocked.",
+            "Use: Memorial public-origin gold: blocked.",
+        ]
+    )
     ltd_summary = _load_ltd_summary()
     mirror_boundary_present = _exists(mirror_boundary_path)
 
@@ -347,10 +358,7 @@ def build_gold_map(
                 if path.is_file()
             ],
             missing_evidence=memorial_public_missing,
-            design_notes=[
-                "Guest-facing copy must never say simply gold while this plane is blocked.",
-                "Use: Memorial public-origin gold: blocked.",
-            ],
+            design_notes=memorial_public_design_notes,
         ),
         _plane(
             key="ltd_provider_lanes",

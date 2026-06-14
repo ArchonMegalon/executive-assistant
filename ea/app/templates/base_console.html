@@ -1084,7 +1084,7 @@
       </div>
       <div class="pq-rail-section">
         <div class="pq-rail-label">Navigate</div>
-        <nav class="pq-rail-nav" aria-label="PropertyQuarry app sections">
+        <nav class="pq-rail-nav" aria-label="{{ brand.name }} app sections">
           {% for group in nav_groups %}
             {% for item in group["items"] %}
             <a class="pq-rail-link {% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
@@ -1102,14 +1102,14 @@
     </aside>
     <main class="pq-stage" data-property-spa-shell>
       <header class="pq-appbar">
-        <div class="pq-appbar-breadcrumbs" aria-label="PropertyQuarry section context">
+        <div class="pq-appbar-breadcrumbs" aria-label="{{ brand.name }} section context">
           <span>{{ brand.name }}</span>
           <span>{{ workspace_label }}</span>
           <span>{{ current_nav|replace('_', ' ')|title }}</span>
         </div>
         <div class="pq-appbar-row">
           <div class="pq-topbar-copy">
-            <div class="context">{% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}Property workspace{% endif %}</div>
+            <div class="context">{% if access_email %}{{ access_email }}{% elif operator_id %}Operator access{% else %}{% if brand.key == 'ea' %}Office workspace{% else %}Property workspace{% endif %}{% endif %}</div>
             <h1>{{ page_heading or console_title or page_title }}</h1>
             {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
           </div>
@@ -1138,7 +1138,7 @@
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
             <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-            <span>Persistent PropertyQuarry workspace surface</span>
+            <span>Persistent {{ brand.name }} workspace surface</span>
           </div>
           <div class="pq-appbar-meta">
             <span class="pq-meta-pill">{{ workspace_label }}</span>
@@ -1191,7 +1191,7 @@
         </section>
       </div>
     </main>
-    <nav class="pq-mobile-nav" aria-label="PropertyQuarry mobile navigation" data-property-mobile-dock>
+    <nav class="pq-mobile-nav" aria-label="{{ brand.name }} mobile navigation" data-property-mobile-dock>
       {% for item in mobile_nav.items %}
       <a class="{% if current_nav == item.key %}active{% endif %}" href="{{ item.href }}">
         <strong>{{ item.label }}</strong>
