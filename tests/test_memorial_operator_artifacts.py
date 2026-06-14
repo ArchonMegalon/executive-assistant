@@ -120,3 +120,41 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "pass"
     assert payload["public_browser_meaningful_receipt"] == "pass"
+
+
+def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command() -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_room_audio_receipt_clean.py", "materialize_memorial_room_audio_receipt_clean")
+
+    class _Args:
+        base_url = "https://example.com"
+        slug = "manfred"
+        reviewer = "reviewer"
+        device_label = "laptop"
+        speaker_label = "speaker"
+        room_label = "office"
+        notes = "ok"
+
+    cmd = module.build_room_receipt_command(_Args())
+    assert cmd[:2] == ["python3", "scripts/materialize_memorial_room_audio_receipt.py"]
+    assert "--base-url" in cmd
+    assert "https://example.com" in cmd
+    assert "--reviewer" in cmd
+    assert "reviewer" in cmd
+    assert "--require-public-origin" in cmd
+    assert "--first-syllable-not-clipped" in cmd
+
+
+def test_memorial_room_audio_clean_materializer_copies_expected_artifacts(tmp_path) -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_room_audio_receipt_clean.py", "materialize_memorial_room_audio_receipt_clean_copy")
+    clean_root = tmp_path / "clean"
+    dest_root = tmp_path / "dest"
+    for relpath in module.SYNC_ARTIFACTS:
+        path = clean_root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    copied = module._copy_artifacts_from_clean_clone(clean_root, dest_root)
+
+    assert set(copied) == {path.as_posix() for path in module.SYNC_ARTIFACTS}
+    for relpath in module.SYNC_ARTIFACTS:
+        assert (dest_root / relpath).read_text(encoding="utf-8") == "{}"

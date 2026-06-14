@@ -1352,6 +1352,101 @@ def test_public_memorial_operator_write_routes_are_disabled_without_operator_sur
     assert all("memorial_operator_surface_disabled" in response.text for response in checks)
 
 
+def test_public_memorial_operator_status_requires_operator_surface_and_write_token(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+
+    client = _client(principal_id="exec-memorial-operator-status-auth")
+    unauthorized = client.get(f"/memorials/{slug}/operator-status")
+    authorized = client.get(
+        f"/memorials/{slug}/operator-status",
+        headers={"x-memorial-write-token": "unit-write-token"},
+    )
+
+    assert unauthorized.status_code == 403
+    assert authorized.status_code in {200, 503}
+
+
+def test_public_memorial_operator_status_route_returns_current_generated_card(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIAL_OPERATOR_SURFACES", "1")
+    public_root = tmp_path / "public"
+    slug = "manfred"
+    _write_public_memorial(
+        public_root,
+        slug,
+        {
+            "slug": slug,
+            "person_name": "Manfred Hoza",
+            "audio_clips": [],
+            "write_token": "unit-write-token",
+        },
+    )
+    monkeypatch.setenv("EA_PUBLIC_MEMORIAL_DIR", str(public_root))
+    _patch_memorial_runtime_roots(tmp_path)
+    from app.api.routes import public_memorials
+
+    operator_status = tmp_path / "MEMORIAL_OPERATOR_STATUS.generated.json"
+    operator_status.write_text(
+        json.dumps(
+            {
+                "current_label": "Memorial public-origin gold: blocked",
+                "local_release_candidate": "pass",
+                "public_voice_receipt": "pass",
+                "public_browser_receipt": "pass",
+                "room_audio_receipt": "missing_or_blocked",
+            }
+        ),
+        encoding="utf-8",
+    )
+    phrase_bank = tmp_path / "MEMORIAL_PHRASE_BANK.manfred.generated.json"
+    phrase_bank.write_text(json.dumps({"phrases": []}), encoding="utf-8")
+
+    real_path = Path
+
+    def _fake_path(value: str | Path) -> Path:
+        text = str(value)
+        if text.endswith("/MEMORIAL_OPERATOR_STATUS.generated.json"):
+            return operator_status
+        if text.endswith("/MEMORIAL_PHRASE_BANK.manfred.generated.json"):
+            return phrase_bank
+        return real_path(value)
+
+    monkeypatch.setattr(public_memorials, "Path", _fake_path)
+
+    client = _client(principal_id="exec-memorial-operator-status")
+    response = client.get(
+        f"/memorials/{slug}/operator-status",
+        headers={"x-memorial-write-token": "unit-write-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["current_label"] == "Memorial public-origin gold: blocked"
+    assert payload["slug"] == slug
+    assert payload["actions"]["record_room_audio_proof_clean"] == "make materialize-memorial-room-audio-gold-clean"
+
+
 def test_difficult_memory_defaults_to_blocked_first_person_reconstruction(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -13928,6 +13928,31 @@ def public_memorial_warmup_status(slug: str) -> JSONResponse:
     )
 
 
+@router.get("/memorials/{slug}/operator-status")
+def public_memorial_operator_status(slug: str, request: Request) -> JSONResponse:
+    _require_public_memorial_operator_surface_enabled()
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    status_path = Path("/docker/EA/.codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
+    phrase_bank_path = Path("/docker/EA/.codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json")
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="memorial_operator_status_unavailable") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=503, detail="memorial_operator_status_unavailable")
+    response_payload = dict(payload)
+    response_payload["slug"] = _safe_slug(slug)
+    response_payload["status_path"] = str(status_path)
+    response_payload["phrase_bank_path"] = str(phrase_bank_path)
+    response_payload["actions"] = {
+        "refresh_operator_status": "make materialize-memorial-operator-status",
+        "refresh_phrase_bank": "make materialize-memorial-phrase-bank",
+        "record_room_audio_proof_clean": "make materialize-memorial-room-audio-gold-clean",
+    }
+    return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
+
+
 @router.get("/memorials/{slug}/video-meeting/status")
 def public_memorial_video_meeting_status(slug: str) -> JSONResponse:
     payload = _load_memorial(slug)

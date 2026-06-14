@@ -801,13 +801,14 @@ make verify-whole-project-gold-map
 make verify-memorial-voice-stability
 make materialize-memorial-phrase-bank
 make materialize-memorial-operator-status
+make materialize-memorial-room-audio-gold-clean
 # docs-focused alias
 make docs-verify
 # docs + operator-help bundle
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, and `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card, and `make materialize-memorial-room-audio-gold-clean` records the final manual room/device receipt from a clean clone so unrelated worktree drift does not poison the proof.
 
 Combined local readiness check:
 
