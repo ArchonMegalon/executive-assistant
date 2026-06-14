@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T18:24:50Z",
+  "generated_at": "2026-06-14T21:37:58Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "a6cb81acec2e5dbf56e71efddd3aef1618c93815",
+  "git_head": "20235c9de516a8a872141c95456c4a6d29a4504a",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "gold",
   "gold_claim_allowed": true,
@@ -159,8 +159,8 @@
       ],
       "missing_evidence": [],
       "design_notes": [
-        "Guest-facing copy must never say simply gold while this plane is blocked.",
-        "Use: Memorial public-origin gold: blocked."
+        "Use: Memorial public-origin gold: pass.",
+        "Do not collapse this memorial-specific proof into generic whole-project authority."
       ]
     },
     {
