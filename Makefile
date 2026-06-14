@@ -258,7 +258,7 @@ materialize-memorial-room-audio-gold-clean:
 materialize-memorial-public-gold:
 	$(MAKE) materialize-memorial-public-voice-gold
 	$(MAKE) materialize-memorial-public-browser-gold
-	$(MAKE) materialize-memorial-room-audio-gold
+	$(MAKE) materialize-memorial-room-audio-gold-clean
 	$(MAKE) verify-memorial-gold-readiness
 
 materialize-memorial-phrase-bank:
