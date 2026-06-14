@@ -1,16 +1,16 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-13T20:08:38Z",
+  "generated_at": "2026-06-14T03:02:00Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "git_head": "81214fa20a87504fd78e2c96a28be833529f27aa",
-  "source_git_head": "81214fa20a87504fd78e2c96a28be833529f27aa",
-  "source_tree_fingerprint": "ee7e5b64b97648791e92b38b3aba3726e5b9cdc3b3fff6647e7f9a7455cedfcd",
-  "dirty_worktree": false,
+  "git_head": "846dcc7dceac9d481646c78a6992d0d88231c0df",
+  "source_git_head": "846dcc7dceac9d481646c78a6992d0d88231c0df",
+  "source_tree_fingerprint": "8392e2cfe6671a6f80b4ae022e48a8ad34a353ff091d97196e3cf0126fe71dab",
+  "dirty_worktree": true,
   "status": "pass",
   "slug": "manfred",
   "base_url": "http://127.0.0.1:8090",
   "require_stt": true,
-  "gold_mode": true,
+  "gold_mode": false,
   "require_public_origin": false,
   "direct_min_f1": 0.92,
   "conversation_min_f1": 0.9,
@@ -21,23 +21,23 @@
   "failed_codes": [],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 26,
+    "speech_synthesize_ms": 30,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 14832,
+    "speech_transcribe_ms": 14273,
     "direct_tts_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "direct_tts_expected_chars": 14,
     "direct_tts_actual_chars": 14,
     "direct_tts_f1": 1.0,
     "chat_reference_ms": 4,
     "reference_answer_chars": 14,
-    "present_world_chat_ms": 5,
+    "present_world_chat_ms": 3,
     "present_world_answer_chars": 71,
-    "synthetic_prompt_synthesize_ms": 26,
+    "synthetic_prompt_synthesize_ms": 51,
     "synthetic_prompt_source": "local_neutral_prompt",
-    "conversation_turn_total_ms": 17061,
+    "conversation_turn_total_ms": 17051,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 13560,
+    "conversation_answer_transcribe_ms": 15041,
     "conversation_turn_transcriber": "1min.ai/whisper-1+enhanced_wav",
     "conversation_turn_audio_expected_chars": 14,
     "conversation_turn_audio_actual_chars": 14,
@@ -58,12 +58,11 @@
     },
     {
       "status": "pass",
-      "code": "direct_tts_gold_similarity_ok",
-      "message": "Transcript meets the stricter memorial-gold similarity threshold.",
+      "code": "direct_tts_similarity_ok",
+      "message": "Transcript matches the expected spoken content closely.",
       "detail": {
         "expected": "Worum geht es?",
         "actual": "Worum geht es?",
-        "min_f1": 0.92,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
@@ -92,17 +91,16 @@
     },
     {
       "status": "pass",
-      "code": "conversation_turn_audio_gold_similarity_ok",
-      "message": "Transcript meets the stricter memorial-gold similarity threshold.",
+      "code": "conversation_turn_audio_similarity_ok",
+      "message": "Transcript matches the expected spoken content closely.",
       "detail": {
         "expected": "Worum geht es?",
         "actual": "Worum geht es?",
-        "min_f1": 0.9,
         "precision": 1.0,
         "recall": 1.0,
         "f1": 1.0
       }
     }
   ],
-  "gold_claim_allowed": true
+  "gold_claim_allowed": false
 }

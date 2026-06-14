@@ -7561,6 +7561,7 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementAudioBlob = null;
       let contactAcknowledgementAudioPromise = null;
       let contactAcknowledgementInFlight = false;
+      let contactAcknowledgementReady = false;
       const contactAcknowledgementText = "Worum geht es?";
       const browserPreferredLanguage = "de-AT";
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
@@ -7619,6 +7620,8 @@ def _minimal_public_memorial_html(
           const blob = await response.blob();
           if (!blob || blob.size < 128) throw new Error("contact_acknowledgement_audio_empty");
           contactAcknowledgementAudioBlob = blob;
+          contactAcknowledgementReady = true;
+          syncConversationButton();
           return blob;
         }})().finally(() => {{
           contactAcknowledgementAudioPromise = null;
@@ -7653,6 +7656,9 @@ def _minimal_public_memorial_html(
           disabled = false;
         }} else if (requestInFlight) {{
           label = "Einen Moment …";
+          disabled = true;
+        }} else if (memorialLandingReady && completedConversationTurns === 0 && !contactAcknowledgementReady) {{
+          label = "Stimme wird vorbereitet …";
           disabled = true;
         }} else if (memorialLandingReady) {{
           label = "Gespräch beginnen";
@@ -7735,8 +7741,16 @@ def _minimal_public_memorial_html(
             memorialReadySnapshot = await waitForMemorialVoiceReady(30000);
           }} catch (error) {{}}
           if (memorialReadySnapshot && memorialReadySnapshot.warm && (memorialReadySnapshot.voice_required === false || memorialReadySnapshot.voice_ready === true)) {{
-            setMemorialLandingReady(true, "");
-            void ensureContactAcknowledgementAudio().catch(() => null);
+            try {{
+              await ensureContactAcknowledgementAudio();
+              setMemorialLandingReady(true, "");
+            }} catch (error) {{
+              contactAcknowledgementReady = false;
+              setMemorialLandingReady(false, "Ich bereite meine Stimme noch kurz vor.");
+              window.setTimeout(() => {{
+                if (!memorialLandingReady || !contactAcknowledgementReady) void ensureMemorialReady("contact_ack_retry");
+              }}, 1200);
+            }}
           }} else {{
             setMemorialLandingReady(false, "Ich bin gleich bereit.");
             window.setTimeout(() => {{
@@ -8296,7 +8310,7 @@ def _minimal_public_memorial_html(
           liveFallbackTimer = window.setTimeout(async () => {{
             if (liveFallbackStarted) return;
             if (generation !== activeGeneration || !conversationSessionActive) return;
-            if (liveResponseEventAt > 0) return;
+            if (liveAnswerEventAt > 0) return;
             liveFallbackStarted = true;
             setSpeechStatus("Ich sichere die Antwort lokal.", "working", "Live-Fallback");
             cleanupLiveRealtimeSession();

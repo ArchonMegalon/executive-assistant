@@ -3036,6 +3036,12 @@ def test_memorial_landing_does_not_enable_conversation_on_warmup_timeout() -> No
     assert "waitForMemorialVoiceReady(30000)" in source
     assert 'setMemorialLandingReady(false, "Ich bin gleich bereit.")' in source
     assert 'if (!memorialLandingReady) void ensureMemorialReady("warmup_retry");' in source
+    assert 'let contactAcknowledgementReady = false;' in source
+    assert 'contactAcknowledgementReady = true;' in source
+    assert 'memorialLandingReady && completedConversationTurns === 0 && !contactAcknowledgementReady' in source
+    assert 'label = "Stimme wird vorbereitet …";' in source
+    assert 'setMemorialLandingReady(false, "Ich bereite meine Stimme noch kurz vor.");' in source
+    assert 'void ensureMemorialReady("contact_ack_retry");' in source
     assert "new Promise((resolve) => window.setTimeout(resolve, 12000))" not in source
 
 
@@ -3355,6 +3361,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "Ich sichere die Antwort lokal." in source
     assert "await finishConversationTurn(fallbackBlob, generation, null);" in source
     assert "const maxActiveSpeechMs = 3400;" in source
+    assert "if (liveAnswerEventAt > 0) return;" in source
     assert "user_audio_start" in source
     assert "user_audio_end" in source
     assert 'if (type === "answer")' in source
