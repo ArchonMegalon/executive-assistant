@@ -4,7 +4,7 @@
   "slug": "manfred",
   "current_label": "Memorial public-origin gold: blocked",
   "local_release_candidate": "pass",
-  "public_voice_receipt": "missing_or_blocked",
+  "public_voice_receipt": "pass",
   "public_browser_receipt": "pass",
   "room_audio_receipt": "missing_or_blocked",
   "whole_project_gold": "pass",
@@ -14,7 +14,7 @@
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "7bb389aafdc673c37cd953f3e059262505c88a75",
+    "current_head": "5ddec0c6f59dbb668d1db95025eec32a15dcbc15",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -23,13 +23,7 @@
     "local_release_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     "local_release_issues": [],
     "public_gold_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-    "public_gold_issues": [
-      "receipt_status_not_pass",
-      "receipt_failed_codes_present",
-      "public_gold_claim_not_allowed_by_receipt",
-      "conversation_turn_total_ms_above_gold_threshold",
-      "speech_transcribe_ms_above_gold_threshold"
-    ],
+    "public_gold_issues": [],
     "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [],
     "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
