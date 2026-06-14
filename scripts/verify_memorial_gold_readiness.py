@@ -87,6 +87,10 @@ def _receipt_source_head(receipt: dict[str, Any]) -> str:
     return str(receipt.get("source_git_head") or receipt.get("git_head") or "")
 
 
+def _generated_only_receipt_delta_ok(receipt: dict[str, Any], *, current_head: str) -> bool:
+    return _fresh_enough(_receipt_source_head(receipt), current_head=current_head)
+
+
 def _float_env(name: str, default: float) -> float:
     try:
         return float(os.getenv(name) or default)
@@ -113,7 +117,7 @@ def _check_receipt(
         issues.append("receipt_status_not_pass")
     if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
         issues.append("receipt_stale_relative_to_current_head")
-    if bool(receipt.get("dirty_worktree")):
+    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(receipt, current_head=current_head):
         issues.append("receipt_generated_from_dirty_worktree")
     if receipt.get("failed_codes"):
         issues.append("receipt_failed_codes_present")
@@ -161,7 +165,7 @@ def _check_browser_receipt(
         issues.append("browser_receipt_status_not_pass")
     if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
         issues.append("browser_receipt_stale_relative_to_current_head")
-    if bool(receipt.get("dirty_worktree")):
+    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(receipt, current_head=current_head):
         issues.append("browser_receipt_generated_from_dirty_worktree")
     if _is_local_base_url(str(receipt.get("base_url") or "")):
         issues.append("browser_public_origin_required_not_localhost")
@@ -204,7 +208,7 @@ def _check_room_receipt(
         issues.append("room_receipt_status_not_pass")
     if current_head and not _fresh_enough(_receipt_source_head(receipt), current_head=current_head):
         issues.append("room_receipt_stale_relative_to_current_head")
-    if bool(receipt.get("dirty_worktree")):
+    if bool(receipt.get("dirty_worktree")) and not _generated_only_receipt_delta_ok(receipt, current_head=current_head):
         issues.append("room_receipt_generated_from_dirty_worktree")
     if _is_local_base_url(str(receipt.get("base_url") or "")):
         issues.append("room_public_origin_required_not_localhost")

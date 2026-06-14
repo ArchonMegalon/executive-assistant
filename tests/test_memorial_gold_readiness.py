@@ -202,3 +202,33 @@ def test_memorial_gold_readiness_uses_source_git_head_before_receipt_commit_head
     monkeypatch.setattr(readiness, "_git_head", lambda: "SOURCE_HEAD")
 
     assert readiness.main() == 0
+
+
+def test_memorial_gold_readiness_allows_generated_only_receipt_commit_delta(tmp_path: Path, monkeypatch) -> None:
+    import scripts.verify_memorial_gold_readiness as readiness
+
+    local_path = tmp_path / "local.json"
+    public_path = tmp_path / "public.json"
+    browser_path = tmp_path / "browser.json"
+    room_path = tmp_path / "room.json"
+    local = _voice_receipt(base_url="http://127.0.0.1:8090")
+    public = _voice_receipt()
+    browser = _browser_receipt()
+    room = _room_receipt()
+    for payload in (local, public, browser, room):
+        payload["git_head"] = "RECEIPT_COMMIT"
+        payload["source_git_head"] = "SOURCE_HEAD"
+        payload["dirty_worktree"] = True
+    local_path.write_text(json.dumps(local), encoding="utf-8")
+    public_path.write_text(json.dumps(public), encoding="utf-8")
+    browser_path.write_text(json.dumps(browser), encoding="utf-8")
+    room_path.write_text(json.dumps(room), encoding="utf-8")
+
+    monkeypatch.setattr(readiness, "LOCAL_RECEIPT", local_path)
+    monkeypatch.setattr(readiness, "PUBLIC_RECEIPT", public_path)
+    monkeypatch.setattr(readiness, "BROWSER_RECEIPT", browser_path)
+    monkeypatch.setattr(readiness, "ROOM_RECEIPT", room_path)
+    monkeypatch.setattr(readiness, "_git_head", lambda: "CURRENT_HEAD")
+    monkeypatch.setattr(readiness, "_fresh_enough", lambda recorded_head, current_head: recorded_head == "SOURCE_HEAD" and current_head == "CURRENT_HEAD")
+
+    assert readiness.main() == 0
