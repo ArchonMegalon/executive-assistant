@@ -481,3 +481,58 @@ def test_validate_memorial_voice_loop_gold_mode_rejects_critical_token_substitut
 
     assert report.status == "fail"
     assert any(item.code == "direct_tts_critical_tokens_missing" for item in report.checks)
+
+
+def test_validate_memorial_voice_loop_accepts_weather_location_boundary(tmp_path: Path, monkeypatch) -> None:
+    import scripts.validate_memorial_voice_loop as validator
+
+    direct_wav = _generated_wav(b"Worum geht es?")
+    answer_wav = _generated_wav(b"Worum geht es?")
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout: float = 90.0):
+        if url.endswith("/chat"):
+            if payload.get("question") == "Wie ist das Wetter heute?":
+                return 200, {
+                    "answer": "Zum Wetter brauche ich den Ort. Sag ihn mir kurz, dann bleibe ich bei deiner Schilderung.",
+                    "fallback_reason": "present_world_guardrail",
+                    "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+                    "sources": [],
+                }
+            return 200, {"answer": "Worum geht es?"}
+        raise AssertionError(url)
+
+    def fake_post_binary(url: str, payload: bytes, *, content_type: str, timeout: float = 120.0):
+        if url.endswith("/speech-transcribe"):
+            return 200, {"transcript_text": "Worum geht es?", "transcriber": "stub"}
+        if url.endswith("/conversation-turn"):
+            import base64
+
+            return 200, {
+                "answer": "Worum geht es?",
+                "audio_base64": base64.b64encode(answer_wav).decode("ascii"),
+                "audio_content_type": "audio/wav",
+            }
+        raise AssertionError(url)
+
+    monkeypatch.setattr(validator, "_post_json", fake_post_json)
+    monkeypatch.setattr(validator, "_post_binary", fake_post_binary)
+    monkeypatch.setattr(
+        validator,
+        "_post_json_binary_response",
+        lambda *args, **kwargs: (200, direct_wav, "audio/wav"),
+    )
+
+    report = validator.validate_memorial_voice_loop(
+        slug="manfred",
+        base_url="https://example.test",
+        output_dir=tmp_path,
+        direct_text="Worum geht es?",
+        conversation_question="Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        present_world_question="Wie ist das Wetter heute?",
+        require_stt=True,
+        gold_mode=True,
+        critical_tokens=("Worum", "geht", "es"),
+    )
+
+    assert report.status == "pass"
+    assert any(item.code == "present_world_route_ok" for item in report.checks)

@@ -587,9 +587,16 @@ def validate_memorial_voice_loop(
         or all(token in normalized_present_answer for token in ("weiss", "nicht"))
     )
     has_weather_boundary = (
-        "wetter" in normalized_present_answer
-        and "nicht" in normalized_present_answer
-        and any(token in normalized_present_answer for token in ("sehe", "sehen"))
+        (
+            "wetter" in normalized_present_answer
+            and "nicht" in normalized_present_answer
+            and any(token in normalized_present_answer for token in ("sehe", "sehen"))
+        )
+        or (
+            "wetter" in normalized_present_answer
+            and "ort" in normalized_present_answer
+            and any(token in normalized_present_answer for token in ("brauche", "brauch"))
+        )
     )
     if not (has_unknown_boundary or has_memory_boundary or has_no_memory_boundary or has_weather_boundary):
         report.add(
