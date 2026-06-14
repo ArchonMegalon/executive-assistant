@@ -1050,7 +1050,9 @@ def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     assert body["sources"] == []
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["fallback_reason"] == "present_world_guardrail"
-    assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
+    assert body["answer"] == "Zum Wetter brauche ich den Ort. Sag ihn mir kurz, dann bleibe ich bei deiner Schilderung."
+    assert body["answer_audio_text"] == "Zum Wetter brauche ich den Ort."
+    assert body["phrase_bank_entry"]["id"] == "weather_guardrail"
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -1076,7 +1078,9 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das weiß ich nicht."
+    assert body["answer"] == "Das kann ich aus meiner Erinnerung nicht sagen. Sag mir den aktuellen Stand kurz, dann ordne ich es mit dir."
+    assert body["answer_audio_text"] == "Das kann ich aus meiner Erinnerung nicht sagen."
+    assert body["phrase_bank_entry"]["id"] == "present_world_guardrail"
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -1086,7 +1090,7 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     body = response.json()
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["llm_provider"] == "memorial_guardrail"
-    assert body["answer"] == "Das weiß ich nicht."
+    assert body["answer"] == "Das kann ich aus meiner Erinnerung nicht sagen. Sag mir den aktuellen Stand kurz, dann ordne ich es mit dir."
     assert body["sources"] == []
     assert "famil" not in body["answer"].lower()
 
@@ -1122,7 +1126,8 @@ def test_memorial_chat_current_weather_ignores_present_world_search_even_when_en
     assert body["llm_provider"] == "memorial_guardrail"
     assert body["sources"] == []
     assert body["current_world_policy"] == "local_memories_and_conversation_only_no_internet_search"
-    assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
+    assert body["answer"] == "Zum Wetter brauche ich den Ort. Sag ihn mir kurz, dann bleibe ich bei deiner Schilderung."
+    assert body["answer_audio_text"] == "Zum Wetter brauche ich den Ort."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
     assert not hasattr(public_memorials, "_memorial_present_world_search_request")
@@ -1418,7 +1423,8 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert called["generate_text"] == 0
     assert body["fallback_reason"] == "present_world_guardrail"
     assert body["sources"] == []
-    assert body["answer"] == "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
+    assert body["answer"] == "Zum Wetter brauche ich den Ort. Sag ihn mir kurz, dann bleibe ich bei deiner Schilderung."
+    assert body["answer_audio_text"] == "Zum Wetter brauche ich den Ort."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
 
@@ -3357,6 +3363,10 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "ensureContactAcknowledgementAudio" in source
     assert "playFastContactAcknowledgement" in source
     assert 'const contactAcknowledgementText = "Worum geht es?";' in source
+    assert 'id="memorial-read-answer"' in source
+    assert 'id="memorial-replay-answer"' in source
+    assert 'id="memorial-toggle-status"' in source
+    assert "setAnswerStatus(" in source
     assert 'method: "POST"' in source
     assert "conversation_turn_http_" in source
     assert "startRealtimeAudioTurn" in source

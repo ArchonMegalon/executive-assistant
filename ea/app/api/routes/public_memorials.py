@@ -3573,8 +3573,14 @@ def _is_memorial_weather_question(question: str) -> bool:
 
 def _memorial_present_world_answer_body(question: str) -> str:
     if _is_memorial_weather_question(question):
-        return "Das Wetter sehe ich nicht. Beschreib mir kurz, was du draußen bemerkst."
-    return "Das weiß ich nicht."
+        return _text(_memorial_phrase_bank_entry("weather_guardrail").get("audio_text"))
+    return _text(_memorial_phrase_bank_entry("present_world_guardrail").get("audio_text"))
+
+
+def _memorial_present_world_visible_text(question: str) -> str:
+    if _is_memorial_weather_question(question):
+        return _text(_memorial_phrase_bank_entry("weather_guardrail").get("visible_text"))
+    return _text(_memorial_phrase_bank_entry("present_world_guardrail").get("visible_text"))
 
 
 def _memorial_should_include_mail_memory(question: str) -> bool:
@@ -3920,8 +3926,42 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
     return _normalize_memorial_transcript_text(question)
 
 
+def _memorial_phrase_bank_entry(phrase_id: str) -> dict[str, object]:
+    phrase_bank: dict[str, dict[str, object]] = {
+        "contact_opening": {
+            "id": "contact_opening",
+            "purpose": "direct_contact_opening",
+            "audio_text": "Worum geht es?",
+            "visible_text": "Worum geht es?",
+            "min_f1": 0.92,
+            "critical_tokens": ["worum", "geht", "es"],
+            "status": "approved",
+        },
+        "present_world_guardrail": {
+            "id": "present_world_guardrail",
+            "purpose": "current_world_memory_boundary",
+            "audio_text": "Das kann ich aus meiner Erinnerung nicht sagen.",
+            "visible_text": "Das kann ich aus meiner Erinnerung nicht sagen. Sag mir den aktuellen Stand kurz, dann ordne ich es mit dir.",
+            "min_f1": 0.92,
+            "critical_tokens": ["erinnerung", "nicht", "sagen"],
+            "status": "approved",
+        },
+        "weather_guardrail": {
+            "id": "weather_guardrail",
+            "purpose": "weather_memory_boundary",
+            "audio_text": "Zum Wetter brauche ich den Ort.",
+            "visible_text": "Zum Wetter brauche ich den Ort. Sag ihn mir kurz, dann bleibe ich bei deiner Schilderung.",
+            "min_f1": 0.92,
+            "critical_tokens": ["wetter", "ort"],
+            "status": "approved",
+        },
+    }
+    return dict(phrase_bank.get(phrase_id) or phrase_bank["present_world_guardrail"])
+
+
 def _memorial_contact_answer_body(question: str) -> str:
-    return "Worum geht es?"
+    del question
+    return _text(_memorial_phrase_bank_entry("contact_opening").get("audio_text"))
 
 
 def _is_memorial_direct_contact_opening_text(text: str) -> bool:
@@ -5303,11 +5343,14 @@ def _memorial_chat_answer(
         fallback["llm_fallback_used"] = False
         return fallback
     if _is_memorial_present_world_question(normalized_question):
+        phrase = _memorial_phrase_bank_entry("weather_guardrail" if _is_memorial_weather_question(normalized_question) else "present_world_guardrail")
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
             "question": normalized_question,
-            "answer": _memorial_present_world_answer_body(normalized_question),
+            "answer": _memorial_present_world_visible_text(normalized_question),
+            "answer_audio_text": _text(phrase.get("audio_text")),
+            "phrase_bank_entry": phrase,
             "sources": [],
             "private_context_used": False,
             "personal_memory_used": False,
@@ -5321,11 +5364,14 @@ def _memorial_chat_answer(
             "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
         }
     if _is_memorial_contact_question(normalized_question):
+        phrase = _memorial_phrase_bank_entry("contact_opening")
         return {
             "person_name": person_name,
             "mode": "memorial_first_person_memory_chat",
             "question": normalized_question,
             "answer": _memorial_contact_answer_body(normalized_question),
+            "answer_audio_text": _text(phrase.get("audio_text")),
+            "phrase_bank_entry": phrase,
             "sources": [],
             "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
             "personal_memory_used": False,
@@ -6670,9 +6716,10 @@ def _build_memorial_conversation_turn_payload(
         voice_profile_ready=bool(base_config.get("voice_profile_ready")),
     )
     selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
-    compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
-    answer_payload["answer"] = compact_answer
-    answer_text = _normalize_tts_text(compact_answer)
+    visible_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
+    answer_payload["answer"] = visible_answer
+    answer_audio_text = _normalize_tts_text(answer_payload.get("answer_audio_text") or visible_answer)
+    answer_text = answer_audio_text
     if not answer_text:
         raise HTTPException(status_code=502, detail="memorial_answer_missing")
     if not bool(selected_option.get("tts_plugin_enabled")):
@@ -7504,6 +7551,28 @@ def _minimal_public_memorial_html(
         text-align: left;
         font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
       }}
+      .chat-tools {{ margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }}
+      .chat-tool {{
+        appearance: none;
+        border: 1px solid rgba(72,103,126,.18);
+        border-radius: 999px;
+        min-height: 36px;
+        padding: 8px 12px;
+        background: rgba(255,255,255,.88);
+        color: var(--blue);
+        font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .chat-status {{
+        margin-top: 10px;
+        padding: 11px 12px;
+        border: 1px solid rgba(65, 53, 43, 0.1);
+        border-radius: 14px;
+        background: rgba(255,255,255,.72);
+        color: var(--muted);
+        white-space: pre-wrap;
+        text-align: left;
+        font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+      }}
       [hidden] {{ display: none !important; }}
       @media (max-width: 760px) {{
         main {{ bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }}
@@ -7536,6 +7605,12 @@ def _minimal_public_memorial_html(
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
+        <div class="chat-tools" id="memorial-chat-tools" hidden>
+          <button type="button" class="chat-tool" id="memorial-read-answer">Antwort lesen</button>
+          <button type="button" class="chat-tool" id="memorial-replay-answer" hidden>Noch einmal anhören</button>
+          <button type="button" class="chat-tool" id="memorial-toggle-status" hidden>Quellen / Status</button>
+        </div>
+        <div class="chat-status" id="memorial-chat-status" hidden></div>
         <audio id="memorial-speech-audio" preload="none"></audio>
       </section>
     </main>
@@ -7551,6 +7626,11 @@ def _minimal_public_memorial_html(
       const speechPhase = document.getElementById("memorial-speech-phase");
       const speechDetail = document.getElementById("memorial-speech-detail");
       const answer = document.getElementById("memorial-chat-answer");
+      const answerTools = document.getElementById("memorial-chat-tools");
+      const readAnswerButton = document.getElementById("memorial-read-answer");
+      const replayAnswerButton = document.getElementById("memorial-replay-answer");
+      const toggleStatusButton = document.getElementById("memorial-toggle-status");
+      const answerStatus = document.getElementById("memorial-chat-status");
       let deferredInstallPrompt = null;
       let memorialWarmupPromise = null;
       let memorialLandingReady = false;
@@ -7588,6 +7668,8 @@ def _minimal_public_memorial_html(
       let liveResponseEventAt = 0;
       let liveAnswerEventAt = 0;
       let completedConversationTurns = 0;
+      let lastAnswerAudioBlob = null;
+      let lastAnswerStatusText = "";
       let contactAcknowledgementAudioBlob = null;
       let contactAcknowledgementAudioPromise = null;
       let contactAcknowledgementInFlight = false;
@@ -7628,6 +7710,18 @@ def _minimal_public_memorial_html(
         if (!answer || !text) return;
         answer.textContent = text;
         answer.hidden = false;
+        if (answerTools) answerTools.hidden = false;
+      }}
+
+      function setAnswerStatus(value) {{
+        lastAnswerStatusText = String(value || "").trim();
+        if (toggleStatusButton) toggleStatusButton.hidden = !lastAnswerStatusText;
+        if (!lastAnswerStatusText && answerStatus) answerStatus.hidden = true;
+      }}
+
+      function setLastAnswerAudioBlob(blob) {{
+        lastAnswerAudioBlob = blob || null;
+        if (replayAnswerButton) replayAnswerButton.hidden = !lastAnswerAudioBlob;
       }}
 
       async function ensureContactAcknowledgementAudio() {{
@@ -7663,10 +7757,12 @@ def _minimal_public_memorial_html(
         if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return;
         contactAcknowledgementInFlight = true;
         showAnswerText(contactAcknowledgementText);
+        setAnswerStatus("Direkte Kontaktantwort aus der Phrase-Bank.");
         setSpeechStatus("Ich spreche.", "playing", contactAcknowledgementText);
         try {{
           const blob = await ensureContactAcknowledgementAudio();
           if (generation !== activeGeneration || !blob) return;
+          setLastAnswerAudioBlob(blob);
           await playMemorialAudio(blob, generation, contactAcknowledgementText);
         }} catch (error) {{
         }} finally {{
@@ -7920,6 +8016,11 @@ def _minimal_public_memorial_html(
           throw new Error(detail || ("conversation_turn_http_" + String(response.status || "failed")));
         }}
         if (generation !== activeGeneration) throw new Error("turn_superseded");
+        const statusBits = [];
+        if (payload && payload.fallback_reason) statusBits.push("Pfad: " + String(payload.fallback_reason || ""));
+        if (payload && payload.current_world_policy) statusBits.push("Policy: " + String(payload.current_world_policy || ""));
+        if (payload && Array.isArray(payload.sources) && payload.sources.length) statusBits.push("Quellen: " + payload.sources.join(", "));
+        setAnswerStatus(statusBits.join("\\n"));
         return payload && typeof payload === "object" ? payload : {{}};
       }}
 
@@ -7957,6 +8058,7 @@ def _minimal_public_memorial_html(
 
       async function playMemorialAudio(blob, generation, answerText = "") {{
         stopSpeechPlayback();
+        setLastAnswerAudioBlob(blob);
         speechObjectUrl = URL.createObjectURL(blob);
         speechAudio.src = speechObjectUrl;
         speechAudio.preload = "auto";
@@ -8831,6 +8933,25 @@ def _minimal_public_memorial_html(
         retryButton.addEventListener("click", () => {{
           retryButton.hidden = true;
           void startConversationSession();
+        }});
+      }}
+      if (readAnswerButton) {{
+        readAnswerButton.addEventListener("click", () => {{
+          if (!answer || answer.hidden) return;
+          answer.scrollIntoView({{ block: "nearest", behavior: "smooth" }});
+        }});
+      }}
+      if (replayAnswerButton) {{
+        replayAnswerButton.addEventListener("click", () => {{
+          if (!lastAnswerAudioBlob) return;
+          void playMemorialAudio(lastAnswerAudioBlob, activeGeneration, String(answer && !answer.hidden ? answer.textContent || "" : ""));
+        }});
+      }}
+      if (toggleStatusButton) {{
+        toggleStatusButton.addEventListener("click", () => {{
+          if (!answerStatus || !lastAnswerStatusText) return;
+          answerStatus.textContent = lastAnswerStatusText;
+          answerStatus.hidden = !answerStatus.hidden;
         }});
       }}
       if (conversationButton) {{
