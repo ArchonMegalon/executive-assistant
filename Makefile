@@ -22,7 +22,16 @@ deploy:
 	@exit 2
 
 deploy-ea-prod:
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy
+	@set -eu; \
+		primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}"; \
+		fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-/mnt/pcloud/EA/onedrive_attachments_fallback}"; \
+		selected_path="$$primary_path"; \
+		if ! ls "$$primary_path" >/dev/null 2>&1; then \
+			mkdir -p "$$fallback_path"; \
+			selected_path="$$fallback_path"; \
+			echo "OneDrive attachment mount unavailable; deploying with fallback path $$selected_path" >&2; \
+		fi; \
+		EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy
 
 deploy-property:
 	docker compose -f docker-compose.property.yml up -d --build --remove-orphans

@@ -108,7 +108,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
       - /var/run/docker.sock:/var/run/docker.sock
       - ea_memorial_data:/data/memorial_data:ro
@@ -146,7 +146,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
@@ -193,7 +193,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
@@ -236,7 +236,7 @@ services:
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro
-      - /mnt/onedrive/Attachments:/data/onedrive_attachments
+      - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}:/data/onedrive_attachments
       - /mnt/pcloud/EA:/mnt/pcloud/EA
       - ea_artifacts:/data/artifacts
       - ea_provider_ledger:/data/provider-ledger

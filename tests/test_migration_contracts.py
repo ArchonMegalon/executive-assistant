@@ -270,6 +270,20 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
     assert "PYTHON_BIN" in (ROOT / "scripts/smoke_help.sh").read_text()
 
 
+def test_deploy_ea_prod_falls_back_when_onedrive_mount_is_unavailable() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+    compose = (ROOT / "docker-compose.yml").read_text()
+
+    deploy_target = _make_target_body(makefile, "deploy-ea-prod")
+
+    assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments' in compose
+    assert 'primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}"' in deploy_target
+    assert 'fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-/mnt/pcloud/EA/onedrive_attachments_fallback}"' in deploy_target
+    assert 'if ! ls "$$primary_path" >/dev/null 2>&1; then' in deploy_target
+    assert 'mkdir -p "$$fallback_path";' in deploy_target
+    assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy' in deploy_target
+
+
 def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:
     smoke_help = (ROOT / "scripts/smoke_help.sh").read_text()
     makefile = (ROOT / "Makefile").read_text()
