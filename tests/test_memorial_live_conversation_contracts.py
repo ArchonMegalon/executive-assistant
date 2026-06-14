@@ -703,6 +703,31 @@ def test_memorial_transcript_selection_prefers_routable_weather_question_over_ge
     assert best["transcript_text"] == "wie ist wetter heute in wien"
 
 
+def test_memorial_theme_question_detection_and_selection_prefers_question_like_variant() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._looks_like_memorial_theme_question("Was war dir bei Gerechtigkeit wichtig?") is True
+    assert public_memorials._looks_like_memorial_theme_question("Ich habe über Gerechtigkeit nachgedacht.") is False
+
+    best = public_memorials._select_best_memorial_transcription(
+        [
+            {
+                "transcript_text": "ich habe über gerechtigkeit nachgedacht",
+                "primary_transcript_text": "ich habe über gerechtigkeit nachgedacht",
+                "transcriber": "1min.ai/original",
+            },
+            {
+                "transcript_text": "was war dir bei gerechtigkeit wichtig",
+                "primary_transcript_text": "was war dir bei gerechtigkeit wichtig",
+                "transcriber": "1min.ai/original",
+            },
+        ]
+    )
+
+    assert best is not None
+    assert best["transcript_text"] == "was war dir bei gerechtigkeit wichtig"
+
+
 def test_memorial_transcribe_applies_shadow_stt_correction_to_effective_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3164,13 +3189,47 @@ def test_memorial_speech_transcribe_route_logs_timing_metadata(
     )
 
     assert response.status_code == 200
-    assert response.json()["transcript_text"] == "Hallo Manfred"
+    body = response.json()
+    assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert body["transcript_effective_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert body["transcript_original_text"] == "Hallo Manfred"
     assert any(
         "memorial_timing event=speech_transcribe" in record.getMessage()
         and "transcript_chars=13" in record.getMessage()
         and "status=transcribed" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_memorial_speech_transcribe_route_exposes_original_and_effective_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "wie ist wetter heute in wien",
+            "transcriber": "unit-test",
+        },
+    )
+    client = _client(principal_id="exec-memorial-speech-transcribe-effective")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=_generated_wav_bytes(textish_seed="wie ist wetter heute in wien"),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcript_text"] == "Wie ist das Wetter heute?"
+    assert body["transcript_effective_text"] == "Wie ist das Wetter heute?"
+    assert body["transcript_original_text"] == "wie ist wetter heute in wien"
 
 
 def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> None:

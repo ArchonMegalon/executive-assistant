@@ -4031,6 +4031,46 @@ def _memorial_visible_transcript_text(*, transcript_text: str, effective_questio
     return original or effective
 
 
+def _looks_like_memorial_theme_question(text: str) -> bool:
+    normalized = _normalize_memorial_transcript_text(text).lower()
+    if not normalized:
+        return False
+    tokens = set(re.findall(r"[a-z0-9äöüß]+", normalized))
+    theme_markers = {
+        "gerechtigkeit",
+        "gerecht",
+        "opferschutz",
+        "schach",
+        "moral",
+        "moralisch",
+        "konflikt",
+        "entscheidung",
+        "entscheidungen",
+        "wichtig",
+        "wichtigste",
+        "frage",
+    }
+    question_markers = {
+        "wie",
+        "was",
+        "wo",
+        "wann",
+        "warum",
+        "wieso",
+        "weshalb",
+        "welche",
+        "welcher",
+        "welches",
+        "soll",
+        "sollte",
+        "kann",
+        "kannst",
+        "wichtig",
+        "wichtigste",
+    }
+    return bool(tokens & theme_markers) and bool(tokens & question_markers)
+
+
 def _memorial_phrase_bank_entry(phrase_id: str) -> dict[str, object]:
     phrase_bank: dict[str, dict[str, object]] = {
         "contact_opening": {
@@ -5672,6 +5712,8 @@ def _memorial_transcript_quality_score(
         score += 52
     if _is_memorial_live_interaction_question(text):
         score += 24
+    if _looks_like_memorial_theme_question(text):
+        score += 22
     canonical = _canonical_memorial_contact_opening_question(text)
     if canonical and canonical != text:
         if _is_memorial_weather_question(canonical):
@@ -5797,6 +5839,8 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         "hoerst",
     }
     if len(tokens) >= 3 and tokens & strong_fast_question_markers:
+        return True
+    if len(tokens) >= 4 and _looks_like_memorial_theme_question(text):
         return True
     if len(tokens) >= 4 and len(tokens & soft_fast_contact_markers) >= 2:
         return True
@@ -7402,6 +7446,8 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
             "fragen",
         }
     )
+    if _looks_like_memorial_theme_question(shadow):
+        shadow_looks_like_plausible_user_turn = True
     if primary_is_low_information and not shadow_looks_like_plausible_user_turn:
         return {
             "should_correct": False,
@@ -14407,13 +14453,23 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
         raise HTTPException(status_code=413, detail="audio_too_large")
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
-    result = _memorial_transcribe_audio_blob(payload=payload, content_type=content_type)
+    result = dict(_memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
+    transcript_text = _text(result.get("transcript_text"))
+    effective_question = _canonical_memorial_contact_opening_question(transcript_text)
+    visible_transcript = _memorial_visible_transcript_text(
+        transcript_text=transcript_text,
+        effective_question=effective_question,
+    )
+    if transcript_text:
+        result["transcript_text"] = effective_question
+        result["transcript_effective_text"] = effective_question
+        result["transcript_original_text"] = visible_transcript
     _log_memorial_timing(
         "speech_transcribe",
         slug=slug,
         content_type=content_type,
         audio_bytes=len(payload),
-        transcript_chars=len(_text(result.get("transcript_text"))),
+        transcript_chars=len(visible_transcript if transcript_text else _text(result.get("transcript_text"))),
         status=_text(result.get("transcription_status")),
         transcriber=_text(result.get("transcriber")),
     )
