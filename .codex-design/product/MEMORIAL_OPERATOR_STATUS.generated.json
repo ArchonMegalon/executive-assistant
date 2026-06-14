@@ -1,0 +1,55 @@
+{
+  "contract_name": "ea.memorial_operator_status",
+  "generated_by": "scripts/materialize_memorial_operator_status.py",
+  "slug": "manfred",
+  "current_label": "Memorial public-origin gold: blocked",
+  "local_release_candidate": "blocked",
+  "public_voice_receipt": "missing_or_blocked",
+  "public_browser_receipt": "missing_or_blocked",
+  "room_audio_receipt": "missing_or_blocked",
+  "whole_project_gold": "unknown",
+  "operator_notes": [
+    "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
+    "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin."
+  ],
+  "readiness": {
+    "status": "blocked",
+    "current_head": "ec1b38fb20a440f80345453c0dab3bef9e061b26",
+    "claim_labels": {
+      "ea_receipt_set": "EA receipt-set gold",
+      "memorial_local": "Memorial local release candidate",
+      "memorial_public": "Memorial public-origin gold"
+    },
+    "local_release_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    "local_release_issues": [
+      "receipt_stale_relative_to_current_head"
+    ],
+    "public_gold_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    "public_gold_issues": [
+      "receipt_missing_or_invalid"
+    ],
+    "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    "public_browser_gold_issues": [
+      "browser_receipt_missing_or_invalid"
+    ],
+    "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "room_audio_issues": [
+      "room_receipt_missing_or_invalid"
+    ],
+    "gold_thresholds": {
+      "direct_tts_f1_min": 0.92,
+      "conversation_turn_audio_f1_min": 0.9,
+      "conversation_turn_total_ms_max": 4500.0,
+      "speech_transcribe_ms_max": 2500.0,
+      "browser_first_answer_ms_max": 4500.0
+    },
+    "memorial_voice_gold_claim_allowed": false,
+    "labels": {
+      "local_receipt": "Memorial voice release-candidate proof",
+      "public_receipt": "Memorial voice gold proof",
+      "browser_receipt": "Memorial public browser realtime proof",
+      "room_receipt": "Memorial public room/device playback proof"
+    }
+  },
+  "whole_project": {}
+}

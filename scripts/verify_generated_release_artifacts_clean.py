@@ -11,6 +11,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 GENERATED_ARTIFACTS = (
     Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"),
+    Path(".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"),
+    Path(".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json"),
     Path(".codex-design/product/PROJECT_MODES.generated.json"),
     Path(".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"),
     Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"),
