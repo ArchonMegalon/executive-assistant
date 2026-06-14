@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-13T18:16:14Z",
+  "generated_at": "2026-06-14T04:25:14Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "33125a3aeb186f42c4441496593e4f240a83861a",
+  "git_head": "5441669f8c6b3744a182126ecb23f3518cc4847a",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "not_gold",
   "gold_claim_allowed": false,
@@ -20,7 +20,6 @@
     "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
   ],
   "blocking_planes": [
-    "memorial_voice_demo",
     "memorial_public_origin_gold"
   ],
   "planes": [
@@ -138,16 +137,12 @@
       "key": "memorial_voice_demo",
       "title": "Memorial Voice / Realtime Demo",
       "owner_repo": "memorial runtime",
-      "status": "separate_risk_zone",
+      "status": "pass",
       "claim": "Memorial local voice release can pass separately from Memorial public-origin gold. Manfred remains local memories/conversation only, with no internet search.",
       "evidence": [
         "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
       ],
-      "missing_evidence": [
-        "live memorial roundtrip transcript receipt",
-        "voice intelligibility receipt",
-        "latency p50/p95 receipt"
-      ],
+      "missing_evidence": [],
       "design_notes": [
         "Public copy must not collapse this into a generic gold claim.",
         "public_origin_gold_status=blocked",
