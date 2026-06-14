@@ -32,6 +32,7 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     assert modes["MEMORIAL"]["local_release_gate"] == ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
     assert ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
+    assert ".codex-studio/published/memorial_room_audio_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert modes["MEMORIAL"]["public_gold_status"] in {"public_origin_gold_blocked", "public_origin_gold_candidate"}
     assert "No internet search for Manfred" in modes["MEMORIAL"]["purpose"]
     assert "/memorials/" in modes["MEMORIAL"]["route_prefixes"]

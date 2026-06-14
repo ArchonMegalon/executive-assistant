@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.project_modes",
-  "generated_at": "2026-06-14T04:30:10Z",
+  "generated_at": "2026-06-14T04:44:09Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "git_head": "e0c3356519d699679a7706f02ea0837daf932820",
+  "git_head": "52dab3ae37221a0074a968414f38f980bb79ff16",
   "modes": [
     {
       "key": "EA_CORE",
@@ -45,7 +45,8 @@
       "local_release_gate": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
       "public_gold_gates": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
-        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
       ],
       "design_language": "quiet, source-bound, emotionally safe"
     },

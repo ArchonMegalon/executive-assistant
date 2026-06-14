@@ -14,6 +14,7 @@ SHOW_SURFACE_OUTPUT = ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.genera
 MEMORIAL_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
 MEMORIAL_PUBLIC_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 MEMORIAL_PUBLIC_BROWSER_GATE = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
+MEMORIAL_PUBLIC_ROOM_GATE = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
 
 
 def _utc_now() -> str:
@@ -53,7 +54,11 @@ def _receipt_passes(path: Path) -> bool:
 
 
 def _memorial_public_gold_status() -> str:
-    if _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE) and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE):
+    if (
+        _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE)
+        and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE)
+        and _receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE)
+    ):
         return "public_origin_gold_candidate"
     return "public_origin_gold_blocked"
 
@@ -93,6 +98,7 @@ def project_modes() -> dict[str, Any]:
                 "public_gold_gates": [
                     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
                     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+                    ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
                 ],
                 "design_language": "quiet, source-bound, emotionally safe",
             },
