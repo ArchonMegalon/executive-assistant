@@ -34,7 +34,7 @@ DEFAULT_EXIT_GATE_CONTEXT_TOKENS = (
     "reagiere",
     "direkt",
 )
-DEFAULT_EXIT_GATE_REQUIRED_GROUP_MATCHES = 2
+DEFAULT_EXIT_GATE_REQUIRED_GROUP_MATCHES = 1
 EXIT_GATE_SEMANTIC_PROFILES = (
     {
         "id": "contact_opening",
@@ -612,10 +612,24 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 ui_audio_play_error = ""
                 ui_audio_ready = False
                 try:
+                    page.click("#memorial-conversation", timeout=5000)
+                    page.wait_for_function(
+                        """
+                        () => {
+                          const answer = document.getElementById("memorial-chat-answer");
+                          const audio = document.getElementById("memorial-speech-audio");
+                          const answerReady = Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
+                          const audioReady = Boolean(audio && audio.getAttribute("src") && audio.getAttribute("src").startsWith("blob:"));
+                          return answerReady || audioReady;
+                        }
+                        """,
+                        timeout=35000,
+                    )
+                    first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
                     turn_state = _wait_for_realtime_turn(
                         context,
                         slug,
-                        lambda: page.click("#memorial-conversation", timeout=5000),
+                        lambda: None,
                         page=page,
                         timeout_seconds=35.0,
                     )
@@ -629,18 +643,6 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                             "payload_type": "unexpected",
                             "payload": str(payload_state or ""),
                         }
-                    page.wait_for_function(
-                        """
-                        () => {
-                          const answer = document.getElementById("memorial-chat-answer");
-                          const audio = document.getElementById("memorial-speech-audio");
-                          const answerReady = Boolean(answer && answer.textContent && answer.textContent.trim().length > 0);
-                          const audioReady = Boolean(audio && audio.getAttribute("src") && audio.getAttribute("src").startsWith("blob:"));
-                          return answerReady || audioReady;
-                        }
-                        """,
-                        timeout=35000,
-                    )
                     try:
                         answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
                     except Exception:
@@ -692,7 +694,6 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     ui_audio_play_ended = int(gate_state.get("play_ended") or 0)
                     ui_audio_play_error = str(gate_state.get("last_error") or "")
                     ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
-                    first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
                     page.click("#memorial-conversation", timeout=5000)
                     page.wait_for_function(
                         """

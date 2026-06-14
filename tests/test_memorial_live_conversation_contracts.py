@@ -3176,6 +3176,146 @@ def test_memorial_server_voice_contact_prewarm_deduplicates_canonical_contact_ph
     assert seen_texts == [public_memorials._memorial_contact_answer_body("Bist du da?")]
 
 
+def test_memorial_contact_tts_cache_survives_pad_function_identity_change(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    _patch_memorial_runtime_roots(tmp_path)
+    text = public_memorials._memorial_contact_answer_body("Bist du da?")
+    synth_calls = {"count": 0}
+
+    def _fake_synthesize(**kwargs):
+        synth_calls["count"] += 1
+        return _generated_wav_bytes(textish_seed=str(kwargs.get("text") or "contact")), "audio/wav"
+
+    monkeypatch.setattr(public_memorials, "unmixr_synthesize_request", _fake_synthesize)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {"transcript_text": text, "transcriber": "unit"},
+    )
+
+    base_config = {"tts_plugin_voice_id": "voice-1", "lang": "de-AT"}
+    merged_config = dict(base_config)
+    selected_option = {"tts_plugin_enabled": True, "tts_plugin_voice_id": "voice-1"}
+
+    audio_one, content_type_one = public_memorials._render_memorial_tts_audio(
+        slug="manfred",
+        text=text,
+        merged_config=merged_config,
+        base_config=base_config,
+        selected_plugin=public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        selected_option=selected_option,
+        lead_in_ms=public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+        tail_silence_ms=public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+    )
+
+    original_pad = public_memorials._pad_speech_audio_lead_in
+
+    def _replacement_pad(*args, **kwargs):
+        return original_pad(*args, **kwargs)
+
+    _replacement_pad.__module__ = original_pad.__module__
+    _replacement_pad.__qualname__ = original_pad.__qualname__
+    monkeypatch.setattr(public_memorials, "_pad_speech_audio_lead_in", _replacement_pad)
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("contact cache should survive restart-like function identity changes")),
+    )
+
+    audio_two, content_type_two = public_memorials._render_memorial_tts_audio(
+        slug="manfred",
+        text=text,
+        merged_config=merged_config,
+        base_config=base_config,
+        selected_plugin=public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        selected_option=selected_option,
+        lead_in_ms=public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+        tail_silence_ms=public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+    )
+
+    assert synth_calls["count"] == 1
+    assert content_type_one == content_type_two == "audio/wav"
+    assert audio_one == audio_two
+
+
+def test_memorial_contact_tts_cache_adopts_legacy_runtime_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_memorials
+
+    _patch_memorial_runtime_roots(tmp_path)
+    text = public_memorials._memorial_contact_answer_body("Bist du da?")
+    base_config = {
+        "tts_plugin_voice_id": "voice-1",
+        "lang": "de-AT",
+        "unmixr_speaking_rate": "0.90",
+    }
+    merged_config = dict(base_config)
+    selected_option = {"tts_plugin_enabled": True, "tts_plugin_voice_id": "voice-1"}
+    normalized_text = public_memorials._normalize_memorial_spoken_tts_text(text)
+    extra_filters = public_memorials._speech_postprocess_filters_for_config(public_memorials.UNMIXR_TTS_PLUGIN_ID, merged_config)
+    legacy_payload = {
+        "slug": "manfred",
+        "plugin": public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        "voice_ref": "voice-1",
+        "text": normalized_text,
+        "lang": "de-AT",
+        "base_voice_variant": public_memorials._effective_tts_base_voice_variant(merged_config),
+        "speaking_rate": "0.90",
+        "speaking_pitch": "",
+        "speaking_volume": "",
+        "lead_in_ms": public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+        "tail_silence_ms": public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+        "extra_filters": extra_filters,
+        "spoken_text_normalizer": "memorial_de_at_v2",
+        "postprocess_impl": "app.api.routes.public_memorials:_pad_speech_audio_lead_in:legacy-runtime-id",
+    }
+    legacy_audio_path, legacy_meta_path = public_memorials._memorial_tts_render_cache_paths(cache_payload=legacy_payload)
+    legacy_audio = _generated_wav_bytes(textish_seed=text)
+    legacy_audio_path.write_bytes(legacy_audio)
+    legacy_meta_path.write_text(
+        json.dumps(
+            {
+                **legacy_payload,
+                "contact_phrase_validation": {
+                    "status": "pass",
+                    "f1": 1.0,
+                    "missing_tokens": [],
+                    "transcript_text": text,
+                },
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        public_memorials,
+        "unmixr_synthesize_request",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("legacy cache entry should be adopted before synthesis")),
+    )
+
+    audio, content_type = public_memorials._render_memorial_tts_audio(
+        slug="manfred",
+        text=text,
+        merged_config=merged_config,
+        base_config=base_config,
+        selected_plugin=public_memorials.UNMIXR_TTS_PLUGIN_ID,
+        selected_option=selected_option,
+        lead_in_ms=public_memorials._MEMORIAL_CONTACT_TTS_LEAD_IN_MS,
+        tail_silence_ms=public_memorials._MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS,
+    )
+
+    assert content_type == "audio/wav"
+    assert audio == legacy_audio
+
+
 def test_memorial_live_page_uses_minimal_realtime_client(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3189,7 +3329,7 @@ def test_memorial_live_page_uses_minimal_realtime_client(
 
     assert "(payload.voice_required === false || payload.voice_ready === true)" in source
     assert "/memorials/manfred/realtime" in source
-    assert "/memorials/manfred/conversation-turn" not in source
+    assert "/memorials/manfred/conversation-turn" in source
     assert "startLiveRealtimeSession" in source
     assert "gemini_live_websocket_pcm" in source
     assert "audio/pcm;rate=16000" in source
@@ -3199,13 +3339,26 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "openai" not in source.lower()
     assert "live_realtime_unsupported" in source
     assert "ensureRealtimeSocket" in source
+    assert "sendConversationTurnHttp" in source
+    assert "ensureContactAcknowledgementAudio" in source
+    assert "playFastContactAcknowledgement" in source
+    assert 'const contactAcknowledgementText = "Worum geht es?";' in source
+    assert 'method: "POST"' in source
+    assert "conversation_turn_http_" in source
     assert "startRealtimeAudioTurn" in source
+    assert "queueLiveBufferedAudioChunk" in source
+    assert "decodeBufferedLiveAudioBlob" in source
     assert "recorder.start(250)" in source
-    assert "activeRealtimeAudioTurn.sendBlob(event.data)" in source
+    assert "activeRealtimeAudioTurn.sendBlob(event.data)" not in source
     assert "blob.arrayBuffer().then" in source
+    assert "pcmChunksToWavBlob" in source
+    assert "Ich sichere die Antwort lokal." in source
+    assert "await finishConversationTurn(fallbackBlob, generation, null);" in source
+    assert "const maxActiveSpeechMs = 3400;" in source
     assert "user_audio_start" in source
     assert "user_audio_end" in source
     assert 'if (type === "answer")' in source
+    assert 'if (type === "audio_complete")' in source
     assert "showAnswerText(liveAnswerTranscript);" in source
     assert "turn_complete" in source
     assert "activeRecordingHadSpeech" in source

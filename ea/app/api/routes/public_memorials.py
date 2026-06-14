@@ -5840,6 +5840,59 @@ def _memorial_tts_render_cache_paths(*, cache_payload: dict[str, object]) -> tup
     return root / f"{cache_key}.wav", root / f"{cache_key}.json"
 
 
+def _memorial_tts_cache_payload_match(
+    candidate_meta: dict[str, object],
+    cache_payload: dict[str, object],
+    *,
+    ignore_keys: set[str] | None = None,
+) -> bool:
+    ignored = set(ignore_keys or set())
+    for key, value in cache_payload.items():
+        if key in ignored:
+            continue
+        if candidate_meta.get(key) != value:
+            return False
+    return True
+
+
+def _adopt_legacy_memorial_tts_cache_entry(
+    *,
+    cache_payload: dict[str, object],
+    cache_audio_path: Path,
+    cache_meta_path: Path,
+    direct_contact_phrase: bool,
+) -> tuple[bytes, str] | None:
+    root = _memorial_tts_render_cache_root()
+    for candidate_meta_path in root.glob("*.json"):
+        if candidate_meta_path == cache_meta_path:
+            continue
+        try:
+            candidate_meta = json.loads(candidate_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(candidate_meta, dict):
+            continue
+        if not _memorial_tts_cache_payload_match(candidate_meta, cache_payload, ignore_keys={"postprocess_impl"}):
+            continue
+        candidate_audio_path = candidate_meta_path.with_suffix(".wav")
+        if not candidate_audio_path.is_file() or candidate_audio_path.stat().st_size <= 0:
+            continue
+        if direct_contact_phrase:
+            validation = dict(candidate_meta.get("contact_phrase_validation") or {})
+            if str(validation.get("status") or "").lower() != "pass":
+                continue
+        try:
+            audio = candidate_audio_path.read_bytes()
+            cache_audio_path.write_bytes(audio)
+            merged_meta = dict(candidate_meta)
+            merged_meta.update(cache_payload)
+            cache_meta_path.write_text(json.dumps(merged_meta, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            return audio, "audio/wav"
+        except OSError:
+            continue
+    return None
+
+
 def _render_memorial_tts_audio(
     *,
     slug: str,
@@ -5875,8 +5928,7 @@ def _render_memorial_tts_audio(
         "spoken_text_normalizer": "memorial_de_at_v2",
         "postprocess_impl": (
             f"{getattr(_pad_speech_audio_lead_in, '__module__', '')}:"
-            f"{getattr(_pad_speech_audio_lead_in, '__qualname__', '')}:"
-            f"{id(_pad_speech_audio_lead_in)}"
+            f"{getattr(_pad_speech_audio_lead_in, '__qualname__', '')}:v2"
         ),
     }
     cache_audio_path, cache_meta_path = _memorial_tts_render_cache_paths(cache_payload=cache_payload)
@@ -5892,6 +5944,15 @@ def _render_memorial_tts_audio(
         cached_validation = dict(cached_meta.get("contact_phrase_validation") or {}) if isinstance(cached_meta, dict) else {}
         if str(cached_validation.get("status") or "").lower() == "pass":
             return cache_audio_path.read_bytes(), "audio/wav"
+
+    adopted_legacy = _adopt_legacy_memorial_tts_cache_entry(
+        cache_payload=cache_payload,
+        cache_audio_path=cache_audio_path,
+        cache_meta_path=cache_meta_path,
+        direct_contact_phrase=direct_contact_phrase,
+    )
+    if adopted_legacy is not None:
+        return adopted_legacy
 
     def _synthesize_once() -> tuple[bytes, str]:
         if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID:
@@ -7468,6 +7529,7 @@ def _minimal_public_memorial_html(
       let requestInFlight = false;
       let activeGeneration = 0;
       const memorialChatEndpoint = "/memorials/{html.escape(slug)}/chat";
+      const memorialConversationTurnEndpoint = "/memorials/{html.escape(slug)}/conversation-turn";
       let activeRecorder = null;
       let activeStream = null;
       let activeChunks = [];
@@ -7490,6 +7552,16 @@ def _minimal_public_memorial_html(
       let liveInputTranscript = "";
       let liveRealtimeMessageHandler = null;
       let liveServerAudioPlaybackPending = false;
+      let liveBufferedAudioChunks = [];
+      let liveBufferedAudioContentType = "audio/wav";
+      let liveFallbackTimer = null;
+      let liveResponseEventAt = 0;
+      let liveAnswerEventAt = 0;
+      let completedConversationTurns = 0;
+      let contactAcknowledgementAudioBlob = null;
+      let contactAcknowledgementAudioPromise = null;
+      let contactAcknowledgementInFlight = false;
+      const contactAcknowledgementText = "Worum geht es?";
       const browserPreferredLanguage = "de-AT";
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
 
@@ -7525,6 +7597,48 @@ def _minimal_public_memorial_html(
         if (!answer || !text) return;
         answer.textContent = text;
         answer.hidden = false;
+      }}
+
+      async function ensureContactAcknowledgementAudio() {{
+        if (contactAcknowledgementAudioBlob) return contactAcknowledgementAudioBlob;
+        if (contactAcknowledgementAudioPromise) return await contactAcknowledgementAudioPromise;
+        contactAcknowledgementAudioPromise = (async () => {{
+          const response = await fetchWithTimeout(
+            "/memorials/{html.escape(slug)}/speech-synthesize",
+            {{
+              method: "POST",
+              headers: {{
+                "Content-Type": "application/json",
+                "Accept": "audio/wav",
+              }},
+              body: JSON.stringify({{ text: contactAcknowledgementText }}),
+            }},
+            15000,
+          );
+          if (!response.ok) throw new Error("contact_acknowledgement_audio_failed");
+          const blob = await response.blob();
+          if (!blob || blob.size < 128) throw new Error("contact_acknowledgement_audio_empty");
+          contactAcknowledgementAudioBlob = blob;
+          return blob;
+        }})().finally(() => {{
+          contactAcknowledgementAudioPromise = null;
+        }});
+        return await contactAcknowledgementAudioPromise;
+      }}
+
+      async function playFastContactAcknowledgement(generation) {{
+        if (generation !== activeGeneration || completedConversationTurns > 0 || contactAcknowledgementInFlight) return;
+        contactAcknowledgementInFlight = true;
+        showAnswerText(contactAcknowledgementText);
+        setSpeechStatus("Ich spreche.", "playing", contactAcknowledgementText);
+        try {{
+          const blob = await ensureContactAcknowledgementAudio();
+          if (generation !== activeGeneration || !blob) return;
+          await playMemorialAudio(blob, generation, contactAcknowledgementText);
+        }} catch (error) {{
+        }} finally {{
+          contactAcknowledgementInFlight = false;
+        }}
       }}
 
       function syncConversationButton() {{
@@ -7622,6 +7736,7 @@ def _minimal_public_memorial_html(
           }} catch (error) {{}}
           if (memorialReadySnapshot && memorialReadySnapshot.warm && (memorialReadySnapshot.voice_required === false || memorialReadySnapshot.voice_ready === true)) {{
             setMemorialLandingReady(true, "");
+            void ensureContactAcknowledgementAudio().catch(() => null);
           }} else {{
             setMemorialLandingReady(false, "Ich bin gleich bereit.");
             window.setTimeout(() => {{
@@ -7736,6 +7851,66 @@ def _minimal_public_memorial_html(
         return new Blob([bytes], {{ type: String((payload && payload.audio_content_type) || "audio/wav") }});
       }}
 
+      async function sendConversationTurnHttp(blob, generation) {{
+        if (!blob || blob.size < 128) throw new Error("capture_empty");
+        const response = await fetchWithTimeout(
+          memorialConversationTurnEndpoint,
+          {{
+            method: "POST",
+            headers: {{
+              "Content-Type": String(blob.type || "application/octet-stream"),
+              "Accept": "application/json",
+            }},
+            body: blob,
+          }},
+          90000,
+        );
+        let payload = null;
+        try {{
+          payload = await response.json();
+        }} catch (error) {{
+          payload = null;
+        }}
+        if (!response.ok) {{
+          const detail = String((payload && (payload.detail || payload.message)) || "").trim();
+          throw new Error(detail || ("conversation_turn_http_" + String(response.status || "failed")));
+        }}
+        if (generation !== activeGeneration) throw new Error("turn_superseded");
+        return payload && typeof payload === "object" ? payload : {{}};
+      }}
+
+      function pcmChunksToWavBlob(chunks, sampleRate = 16000) {{
+        const buffers = Array.isArray(chunks) ? chunks.filter((chunk) => chunk && chunk.byteLength) : [];
+        if (!buffers.length) return null;
+        let totalBytes = 0;
+        for (const chunk of buffers) totalBytes += chunk.byteLength;
+        const wav = new ArrayBuffer(44 + totalBytes);
+        const view = new DataView(wav);
+        const writeAscii = (offset, value) => {{
+          for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+        }};
+        writeAscii(0, "RIFF");
+        view.setUint32(4, 36 + totalBytes, true);
+        writeAscii(8, "WAVE");
+        writeAscii(12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeAscii(36, "data");
+        view.setUint32(40, totalBytes, true);
+        const bytes = new Uint8Array(wav, 44);
+        let cursor = 0;
+        for (const chunk of buffers) {{
+          bytes.set(new Uint8Array(chunk), cursor);
+          cursor += chunk.byteLength;
+        }}
+        return new Blob([wav], {{ type: "audio/wav" }});
+      }}
+
       async function playMemorialAudio(blob, generation, answerText = "") {{
         stopSpeechPlayback();
         speechObjectUrl = URL.createObjectURL(blob);
@@ -7786,6 +7961,12 @@ def _minimal_public_memorial_html(
 
       function cleanupLiveRealtimeSession() {{
         liveSessionActive = false;
+        if (liveFallbackTimer) {{
+          window.clearTimeout(liveFallbackTimer);
+          liveFallbackTimer = null;
+        }}
+        liveResponseEventAt = 0;
+        liveAnswerEventAt = 0;
         if (liveDataChannel && liveDataChannel.disconnect) {{
           try {{ liveDataChannel.disconnect(); }} catch (error) {{}}
         }}
@@ -7810,6 +7991,8 @@ def _minimal_public_memorial_html(
         liveAnswerTranscript = "";
         liveInputTranscript = "";
         liveServerAudioPlaybackPending = false;
+        liveBufferedAudioChunks = [];
+        liveBufferedAudioContentType = "audio/wav";
         try {{
           speechAudio.pause();
           speechAudio.srcObject = null;
@@ -7887,6 +8070,26 @@ def _minimal_public_memorial_html(
         }} catch (error) {{}}
       }}
 
+      function queueLiveBufferedAudioChunk(encodedAudio, contentType) {{
+        const encoded = String(encodedAudio || "").trim();
+        if (!encoded) return;
+        liveBufferedAudioChunks.push(encoded);
+        liveBufferedAudioContentType = String(contentType || liveBufferedAudioContentType || "audio/wav");
+      }}
+
+      function decodeBufferedLiveAudioBlob() {{
+        if (!Array.isArray(liveBufferedAudioChunks) || !liveBufferedAudioChunks.length) return null;
+        const encoded = liveBufferedAudioChunks.join("");
+        liveBufferedAudioChunks = [];
+        if (!encoded) return null;
+        try {{
+          const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+          return new Blob([bytes], {{ type: String(liveBufferedAudioContentType || "audio/wav") }});
+        }} catch (error) {{
+          return null;
+        }}
+      }}
+
       function handleLiveRealtimeEvent(rawEvent, generation) {{
         let event = null;
         try {{
@@ -7898,6 +8101,40 @@ def _minimal_public_memorial_html(
         pushMemorialRealtimeFrame(event);
         if (generation !== activeGeneration || !conversationSessionActive) return;
         const type = String(event.type || "");
+        const phase = String(event.phase || "");
+        if (
+          type === "transcript" ||
+          type === "answer" ||
+          type === "audio" ||
+          type === "audio_chunk" ||
+          type === "turn_complete" ||
+          type === "error" ||
+          type === "cancelled" ||
+          type === "response.output_audio_transcript.delta" ||
+          type === "response.output_audio_transcript.done" ||
+          type === "response.audio_transcript.delta" ||
+          type === "response.output_text.delta" ||
+          type === "response.output_text.done" ||
+          (type === "phase" && (phase === "transcribing" || phase === "thinking" || phase === "speaking"))
+        ) {{
+          liveResponseEventAt = Date.now();
+        }}
+        if (
+          type === "answer" ||
+          type === "audio" ||
+          type === "audio_chunk" ||
+          type === "response.output_audio_transcript.delta" ||
+          type === "response.output_audio_transcript.done" ||
+          type === "response.audio_transcript.delta" ||
+          type === "response.output_text.delta" ||
+          type === "response.output_text.done"
+        ) {{
+          liveAnswerEventAt = Date.now();
+          if (liveFallbackTimer) {{
+            window.clearTimeout(liveFallbackTimer);
+            liveFallbackTimer = null;
+          }}
+        }}
         if (type === "input_audio_buffer.speech_started") {{
           setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
           return;
@@ -7930,7 +8167,33 @@ def _minimal_public_memorial_html(
         }}
         if (type === "audio_chunk") {{
           setSpeechStatus("Ich spreche.", "playing", liveAnswerTranscript.trim());
-          playLivePcmChunk(event.audio_base64, event.content_type || "audio/pcm;rate=24000");
+          const chunkContentType = String(event.content_type || "audio/pcm;rate=24000");
+          if (chunkContentType.toLowerCase().startsWith("audio/pcm")) {{
+            playLivePcmChunk(event.audio_base64, chunkContentType);
+          }} else {{
+            queueLiveBufferedAudioChunk(event.audio_base64, chunkContentType);
+          }}
+          return;
+        }}
+        if (type === "audio_complete") {{
+          const blob = decodeBufferedLiveAudioBlob();
+          if (!blob) return;
+          liveServerAudioPlaybackPending = true;
+          void playMemorialAudio(blob, generation, liveAnswerTranscript)
+            .then(() => {{
+              liveServerAudioPlaybackPending = false;
+              completedConversationTurns += 1;
+              liveAnswerTranscript = "";
+              liveInputTranscript = "";
+              if (conversationSessionActive && generation === activeGeneration) {{
+                setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach weiter");
+                scheduleNextLiveRealtimeTurn(generation, 900);
+              }}
+            }})
+            .catch(() => {{
+              liveServerAudioPlaybackPending = false;
+              setSpeechStatus("Manfreds Stimme wurde zu kurz wiedergegeben.", "error", "Antwort steht als Text bereit");
+            }});
           return;
         }}
         if (type === "audio") {{
@@ -7943,6 +8206,7 @@ def _minimal_public_memorial_html(
           void playMemorialAudio(blob, generation, liveAnswerTranscript)
             .then(() => {{
               liveServerAudioPlaybackPending = false;
+              completedConversationTurns += 1;
               liveAnswerTranscript = "";
               liveInputTranscript = "";
               if (conversationSessionActive && generation === activeGeneration) {{
@@ -8016,6 +8280,7 @@ def _minimal_public_memorial_html(
         const targetRate = 16000;
         const speechThreshold = 0.0075;
         const preSpeechMaxBytes = Math.max(8192, Math.floor(targetRate * 2 * 0.72));
+        const maxActiveSpeechMs = 3400;
         let resampleCarry = 0;
         let speechSeen = false;
         let liveTurnStarted = false;
@@ -8023,7 +8288,45 @@ def _minimal_public_memorial_html(
         let lastVoiceAt = Date.now();
         const startedAt = Date.now();
         const preSpeechChunks = [];
+        const livePcmChunks = [];
         let preSpeechBytes = 0;
+        let liveFallbackStarted = false;
+        const scheduleLiveFallback = () => {{
+          if (liveFallbackTimer) window.clearTimeout(liveFallbackTimer);
+          liveFallbackTimer = window.setTimeout(async () => {{
+            if (liveFallbackStarted) return;
+            if (generation !== activeGeneration || !conversationSessionActive) return;
+            if (liveResponseEventAt > 0) return;
+            liveFallbackStarted = true;
+            setSpeechStatus("Ich sichere die Antwort lokal.", "working", "Live-Fallback");
+            cleanupLiveRealtimeSession();
+            const fallbackBlob = pcmChunksToWavBlob(livePcmChunks, targetRate);
+            if (!fallbackBlob || fallbackBlob.size < 128) {{
+              conversationSessionActive = false;
+              recordingActive = false;
+              requestInFlight = false;
+              syncConversationButton();
+              setSpeechStatus("Bitte noch einmal sprechen.", "error", "Live-Fallback hatte kein Audio");
+              return;
+            }}
+            try {{
+              window.setTimeout(() => {{
+                if (liveAnswerEventAt === 0 && generation === activeGeneration && conversationSessionActive && completedConversationTurns === 0) {{
+                  void playFastContactAcknowledgement(generation);
+                }}
+              }}, 260);
+              await finishConversationTurn(fallbackBlob, generation, null);
+            }} catch (error) {{
+              if (generation === activeGeneration) {{
+                conversationSessionActive = false;
+                recordingActive = false;
+                requestInFlight = false;
+                syncConversationButton();
+                setSpeechStatus("Bitte noch einmal sprechen.", "error", String(error && error.message ? error.message : error || ""));
+              }}
+            }}
+          }}, 1200);
+        }};
         function floatToPcm16(samples) {{
           const ratio = sourceRate / targetRate;
           const length = Math.max(1, Math.floor((samples.length + resampleCarry) / ratio));
@@ -8048,6 +8351,7 @@ def _minimal_public_memorial_html(
           const rms = Math.sqrt(sum / samples.length);
           const now = Date.now();
           const pcmBuffer = floatToPcm16(samples);
+          if (pcmBuffer && pcmBuffer.byteLength > 0) livePcmChunks.push(pcmBuffer.slice(0));
           if (!speechSeen && pcmBuffer && pcmBuffer.byteLength > 0) {{
             preSpeechChunks.push(pcmBuffer);
             preSpeechBytes += pcmBuffer.byteLength;
@@ -8080,12 +8384,25 @@ def _minimal_public_memorial_html(
             preSpeechBytes = 0;
           }}
           socket.send(pcmBuffer);
-          if (!liveTurnEnded && speechSeen && now - startedAt > 900 && now - lastVoiceAt > 920) {{
+          if (
+            !liveTurnEnded &&
+            speechSeen &&
+            (
+              (now - startedAt > 900 && now - lastVoiceAt > 920) ||
+              now - startedAt > maxActiveSpeechMs
+            )
+          ) {{
             liveTurnEnded = true;
             try {{ socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }})); }} catch (error) {{}}
             try {{ processor.disconnect(); }} catch (error) {{}}
             try {{ source.disconnect(); }} catch (error) {{}}
             setSpeechStatus("Ich antworte gleich.", "working", "");
+            window.setTimeout(() => {{
+              if (liveAnswerEventAt === 0 && generation === activeGeneration && conversationSessionActive && completedConversationTurns === 0) {{
+                void playFastContactAcknowledgement(generation);
+              }}
+            }}, 260);
+            scheduleLiveFallback();
           }}
         }};
         if (liveRealtimeMessageHandler && liveDataChannel) {{
@@ -8106,8 +8423,7 @@ def _minimal_public_memorial_html(
         const stream = await ensureInputStream();
         const mimeType = pickRecorderMimeType();
         const recorder = mimeType ? new MediaRecorder(stream, {{ mimeType }}) : new MediaRecorder(stream);
-        const realtimeTurn = await startRealtimeAudioTurn(recorder.mimeType || mimeType || "audio/webm", generation);
-        activeRealtimeAudioTurn = realtimeTurn;
+        activeRealtimeAudioTurn = null;
         activeRecorder = recorder;
         activeChunks = [];
         activeRecordingHadSpeech = false;
@@ -8115,7 +8431,6 @@ def _minimal_public_memorial_html(
         recorder.ondataavailable = (event) => {{
           if (event.data && event.data.size > 0) {{
             activeChunks.push(event.data);
-            if (activeRealtimeAudioTurn) activeRealtimeAudioTurn.sendBlob(event.data);
           }}
         }};
         recorder.onerror = () => {{
@@ -8315,9 +8630,13 @@ def _minimal_public_memorial_html(
       }}
 
       async function sendConversationTurn(blob, generation) {{
-        const turn = await startRealtimeAudioTurn(blob.type || "application/octet-stream", generation);
-        turn.sendBlob(blob);
-        return await turn.finish();
+        try {{
+          const turn = await startRealtimeAudioTurn(blob.type || "application/octet-stream", generation);
+          turn.sendBlob(blob);
+          return await turn.finish();
+        }} catch (error) {{
+          return await sendConversationTurnHttp(blob, generation);
+        }}
       }}
 
       async function ensureLandingReadyForConversation() {{
@@ -8406,6 +8725,7 @@ def _minimal_public_memorial_html(
           const blob = recordedBlob;
           if (generation !== activeGeneration) return;
           if (!realtimeTurnOverride && (!blob || blob.size < 128)) throw new Error("capture_empty");
+          if (completedConversationTurns === 0) void playFastContactAcknowledgement(generation);
           const payload = realtimeTurnOverride
             ? await realtimeTurnOverride.finish()
             : await sendConversationTurn(blob, generation);
@@ -8414,6 +8734,7 @@ def _minimal_public_memorial_html(
           const audioBlob = decodeAudioPayload(payload);
           if (audioBlob) {{
             await playMemorialAudio(audioBlob, generation, String((payload && payload.answer) || ""));
+            completedConversationTurns += 1;
             if (generation !== activeGeneration) return;
           }} else if (!String((payload && payload.answer) || "").trim()) {{
             throw new Error("missing_memorial_audio");
