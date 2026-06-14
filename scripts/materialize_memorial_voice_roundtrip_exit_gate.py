@@ -128,6 +128,8 @@ def build_receipt(
     require_public_origin: bool = False,
     direct_min_f1: float = 0.92,
     conversation_min_f1: float = 0.90,
+    max_conversation_turn_ms: float = 4500.0,
+    max_speech_transcribe_ms: float = 2500.0,
     critical_tokens: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     report = voice_loop.validate_memorial_voice_loop(
@@ -165,6 +167,43 @@ def build_receipt(
             }
         )
         payload["status"] = "fail"
+    metrics = dict(payload.get("metrics") or {})
+    try:
+        conversation_turn_total_ms = float(metrics.get("conversation_turn_total_ms") or 0.0)
+    except Exception:
+        conversation_turn_total_ms = 0.0
+    try:
+        speech_transcribe_ms = float(metrics.get("speech_transcribe_ms") or 0.0)
+    except Exception:
+        speech_transcribe_ms = 0.0
+    if gold_mode and conversation_turn_total_ms > float(max_conversation_turn_ms):
+        failed_codes.append("conversation_turn_total_ms_above_gold_threshold")
+        payload.setdefault("checks", []).append(
+            {
+                "status": "fail",
+                "code": "conversation_turn_total_ms_above_gold_threshold",
+                "message": "Memorial-gold voice proof exceeded the conversation-turn latency threshold.",
+                "detail": {
+                    "conversation_turn_total_ms": conversation_turn_total_ms,
+                    "max_allowed_ms": float(max_conversation_turn_ms),
+                },
+            }
+        )
+        payload["status"] = "fail"
+    if gold_mode and speech_transcribe_ms > float(max_speech_transcribe_ms):
+        failed_codes.append("speech_transcribe_ms_above_gold_threshold")
+        payload.setdefault("checks", []).append(
+            {
+                "status": "fail",
+                "code": "speech_transcribe_ms_above_gold_threshold",
+                "message": "Memorial-gold voice proof exceeded the speech-transcribe latency threshold.",
+                "detail": {
+                    "speech_transcribe_ms": speech_transcribe_ms,
+                    "max_allowed_ms": float(max_speech_transcribe_ms),
+                },
+            }
+        )
+        payload["status"] = "fail"
     dirty_worktree = _git_dirty()
     if gold_mode and dirty_worktree:
         failed_codes.append("dirty_worktree")
@@ -193,6 +232,8 @@ def build_receipt(
         "require_public_origin": bool(require_public_origin),
         "direct_min_f1": float(direct_min_f1),
         "conversation_min_f1": float(conversation_min_f1),
+        "max_conversation_turn_ms": float(max_conversation_turn_ms),
+        "max_speech_transcribe_ms": float(max_speech_transcribe_ms),
         "critical_tokens": list(critical_tokens),
         "direct_text": direct_text,
         "conversation_question": conversation_question,
@@ -223,6 +264,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-public-origin", action="store_true")
     parser.add_argument("--direct-min-f1", type=float, default=0.92)
     parser.add_argument("--conversation-min-f1", type=float, default=0.90)
+    parser.add_argument("--max-conversation-turn-ms", type=float, default=float(os.getenv("MEMORIAL_GOLD_MAX_CONVERSATION_TURN_MS", "4500")))
+    parser.add_argument("--max-speech-transcribe-ms", type=float, default=float(os.getenv("MEMORIAL_GOLD_MAX_SPEECH_TRANSCRIBE_MS", "2500")))
     parser.add_argument("--critical-token", action="append", default=[])
     args = parser.parse_args(argv)
 
@@ -238,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
         require_public_origin=bool(args.require_public_origin),
         direct_min_f1=float(args.direct_min_f1),
         conversation_min_f1=float(args.conversation_min_f1),
+        max_conversation_turn_ms=float(args.max_conversation_turn_ms),
+        max_speech_transcribe_ms=float(args.max_speech_transcribe_ms),
         critical_tokens=tuple(str(token) for token in args.critical_token),
     )
     output = Path(args.output)
