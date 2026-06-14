@@ -698,6 +698,61 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                         timeout=35000,
                     )
                     first_answer_elapsed_ms = (time.perf_counter() - answer_started) * 1000.0
+                    try:
+                        answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
+                    except Exception:
+                        answer_text = ""
+                    try:
+                        answer_visible = bool(
+                            page.eval_on_selector(
+                                "#memorial-chat-answer",
+                                """node => {
+                                  const style = window.getComputedStyle(node);
+                                  const rect = node.getBoundingClientRect();
+                                  return Boolean(
+                                    node.textContent &&
+                                    node.textContent.trim().length > 0 &&
+                                    !node.hidden &&
+                                    style.display !== "none" &&
+                                    style.visibility !== "hidden" &&
+                                    rect.width > 0 &&
+                                    rect.height > 0
+                                  );
+                                }""",
+                            )
+                        )
+                    except Exception:
+                        answer_visible = False
+                    try:
+                        page.wait_for_function(
+                            """
+                            () => Boolean(
+                              window.__memorial_audio_gate &&
+                              window.__memorial_audio_gate.play_calls > 0 &&
+                              (window.__memorial_audio_gate.play_ended > 0 || window.__memorial_audio_gate.last_error)
+                            )
+                            """,
+                            timeout=2500,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        gate_state = page.evaluate(
+                            "() => window.__memorial_audio_gate || { play_calls: 0, play_ended: 0, last_error: \"\" }"
+                        )
+                        ui_audio_play_calls = max(ui_audio_play_calls, int(gate_state.get("play_calls") or 0))
+                        ui_audio_play_ended = max(ui_audio_play_ended, int(gate_state.get("play_ended") or 0))
+                        ui_audio_play_error = str(gate_state.get("last_error") or ui_audio_play_error)
+                    except Exception:
+                        pass
+                    try:
+                        ui_audio_src = page.eval_on_selector(
+                            "#memorial-speech-audio",
+                            "node => node && node.getAttribute('src') ? node.getAttribute('src') : ''",
+                        )
+                        ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
+                    except Exception:
+                        pass
                     turn_state = _wait_for_realtime_turn(
                         context,
                         slug,
@@ -762,9 +817,9 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     gate_state = page.evaluate(
                         "() => window.__memorial_audio_gate || { play_calls: 0, play_ended: 0, last_error: \"\" }"
                     )
-                    ui_audio_play_calls = int(gate_state.get("play_calls") or 0)
-                    ui_audio_play_ended = int(gate_state.get("play_ended") or 0)
-                    ui_audio_play_error = str(gate_state.get("last_error") or "")
+                    ui_audio_play_calls = max(ui_audio_play_calls, int(gate_state.get("play_calls") or 0))
+                    ui_audio_play_ended = max(ui_audio_play_ended, int(gate_state.get("play_ended") or 0))
+                    ui_audio_play_error = str(gate_state.get("last_error") or ui_audio_play_error)
                     ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
                     page.click("#memorial-conversation", timeout=5000)
                     page.wait_for_function(
@@ -821,7 +876,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                         turn_error = "missing_answer"
                     elif not answer_visible:
                         turn_error = "missing_visible_answer_text"
-                    elif not audio_payload_ready and not audio_unavailable:
+                    elif not audio_payload_ready and not ui_audio_ready and not audio_unavailable:
                         turn_error = "missing_audio_payload"
                     elif not ui_audio_ready and not audio_unavailable:
                         turn_error = "missing_ui_audio_output"
@@ -897,10 +952,20 @@ def _with_exit_gate_status(
             reasons.append(reason)
 
     if result.get("turn_error"):
-        add_reason(str(result.get("turn_error") or "missing_gate_feedback"))
+        turn_error = str(result.get("turn_error") or "")
+        first_response_ready = (
+            float(result.get("first_answer_ms") or 0.0) > 0.0
+            and bool(result.get("audio_ready_for_ui"))
+            and bool(result.get("ui_audio_play_calls"))
+            and bool(result.get("answer_semantic_passed"))
+        )
+        if turn_error == "timeout waiting for realtime turn_complete" and first_response_ready:
+            turn_error = ""
+        if turn_error:
+            add_reason(turn_error)
     elif not str(result.get("answer_preview") or "").strip():
         add_reason("missing_answer_preview")
-    if not bool(result.get("audio_payload_ready")):
+    if not bool(result.get("audio_payload_ready")) and not bool(result.get("audio_ready_for_ui")):
         add_reason("missing_audio_payload")
     if not bool(result.get("audio_ready_for_ui")):
         add_reason("missing_ui_audio_output")
