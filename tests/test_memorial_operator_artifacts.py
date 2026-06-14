@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -25,6 +26,18 @@ def test_memorial_phrase_bank_materializer_writes_expected_ids(tmp_path, monkeyp
 def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tmp_path, monkeypatch) -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status")
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
+    whole_project_map = tmp_path / "whole-project-gold-map.json"
+    whole_project_map.write_text(
+        json.dumps(
+            {
+                "overall_status": "not_gold",
+                "gold_claim_allowed": False,
+                "blocking_planes": ["memorial_public_origin_gold"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "WHOLE_PROJECT_GOLD_MAP", whole_project_map)
     monkeypatch.setattr(
         module,
         "_run_json",
@@ -45,6 +58,8 @@ def test_memorial_operator_status_materializer_summarizes_blocked_public_gold(tm
     assert payload["current_label"] == "Memorial public-origin gold: blocked"
     assert payload["local_release_candidate"] == "pass"
     assert payload["public_voice_receipt"] == "missing_or_blocked"
+    assert payload["whole_project_gold"] == "blocked"
+    assert payload["whole_project_map_summary"]["blocking_planes"] == ["memorial_public_origin_gold"]
 
 
 def test_memorial_operator_status_run_json_reads_blocked_json_from_stderr(tmp_path, monkeypatch) -> None:
@@ -64,3 +79,38 @@ def test_memorial_operator_status_run_json_reads_blocked_json_from_stderr(tmp_pa
     payload = module._run_json("scripts/verify_whole_project_gold_map.py")
     assert payload["status"] == "blocked"
     assert calls["cwd"] == module.ROOT
+
+
+def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_allows_it(tmp_path, monkeypatch) -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_gold_pass")
+    monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
+    whole_project_map = tmp_path / "whole-project-gold-map.json"
+    whole_project_map.write_text(
+        json.dumps(
+            {
+                "overall_status": "gold",
+                "gold_claim_allowed": True,
+                "blocking_planes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "WHOLE_PROJECT_GOLD_MAP", whole_project_map)
+    monkeypatch.setattr(
+        module,
+        "_run_json",
+        lambda script: (
+            {
+                "memorial_voice_gold_claim_allowed": True,
+                "local_release_issues": [],
+                "public_gold_issues": [],
+                "public_browser_gold_issues": [],
+                "room_audio_issues": [],
+            }
+            if "verify_memorial_gold_readiness" in script
+            else {"status": "pass"}
+        ),
+    )
+    assert module.main() == 0
+    payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
+    assert payload["whole_project_gold"] == "pass"
