@@ -5609,6 +5609,34 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
         return False
     if _looks_like_memorial_contact_opening_transcript(text):
         return "manfred" in tokens and bool(tokens & {"kann", "kannst", "reden", "sprechen", "hoerst", "hörst"})
+    fast_question_markers = {
+        "wie",
+        "was",
+        "wo",
+        "wann",
+        "warum",
+        "wieso",
+        "weshalb",
+        "welches",
+        "welche",
+        "welcher",
+        "wetter",
+        "heute",
+        "jetzt",
+        "ort",
+        "manfred",
+        "hallo",
+        "bitte",
+        "kann",
+        "kannst",
+        "sprichst",
+        "sprechen",
+        "reden",
+        "hörst",
+        "hoerst",
+    }
+    if len(tokens) >= 3 and tokens & fast_question_markers:
+        return True
     return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
 
 
