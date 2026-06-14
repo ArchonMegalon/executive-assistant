@@ -13,6 +13,8 @@ import struct
 import subprocess
 import tempfile
 import time
+import urllib.error
+import urllib.request
 import wave
 from datetime import UTC, datetime
 from pathlib import Path
@@ -167,6 +169,71 @@ def _source_tree_fingerprint() -> str:
 def _is_local_base_url(value: str) -> bool:
     lowered = str(value or "").strip().lower()
     return any(marker in lowered for marker in ("://127.0.0.1", "://localhost", "://0.0.0.0", "://[::1]"))
+
+
+def _http_json(url: str, *, method: str = "GET", payload: dict[str, object] | None = None, timeout: float = 20.0) -> tuple[int, dict[str, object]]:
+    body = None
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "EA-Memorial-Browser-Gold/1.0",
+    }
+    if payload is not None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            return int(getattr(response, "status", 0) or 0), json.loads(raw or "{}")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(raw or "{}")
+        except Exception:
+            parsed = {"detail": raw}
+        return int(exc.code), parsed
+    except Exception as exc:
+        return 0, {"detail": f"request_failed:{type(exc).__name__}:{str(exc)[:180]}"}
+
+
+def _prewarm_memorial_origin(base_url: str, slug: str, *, timeout_seconds: float = 25.0) -> dict[str, object]:
+    base = str(base_url or "").rstrip("/")
+    page_url = f"{base}/memorials/{slug}"
+    warmup_url = f"{page_url}/warmup"
+    warmup_status_url = f"{page_url}/warmup-status"
+    started = time.perf_counter()
+    request_status, request_payload = _http_json(
+        warmup_url,
+        method="POST",
+        payload={"reason": "browser_gold_preflight"},
+        timeout=min(15.0, max(3.0, timeout_seconds)),
+    )
+    last_status = 0
+    last_payload: dict[str, object] = {}
+    while (time.perf_counter() - started) < timeout_seconds:
+        last_status, last_payload = _http_json(warmup_status_url, method="GET", timeout=10.0)
+        if last_status == 200:
+            warm = bool(last_payload.get("warm"))
+            voice_required = bool(last_payload.get("voice_required"))
+            voice_ready = bool(last_payload.get("voice_ready"))
+            if warm and (not voice_required or voice_ready):
+                return {
+                    "request_status": request_status,
+                    "request_payload": request_payload,
+                    "status_code": last_status,
+                    "payload": last_payload,
+                    "ready": True,
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 1),
+                }
+        time.sleep(0.9)
+    return {
+        "request_status": request_status,
+        "request_payload": request_payload,
+        "status_code": last_status,
+        "payload": last_payload,
+        "ready": False,
+        "elapsed_ms": round((time.perf_counter() - started) * 1000.0, 1),
+    }
 
 
 def _pure_python_prompt_wav_bytes(text: str) -> bytes:
@@ -541,6 +608,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
     audio_bytes = _synthesized_prompt_wav_bytes(prompt_text)
     page_url = f"{base_url.rstrip('/')}/memorials/{slug}"
     warmup_url = f"{page_url}/warmup-status"
+    warmup_preflight = _prewarm_memorial_origin(base_url, slug, timeout_seconds=25.0)
     semantic_profile = _semantic_profile_for_prompt(prompt_text)
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="memorial-live-browser-capture-") as tmpdir:
@@ -758,6 +826,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     "base_url": base_url,
                     "slug": slug,
                     "prompt_text": prompt_text,
+                    "warmup_preflight": warmup_preflight,
                     "page_load_ms": round(load_ms, 1),
                     "cta_ready_ms": round(cta_ready_ms, 1),
                     "first_answer_ms": round(first_answer_ms, 1),

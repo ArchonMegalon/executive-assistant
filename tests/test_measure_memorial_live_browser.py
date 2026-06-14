@@ -133,6 +133,7 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     assert '"answer_semantic_passed"' in source
     assert '"first_answer_too_slow"' in source
     assert '"answer_semantics_failed"' in source
+    assert '"warmup_preflight"' in source
     assert '"--exit-gate"' in source
     assert '"turn_error": turn_error[:240]' in source
     assert '--real-stt' in source
@@ -140,6 +141,27 @@ def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     assert '--require-public-origin' in source
     assert '"ea.memorial_realtime_browser_exit_gate"' in source
     assert '"speech_transcribe_mode"' in source
+
+
+def test_prewarm_memorial_origin_reports_ready_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    calls: list[tuple[str, str]] = []
+
+    def _fake_http_json(url: str, *, method: str = "GET", payload=None, timeout: float = 20.0):
+        calls.append((method, url))
+        if method == "POST":
+            return 202, {"status": "queued"}
+        return 200, {"warm": True, "voice_required": True, "voice_ready": True}
+
+    monkeypatch.setattr(module, "_http_json", _fake_http_json)
+
+    receipt = module._prewarm_memorial_origin("https://example.com", "manfred", timeout_seconds=0.1)
+
+    assert receipt["ready"] is True
+    assert receipt["request_status"] == 202
+    assert receipt["status_code"] == 200
+    assert ("POST", "https://example.com/memorials/manfred/warmup") in calls
+    assert ("GET", "https://example.com/memorials/manfred/warmup-status") in calls
 
 
 def test_browser_exit_gate_receipt_blocks_local_public_gold() -> None:
