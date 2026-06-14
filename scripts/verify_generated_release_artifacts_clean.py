@@ -24,6 +24,7 @@ VOLATILE_KEYS = {
     "generated_at",
     "as_of",
     "created_at",
+    "current_head",
     "mtime_utc",
     "size_bytes",
     "sha256",

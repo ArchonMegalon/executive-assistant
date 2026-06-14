@@ -48,6 +48,26 @@ def test_generated_release_artifact_normalizer_ignores_host_runner_execution_fie
     assert module._normalize(head) == module._normalize(hosted)
 
 
+def test_generated_release_artifact_normalizer_ignores_current_head_provenance_field() -> None:
+    module = _load_module()
+    before = {
+        "status": "blocked",
+        "readiness": {
+            "current_head": "abc123",
+            "room_audio_issues": ["room_receipt_missing_or_invalid"],
+        },
+    }
+    after = {
+        "status": "blocked",
+        "readiness": {
+            "current_head": "def456",
+            "room_audio_issues": ["room_receipt_missing_or_invalid"],
+        },
+    }
+
+    assert module._normalize(before) == module._normalize(after)
+
+
 def test_generated_release_artifact_normalizer_preserves_semantic_status_drift() -> None:
     module = _load_module()
 

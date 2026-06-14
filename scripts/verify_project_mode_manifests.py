@@ -11,6 +11,8 @@ PROJECT_MODES = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
 SHOW_SURFACE = ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
 GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+    ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json",
     ".codex-design/product/PROJECT_MODES.generated.json",
     ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
     ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
