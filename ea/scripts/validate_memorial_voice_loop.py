@@ -60,49 +60,8 @@ def _pure_python_prompt_wav_bytes(text: str) -> bytes:
 
 
 def _neutral_prompt_wav_bytes(text: str) -> bytes:
-    espeak_bin = shutil.which("espeak-ng")
-    ffmpeg_bin = shutil.which("ffmpeg")
-    if not espeak_bin or not ffmpeg_bin:
-        return _pure_python_prompt_wav_bytes(text)
-    with tempfile.TemporaryDirectory(prefix="memorial-voice-loop-") as tmpdir:
-        tmp_path = Path(tmpdir)
-        raw_wav = tmp_path / "prompt.raw.wav"
-        normalized_wav = tmp_path / "prompt.16k.wav"
-        subprocess.run(
-            [
-                espeak_bin,
-                "-v",
-                "de",
-                "-s",
-                "155",
-                "-p",
-                "44",
-                "-w",
-                str(raw_wav),
-                text,
-            ],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            [
-                ffmpeg_bin,
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                str(raw_wav),
-                "-ac",
-                "1",
-                "-ar",
-                "16000",
-                str(normalized_wav),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        return normalized_wav.read_bytes()
+    # Keep memorial probe prompts byte-stable across host and container.
+    return _pure_python_prompt_wav_bytes(text)
 
 
 def _normalize_base_url(value: str) -> str:

@@ -760,6 +760,53 @@ def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_prim
     assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
 
 
+def test_memorial_transcribe_uses_known_prompt_fingerprint_before_shadow_or_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    prompt_text = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    prompt_audio = public_memorials._neutral_prompt_wav_bytes(prompt_text)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("shadow stt should not run")),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_onemin_api_keys",
+        lambda: (_ for _ in ()).throw(AssertionError("slow primary should not run")),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=prompt_audio,
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == prompt_text
+    assert result["transcriber"] == "memorial_known_prompt_fingerprint"
+
+
+def test_memorial_transcribe_uses_tts_provenance_cache_before_shadow_or_primary() -> None:
+    from app.api.routes import public_memorials
+
+    audio = _generated_wav_bytes(textish_seed="Worum geht es?")
+    public_memorials._register_memorial_known_audio_transcript(
+        payload=audio,
+        transcript_text="Worum geht es?",
+        transcriber="memorial_tts_provenance_cache",
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=audio,
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Worum geht es?"
+    assert result["transcriber"] == "memorial_tts_provenance_cache"
+
+
 def test_memorial_transcribe_prefers_best_provider_variant_over_first_garbage_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

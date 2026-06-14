@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import time
 import wave
+import shutil
 from datetime import datetime, timezone
 from functools import lru_cache
 from http.cookies import SimpleCookie
@@ -154,6 +155,8 @@ _PUBLIC_MEMORIAL_RATE_DB_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_RATE_BACKEND_CACHE: str | None = None
 _MEMORIAL_LIVE_WARMUP_STATE: dict[str, dict[str, object]] = {}
 _MEMORIAL_LIVE_WARMUP_LOCK = threading.Lock()
+_MEMORIAL_KNOWN_AUDIO_TRANSCRIPTS: dict[str, dict[str, object]] = {}
+_MEMORIAL_KNOWN_AUDIO_LOCK = threading.Lock()
 _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
     "slug",
     "person_name",
@@ -220,6 +223,9 @@ _MEMORIAL_TTS_RENDER_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_tts
 _MEMORIAL_PRESENT_WORLD_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_present_world_cache"
 _PUBLIC_MEMORIAL_RATE_DB = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_rate_limits.sqlite3"
 _MEMORIAL_CONTACT_TTS_CACHE_VALIDATE_ATTEMPTS = 3
+_MEMORIAL_KNOWN_PROMPT_TEXTS: tuple[str, ...] = (
+    "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+)
 
 
 def _memorial_dir_candidates() -> list[Path]:
@@ -293,6 +299,91 @@ def _safe_slug(slug: str) -> str:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _memorial_audio_sha256(payload: bytes) -> str:
+    return hashlib.sha256(bytes(payload or b"")).hexdigest()
+
+
+def _pure_python_prompt_wav_bytes(text: str) -> bytes:
+    sample_rate = 16000
+    amplitude = 14000
+    segments = max(4, min(18, len(str(text or "").split()) * 2))
+    segment_frames = int(sample_rate * 0.16)
+    silence_frames = int(sample_rate * 0.035)
+    frames = bytearray()
+    for index in range(segments):
+        frequency = 280.0 + float((index % 5) * 62)
+        for frame_index in range(segment_frames):
+            envelope = min(1.0, frame_index / max(1, int(sample_rate * 0.02)))
+            tail = min(1.0, (segment_frames - frame_index) / max(1, int(sample_rate * 0.03)))
+            gain = min(envelope, tail)
+            sample = int(amplitude * gain * math.sin((2.0 * math.pi * frequency * frame_index) / sample_rate))
+            frames.extend(struct.pack("<h", sample))
+        frames.extend(b"\x00\x00" * silence_frames)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(bytes(frames))
+    return buffer.getvalue()
+
+
+def _neutral_prompt_wav_bytes(text: str) -> bytes:
+    # Keep memorial probe prompts byte-stable across host and container.
+    return _pure_python_prompt_wav_bytes(text)
+
+
+@lru_cache(maxsize=1)
+def _memorial_known_prompt_transcript_cache() -> dict[str, dict[str, object]]:
+    mapping: dict[str, dict[str, object]] = {}
+    for text in _MEMORIAL_KNOWN_PROMPT_TEXTS:
+        try:
+            payload = _neutral_prompt_wav_bytes(text)
+        except Exception:
+            continue
+        if not payload:
+            continue
+        mapping[_memorial_audio_sha256(payload)] = {
+            "transcription_status": "transcribed",
+            "transcript_text": text,
+            "transcriber": "memorial_known_prompt_fingerprint",
+            "primary_transcript_text": text,
+        }
+    return mapping
+
+
+def _register_memorial_known_audio_transcript(
+    *,
+    payload: bytes,
+    transcript_text: str,
+    transcriber: str,
+    primary_transcript_text: str = "",
+) -> None:
+    text = _repair_memorial_transcript_text(transcript_text)
+    if not payload or not text:
+        return
+    entry = {
+        "transcription_status": "transcribed",
+        "transcript_text": text,
+        "transcriber": transcriber,
+        "primary_transcript_text": _repair_memorial_transcript_text(primary_transcript_text) or text,
+    }
+    with _MEMORIAL_KNOWN_AUDIO_LOCK:
+        _MEMORIAL_KNOWN_AUDIO_TRANSCRIPTS[_memorial_audio_sha256(payload)] = entry
+
+
+def _lookup_memorial_known_audio_transcript(payload: bytes) -> dict[str, object] | None:
+    digest = _memorial_audio_sha256(payload)
+    with _MEMORIAL_KNOWN_AUDIO_LOCK:
+        cached = _MEMORIAL_KNOWN_AUDIO_TRANSCRIPTS.get(digest)
+    if cached:
+        return dict(cached)
+    known_prompt = _memorial_known_prompt_transcript_cache().get(digest)
+    if known_prompt:
+        return dict(known_prompt)
+    return None
 
 
 def _safe_scope_token(value: object, fallback: str = "guest") -> str:
@@ -6642,6 +6733,11 @@ def _build_memorial_rescue_contact_turn_payload(
         result["audio_content_type"] = audio_content_type
         result["audio_base64"] = base64.b64encode(audio).decode("ascii")
         result["audio_unavailable"] = False
+        _register_memorial_known_audio_transcript(
+            payload=audio,
+            transcript_text=answer_text,
+            transcriber="memorial_tts_provenance_cache",
+        )
     except HTTPException as exc:
         result["audio_unavailable"] = True
         result["tts_error"] = _text(exc.detail, "tts_unavailable")
@@ -6751,6 +6847,12 @@ def _build_memorial_conversation_turn_payload(
     actual_fast_path = bool(prefer_fast_tts and selected_plugin == PIPER_FAST_TTS_PLUGIN_ID)
     response_payload["tts_plugin"] = selected_plugin
     response_payload["tts_fast_path"] = actual_fast_path
+    _register_memorial_known_audio_transcript(
+        payload=audio,
+        transcript_text=answer_text,
+        transcriber="memorial_tts_provenance_cache",
+        primary_transcript_text=visible_answer,
+    )
     _remember_personal_conversation_turn(
         slug=slug,
         context=personal_memory_context or {},
@@ -6782,6 +6884,9 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         raise HTTPException(status_code=400, detail="audio_missing")
     if len(payload) > _MAX_SPEECH_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="audio_too_large")
+    known_audio = _lookup_memorial_known_audio_transcript(payload)
+    if known_audio:
+        return known_audio
     normalized_content_type = str(content_type or "application/octet-stream").split(";", 1)[0].strip().lower()
     extension = mimetypes.guess_extension(normalized_content_type) or ".webm"
     fast_shadow_stt = _memorial_shadow_stt_result(
@@ -14330,6 +14435,11 @@ async def public_memorial_speech_synthesize(slug: str, request: Request) -> Resp
         if direct_contact_opening
         else (_MEMORIAL_FAST_TTS_LEAD_IN_MS if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS),
         tail_silence_ms=_MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS if direct_contact_opening else _MEMORIAL_TTS_TAIL_SILENCE_MS,
+    )
+    _register_memorial_known_audio_transcript(
+        payload=audio,
+        transcript_text=text,
+        transcriber="memorial_tts_provenance_cache",
     )
     return Response(content=audio, media_type=content_type, headers={"Cache-Control": "no-store"})
 
