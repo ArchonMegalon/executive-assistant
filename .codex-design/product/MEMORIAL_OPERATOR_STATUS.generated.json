@@ -6,6 +6,7 @@
   "local_release_candidate": "pass",
   "public_voice_receipt": "pass",
   "public_browser_receipt": "pass",
+  "public_browser_meaningful_receipt": "pass",
   "room_audio_receipt": "missing_or_blocked",
   "whole_project_gold": "blocked",
   "operator_notes": [
@@ -14,19 +15,19 @@
   ],
   "readiness": {
     "status": "blocked",
-    "current_head": "14c0ca28269f965571b885b2b101aa3b825ea32a",
+    "current_head": "c800a5317ac1332bed66ed9f7574acd00ad3fa83",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
       "memorial_public": "Memorial public-origin gold"
     },
-    "local_release_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    "local_release_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     "local_release_issues": [],
-    "public_gold_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    "public_gold_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_gold_issues": [],
-    "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    "public_browser_gold_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [],
-    "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "room_audio_receipt": "/tmp/ea-artifact.PzTSKu/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
     "room_audio_issues": [
       "room_receipt_missing_or_invalid"
     ],
@@ -46,8 +47,10 @@
     }
   },
   "whole_project": {
-    "status": "pass",
-    "message": "whole-project gold map is honest and fail-closed."
+    "status": "blocked",
+    "issues": [
+      "whole-project gold map is stale relative to current HEAD"
+    ]
   },
   "whole_project_map_summary": {
     "overall_status": "not_gold",

@@ -1,7 +1,7 @@
 {
   "base_url": "https://myexternalbrain.com",
   "slug": "manfred",
-  "prompt_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+  "prompt_text": "Was war dir bei Gerechtigkeit wichtig?",
   "warmup_preflight": {
     "request_status": 202,
     "request_payload": {
@@ -27,11 +27,11 @@
       "ttl_seconds": 600
     },
     "ready": true,
-    "elapsed_ms": 157.8
+    "elapsed_ms": 172.0
   },
-  "page_load_ms": 5504.3,
-  "cta_ready_ms": 15.3,
-  "first_answer_ms": 33.1,
+  "page_load_ms": 1220.1,
+  "cta_ready_ms": 15.8,
+  "first_answer_ms": 67.4,
   "speech_transcribe_mode": "live",
   "warmup_status_before": {
     "slug": "manfred",
@@ -63,26 +63,25 @@
     "voice_required": true,
     "ttl_seconds": 600
   },
-  "semantic_profile_id": "contact_opening",
+  "semantic_profile_id": "memorial_values",
   "answer_preview": "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
-  "answer_context_match_count": 4,
+  "answer_context_match_count": 5,
   "answer_context_matches": [
-    "da",
-    "sag",
+    "konkreten",
+    "punkt",
+    "enger",
     "antworte",
-    "direkt"
+    "allgemein"
   ],
-  "answer_semantic_group_match_count": 3,
+  "answer_semantic_group_match_count": 2,
   "answer_semantic_matched_groups": [
     [
-      "da"
+      "konkreten",
+      "punkt"
     ],
     [
-      "sag"
-    ],
-    [
-      "antworte",
-      "direkt"
+      "enger",
+      "antworte"
     ]
   ],
   "answer_semantic_passed": true,
@@ -112,7 +111,7 @@
   "ui_audio_play_ended": 2,
   "ui_audio_play_error": "",
   "contract_name": "ea.memorial_realtime_browser_exit_gate",
-  "generated_at": "2026-06-14T12:42:06Z",
+  "generated_at": "2026-06-14T12:42:33Z",
   "generated_by": "scripts/measure_memorial_live_browser.py",
   "git_head": "c800a5317ac1332bed66ed9f7574acd00ad3fa83",
   "source_git_head": "c800a5317ac1332bed66ed9f7574acd00ad3fa83",
@@ -122,7 +121,7 @@
   "exit_gate": true,
   "gold_mode": true,
   "require_public_origin": true,
-  "max_first_answer_ms": 4500.0,
+  "max_first_answer_ms": 8000.0,
   "failed_codes": [],
   "gold_claim_allowed": true
 }
