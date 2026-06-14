@@ -8836,6 +8836,12 @@ def _minimal_public_memorial_html(
         conversationSessionActive = true;
         recordingActive = true;
         syncConversationButton();
+        if (completedConversationTurns === 0 && contactAcknowledgementReady) {{
+          try {{
+            await playFastContactAcknowledgement(generation);
+          }} catch (error) {{}}
+          if (generation !== activeGeneration || !conversationSessionActive) return;
+        }}
         setSpeechStatus("Ich höre zu.", "listening", "Sprich einfach los");
         if (supportsLiveRealtimeSession()) {{
           try {{

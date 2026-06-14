@@ -3362,6 +3362,8 @@ def test_memorial_live_page_uses_minimal_realtime_client(
     assert "sendConversationTurnHttp" in source
     assert "ensureContactAcknowledgementAudio" in source
     assert "playFastContactAcknowledgement" in source
+    assert "if (completedConversationTurns === 0 && contactAcknowledgementReady)" in source
+    assert "await playFastContactAcknowledgement(generation);" in source
     assert 'const contactAcknowledgementText = "Worum geht es?";' in source
     assert 'id="memorial-read-answer"' in source
     assert 'id="memorial-replay-answer"' in source

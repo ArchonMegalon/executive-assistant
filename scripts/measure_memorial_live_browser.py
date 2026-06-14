@@ -651,8 +651,12 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 load_ms = (time.perf_counter() - started) * 1000.0
                 warmup_before = page.evaluate(
                     """async (url) => {
-                      const response = await fetch(url);
-                      return response.json();
+                      try {
+                        const response = await fetch(url, { headers: { Accept: "application/json" } });
+                        return await response.json();
+                      } catch (error) {
+                        return { status: "invalid_json", detail: String(error && error.message ? error.message : error || "") };
+                      }
                     }""",
                     warmup_url,
                 )
@@ -791,8 +795,12 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 first_answer_ms = first_answer_elapsed_ms
                 warmup_after = page.evaluate(
                     """async (url) => {
-                      const response = await fetch(url);
-                      return response.json();
+                      try {
+                        const response = await fetch(url, { headers: { Accept: "application/json" } });
+                        return await response.json();
+                      } catch (error) {
+                        return { status: "invalid_json", detail: String(error && error.message ? error.message : error || "") };
+                      }
                     }""",
                     warmup_url,
                 )
