@@ -23,7 +23,7 @@
   },
   "readiness": {
     "status": "pass",
-    "current_head": "31e5a840978ecdf2ac9c8b373e0fe86f93f884fc",
+    "current_head": "efeb38d0f90427104b95e86775dd3baf2eaad3ab",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
