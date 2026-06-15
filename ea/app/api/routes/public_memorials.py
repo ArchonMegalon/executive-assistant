@@ -101,6 +101,17 @@ from app.services.memorial_paths import (
     repo_root as _repo_root,
 )
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
+from app.api.routes.public_memorial_public_support import (
+    _is_public_item as _support_is_public_item,
+    _payload_with_slug as _support_payload_with_slug,
+    _public_list as _support_public_list,
+    _public_memorial_payload as _support_public_memorial_payload,
+    _public_voice_ab_variant_payload as _support_public_voice_ab_variant_payload,
+    _public_voice_config_payload as _support_public_voice_config_payload,
+    _public_voice_profile_payload as _support_public_voice_profile_payload,
+    _require_voice_consent as _support_require_voice_consent,
+    _resolved_voice_consent as _support_resolved_voice_consent,
+)
 
 router = APIRouter(tags=["public-memorials"])
 logger = logging.getLogger(__name__)
@@ -675,176 +686,60 @@ def _memorial_evidence_block(title: str, lines: list[str]) -> str:
 
 
 def _is_public_item(item: object) -> bool:
-    if not isinstance(item, dict):
-        return False
-    visibility = _text(item.get("visibility"), "").lower()
-    if visibility == "public":
-        return True
-    return bool(item.get("public") is True)
+    return _support_is_public_item(item, text=_text)
 
 
 def _public_list(items: object, *, allowed_keys: set[str]) -> list[dict[str, object]]:
-    public_items: list[dict[str, object]] = []
-    for item in _list_of_dicts(items):
-        if not _is_public_item(item):
-            continue
-        public_items.append({key: value for key, value in item.items() if key in allowed_keys})
-    return public_items
+    return _support_public_list(items, allowed_keys=allowed_keys, list_of_dicts=_list_of_dicts, text=_text)
 
 
 def _public_memorial_payload(payload: dict[str, object]) -> dict[str, object]:
-    public_payload = {key: value for key, value in payload.items() if key in _PUBLIC_MEMORIAL_SAFE_JSON_KEYS}
-    slug = _text(payload.get("slug"), "")
-    if slug:
-        archive_registry = _public_memorial_archive_registry(slug)
-        public_payload["archive_sections"] = list(archive_registry.get("archive_sections") or [])
-        public_payload["fliplink_publications"] = list(archive_registry.get("fliplink_publications") or [])
-    public_payload["source_grounded_profile"] = _public_list(
-        payload.get("source_grounded_profile"),
-        allowed_keys={"trait", "confidence", "evidence"},
+    return _support_public_memorial_payload(
+        payload,
+        safe_json_keys=_PUBLIC_MEMORIAL_SAFE_JSON_KEYS,
+        text=_text,
+        public_list=lambda items, allowed_keys: _public_list(items, allowed_keys=allowed_keys),
+        public_memorial_archive_registry=_public_memorial_archive_registry,
+        memorial_video_call_avatar=_memorial_video_call_avatar,
+        public_video_meeting_payload=public_video_meeting_payload,
     )
-    public_payload["external_sources"] = _public_list(
-        payload.get("external_sources"),
-        allowed_keys={"label", "url", "status"},
-    )
-    public_payload["character_notes"] = [
-        _text(item.get("note"), "")
-        for item in _public_list(payload.get("character_notes"), allowed_keys={"note"})
-        if _text(item.get("note"), "")
-    ]
-    conversation_style = payload.get("conversation_style")
-    if isinstance(conversation_style, dict) and _is_public_item(conversation_style):
-        public_payload["conversation_style"] = {
-            key: conversation_style.get(key)
-            for key in ("reasoning_frame", "conflict_style", "social_tone", "should_avoid")
-            if key in conversation_style
-        }
-    else:
-        public_payload["conversation_style"] = {}
-    public_avatar = _memorial_video_call_avatar(payload, slug) if slug else _memorial_video_call_avatar(payload, "")
-    public_payload["video_call_avatar"] = {
-        "enabled": bool(public_avatar.get("enabled")),
-        "kind": _text(public_avatar.get("kind"), "portrait"),
-        "provider_label": _text(public_avatar.get("provider_label"), "VidBoard noch nicht live"),
-        "title": _text(public_avatar.get("title"), _text(payload.get("person_name"), "Manfred")),
-        "detail": _text(public_avatar.get("detail"), "Der Video-Avatar ist noch nicht freigegeben."),
-        "asset_url": _text(public_avatar.get("asset_url"), "") if bool(public_avatar.get("enabled")) else "",
-        "poster_url": _text(public_avatar.get("poster_url"), "") if bool(public_avatar.get("enabled")) else "",
-    }
-    public_payload["video_meeting"] = public_video_meeting_payload(slug=slug, person_name=_text(payload.get("person_name"), "Manfred"))
-    return public_payload
 
 
 def _public_voice_config_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
-    raw_notes = payload.get("notes")
-    if isinstance(raw_notes, str):
-        notes = [_text(raw_notes, "")]
-    elif isinstance(raw_notes, (list, tuple, set)):
-        notes = [_text(item, "") for item in raw_notes]
-    else:
-        notes = []
-    voice_profile_summary = _public_voice_profile_summary(slug)
-    tts_options = _tts_plugin_options(payload=payload, voice_profile_ready=bool(voice_profile_summary.get("voice_profile_ready")))
-    selected_plugin_id = _safe_tts_plugin_id(payload.get("tts_plugin")) or _TTS_PLUGIN_DEFAULT_ID
-    selected_option = next(
-        (option for option in tts_options if _safe_tts_plugin_id(option.get("tts_plugin")) == selected_plugin_id),
-        {},
+    return _support_public_voice_config_payload(
+        slug,
+        payload,
+        text=_text,
+        public_voice_profile_summary=_public_voice_profile_summary,
+        tts_plugin_options=_tts_plugin_options,
+        safe_tts_plugin_id=_safe_tts_plugin_id,
+        tts_plugin_default_id=_TTS_PLUGIN_DEFAULT_ID,
     )
-    safe_options = [
-        {
-            "tts_plugin": _safe_tts_plugin_id(option.get("tts_plugin")),
-            "tts_plugin_label": _text(option.get("tts_plugin_label"), ""),
-            "tts_plugin_description": _text(option.get("tts_plugin_description"), ""),
-            "tts_plugin_enabled": bool(option.get("tts_plugin_enabled")),
-            "tts_plugin_clone_capable": bool(option.get("tts_plugin_clone_capable")),
-            "tts_plugin_needs_clone": bool(option.get("tts_plugin_needs_clone")),
-            "tts_plugin_requires_voice_id": bool(option.get("tts_plugin_requires_voice_id")),
-        }
-        for option in ([selected_option] if selected_option else [])
-        if _safe_tts_plugin_id(option.get("tts_plugin"))
-    ]
-    return {
-        "slug": slug,
-        "tts_plugin": selected_plugin_id,
-        "tts_mode": selected_plugin_id,
-        "tts_base_voice_variant": _text(payload.get("tts_base_voice_variant"), "default"),
-        "voice_label": _text(payload.get("voice_label"), "Manfreds Stimme"),
-        "voice_profile_ready": bool(voice_profile_summary.get("voice_profile_ready")),
-        "voice_profile_generated_at": _text(voice_profile_summary.get("voice_profile_generated_at"), ""),
-        "voice_profile_policy": dict(voice_profile_summary.get("voice_profile_policy") or {}),
-        "voice_profile_sources": dict(voice_profile_summary.get("voice_profile_sources") or {}),
-        "lang": _text(payload.get("lang"), "de-AT"),
-        "rate": payload.get("rate"),
-        "pitch": payload.get("pitch"),
-        "volume": payload.get("volume"),
-        "voice_name_hints": [str(item).strip() for item in list(payload.get("voice_name_hints") or [])[:8] if str(item or "").strip()],
-        "tts_plugin_options": safe_options,
-        "notes": [item for item in notes[:6] if item],
-    }
 
 
 def _public_voice_ab_variant_payload(variant: dict[str, object]) -> dict[str, object]:
-    return {
-        "id": _text(variant.get("id"), ""),
-        "label": _text(variant.get("label"), "Stimme"),
-        "description": _text(variant.get("description"), ""),
-    }
+    return _support_public_voice_ab_variant_payload(variant, text=_text)
 
 
 def _public_voice_profile_payload(summary: dict[str, object]) -> dict[str, object]:
-    public_summary = dict(summary)
-    assets: list[dict[str, object]] = []
-    for raw_item in list(summary.get("voice_profile_sample_assets") or [])[:4]:
-        item = dict(raw_item or {})
-        kind = _text(item.get("kind"), "sample")
-        source = _text(item.get("source_label"), "").lower()
-        coarse_label = "public_clip"
-        if "youtube" in source or "youtube" in kind.lower():
-            coarse_label = "youtube_audio"
-        elif "upload" in source or "upload" in kind.lower():
-            coarse_label = "uploaded_sample"
-        assets.append(
-            {
-                "kind": kind,
-                "source_label": coarse_label,
-                "analysis_status": _text(item.get("analysis_status"), ""),
-                "duration_seconds": item.get("duration_seconds"),
-                "size_bytes": item.get("size_bytes"),
-            }
-        )
-    public_summary["voice_profile_sample_assets"] = assets
-    return public_summary
+    return _support_public_voice_profile_payload(summary, text=_text)
 
 
 def _resolved_voice_consent(payload: dict[str, object]) -> dict[str, object]:
-    explicit = dict(payload.get("voice_consent") or {}) if isinstance(payload.get("voice_consent"), dict) else {}
-    if explicit:
-        return explicit
-    slug = _text(payload.get("slug"), "")
-    if slug:
-        try:
-            voice_payload = _load_voice_config(slug)
-        except Exception:
-            voice_payload = {}
-        explicit = dict(voice_payload.get("voice_consent") or {}) if isinstance(voice_payload.get("voice_consent"), dict) else {}
-        if explicit:
-            return explicit
-    return {}
+    return _support_resolved_voice_consent(payload, text=_text, load_voice_config=_load_voice_config)
 
 
 def _require_voice_consent(payload: dict[str, object], action: str) -> None:
-    consent = _resolved_voice_consent(payload)
-    if consent.get("status") != "approved" or bool(consent.get("revoked")):
-        raise HTTPException(status_code=403, detail="voice_consent_required")
-    scope = {str(item).strip() for item in list(consent.get("scope") or []) if str(item or "").strip()}
-    if action not in scope:
-        raise HTTPException(status_code=403, detail="voice_consent_scope_missing")
+    _support_require_voice_consent(
+        payload,
+        action,
+        resolved_voice_consent=_resolved_voice_consent,
+        http_exception_cls=HTTPException,
+    )
 
 
 def _payload_with_slug(slug: str, payload: dict[str, object]) -> dict[str, object]:
-    merged = dict(payload)
-    merged["slug"] = _safe_slug(slug)
-    return merged
+    return _support_payload_with_slug(slug, payload, safe_slug=_safe_slug)
 
 
 def _personal_memory_public_status(*, slug: str, context: dict[str, object]) -> dict[str, object]:

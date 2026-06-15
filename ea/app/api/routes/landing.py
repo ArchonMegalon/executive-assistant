@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import hmac
 import json
 import os
@@ -31,6 +30,12 @@ from app.api.routes.landing_browser import (
     _shared_browser_fields,
     _workspace_session_cookie_kwargs,
 )
+from app.api.routes.landing_archive_support import (
+    _archive_home_html,
+    _archive_public_registry,
+    _archive_publication_html_path,
+    _is_archive_host,
+)
 from app.api.routes.landing_content import (
     ADMIN_NAV_GROUPS,
     APP_NAV_GROUPS,
@@ -49,6 +54,11 @@ from app.api.routes.landing_content import (
     SIGN_IN_NOTES,
     TRUST_CARDS,
 )
+from app.api.routes.landing_object_support import (
+    _evidence_detail_rows,
+    _object_detail_row,
+    _render_console_object_detail,
+)
 from app.api.routes.landing_public_support import (
     _activation_preview_for_brand,
     _anonymous_onboarding_status,
@@ -61,6 +71,14 @@ from app.api.routes.landing_public_support import (
     _today_activation_banner,
     templates,
 )
+from app.api.routes.landing_shared_support import (
+    _app_live_feed,
+    _default_operator_id_for_browser,
+    _expected_api_token,
+    _load_project_mode_payloads,
+    _repo_root,
+    _workspace_plan,
+)
 from app.api.routes.landing_view_models import (
     app_section_payload as _app_section_payload,
     humanize as _humanize,
@@ -69,7 +87,6 @@ from app.api.routes.landing_view_models import (
 from app.api.routes.admin_view_models import build_admin_section_payload as _build_admin_section_payload
 from app.api.routes.workspace_view_models import workspace_section_payload as _workspace_section_payload
 from app.container import AppContainer
-from app.product.commercial import workspace_plan_for_mode
 from app.product.service import build_product_service
 from app.product.service import (
     _property_enrich_missing_fact_research,
@@ -99,87 +116,10 @@ from app.services.property_market_catalog import (
     provider_options as property_provider_options,
 )
 from app.services.public_branding import request_brand
-from app.services.public_clickrank import request_hostname as _request_hostname
 from app.services.registration_email import email_delivery_enabled
-from app.services.memorial_archive_registry import load_json as _load_archive_json, public_registry_path as _public_registry_path, public_registry_payload as _public_registry_payload
 
 router = APIRouter(tags=["landing"])
 archive_router = APIRouter(tags=["landing_archive"])
-
-def _repo_root() -> Path:
-    resolved = Path(__file__).resolve()
-    for candidate in (resolved.parents[4], resolved.parents[3], Path("/app"), Path.cwd()):
-        if (candidate / ".codex-design").exists() or (candidate / "PRODUCT_BOUNDARY.md").is_file():
-            return candidate
-    return resolved.parents[4]
-
-
-def _load_project_mode_payloads() -> tuple[dict[str, object], dict[str, object]]:
-    root = _repo_root()
-    try:
-        modes = json.loads((root / ".codex-design/product/PROJECT_MODES.generated.json").read_text(encoding="utf-8"))
-    except Exception:
-        modes = {"contract_name": "ea.project_modes", "modes": []}
-    try:
-        show = json.loads((root / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json").read_text(encoding="utf-8"))
-    except Exception:
-        show = {"contract_name": "ea.show_surface_manifest", "demo_mode": "ea_core"}
-    return (dict(modes) if isinstance(modes, dict) else {"modes": []}, dict(show) if isinstance(show, dict) else {})
-
-
-_ARCHIVE_HOSTNAME = "archive.myexternalbrain.com"
-_ARCHIVE_MEMORIAL_SLUG = "manfred"
-
-
-def _memorial_archive_dir() -> Path:
-    configured = str(os.getenv("EA_MEMORIAL_ARCHIVE_DIR") or "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return _repo_root() / "memorial_archive"
-
-
-def _is_archive_host(request: Request) -> bool:
-    return _request_hostname(request) == _ARCHIVE_HOSTNAME
-
-
-def _archive_public_registry() -> dict[str, object]:
-    path = _public_registry_path(_ARCHIVE_MEMORIAL_SLUG, generated=False)
-    if not path.is_file():
-        return {"slug": _ARCHIVE_MEMORIAL_SLUG, "archive_sections": [], "fliplink_publications": []}
-    payload = _load_archive_json(path)
-    if not isinstance(payload, dict):
-        return {"slug": _ARCHIVE_MEMORIAL_SLUG, "archive_sections": [], "fliplink_publications": []}
-    return _public_registry_payload(payload)
-
-
-def _archive_publication_html_path(publication_slug: str) -> Path:
-    base = _memorial_archive_dir() / _ARCHIVE_MEMORIAL_SLUG / "public" / publication_slug / "build" / "index.html"
-    return base.resolve()
-
-
-def _archive_home_html() -> str:
-    registry = _archive_public_registry()
-    items = list(registry.get("fliplink_publications") or [])
-    cards: list[str] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        slug = html.escape(str(item.get("slug") or item.get("id") or "").strip())
-        title = html.escape(str(item.get("title") or slug).strip())
-        desc = html.escape(str(item.get("description") or "").strip())
-        cards.append(
-            "<article style='border:1px solid rgba(43,39,35,.14);background:rgba(255,255,255,.52);padding:18px 20px;border-radius:18px;'>"
-            f"<h2 style='margin:0 0 8px;font-size:1.35rem;'><a href='/{slug}' style='color:#2B2723;text-decoration:none;'>{title}</a></h2>"
-            f"<p style='margin:0;color:#665E55;'>{desc}</p>"
-            "</article>"
-        )
-    return (
-        "<!doctype html><html lang='de'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<title>Manfred Memorial Archive</title>"
-        "<style>:root{--paper:#F7EFE0;--ink:#2B2723;--muted:#665E55;--line:rgba(43,39,35,.14);}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 Georgia,\"Libre Baskerville\",serif;}main{max-width:920px;margin:0 auto;padding:48px 28px 72px;}header{margin-bottom:28px;padding-bottom:18px;border-bottom:1px solid var(--line);}h1{margin:0 0 10px;font-size:2.6rem;line-height:1.05}.kicker{color:#7D4851;font:700 12px/1.2 \"Trebuchet MS\",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}.grid{display:grid;gap:18px}.lead{color:var(--muted)}</style>"
-        "</head><body><main><header><div class='kicker'>Manfred Memorial Archive</div><h1>Archiv</h1><p class='lead'>Geprüfte Dokumente, Erinnerungen und Quellen als lesbare Archivseiten.</p></header>"
-        f"<section class='grid'>{''.join(cards)}</section></main></body></html>"
-    )
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
@@ -203,44 +143,6 @@ def robots_txt(request: Request) -> PlainTextResponse:
         "Disallow: /memorials",
     ]
     return PlainTextResponse("\n".join(lines) + "\n")
-def _workspace_plan(container: AppContainer, *, principal_id: str):
-    status = container.onboarding.status(principal_id=principal_id)
-    workspace = dict(status.get("workspace") or {})
-    return workspace_plan_for_mode(str(workspace.get("mode") or "personal"))
-
-
-def _expected_api_token(container: AppContainer) -> str:
-    return str(container.settings.auth.api_token or "").strip()
-
-
-def _default_operator_id_for_browser(container: AppContainer, *, principal_id: str) -> str:
-    operators = container.orchestrator.list_operator_profiles(principal_id=principal_id, status="active", limit=1)
-    if not operators:
-        return ""
-    return str(operators[0].operator_id or "").strip()
-
-
-def _app_live_feed(container: AppContainer, *, principal_id: str) -> dict[str, object]:
-    approvals = container.orchestrator.list_pending_approvals_for_principal(
-        principal_id=principal_id,
-        limit=6,
-    )
-    human_tasks = container.orchestrator.list_human_tasks(
-        principal_id=principal_id,
-        status="pending",
-        limit=6,
-    )
-    pending_delivery = container.channel_runtime.list_pending_delivery(
-        limit=6,
-        principal_id=principal_id,
-    )
-    return {
-        "approvals": approvals,
-        "human_tasks": human_tasks,
-        "pending_delivery": pending_delivery,
-    }
-
-
 def _property_search_platform_catalog() -> tuple[dict[str, str], ...]:
     return tuple(property_provider_options(country_code="AT"))
 
@@ -1146,155 +1048,6 @@ def get_started(
 @router.get("/app", response_class=HTMLResponse)
 def app_root(request: Request) -> RedirectResponse:
     return RedirectResponse(str(request_brand(request).get("app_home") or "/app/today"), status_code=307)
-
-
-def _object_detail_row(
-    title: str,
-    detail: str,
-    tag: str,
-    href: str = "",
-    action_href: str = "",
-    action_label: str = "",
-    action_value: str = "",
-    action_method: str = "",
-    return_to: str = "",
-    secondary_action_href: str = "",
-    secondary_action_label: str = "",
-    secondary_action_value: str = "",
-    secondary_action_method: str = "",
-    secondary_return_to: str = "",
-    tertiary_action_href: str = "",
-    tertiary_action_label: str = "",
-    tertiary_action_value: str = "",
-    tertiary_action_method: str = "",
-    tertiary_return_to: str = "",
-    quaternary_action_href: str = "",
-    quaternary_action_label: str = "",
-    quaternary_action_value: str = "",
-    quaternary_action_method: str = "",
-    quaternary_return_to: str = "",
-) -> dict[str, str]:
-    row = {
-        "title": str(title or "").strip(),
-        "detail": str(detail or "").strip(),
-        "tag": str(tag or "").strip(),
-    }
-    if href:
-        row["href"] = href
-    if action_href:
-        row["action_href"] = action_href
-    if action_label:
-        row["action_label"] = action_label
-    if action_value:
-        row["action_value"] = action_value
-    if action_method:
-        row["action_method"] = action_method
-    if return_to:
-        row["return_to"] = return_to
-    if secondary_action_href:
-        row["secondary_action_href"] = secondary_action_href
-    if secondary_action_label:
-        row["secondary_action_label"] = secondary_action_label
-    if secondary_action_value:
-        row["secondary_action_value"] = secondary_action_value
-    if secondary_action_method:
-        row["secondary_action_method"] = secondary_action_method
-    if secondary_return_to:
-        row["secondary_return_to"] = secondary_return_to
-    if tertiary_action_href:
-        row["tertiary_action_href"] = tertiary_action_href
-    if tertiary_action_label:
-        row["tertiary_action_label"] = tertiary_action_label
-    if tertiary_action_value:
-        row["tertiary_action_value"] = tertiary_action_value
-    if tertiary_action_method:
-        row["tertiary_action_method"] = tertiary_action_method
-    if tertiary_return_to:
-        row["tertiary_return_to"] = tertiary_return_to
-    if quaternary_action_href:
-        row["quaternary_action_href"] = quaternary_action_href
-    if quaternary_action_label:
-        row["quaternary_action_label"] = quaternary_action_label
-    if quaternary_action_value:
-        row["quaternary_action_value"] = quaternary_action_value
-    if quaternary_action_method:
-        row["quaternary_action_method"] = quaternary_action_method
-    if quaternary_return_to:
-        row["quaternary_return_to"] = quaternary_return_to
-    return row
-
-
-def _evidence_detail_rows(items) -> list[dict[str, str]]:  # type: ignore[no-untyped-def]
-    rows: list[dict[str, str]] = []
-    for item in items or ():
-        rows.append(
-            _object_detail_row(
-                str(getattr(item, "note", "") or getattr(item, "ref", "") or "Supporting evidence"),
-                str(getattr(item, "ref", "") or "No external reference attached."),
-                str(getattr(item, "source_type", "") or "Evidence"),
-            )
-        )
-    if rows:
-        return rows
-    return [_object_detail_row("No supporting evidence yet", "This object has no attached evidence refs yet.", "Pending")]
-
-
-def _render_console_object_detail(
-    *,
-    request: Request,
-    context: RequestContext,
-    workspace_label: str,
-    page_title: str,
-    current_nav: str,
-    console_title: str,
-    console_summary: str,
-    object_kind: str,
-    object_title: str,
-    object_summary: str,
-    object_meta: list[dict[str, str]],
-    object_media: dict[str, object] | None = None,
-    object_ooda_title: str = "",
-    object_ooda_copy: str = "",
-    object_ooda_rows: list[dict[str, str]] | None = None,
-    object_sidebar_title: str,
-    object_sidebar_copy: str,
-    object_sidebar_rows: list[dict[str, str]],
-    object_sections: list[dict[str, object]],
-    object_sidebar_form: dict[str, object] | None = None,
-    object_feedback: dict[str, object] | None = None,
-) -> HTMLResponse:
-    return _render_public_template(
-        request,
-        "app/object_detail.html",
-        **{
-            **_console_shell_context(
-                request=request,
-                page_title=page_title,
-                current_nav=current_nav,
-                context=context,
-                console_title=console_title,
-                console_summary=console_summary,
-                nav_groups=app_nav_groups_for_brand(request_brand(request)["key"]),
-                workspace_label=workspace_label,
-                cards=[],
-                stats=[{"label": item["label"], "value": item["value"]} for item in object_meta],
-            ),
-            "object_kind": object_kind,
-            "object_title": object_title,
-            "object_summary": object_summary,
-            "object_meta": object_meta,
-            "object_media": object_media or {},
-            "object_ooda_title": object_ooda_title,
-            "object_ooda_copy": object_ooda_copy,
-            "object_ooda_rows": object_ooda_rows or [],
-            "object_sidebar_title": object_sidebar_title,
-            "object_sidebar_copy": object_sidebar_copy,
-            "object_sidebar_rows": object_sidebar_rows,
-            "object_sections": object_sections,
-            "object_sidebar_form": object_sidebar_form or {},
-            "object_feedback": object_feedback or {},
-        },
-    )
 
 
 def _property_candidate_ref(candidate: dict[str, object]) -> str:

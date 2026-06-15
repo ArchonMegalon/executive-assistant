@@ -17,8 +17,8 @@ from app.api.dependencies import (
     get_container,
     get_request_context,
 )
-from app.api.routes.landing import _default_operator_id_for_browser
 from app.api.routes.landing_browser import _normalize_browser_return_to, _workspace_session_cookie_kwargs
+from app.api.routes.landing_shared_support import _default_operator_id_for_browser
 from app.api.routes.landing_public_support import _console_shell_context, _render_public_template, _render_secure_link_page
 from app.services.public_surface_limits import enforce_public_surface_rate_limit, public_surface_client_key
 from app.api.routes.product_api_contracts import OfficeSignalResultOut, SignalIngestEndpointOut

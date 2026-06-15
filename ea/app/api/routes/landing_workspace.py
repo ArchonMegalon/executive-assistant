@@ -8,8 +8,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to
-from app.api.routes.landing import _object_detail_row, _render_console_object_detail
 from app.api.routes.landing_content import app_nav_groups_for_brand
+from app.api.routes.landing_object_support import _object_detail_row, _render_console_object_detail
 from app.api.routes.landing_public_support import _console_shell_context, _render_public_template
 from app.container import AppContainer
 from app.product.service import build_product_service

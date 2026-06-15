@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
-from app.api.routes.landing import _default_operator_id_for_browser
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to
+from app.api.routes.landing_shared_support import _default_operator_id_for_browser
 from app.container import AppContainer
 from app.product.service import build_product_service
 

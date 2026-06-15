@@ -13,7 +13,8 @@ from app.api.routes.landing_browser import (
     _form_values,
     _normalize_browser_return_to,
 )
-from app.api.routes.landing import PUBLIC_NAV, _workspace_plan
+from app.api.routes.landing_content import PUBLIC_NAV
+from app.api.routes.landing_shared_support import _workspace_plan
 from app.api.routes.landing_public_support import _render_public_template
 from app.api.routes.landing_view_models import channel_cards as _channel_cards
 from app.api.routes.landing_view_models import humanize as _humanize
