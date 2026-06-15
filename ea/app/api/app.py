@@ -28,7 +28,9 @@ def _include_public_routes(
     landing_channel_router: APIRouter,
     landing_objects_router: APIRouter,
     landing_workspace_router: APIRouter,
-    landing_router: APIRouter,
+    landing_public_router: APIRouter,
+    landing_console_router: APIRouter,
+    landing_property_router: APIRouter,
     landing_archive_router: APIRouter,
     fliplink_public_router: APIRouter,
     health_router: APIRouter,
@@ -40,7 +42,9 @@ def _include_public_routes(
     app.include_router(landing_channel_router)
     app.include_router(landing_objects_router)
     app.include_router(landing_workspace_router)
-    app.include_router(landing_router)
+    app.include_router(landing_public_router)
+    app.include_router(landing_console_router)
+    app.include_router(landing_property_router)
     app.include_router(fliplink_public_router)
     if settings.public_results_enabled:
         from app.api.routes.public_results import router as public_results_router
@@ -51,12 +55,14 @@ def _include_public_routes(
 
         app.include_router(public_tours_router)
     if settings.public_memorials_enabled:
-        from app.api.routes.public_memorials import router as public_memorials_router
+        from app.api.routes.public_memorial_conversation import router as public_memorial_conversation_router
         from app.api.routes.public_memorial_operator import router as public_memorial_operator_router
+        from app.api.routes.public_memorial_runtime import router as public_memorial_runtime_router
         from app.api.routes.public_memorial_surface import router as public_memorial_surface_router
 
         app.include_router(public_memorial_surface_router)
-        app.include_router(public_memorials_router)
+        app.include_router(public_memorial_conversation_router)
+        app.include_router(public_memorial_runtime_router)
         app.include_router(public_memorial_operator_router)
     app.include_router(health_router)
     app.include_router(register_router)
@@ -143,9 +149,11 @@ def create_app() -> FastAPI:
     from app.api.routes.landing_channel import router as landing_channel_router
     from app.api.routes.public_documents import router as public_documents_router
     from app.api.routes.human import router as human_router
-    from app.api.routes.landing import archive_router as landing_archive_router
-    from app.api.routes.landing import router as landing_router
+    from app.api.routes.landing_console import router as landing_console_router
     from app.api.routes.landing_objects import router as landing_objects_router
+    from app.api.routes.landing_property import router as landing_property_router
+    from app.api.routes.landing_public import archive_router as landing_archive_router
+    from app.api.routes.landing_public import router as landing_public_router
     from app.api.routes.landing_setup import router as landing_setup_router
     from app.api.routes.landing_workspace import router as landing_workspace_router
     from app.api.routes.ltd_runtime import router as ltd_runtime_router
@@ -177,7 +185,9 @@ def create_app() -> FastAPI:
         landing_channel_router=landing_channel_router,
         landing_objects_router=landing_objects_router,
         landing_workspace_router=landing_workspace_router,
-        landing_router=landing_router,
+        landing_public_router=landing_public_router,
+        landing_console_router=landing_console_router,
+        landing_property_router=landing_property_router,
         landing_archive_router=landing_archive_router,
         fliplink_public_router=fliplink_public_router,
         health_router=health_router,

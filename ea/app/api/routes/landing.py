@@ -535,6 +535,7 @@ def _console_shell_context(
         "principal_id": context.principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
+        "base_console_template": "base_console_property.html" if brand["key"] == "propertyquarry" else "base_console_ea.html",
     }
 
 

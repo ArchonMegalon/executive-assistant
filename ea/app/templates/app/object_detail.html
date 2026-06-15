@@ -1,4 +1,4 @@
-{% extends "base_console.html" %}
+{% extends base_console_template|default("base_console_ea.html") %}
 {% block content %}
 <style>
   .object-grid,

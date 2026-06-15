@@ -1,4 +1,4 @@
-{% extends "base_console.html" %}
+{% extends base_console_template|default("base_console_property.html") %}
 {% block content %}
 {% set property_meta = console_form.get('meta') or {} %}
 {% set shortlist_candidates = property_meta.get('shortlist_candidates') or [] %}
