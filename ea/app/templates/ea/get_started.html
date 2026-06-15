@@ -27,14 +27,16 @@
 </section>
 
 <section class="section wizard-shell" data-onboarding-wizard>
-  {% include "onboarding/_wizard_nav.html" %}
   <div class="wizard-body">
     {% include "onboarding/_step_office.html" %}
-    {% include "onboarding/_step_google.html" %}
-    {% include "onboarding/_step_rules.html" %}
   </div>
-  <p class="copy" hidden>Connect the first real signal.</p>
+  <div class="panel" style="padding: 18px; margin-top: 16px;">
+    <div class="kicker">After Today is live</div>
+    <p class="copy" style="margin: 0;"><strong>Open Today first.</strong> Add <strong>Google Core</strong> only if the memo, queue, or timing clearly improves. Broader rules and delivery lanes can wait until the first office loop already feels useful.</p>
+    <p class="copy" style="margin: 8px 0 0;">Connect the first real signal only after the office loop already has something concrete to improve.</p>
+    <div class="cta-row" style="margin-top: 14px;">
+      <a class="btn ghost" href="/app/today">Open Today</a>
+    </div>
+  </div>
 </section>
-
-{% include "onboarding/_script.html" %}
 {% endblock %}

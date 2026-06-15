@@ -35,20 +35,12 @@
 
   <form class="wizard-form" method="post" action="/setup/start" data-next-step="2">
     {{ shared_browser_fields|safe }}
-    <div class="field-grid two">
+    <div class="field-grid {% if brand.key == 'ea' %}one{% else %}two{% endif %}">
       <div>
         <label for="workspace_name">Workspace name</label>
         <input id="workspace_name" name="workspace_name" value="{{ workspace.name or ('Executive Assistant Workspace' if brand.key == 'ea' else 'PropertyQuarry Workspace') }}" required>
       </div>
-      {% if brand.key == 'ea' %}
-      <div>
-        <label>Workspace type</label>
-        <div class="finish-card">
-          <strong>Personal by default</strong>
-          Start with one office, one memo loop, and one visible queue. Shared review and executive support can be turned on later after first value is proven.
-        </div>
-      </div>
-      {% else %}
+      {% if brand.key != 'ea' %}
       <div>
         <label for="workspace_mode">Workspace type</label>
         <select id="workspace_mode" name="workspace_mode">
@@ -62,17 +54,10 @@
     </div>
     {% if brand.key == 'ea' %}
     <input type="hidden" name="workspace_mode" value="{{ workspace.mode or 'personal' }}">
-    {% endif %}
-    {% if brand.key == 'ea' %}
     <input type="hidden" name="timezone" value="{{ workspace.timezone or 'Europe/Vienna' }}">
     <input type="hidden" name="region" value="{{ workspace.region or 'AT' }}">
     <input type="hidden" name="language" value="{{ workspace.language or 'en' }}">
-    <div class="field-grid one">
-      <div>
-        <label>Activation path</label>
-        <div class="field-help">Keep the first loop narrow: workspace, optional Google identity, first morning memo, first queue item. Broader delivery lanes and shared review can wait until value is obvious.</div>
-      </div>
-    </div>
+    <div class="callout" style="margin-top: 12px;">Personal by default. Start with one office, one memo loop, and one visible queue. Shared review and broader delivery can wait until the first loop proves itself.</div>
     {% else %}
     <div class="field-grid two">
       <div>
@@ -96,6 +81,12 @@
     </div>
     {% endif %}
     <input type="hidden" name="selected_channels" value="google">
+    {% if brand.key == 'ea' %}
+    <div class="finish-card" style="margin-top: 14px;">
+      <strong>Google is optional and narrow</strong>
+      Account creation and a visible office loop are enough to prove whether the product is useful. Notifications and broader delivery are follow-up decisions, not part of first setup.
+    </div>
+    {% else %}
     <div class="finish-grid">
       <div class="finish-card">
       <strong>Google is optional and narrow</strong>
@@ -106,6 +97,7 @@
         Email alerts and other delivery lanes are post-activation decisions, not required setup before the product has earned trust.
       </div>
     </div>
+    {% endif %}
     <div class="wizard-actions">
       <div class="callout">{% if brand.key == 'ea' %}If you are unsure, keep the defaults and move on. The first useful office loop matters more than perfect setup.{% else %}If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.{% endif %}</div>
       <div class="right">
