@@ -200,7 +200,7 @@ def build_settings_section(
             },
             {
                 "eyebrow": "Workspace entry",
-                "title": "Who can enter and what still needs a handoff",
+                "title": "Who can enter and who is waiting",
                 "body": "Keep the office reachable without turning the main settings surface into a delivery dashboard.",
                 "items": [
                     row_builder("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
