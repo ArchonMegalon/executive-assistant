@@ -7,19 +7,22 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import CloudflareAccessIdentity, get_cloudflare_access_identity, get_container
-from app.api.routes.landing import (
-    PUBLIC_NAV,
+from app.api.routes.landing_browser import (
     _browser_form_context,
-    _channel_cards,
     _form_value,
     _form_values,
-    _humanize,
     _normalize_browser_return_to,
+)
+from app.api.routes.landing import (
+    PUBLIC_NAV,
+    _channel_cards,
+    _humanize,
     _render_public_template,
     _workspace_plan,
 )
 from app.container import AppContainer
 from app.product.service import build_product_service
+from app.services.public_branding import request_brand
 from app.services.google_oauth import (
     browser_google_oauth_redirect_uri,
     complete_google_oauth_callback,
@@ -159,15 +162,29 @@ async def setup_start(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     principal_id = _browser_form_context(form_data=form_data, container=container, access_identity=access_identity)
+    workspace_name = _form_value(form_data, "workspace_name", "PropertyQuarry Workspace")
     container.onboarding.start_workspace(
         principal_id=principal_id,
-        workspace_name=_form_value(form_data, "workspace_name", "PropertyQuarry Workspace"),
+        workspace_name=workspace_name,
         workspace_mode=_form_value(form_data, "workspace_mode", "personal"),
         region=_form_value(form_data, "region", ""),
         language=_form_value(form_data, "language", ""),
         timezone=_form_value(form_data, "timezone", ""),
         selected_channels=_form_values(form_data, "selected_channels"),
     )
+    if request_brand(request)["key"] == "ea":
+        target = "/app/today?activation=workspace_created"
+        if access_identity is not None:
+            return RedirectResponse(target, status_code=303)
+        access = build_product_service(container).issue_workspace_access_session(
+            principal_id=principal_id,
+            email=str(getattr(access_identity, "email", "") or "").strip().lower(),
+            role="principal",
+            display_name=workspace_name,
+            source_kind="browser_setup",
+            default_target=target,
+        )
+        return RedirectResponse(str(access.get("access_url") or target), status_code=303)
     return RedirectResponse("/register", status_code=303)
 
 

@@ -80,6 +80,26 @@ from app.services.memorial_video_meeting import (
     sanitize_provider_callback,
 )
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
+from app.services.memorial_paths import (
+    MEMORIAL_PRESENT_WORLD_CACHE_ROOT as _MEMORIAL_PRESENT_WORLD_CACHE_ROOT,
+    MEMORIAL_TTS_RENDER_CACHE_ROOT as _MEMORIAL_TTS_RENDER_CACHE_ROOT,
+    PERSONAL_MEMORY_ROOT as _PERSONAL_MEMORY_ROOT,
+    PUBLIC_MEMORIAL_ARTIFACT_ROOT as _PUBLIC_MEMORIAL_ARTIFACT_ROOT,
+    PUBLIC_MEMORIAL_RATE_DB as _PUBLIC_MEMORIAL_RATE_DB,
+    VIDEO_MEETING_RUNTIME_ROOT as _VIDEO_MEETING_RUNTIME_ROOT,
+    VOICE_AB_ROOT as _VOICE_AB_ROOT,
+    memorial_data_root as _memorial_data_root,
+    memorial_operator_status_path as _service_memorial_operator_status_path,
+    memorial_phrase_bank_path as _service_memorial_phrase_bank_path,
+    memorial_state_dir as _memorial_state_dir,
+    private_profile_dir as _private_profile_dir,
+    private_profile_dir_candidates as _private_profile_dir_candidates,
+    public_memorial_artifact_root as _public_memorial_artifact_root,
+    memorial_dir as _memorial_dir,
+    memorial_dir_candidates as _memorial_dir_candidates,
+    resolved_memorial_root as _resolved_memorial_root,
+    repo_root as _repo_root,
+)
 from app.settings import get_settings, is_prod_mode, resolve_signing_secret
 
 router = APIRouter(tags=["public-memorials"])
@@ -181,48 +201,14 @@ _PUBLIC_MEMORIAL_SAFE_JSON_KEYS = {
 }
 
 
-def _repo_root() -> Path:
-    resolved = Path(__file__).resolve()
-    fallback = pathlib.Path(os.getcwd())
-    candidates: list[Path] = []
-    for index in (5, 4, 3):
-        if len(resolved.parents) > index:
-            candidates.append(resolved.parents[index])
-    candidates.append(fallback)
-    for candidate in candidates:
-        if (candidate / ".git").is_dir() or (candidate / ".codex-design").is_dir():
-            return candidate
-    if len(resolved.parents) > 3:
-        return resolved.parents[3]
-    return fallback
-
-
-def _memorial_data_root() -> Path:
-    configured = str(os.getenv("EA_MEMORIAL_DATA_ROOT") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return _repo_root()
-
-
 def _memorial_operator_status_path() -> Path:
-    configured = str(os.getenv("EA_MEMORIAL_OPERATOR_STATUS_PATH") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return Path(f"{_repo_root()}/.codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json")
+    return Path(str(_service_memorial_operator_status_path()))
 
 
 def _memorial_phrase_bank_path() -> Path:
-    configured = str(os.getenv("EA_MEMORIAL_PHRASE_BANK_PATH") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return Path(f"{_repo_root()}/.codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json")
+    return Path(str(_service_memorial_phrase_bank_path()))
 
 
-def _memorial_state_dir() -> Path:
-    configured = str(os.getenv("EA_MEMORIAL_STATE_DIR") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return _repo_root() / "state"
 _PUBLIC_TTS_ALLOWED_BODY_FIELDS = {"text", "voice_ab_variant", "personal_memory_enabled", "force_regenerate_audio"}
 _BLOCKED_PUBLIC_ASSET_NAMES = {
     "memorial.json",
@@ -239,103 +225,10 @@ _ALLOWED_PUBLIC_ASSET_SUFFIXES = {
     ".jpg", ".jpeg", ".png", ".webp", ".svg", ".pdf",
 }
 
-
-def _public_memorial_artifact_root() -> Path:
-    configured = str(os.getenv("EA_PUBLIC_MEMORIAL_ARTIFACT_DIR") or "").strip()
-    candidates: list[Path] = []
-    if configured:
-        candidates.append(Path(configured).expanduser())
-    candidates.append(Path("/data/artifacts"))
-    for candidate in candidates:
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            probe = candidate / ".ea_public_memorial_write_probe"
-            probe.write_bytes(b"ok")
-            probe.unlink(missing_ok=True)
-            return candidate
-        except OSError:
-            continue
-    fallback = Path(tempfile.gettempdir()) / "ea_public_memorial_artifacts"
-    fallback.mkdir(parents=True, exist_ok=True)
-    return fallback
-
-
-_PUBLIC_MEMORIAL_ARTIFACT_ROOT = _public_memorial_artifact_root()
-_PERSONAL_MEMORY_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_user_memory"
-_VOICE_AB_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_voice_ab"
-_VIDEO_MEETING_RUNTIME_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_video_meeting"
-_MEMORIAL_TTS_RENDER_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_tts_render_cache"
-_MEMORIAL_PRESENT_WORLD_CACHE_ROOT = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_present_world_cache"
-_PUBLIC_MEMORIAL_RATE_DB = _PUBLIC_MEMORIAL_ARTIFACT_ROOT / "memorial_rate_limits.sqlite3"
 _MEMORIAL_CONTACT_TTS_CACHE_VALIDATE_ATTEMPTS = 3
 _MEMORIAL_KNOWN_PROMPT_TEXTS: tuple[str, ...] = (
     "Hallo Manfred, kannst du jetzt mit mir sprechen?",
 )
-
-
-def _memorial_dir_candidates() -> list[Path]:
-    candidates: list[Path] = []
-    configured = str(os.getenv("EA_PUBLIC_MEMORIAL_DIR") or "").strip()
-    if configured:
-        candidates.append(Path(configured).expanduser())
-    candidates.append(_memorial_data_root() / "memorial_data" / "public_memorials")
-    candidates.append(_memorial_data_root() / "public_memorials")
-    candidates.append(Path("/mnt/pcloud/EA/public_memorials"))
-    seen: set[str] = set()
-    unique: list[Path] = []
-    for path in candidates:
-        key = str(path)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(path)
-    return unique
-
-
-def _memorial_dir() -> Path:
-    for candidate in _memorial_dir_candidates():
-        if candidate.exists() and candidate.is_dir():
-            try:
-                if any(candidate.iterdir()):
-                    return candidate
-            except OSError:
-                continue
-    return _memorial_dir_candidates()[0]
-
-
-def _resolved_memorial_root() -> Path:
-    return _memorial_dir().resolve()
-
-
-def _private_profile_dir_candidates() -> list[Path]:
-    candidates: list[Path] = []
-    configured = str(os.getenv("EA_PRIVATE_MEMORIAL_PROFILE_DIR") or "").strip()
-    if configured:
-        candidates.append(Path(configured).expanduser())
-    candidates.append(_memorial_data_root() / "memorial_data" / "private_memorial_profiles")
-    candidates.append(_memorial_data_root() / "private_memorial_profiles")
-    candidates.append(Path("/mnt/pcloud/EA/private_memorial_profiles"))
-    seen: set[str] = set()
-    unique: list[Path] = []
-    for path in candidates:
-        key = str(path)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(path)
-    return unique
-
-
-def _private_profile_dir() -> Path:
-    for candidate in _private_profile_dir_candidates():
-        if candidate.exists() and candidate.is_dir():
-            try:
-                if any(candidate.iterdir()):
-                    return candidate
-            except OSError:
-                continue
-    return _private_profile_dir_candidates()[0]
-
 
 def _safe_slug(slug: str) -> str:
     safe = str(slug or "").strip()
@@ -15880,4 +15773,3 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             await websocket.close()
         except Exception:
             pass
-

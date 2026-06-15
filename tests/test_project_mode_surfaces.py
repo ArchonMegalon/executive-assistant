@@ -156,6 +156,33 @@ def test_ea_workspace_settings_surfaces_do_not_fall_back_to_propertyquarry_label
     assert "PropertyQuarry invitations" not in invitations.text
 
 
+def test_ea_setup_start_opens_live_today_instead_of_bouncing_back_to_setup() -> None:
+    client = build_product_client(principal_id="exec-setup-today-first")
+
+    started = client.post(
+        "/setup/start",
+        data={
+            "workspace_name": "Founder Office",
+            "workspace_mode": "personal",
+            "timezone": "Europe/Vienna",
+            "region": "AT",
+            "language": "en",
+            "selected_channels": "google",
+        },
+        follow_redirects=False,
+    )
+
+    assert started.status_code == 303
+    assert started.headers["location"].startswith("/workspace-access/")
+
+    today = client.get(started.headers["location"], follow_redirects=True)
+
+    assert today.status_code == 200
+    assert "Workspace created" in today.text
+    assert "Start with Today, not more setup." in today.text
+    assert "Connect Google later" in today.text
+
+
 def test_ea_core_allowed_surfaces_do_not_leak_forbidden_planes() -> None:
     manifest = json.loads((ROOT / ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json").read_text(encoding="utf-8"))
     forbidden_paths = tuple(str(value).replace("*", "") for value in manifest["forbidden_surfaces"])

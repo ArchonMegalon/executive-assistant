@@ -685,6 +685,17 @@
 {%- endmacro %}
 
 {% if current_nav == 'today' %}
+{% if activation_banner %}
+<section class="console-panel" style="margin-bottom: 16px;">
+  <div class="console-kicker">{{ activation_banner.kicker }}</div>
+  <h2>{{ activation_banner.title }}</h2>
+  <p class="console-copy">{{ activation_banner.body }}</p>
+  <div class="cta-row">
+    {% if activation_banner.primary_href %}<a class="btn primary" href="{{ activation_banner.primary_href }}">{{ activation_banner.primary_label }}</a>{% endif %}
+    {% if activation_banner.secondary_href %}<a class="btn" href="{{ activation_banner.secondary_href }}">{{ activation_banner.secondary_label }}</a>{% endif %}
+  </div>
+</section>
+{% endif %}
 <section class="console-stage">
   <section class="console-panel">
     <div class="console-kicker">Today</div>

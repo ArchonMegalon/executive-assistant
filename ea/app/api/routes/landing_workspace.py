@@ -7,10 +7,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to
 from app.api.routes.landing import (
     _console_shell_context,
-    _form_value,
-    _normalize_browser_return_to,
     _object_detail_row,
     _render_console_object_detail,
     _render_public_template,

@@ -109,7 +109,7 @@
     <div class="wizard-actions">
       <div class="callout">{% if brand.key == 'ea' %}If you are unsure, keep the defaults and move on. The first useful office loop matters more than perfect setup.{% else %}If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.{% endif %}</div>
       <div class="right">
-        <button class="btn primary" type="submit">Save workspace and continue</button>
+        <button class="btn primary" type="submit">{% if brand.key == 'ea' %}Save workspace and open Today{% else %}Save workspace and continue{% endif %}</button>
       </div>
     </div>
   </form>
