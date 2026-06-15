@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-15T15:09:44Z",
+  "generated_at": "2026-06-15T16:14:02Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "6061fd285ff3f3b0c8e10a791158ae530a05af13",
+  "source_git_head": "0cfcca2adbe9c1a3f65357d7191c6504a04833c3",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -177,8 +177,8 @@
       "missing_evidence": [],
       "design_notes": [
         "lane_count=11",
-        "runtime_lane_count=2",
-        "draft_or_operator_lane_count=9"
+        "runtime_lane_count=3",
+        "draft_or_operator_lane_count=8"
       ]
     }
   ],
@@ -186,12 +186,11 @@
     "contract_name": "ea.verify_ltd_provider_lanes",
     "status": "pass",
     "lane_count": 11,
-    "runtime_lane_count": 2,
-    "draft_or_operator_lane_count": 9,
+    "runtime_lane_count": 3,
+    "draft_or_operator_lane_count": 8,
     "poppy_runtime_enabled": false,
     "poppy_lane_state": "verified_draft_operator_lane",
     "draft_or_operator_lanes": [
-      "unmixr_voice_runtime",
       "magicfit_media_factory_candidate",
       "poppy_draft_workbench",
       "public_signal_ingest",
