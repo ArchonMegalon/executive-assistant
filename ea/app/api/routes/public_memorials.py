@@ -5784,7 +5784,16 @@ def _memorial_shadow_stt_is_fast_primary_candidate(transcript_text: str) -> bool
     if tokens & english_markers and not tokens & german_markers:
         return False
     if _memorial_fast_shadow_stt_has_clear_user_intent(text):
-        return True
+        if (
+            _looks_like_memorial_contact_opening_transcript(text)
+            or _is_memorial_live_interaction_question(text)
+        ) and len(tokens) >= 4:
+            return True
+        return _memorial_transcript_is_confident_early_accept(
+            text,
+            transcriber="shadow:fast",
+            corrected=False,
+        )
     return _memorial_transcript_is_confident_early_accept(text, transcriber="shadow:fast", corrected=False)
 
 
@@ -11750,23 +11759,25 @@ def _memorial_html(
         const firstTurn = conversationTurnCount <= 0;
         if (firstTurn) {{
           return {{
-            autoStopMs: 900,
-            silenceMs: 110,
-            silenceThreshold: 0.011,
+            autoStopMs: 2200,
+            maxAfterSpeechMs: 4200,
+            silenceMs: 420,
+            silenceThreshold: 0.0075,
             minTranscriptLength: 1,
             minTranscriptWords: 1,
-            pauseMs: 120,
+            pauseMs: 260,
             listeningText: "Sprich direkt los.",
             transcribingText: "Einen Moment ..."
           }};
         }}
         return {{
-          autoStopMs: 1100,
-          silenceMs: 130,
-          silenceThreshold: 0.013,
+          autoStopMs: 3200,
+          maxAfterSpeechMs: 5200,
+          silenceMs: 520,
+          silenceThreshold: 0.0085,
           minTranscriptLength: 1,
           minTranscriptWords: 1,
-          pauseMs: 150,
+          pauseMs: 320,
           listeningText: "Sprich einfach los.",
           transcribingText: "Einen Moment ..."
         }};
@@ -12903,10 +12914,12 @@ def _memorial_html(
         let speechSeen = false;
         let lastVoiceAt = Date.now();
         const startedAt = Date.now();
-        const maxNoSpeechMs = Math.max(1500, Number(options.autoStopMs || 2100));
-        const silenceAfterSpeechMs = Math.max(420, Number(options.silenceMs || 520));
-        const minSpeechMs = 520;
-        const speechThreshold = Math.max(0.0065, Number(options.silenceThreshold || 0.0085));
+        const targetRate = 16000;
+        const maxNoSpeechMs = Math.max(2200, Number(options.maxNoSpeechMs || options.autoStopMs || 2600));
+        const silenceAfterSpeechMs = Math.max(280, Number(options.silenceMs || 420));
+        const maxAfterSpeechMs = Math.max(1800, Number(options.maxAfterSpeechMs || 4200));
+        const minSpeechMs = 320;
+        const speechThreshold = Math.max(0.0045, Number(options.silenceThreshold || 0.0075));
         const preSpeechMaxBytes = Math.max(8192, Math.floor(targetRate * 2 * 0.72));
         const preSpeechChunks = [];
         let preSpeechBytes = 0;
@@ -12933,7 +12946,6 @@ def _memorial_html(
           liveAudioSource = liveAudioContext.createMediaStreamSource(liveInputStream);
           liveAudioProcessor = liveAudioContext.createScriptProcessor(4096, 1, 1);
           const sourceRate = liveAudioContext.sampleRate || 48000;
-          const targetRate = 16000;
           let resampleCarry = 0;
           const floatToPcm16 = (samples) => {{
             const ratio = sourceRate / targetRate;
@@ -13061,7 +13073,12 @@ def _memorial_html(
                 preSpeechBytes = 0;
               }}
               socket.send(pcmBuffer);
-              if (!liveTurnEnded && now - startedAt > minSpeechMs && now - lastVoiceAt > silenceAfterSpeechMs) {{
+              const activeSpeechMs = now - startedAt;
+              const silenceSinceVoiceMs = now - lastVoiceAt;
+              if (!liveTurnEnded && activeSpeechMs > minSpeechMs && (
+                silenceSinceVoiceMs > silenceAfterSpeechMs ||
+                activeSpeechMs > maxAfterSpeechMs
+              )) {{
                 liveTurnEnded = true;
                 setSpeechStatus("", "thinking", "");
                 try {{ socket.send(JSON.stringify({{ type: "user_audio_end", turn_id: turnId }})); }} catch (error) {{}}
@@ -13122,6 +13139,28 @@ def _memorial_html(
           setSpeechStatus("Ich habe angehalten.", "idle", "Sprich mit mir");
         }}
       }}
+      function resumeConversationAfterBargeIn(seedTranscript = "") {{
+        const seed = normalizeTranscriptText(seedTranscript || "");
+        if (!conversationActive) return;
+        setSpeechStatus("Ich hoere dir wieder zu.", "listening", seed ? "Sprich kurz weiter." : "Sprich einfach weiter");
+        const wordCount = seed.split(/\s+/).filter(Boolean).length;
+        const looksCompleteThought =
+          Boolean(seed) &&
+          shouldSendConversationTranscript(seed) &&
+          (
+            looksImmediateLivePrompt(seed) ||
+            /[?!.…]$/.test(String(seedTranscript || "").trim()) ||
+            wordCount >= 5 ||
+            seed.length >= 28
+          );
+        if (looksCompleteThought) {{
+          void handleConversationTranscript(seed);
+          return;
+        }}
+        setTimeout(() => {{
+          if (conversationActive && !conversationTurnInFlight) void recordConversationTurn();
+        }}, 90);
+      }}
       function armConversationBargeIn() {{
         if (!conversationActive || conversationTurnInFlight || !speechAudio || speechAudio.paused) return;
         if (activeBargeInRecognition || activeRecognition) return;
@@ -13143,14 +13182,14 @@ def _memorial_html(
             next += " " + String(event.results[index][0].transcript || "");
           }}
           heardText = normalizeTranscriptText((heardText + " " + next).trim());
-          if (Date.now() - startedAt < 700) return;
-          if (heardText.replace(/\\s+/g, " ").trim().length < 6) return;
+          if (Date.now() - startedAt < 320) return;
+          if (heardText.replace(/\\s+/g, " ").trim().length < 3) return;
           if (settled) return;
           settled = true;
           activeBargeInRecognition = null;
+          void cancelRealtimeTurn("speech_barge_in");
           stopSpeechPlayback();
-          setSpeechStatus("Ich hoere dir wieder zu.", "listening", "Sprich einfach weiter");
-          void handleConversationTranscript(heardText);
+          void resumeConversationAfterBargeIn(heardText);
           try {{ recognition.stop(); }} catch (error) {{}}
         }};
         recognition.onerror = () => {{
@@ -13591,7 +13630,7 @@ def _memorial_html(
         conversationTurnCount += 1;
         disarmConversationBargeIn();
         setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");
-        setTimeout(recordConversationTurn, 1200);
+        setTimeout(recordConversationTurn, 320);
       }}
       function decodeConversationAudioPayload(payload) {{
         const contentType = String(payload.audio_content_type || "audio/wav");
@@ -14985,6 +15024,18 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
         await _safe_send_json({"type": "cancelled", "turn_id": turn_id, "message": "realtime_turn_cancelled"})
 
     async def _replace_active_turns(next_turn_id: str) -> None:
+        nonlocal current_audio, current_audio_started, current_turn_id
+        if current_gemini_turn_id and current_gemini_turn_id != next_turn_id:
+            cancelled_turn_ids.add(current_gemini_turn_id)
+            await _send_cancelled(current_gemini_turn_id)
+            await _close_gemini_live_turn()
+        if current_turn_id and current_turn_id != next_turn_id:
+            cancelled_turn_ids.add(current_turn_id)
+            if current_audio_started or current_audio:
+                await _send_cancelled(current_turn_id)
+            current_audio = bytearray()
+            current_audio_started = False
+            current_turn_id = ""
         for active_turn_id, task in list(turn_tasks.items()):
             if active_turn_id == next_turn_id:
                 continue
@@ -15657,8 +15708,15 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 if cancel_turn_id:
                     cancelled_turn_ids.add(cancel_turn_id)
                     await _send_cancelled(cancel_turn_id)
+                    active_task = turn_tasks.get(cancel_turn_id)
+                    if active_task is not None:
+                        active_task.cancel()
                     if cancel_turn_id == current_gemini_turn_id:
                         await _close_gemini_live_turn()
+                    if cancel_turn_id == current_turn_id:
+                        current_audio = bytearray()
+                        current_audio_started = False
+                        current_turn_id = ""
                 continue
             if message_type == "user_text_turn":
                 turn_id = _text(payload.get("turn_id")) or f"turn_{len(turn_tasks) + 1}"
@@ -15669,8 +15727,7 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 if len(transcript_text) > _MAX_REALTIME_TEXT_CHARS:
                     await websocket.send_json({"type": "error", "turn_id": turn_id, "message": "text_too_long"})
                     continue
-                if turn_tasks:
-                    await _replace_active_turns(turn_id)
+                await _replace_active_turns(turn_id)
                 try:
                     _enforce_public_memorial_rate_limit("realtime_turn", websocket=websocket, context=personal_memory_context)
                 except HTTPException:
@@ -15680,9 +15737,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 _register_turn_task(turn_id, task)
                 continue
             if message_type == "user_audio_start":
+                next_turn_id = _text(payload.get("turn_id")) or f"turn_{len(turn_tasks) + 1}"
+                await _replace_active_turns(next_turn_id)
                 current_audio = bytearray()
                 current_audio_started = True
-                current_turn_id = _text(payload.get("turn_id"))
+                current_turn_id = next_turn_id
                 current_content_type = _text(payload.get("content_type"), "application/octet-stream")
                 transport = _text(payload.get("transport"))
                 if transport == "gemini_live" or current_content_type.startswith("audio/pcm"):

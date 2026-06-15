@@ -3084,9 +3084,28 @@ def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
 
     assert 'transcribingText: "Einen Moment ..."' in source
     assert 'setSpeechStatus("Ich höre zu.", "listening", "Sprich, wenn du magst");' in source
-    assert 'setTimeout(recordConversationTurn, 1200);' in source
+    assert 'setTimeout(recordConversationTurn, 320);' in source
     assert "Ich habe dich sofort. Einen Moment ..." not in source
     assert "Ich habe dich. Einen Moment ..." not in source
+
+
+def test_memorial_live_page_source_uses_more_tolerant_turn_detection_and_barge_in_restart() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "autoStopMs: 2200" in source
+    assert "maxAfterSpeechMs: 4200" in source
+    assert "silenceMs: 420" in source
+    assert "pauseMs: 260" in source
+    assert "autoStopMs: 3200" in source
+    assert "maxAfterSpeechMs: 5200" in source
+    assert "silenceMs: 520" in source
+    assert "pauseMs: 320" in source
+    assert "const maxAfterSpeechMs = Math.max(1800, Number(options.maxAfterSpeechMs || 4200));" in source
+    assert "const speechThreshold = Math.max(0.0045, Number(options.silenceThreshold || 0.0075));" in source
+    assert "activeSpeechMs > maxAfterSpeechMs" in source
+    assert "void resumeConversationAfterBargeIn(heardText);" in source
+    assert "setTimeout(() => {{" in source
+    assert "setTimeout(recordConversationTurn, 90);" not in source
 
 
 def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcripts() -> None:
@@ -3666,9 +3685,10 @@ def test_memorial_gemini_live_fails_closed_without_server_key(
 def test_memorial_full_realtime_client_uses_funeral_safe_pause_threshold() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
-    assert "Number(options.silenceMs || 520)" in source
-    assert "const minSpeechMs = 520" in source
-    assert "Math.max(420, Number(options.silenceMs || 520))" in source
+    assert "Number(options.maxNoSpeechMs || options.autoStopMs || 2600)" in source
+    assert "const minSpeechMs = 320" in source
+    assert "Math.max(280, Number(options.silenceMs || 420))" in source
+    assert "const maxAfterSpeechMs = Math.max(1800, Number(options.maxAfterSpeechMs || 4200));" in source
 
 
 def test_memorial_gemini_live_uses_websocket_pcm_not_webrtc_sdp(
