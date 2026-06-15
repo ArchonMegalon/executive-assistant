@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
 WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOLD_MAP.generated.json"
 MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_meaningful_public_origin.generated.json"
+PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_voice_roundtrip_public_origin.generated.json"
+PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_public_origin.generated.json"
+ROOM_AUDIO_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_room_audio_public_origin.generated.json"
 
 
 def _display_path(path: Path) -> str:
@@ -51,6 +54,45 @@ def _receipt_state(path: Path) -> str:
     return "missing_or_blocked"
 
 
+def _receipt_git_head(path: Path) -> str:
+    payload = _load_json(path)
+    return str(payload.get("git_head") or payload.get("source_git_head") or "").strip()
+
+
+def _workflow_backing_status(*receipts: Path) -> dict[str, object]:
+    for receipt in receipts:
+        payload = _load_json(receipt)
+        if not payload:
+            continue
+        run_id = str(payload.get("workflow_run_id") or payload.get("github_run_id") or "").strip()
+        artifact_id = str(payload.get("workflow_artifact_id") or payload.get("github_artifact_id") or "").strip()
+        if run_id or artifact_id:
+            return {
+                "status": "yes",
+                "available": True,
+                "workflow_run_id": run_id,
+                "artifact_id": artifact_id,
+            }
+    return {
+        "status": "no",
+        "available": False,
+        "reason": "no_workflow_receipt_marker_present",
+    }
+
+
+def _public_voice_receipt_semantics() -> dict[str, object]:
+    payload = _load_json(PUBLIC_VOICE_RECEIPT)
+    direct = str(payload.get("direct_tts_transcriber") or "").strip()
+    conversation = str(payload.get("conversation_turn_transcriber") or "").strip()
+    provenance_cache = {direct, conversation} == {"memorial_tts_provenance_cache"}
+    return {
+        "label": "Memorial public voice provenance proof" if provenance_cache else "Memorial public voice gold proof",
+        "transcriber_mode": "provenance_cache" if provenance_cache else "runtime_or_external_stt",
+        "direct_tts_transcriber": direct,
+        "conversation_turn_transcriber": conversation,
+    }
+
+
 def main() -> int:
     readiness = _run_json("scripts/verify_memorial_gold_readiness.py")
     whole_project = _run_json("scripts/verify_whole_project_gold_map.py")
@@ -85,6 +127,13 @@ def main() -> int:
     whole_project_gold_allowed = whole_project_gold == "pass"
     memorial_public_gold_allowed = memorial_public_gold_claim_allowed and whole_project_gold_allowed
     final_status = "pass" if memorial_public_gold_allowed else "blocked"
+    workflow_backing = _workflow_backing_status(
+        PUBLIC_VOICE_RECEIPT,
+        PUBLIC_BROWSER_RECEIPT,
+        MEANINGFUL_BROWSER_RECEIPT,
+        ROOM_AUDIO_RECEIPT,
+    )
+    public_voice_semantics = _public_voice_receipt_semantics()
     payload = {
         "contract_name": "ea.memorial_operator_status",
         "generated_by": "scripts/materialize_memorial_operator_status.py",
@@ -100,6 +149,7 @@ def main() -> int:
         "operator_notes": [
             "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
             "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
+            "The current public voice receipt is a provenance proof when its transcriber mode is provenance_cache; browser + room receipts carry the intelligibility proof.",
         ],
         "artifact_paths": {
             "local_release_receipt": _display_path(ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"),
@@ -109,6 +159,15 @@ def main() -> int:
             "room_audio_receipt": _display_path(ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"),
         },
         "readiness": readiness,
+        "evidence_heads": {
+            "whole_project_map": str(whole_project_map.get("git_head") or "").strip(),
+            "public_voice_receipt": _receipt_git_head(PUBLIC_VOICE_RECEIPT),
+            "public_browser_receipt": _receipt_git_head(PUBLIC_BROWSER_RECEIPT),
+            "public_meaningful_browser_receipt": _receipt_git_head(MEANINGFUL_BROWSER_RECEIPT),
+            "room_audio_receipt": _receipt_git_head(ROOM_AUDIO_RECEIPT),
+        },
+        "workflow_backing": workflow_backing,
+        "public_voice_receipt_semantics": public_voice_semantics,
         "whole_project": whole_project,
         "whole_project_map_summary": {
             "overall_status": whole_project_map.get("overall_status", ""),

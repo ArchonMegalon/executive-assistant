@@ -3884,7 +3884,55 @@ def _memorial_gemini_live_answer_requires_turn_fallback(transcript_text: str, an
     )
     if any(marker in normalized_answer for marker in meta_markers):
         return True
+    if _memorial_values_answer_is_too_vague(answer_text, transcript_text):
+        return True
     return _looks_like_memorial_contact_opening_transcript(transcript_text) and not _looks_like_memorial_reply_text(answer_text)
+
+
+def _is_memorial_values_question(question: str) -> bool:
+    lowered = _normalize_memorial_transcript_text(question).lower()
+    return any(
+        token in lowered
+        for token in (
+            "gerechtigkeit",
+            "gerecht",
+            "fair",
+            "fairness",
+            "prinzip",
+            "rechtlich",
+            "rechtsfrage",
+            "verantwortung",
+            "pflicht",
+            "anspruch",
+            "tatsachen",
+            "belegen",
+        )
+    )
+
+
+def _memorial_values_answer_is_too_vague(answer_text: str, question: str) -> bool:
+    if not _is_memorial_values_question(question):
+        return False
+    normalized_answer = _normalize_memorial_transcript_text(answer_text).lower()
+    if not normalized_answer:
+        return True
+    clarification_markers = (
+        "konkreten punkt",
+        "etwas enger",
+        "enger darauf",
+        "allgemein drum herum",
+        "sage mir den konkreten punkt",
+        "ziehe den punkt enger",
+    )
+    if any(marker in normalized_answer for marker in clarification_markers):
+        return True
+    semantic_groups = (
+        ("rechtlich", "rechtens", "juristisch", "anspruch", "pflicht"),
+        ("prinzip", "massstab", "bequemlichkeit", "bequemer", "ausweich"),
+        ("fair", "gerecht", "verantwort", "tatsachen", "belegen"),
+    )
+    group_matches = sum(1 for group in semantic_groups if any(token in normalized_answer for token in group))
+    return group_matches < 2
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -5328,6 +5376,22 @@ def _memorial_chat_answer(
             provider_key = "memorial_guardrail"
             fallback_used = True
             fallback_reason = "memorial_ooda_guardrail"
+        elif _memorial_values_answer_is_too_vague(generated, normalized_question):
+            fallback = _memorial_chat_fallback_answer(
+                payload,
+                normalized_question,
+                private_profile,
+                slug=slug or _text(payload.get("slug"), ""),
+                memory_runtime=memory_runtime,
+                personal_memory_context=personal_memory_context,
+                llm_model=requested_model,
+                fallback_reason="memorial_values_guardrail",
+                difficult_memory_mode=difficult_memory_mode,
+            )
+            generated = _compact_memorial_spoken_answer(_text(fallback.get("answer")))
+            provider_key = "memorial_guardrail"
+            fallback_used = True
+            fallback_reason = "memorial_values_guardrail"
         if not generated:
             raise RuntimeError("empty_upstream_answer")
         response = {
@@ -14941,6 +15005,18 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         )
                         await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
                         task = asyncio.create_task(_process_turn(turn_id, fallback_audio, fallback_content_type))
+                        _register_turn_task(turn_id, task)
+                        return
+                    if _memorial_gemini_live_answer_requires_turn_fallback(transcript_text, answer_text) and normalized_transcript:
+                        _log_memorial_timing(
+                            "gemini_live_transcript_answer_fallback",
+                            slug=slug,
+                            turn_id=turn_id,
+                            live_transcript_chars=len(normalized_transcript),
+                            answer_chars=len(_normalize_memorial_transcript_text(answer_text)),
+                        )
+                        await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
+                        task = asyncio.create_task(_process_transcript_turn(turn_id, transcript_text))
                         _register_turn_task(turn_id, task)
                         return
                     if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):

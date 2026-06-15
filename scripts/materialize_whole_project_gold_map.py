@@ -354,7 +354,7 @@ def build_gold_map(
             title="Memorial Public-Origin Experience Gold",
             owner_repo="memorial runtime",
             status=memorial_public_gold_status,
-            claim="The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
+            claim="The public memorial experience is gold only when the deployed public origin proves the voice roundtrip receipt, browser realtime playback with live STT, room/device intelligibility, and latency. Local release receipts do not satisfy this plane.",
             evidence=[
                 _display_path(path)
                 for path in (

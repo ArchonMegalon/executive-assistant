@@ -1497,6 +1497,15 @@ def test_memorial_gemini_live_contact_opening_requires_real_contact_reply() -> N
     ) is False
 
 
+def test_memorial_gemini_live_values_prompt_rejects_vague_narrowing_reply() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        "Was war dir bei Gerechtigkeit wichtig?",
+        "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+    ) is True
+
+
 def test_memorial_content_length_helper_tolerates_malformed_header() -> None:
     from starlette.requests import Request
     from app.api.routes import public_memorials
@@ -2874,6 +2883,38 @@ def test_memorial_generic_fallback_answer_does_not_default_to_schach_und_familie
     assert "belegt ist hier vor allem" not in lowered
     assert "schach" not in lowered
     assert "familie" not in lowered
+
+
+def test_memorial_values_question_replaces_vague_model_answer_with_values_guardrail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setattr(
+        public_memorials,
+        "generate_text",
+        lambda **kwargs: SimpleNamespace(
+            text="Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+            provider_key="unit-test-model",
+            model="ea-gemini-flash",
+        ),
+    )
+
+    answer = public_memorials._memorial_chat_answer(
+        {"slug": slug, "person_name": "Manfred Hoza", "audio_clips": []},
+        "Was war dir bei Gerechtigkeit wichtig?",
+        {},
+        "ea-gemini-flash",
+        slug=slug,
+    )
+
+    lowered = answer["answer"].lower()
+    assert answer["llm_fallback_used"] is True
+    assert answer["fallback_reason"] == "memorial_values_guardrail"
+    assert "konkreten punkt" not in lowered
+    assert any(token in lowered for token in ("rechtlich", "prinzip", "bequemlichkeit", "massstab", "juristisch"))
 
 
 def test_memorial_warmup_route_schedules_background_prewarm(

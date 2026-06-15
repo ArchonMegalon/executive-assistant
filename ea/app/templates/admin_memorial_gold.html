@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Memorial Gold Status</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f5f7fb;
+        color: #162033;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+      h1, h2 {
+        margin: 0 0 12px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0 0 12px;
+        line-height: 1.45;
+      }
+      .band {
+        background: #fff;
+        border: 1px solid #dbe3f0;
+        border-radius: 8px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+      }
+      .status {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: #e7eefc;
+        color: #1a4db3;
+      }
+      .status.pass {
+        background: #e7f6ec;
+        color: #166534;
+      }
+      .status.blocked, .status.no {
+        background: #fdecec;
+        color: #b42318;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 8px 16px;
+        margin: 0;
+      }
+      dt {
+        font-weight: 600;
+      }
+      dd {
+        margin: 0;
+        word-break: break-word;
+      }
+      ul {
+        margin: 8px 0 0 18px;
+        padding: 0;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="band">
+        <h1>{{ memorial.person_name or slug }}</h1>
+        <p><span class="status {{ operator_status.status }}">{{ operator_status.current_label }}</span></p>
+        <p>Operator gold view for the public-origin memorial proof set.</p>
+      </section>
+
+      <section class="band">
+        <h2>Heads</h2>
+        <dl>
+          <dt>Current head</dt>
+          <dd><code>{{ operator_status.readiness.current_head or "" }}</code></dd>
+          <dt>Whole-project map head</dt>
+          <dd><code>{{ operator_status.evidence_heads.whole_project_map or "" }}</code></dd>
+          <dt>Voice receipt head</dt>
+          <dd><code>{{ operator_status.evidence_heads.public_voice_receipt or "" }}</code></dd>
+          <dt>Browser receipt head</dt>
+          <dd><code>{{ operator_status.evidence_heads.public_browser_receipt or "" }}</code></dd>
+          <dt>Meaningful browser head</dt>
+          <dd><code>{{ operator_status.evidence_heads.public_meaningful_browser_receipt or "" }}</code></dd>
+          <dt>Room receipt head</dt>
+          <dd><code>{{ operator_status.evidence_heads.room_audio_receipt or "" }}</code></dd>
+        </dl>
+      </section>
+
+      <section class="band">
+        <h2>Receipts</h2>
+        <dl>
+          <dt>Public voice</dt>
+          <dd><span class="status {{ operator_status.public_voice_receipt }}">{{ operator_status.public_voice_receipt }}</span></dd>
+          <dt>Public browser</dt>
+          <dd><span class="status {{ operator_status.public_browser_receipt }}">{{ operator_status.public_browser_receipt }}</span></dd>
+          <dt>Meaningful browser</dt>
+          <dd><span class="status {{ operator_status.public_browser_meaningful_receipt }}">{{ operator_status.public_browser_meaningful_receipt }}</span></dd>
+          <dt>Room audio</dt>
+          <dd><span class="status {{ operator_status.room_audio_receipt }}">{{ operator_status.room_audio_receipt }}</span></dd>
+          <dt>Whole-project gold</dt>
+          <dd><span class="status {{ operator_status.whole_project_gold }}">{{ operator_status.whole_project_gold }}</span></dd>
+          <dt>Workflow-backed</dt>
+          <dd><span class="status {{ operator_status.workflow_backing.status }}">{{ operator_status.workflow_backing.status }}</span></dd>
+        </dl>
+      </section>
+
+      <section class="band">
+        <h2>Semantics</h2>
+        <dl>
+          <dt>Voice receipt label</dt>
+          <dd>{{ operator_status.public_voice_receipt_semantics.label }}</dd>
+          <dt>Voice transcriber mode</dt>
+          <dd><code>{{ operator_status.public_voice_receipt_semantics.transcriber_mode }}</code></dd>
+          <dt>Operator status file</dt>
+          <dd><code>{{ status_path }}</code></dd>
+        </dl>
+        <ul>
+          {% for note in operator_status.operator_notes %}
+          <li>{{ note }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

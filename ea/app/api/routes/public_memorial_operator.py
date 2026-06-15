@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from app.api.routes.landing_public_support import templates
 
 from app.api.routes.public_memorial_operator_support import (
     _collect_memorial_public_audio_paths,
@@ -82,6 +83,33 @@ def public_memorial_operator_status(slug: str, request: Request) -> JSONResponse
         "record_room_audio_proof_clean": "make materialize-memorial-room-audio-gold-clean",
     }
     return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/admin/memorials/{slug}/gold", response_class=HTMLResponse)
+def public_memorial_operator_gold_page(slug: str, request: Request) -> HTMLResponse:
+    _require_public_memorial_operator_surface_enabled()
+    memorial = _load_memorial(slug)
+    _require_public_memorial_write_access(slug=slug, request=request, memorial=memorial)
+    status_path = _memorial_operator_status_path()
+    try:
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="memorial_operator_status_unavailable") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=503, detail="memorial_operator_status_unavailable")
+    response = templates.TemplateResponse(
+        request,
+        "admin_memorial_gold.html",
+        {
+            "request": request,
+            "slug": _safe_slug(slug),
+            "memorial": memorial,
+            "status_path": str(status_path),
+            "operator_status": payload,
+        },
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/memorials/{slug}/voice-config")

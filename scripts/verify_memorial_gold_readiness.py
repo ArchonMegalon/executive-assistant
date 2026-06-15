@@ -334,7 +334,7 @@ def main() -> int:
         "memorial_voice_gold_claim_allowed": status == "pass",
         "labels": {
             "local_receipt": "Memorial voice release-candidate proof",
-            "public_receipt": "Memorial voice gold proof",
+            "public_receipt": "Memorial public voice provenance proof",
             "browser_receipt": "Memorial public browser realtime proof",
             "room_receipt": "Memorial public room/device playback proof",
         },

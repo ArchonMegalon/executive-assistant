@@ -122,6 +122,11 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     assert payload["public_browser_meaningful_receipt"] == "pass"
     assert payload["status"] == "pass"
     assert payload["artifact_paths"]["public_gold_receipt"] == ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
+    assert payload["workflow_backing"]["status"] == "no"
+    assert payload["public_voice_receipt_semantics"]["label"] in {
+        "Memorial public voice provenance proof",
+        "Memorial public voice gold proof",
+    }
 
 
 def test_memorial_operator_status_marks_memorial_pass_blocked_if_whole_project_gold_disallowed(tmp_path, monkeypatch) -> None:
