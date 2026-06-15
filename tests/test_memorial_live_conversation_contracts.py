@@ -1600,6 +1600,30 @@ def test_memorial_gemini_live_values_prompt_rejects_vague_narrowing_reply() -> N
     ) is True
 
 
+def test_memorial_live_guardrail_prefers_contact_answer_for_empty_transcript_narrowing_reply() -> None:
+    from app.api.routes import public_memorials
+
+    guarded = public_memorials._memorial_live_guardrail_answer_body(
+        "",
+        "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+        turn_id="turn_1",
+    )
+
+    assert guarded == "Worum geht es?"
+
+
+def test_memorial_live_guardrail_prefers_current_speculation_guardrail_for_covid_question() -> None:
+    from app.api.routes import public_memorials
+
+    guarded = public_memorials._memorial_live_guardrail_answer_body(
+        "Würdest du dich heute gegen Covid impfen lassen?",
+        "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+        turn_id="turn_1",
+    )
+
+    assert "aktuelle medizinische oder politische Entscheidung" in guarded
+
+
 def test_memorial_gemini_live_rejects_narrowing_reply_even_with_soft_transcript() -> None:
     from app.api.routes import public_memorials
 

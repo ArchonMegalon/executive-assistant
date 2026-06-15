@@ -513,6 +513,19 @@ def _semantic_group_matches(answer_text: str, required_any: tuple[tuple[str, ...
     return len(matched_groups), matched_groups
 
 
+def _answer_is_narrowing_clarification(answer_text: str) -> bool:
+    normalized = _normalized_text(answer_text)
+    markers = (
+        "konkreten punkt",
+        "etwas enger",
+        "enger darauf",
+        "allgemein drum herum",
+        "sage mir den konkreten punkt",
+        "ziehe den punkt enger",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def _answer_satisfies_semantic_profile(answer_text: str, profile: dict[str, object]) -> tuple[bool, dict[str, object]]:
     answer_tokens = tuple(str(token).strip().lower() for token in tuple(profile.get("answer_tokens") or ()) if str(token).strip())
     minimum_context_matches = max(1, int(profile.get("minimum_context_matches") or 1))
@@ -520,7 +533,11 @@ def _answer_satisfies_semantic_profile(answer_text: str, profile: dict[str, obje
     required_any = tuple(tuple(group or ()) for group in tuple(profile.get("required_any") or ()))
     required_group_matches = max(0, int(profile.get("required_group_matches") or 0))
     group_match_count, matched_groups = _semantic_group_matches(answer_text, required_any)
-    passed = context_match_count >= minimum_context_matches and group_match_count >= required_group_matches
+    passed = (
+        not _answer_is_narrowing_clarification(answer_text)
+        and context_match_count >= minimum_context_matches
+        and group_match_count >= required_group_matches
+    )
     return passed, {
         "profile_id": str(profile.get("id") or ""),
         "context_match_count": int(context_match_count),

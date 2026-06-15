@@ -115,6 +115,20 @@ def test_answer_satisfies_semantic_profile_rejects_generic_answer() -> None:
     assert details["group_match_count"] < details["required_group_matches"]
 
 
+def test_answer_satisfies_contact_profile_rejects_narrowing_clarification() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt("Hallo Manfred, kannst du jetzt mit mir sprechen?")
+    passed, details = module._answer_satisfies_semantic_profile(
+        "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+        profile,
+    )
+
+    assert profile["id"] == "contact_opening"
+    assert passed is False
+    assert details["context_match_count"] >= 1
+
+
 def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     source = Path("/docker/EA/scripts/measure_memorial_live_browser.py").read_text(encoding="utf-8")
 

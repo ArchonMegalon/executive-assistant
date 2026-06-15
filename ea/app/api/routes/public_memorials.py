@@ -4007,6 +4007,18 @@ def _memorial_values_guardrail_answer_body(question: str) -> str:
     )
 
 
+def _memorial_live_guardrail_answer_body(transcript_text: str, answer_text: str, *, turn_id: str = "") -> str:
+    effective_question = _canonical_memorial_contact_opening_question(transcript_text)
+    if _memorial_answer_has_narrowing_clarification(answer_text):
+        if _is_memorial_current_speculation_question(effective_question):
+            return _memorial_current_speculation_answer_body(effective_question)
+        if _is_memorial_contact_question(effective_question) or not _normalize_memorial_transcript_text(transcript_text):
+            return _memorial_contact_answer_body(f"{effective_question} {turn_id}".strip())
+        if _is_memorial_values_question(effective_question):
+            return _memorial_values_guardrail_answer_body(effective_question)
+    return answer_text
+
+
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
     mapping = {
         "real_estate": ("grundbuch", "vertrag", "rücklage", "ruecklage", "betriebskosten", "sanierungen", "lasten"),
@@ -14977,17 +14989,19 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         task = asyncio.create_task(_process_transcript_turn(turn_id, transcript_text))
                         _register_turn_task(turn_id, task)
                         return
-                    if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):
-                        answer_text = _memorial_contact_answer_body(f"{transcript_text} {turn_id}")
-                        await _safe_send_json(
-                            {
-                                "type": "response.output_audio_transcript.done",
-                                "turn_id": turn_id,
-                                "transcript": answer_text.strip(),
-                            }
-                        )
-                    elif _memorial_answer_has_narrowing_clarification(answer_text):
-                        answer_text = _memorial_values_guardrail_answer_body(transcript_text)
+                    guarded_live_answer = _memorial_live_guardrail_answer_body(
+                        transcript_text,
+                        answer_text,
+                        turn_id=turn_id,
+                    )
+                    if (
+                        guarded_live_answer != answer_text
+                        or _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text))
+                        or _is_memorial_direct_contact_opening_text(answer_text)
+                    ):
+                        if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):
+                            guarded_live_answer = _memorial_contact_answer_body(f"{transcript_text} {turn_id}")
+                        answer_text = guarded_live_answer
                         await _safe_send_json(
                             {
                                 "type": "response.output_audio_transcript.done",
