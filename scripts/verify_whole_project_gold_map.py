@@ -136,7 +136,7 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
                 continue
             evidence_path = Path(evidence_text)
             payload = _json(ROOT / evidence_path)
-            if payload and current_head and not _fresh_enough(str(payload.get("git_head") or ""), current_head=current_head):
+            if payload and current_head and not _fresh_enough(_recorded_source_head(payload), current_head=current_head):
                 issues.append("memorial voice receipt is stale relative to current HEAD")
 
     memorial_public_plane = by_key.get("memorial_public_origin_gold") or {}
