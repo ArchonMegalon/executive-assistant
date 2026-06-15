@@ -10,6 +10,7 @@
   {% if scope == 'https://www.googleapis.com/auth/drive.metadata.readonly' %}{% set granted.drive = true %}{% endif %}
   {% if scope == 'https://www.googleapis.com/auth/gmail.settings.basic' or scope == 'https://www.googleapis.com/auth/gmail.settings.sharing' %}{% set granted.settings = true %}{% endif %}
 {% endfor %}
+{% set property_register_return = register_signal_payload and return_label == 'Return to registration' %}
 <style>
   .google-hero,
   .google-card,
@@ -74,7 +75,7 @@
   </p>
 </section>
 
-{% if brand.key == 'ea' %}
+{% if brand.key == 'ea' and not property_register_return %}
 <section class="section google-step-grid">
   <section class="google-step">
     <strong>Use this as a Today check, not a setup milestone.</strong>
@@ -120,7 +121,11 @@
   <section class="google-step">
     <strong>What the workspace checked next</strong>
     {% if brand.key == 'ea' %}
+    {% if property_register_return %}
+    {{ sync_detail or 'Open Properties first. That is usually the fastest way to confirm the connection is already helping the active search.' }}
+    {% else %}
     {{ sync_detail or 'Open Today first. That is usually the fastest way to confirm the connection is already helping the office loop.' }}
+    {% endif %}
     {% else %}
     {{ sync_detail or 'Open Properties first. That is usually the fastest way to confirm the connection is already helping the active search.' }}
     {% endif %}
@@ -155,8 +160,8 @@
 
 <section class="section panel google-actions">
   <div class="cta-row">
-    <a class="btn primary" href="{% if brand.key == 'ea' %}/app/today{% else %}/app/properties{% endif %}">
-      {% if brand.key == 'ea' %}Open Today{% else %}Open Properties{% endif %}
+    <a class="btn primary" href="{% if brand.key == 'ea' and not property_register_return %}/app/today{% else %}/app/properties{% endif %}">
+      {% if brand.key == 'ea' and not property_register_return %}Open Today{% else %}Open Properties{% endif %}
     </a>
     {% if return_to %}<a class="btn" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
     <a class="btn ghost" href="/app/settings/google">Google settings</a>

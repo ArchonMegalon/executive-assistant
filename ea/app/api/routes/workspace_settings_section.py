@@ -137,7 +137,7 @@ def build_settings_section(
                 "body": (
                     "PropertyQuarry only needs identity, token health, and reauth posture here."
                     if property_brand
-                    else "Keep Google narrow. Connect it only when it makes Today more useful or keeps return access simple."
+                    else "What is feeding the office loop stays narrow. Connect Google only when it makes Today more useful or keeps return access simple."
                 ),
                 "items": [
                     google_settings_action_row_builder(analytics_sync),

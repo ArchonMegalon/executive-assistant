@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
@@ -11,13 +12,30 @@ from scripts.verify_project_mode_manifests import main as verify_project_modes
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _git_head() -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     payload = project_modes()
     modes = {item["key"]: item for item in payload["modes"]}
     memorial_receipt = json.loads(
         (ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json").read_text(encoding="utf-8")
     )
-    expected_memorial_status = "shipping_memorial" if memorial_receipt.get("status") == "pass" else "separate_risk_zone"
+    current_head = _git_head()
+    expected_memorial_status = (
+        "shipping_memorial"
+        if memorial_receipt.get("status") == "pass"
+        and memorial_receipt.get("source_git_head") == current_head
+        else "separate_risk_zone"
+    )
 
     assert set(modes) == {"EA_CORE", "MEMORIAL", "PROVIDER_LAB", "CHUMMER_RELEASE_CONTROL", "PROPERTY"}
     assert modes["EA_CORE"]["status"] == "shipping_core"
@@ -38,6 +56,7 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
         "public_origin_gold_pass"
         if all(
             json.loads(path.read_text(encoding="utf-8")).get("status") == "pass"
+            and json.loads(path.read_text(encoding="utf-8")).get("source_git_head") == current_head
             for path in public_gold_gate_paths
             if path.is_file()
         )

@@ -260,9 +260,9 @@ def build_gold_map(
             status=ea_status,
             claim="EA core workspace and release-control proof are green only when the EA receipt, weekly pulse, and browser workflow proof are green.",
             evidence=[
-                flagship_receipt_path.relative_to(ROOT).as_posix(),
-                weekly_pulse_path.relative_to(ROOT).as_posix(),
-                browser_proof_path.relative_to(ROOT).as_posix(),
+                _display_path(flagship_receipt_path),
+                _display_path(weekly_pulse_path),
+                _display_path(browser_proof_path),
             ],
             missing_evidence=[] if ea_status == "pass" else ["EA flagship receipt, weekly pulse, or browser proof is not pass"],
         ),
@@ -281,8 +281,8 @@ def build_gold_map(
             owner_repo="design-front-door / EA mirror",
             status="bounded_pass" if mirror_boundary_present else "unknown_missing_receipt",
             claim="EA owns a bounded mirror and cannot infer all Chummer product design readiness from mirrored docs alone.",
-            evidence=[mirror_boundary_path.relative_to(ROOT).as_posix()] if mirror_boundary_present else [],
-            missing_evidence=[] if mirror_boundary_present else [mirror_boundary_path.relative_to(ROOT).as_posix()],
+            evidence=[_display_path(mirror_boundary_path)] if mirror_boundary_present else [],
+            missing_evidence=[] if mirror_boundary_present else [_display_path(mirror_boundary_path)],
             design_notes=[
                 "Whole-project design gold requires canonical product/UI review receipts outside the EA mirror.",
                 "The EA mirror may be green while product-wide visual polish remains unproven.",

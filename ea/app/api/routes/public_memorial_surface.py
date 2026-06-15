@@ -69,9 +69,13 @@ def public_memorial_archive_publication(slug: str, publication_slug: str) -> Res
 
 
 @router.get("/memorials/{slug}/app.webmanifest")
-def public_memorial_pwa_manifest(slug: str) -> JSONResponse:
+def public_memorial_pwa_manifest(slug: str, request: Request) -> JSONResponse:
     payload = _load_memorial(slug)
-    return JSONResponse(_memorial_pwa_manifest_payload(slug, payload), media_type="application/manifest+json")
+    prefer_install_surface = str(request.query_params.get("surface") or "").strip().lower() == "page"
+    return JSONResponse(
+        _memorial_pwa_manifest_payload(slug, payload, prefer_install_surface=prefer_install_surface),
+        media_type="application/manifest+json",
+    )
 
 
 @router.get("/memorials/{slug}/service-worker.js")

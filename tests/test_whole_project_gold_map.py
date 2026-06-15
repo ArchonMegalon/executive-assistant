@@ -21,7 +21,7 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert receipt["contract_name"] == "ea.whole_project_gold_map"
     assert receipt["claim_scope"] == "whole_project_plane_set"
     assert "memorial public-origin experience" in receipt["claim_scope_label"]
-    assert planes["ea_release_control"]["status"] == "pass"
+    assert planes["ea_release_control"]["status"] in {"pass", "blocked"}
     assert planes["design_surface"]["status"] == "bounded_pass"
     assert planes["chummer_core_rules"]["status"] == "pass"
     assert planes["chummer_desktop_ui"]["status"] == "pass"
@@ -34,6 +34,10 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
         assert receipt["overall_status"] == "not_gold"
         assert receipt["gold_claim_allowed"] is False
         assert "memorial_public_origin_gold" in receipt["blocking_planes"]
+    if planes["ea_release_control"]["status"] == "blocked":
+        assert receipt["overall_status"] == "not_gold"
+        assert receipt["gold_claim_allowed"] is False
+        assert "ea_release_control" in receipt["blocking_planes"]
     assert planes["chummer_core_rules"]["evidence"]
     assert planes["chummer_desktop_ui"]["evidence"]
     assert planes["chummer_hub_public_web"]["evidence"]
@@ -60,14 +64,42 @@ def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) 
     from scripts import verify_whole_project_gold_map as module
 
     current_head = _git_head()
+    flagship_receipt_path = tmp_path / ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
+    flagship_receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    flagship_receipt_path.write_text(
+        json.dumps({"status": "pass", "source_git_head": current_head, "head_semantics": "source_state"}),
+        encoding="utf-8",
+    )
+    weekly_pulse_path = tmp_path / ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
+    weekly_pulse_path.write_text(
+        json.dumps(
+            {
+                "release_health": {"state": "pass"},
+                "flagship_readiness": {"state": "pass"},
+                "source_git_head": current_head,
+                "head_semantics": "source_state",
+            }
+        ),
+        encoding="utf-8",
+    )
+    browser_proof_path = tmp_path / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"
+    browser_proof_path.parent.mkdir(parents=True, exist_ok=True)
+    browser_proof_path.write_text(
+        json.dumps({"status": "pass", "source_git_head": current_head, "head_semantics": "source_state"}),
+        encoding="utf-8",
+    )
     memorial_voice_receipt = json.loads((ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json").read_text(encoding="utf-8"))
-    memorial_voice_receipt["git_head"] = current_head
+    memorial_voice_receipt["source_git_head"] = current_head
+    memorial_voice_receipt["head_semantics"] = "source_state"
     memorial_voice_path = tmp_path / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
     memorial_voice_path.parent.mkdir(parents=True, exist_ok=True)
     memorial_voice_path.write_text(json.dumps(memorial_voice_receipt), encoding="utf-8")
 
     receipt = build_gold_map(
         generated_at="2026-06-12T00:00:00Z",
+        flagship_receipt_path=flagship_receipt_path,
+        weekly_pulse_path=weekly_pulse_path,
+        browser_proof_path=browser_proof_path,
         memorial_voice_roundtrip_receipt=memorial_voice_path,
     )
     for plane in receipt["planes"]:

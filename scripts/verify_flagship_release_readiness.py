@@ -96,7 +96,16 @@ def verify(
     journey_summary = _journey_summary(journey_gates_path, pulse=pulse)
     implementation_scope = _text(implementation_scope_path)
 
+    override_substitutions = {
+        ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json": flagship_receipt_path,
+        ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json": pulse_path,
+        ROOT / ".codex-studio" / "published" / "EA_BROWSER_WORKFLOW_PROOF.generated.json": browser_proof_path,
+    }
+
     for path in required_contract_paths:
+        replacement = override_substitutions.get(path)
+        if replacement is not None and replacement != path:
+            continue
         if not path.exists():
             issues.append(f"required EA release contract missing: {path}")
 

@@ -3062,7 +3062,12 @@ def _memorial_pwa_manifest_icons(slug: str, payload: dict[str, object]) -> list[
     ]
 
 
-def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dict[str, object]:
+def _memorial_pwa_manifest_payload(
+    slug: str,
+    payload: dict[str, object],
+    *,
+    prefer_install_surface: bool = False,
+) -> dict[str, object]:
     name = _memorial_pwa_app_name(payload)
     short_name = _memorial_pwa_short_name(payload)
     description = _text(
@@ -3088,9 +3093,10 @@ def _memorial_pwa_manifest_payload(slug: str, payload: dict[str, object]) -> dic
         "icons": _memorial_pwa_manifest_icons(slug, payload),
     }
     if not _memorial_pwa_install_enabled():
-        manifest["display"] = "browser"
-        manifest["start_url"] = base_path
-        manifest["scope"] = base_path
+        if not prefer_install_surface:
+            manifest["display"] = "browser"
+            manifest["start_url"] = base_path
+            manifest["scope"] = base_path
         manifest["prefer_related_applications"] = False
         manifest["install_policy"] = "disabled_until_install_update_offline_behavior_is_tested"
     return manifest
@@ -6195,6 +6201,8 @@ def _render_memorial_tts_audio(
             )
         else:
             raise HTTPException(status_code=400, detail="unsupported_tts_plugin")
+        if int(max(0, lead_in_ms)) == 0 and int(max(0, tail_silence_ms)) == 0 and not str(extra_filters or "").strip():
+            return synthesized_audio, synthesized_content_type
         return _pad_speech_audio_lead_in(
             payload=synthesized_audio,
             content_type=synthesized_content_type,
@@ -6944,11 +6952,19 @@ def _build_memorial_conversation_turn_payload(
         base_config=base_config,
         selected_plugin=selected_plugin,
         selected_option=selected_option,
-        lead_in_ms=lead_in_ms,
-        tail_silence_ms=tail_silence_ms,
+        lead_in_ms=0,
+        tail_silence_ms=0,
     )
     tts_ms = (time.perf_counter() - tts_started) * 1000.0
-    pad_ms = 0.0
+    pad_started = time.perf_counter()
+    audio, audio_content_type = _pad_speech_audio_lead_in(
+        payload=audio,
+        content_type=audio_content_type,
+        silence_ms=lead_in_ms,
+        tail_silence_ms=tail_silence_ms,
+        extra_filters="",
+    )
+    pad_ms = (time.perf_counter() - pad_started) * 1000.0
     response_payload = dict(answer_payload)
     response_payload["transcript_text"] = effective_question
     response_payload["transcript_effective_text"] = effective_question
@@ -7830,7 +7846,7 @@ def _minimal_public_memorial_html(
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="{html.escape(pwa_short_name)}">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}">
+    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}&surface=page">
     <link rel="apple-touch-icon" href="{memorial_avatar_url}">
     {clickrank_html}
     <style>
@@ -9790,7 +9806,7 @@ def _memorial_html(
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="{html.escape(_memorial_pwa_short_name(payload))}">
     <meta name="mobile-web-app-capable" content="yes">
-    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}">
+    <link rel="manifest" href="/memorials/{html.escape(slug)}/app.webmanifest?v={_MEMORIAL_PWA_VERSION}&surface=page">
     <link rel="apple-touch-icon" href="{html.escape(_memorial_pwa_icon_url(slug, payload, 180))}">
     {clickrank_html}
     <style>
@@ -15432,6 +15448,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             else:
                 lead_in_ms = _MEMORIAL_REALTIME_TTS_LEAD_IN_MS
                 tail_silence_ms = _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS
+            render_lead_in_ms = 0 if direct_contact_opening else lead_in_ms
+            render_tail_silence_ms = 0 if direct_contact_opening else tail_silence_ms
             try:
                 audio, audio_content_type = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -15442,8 +15460,8 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         base_config=base_config,
                         selected_plugin=selected_plugin,
                         selected_option=selected_option,
-                        lead_in_ms=lead_in_ms,
-                        tail_silence_ms=tail_silence_ms,
+                        lead_in_ms=render_lead_in_ms,
+                        tail_silence_ms=render_tail_silence_ms,
                     ),
                     timeout=max(_MEMORIAL_REALTIME_TTS_TIMEOUT_SECONDS, 45.0)
                     if selected_plugin == VOICEWAVE_TTS_PLUGIN_ID
@@ -15455,6 +15473,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 raise HTTPException(status_code=502, detail="tts_plugin_failed")
             tts_ms = (time.perf_counter() - tts_started) * 1000.0
             pad_ms = 0.0
+            if direct_contact_opening:
+                pad_started = time.perf_counter()
+                audio, audio_content_type = _pad_speech_audio_lead_in(
+                    payload=audio,
+                    content_type=audio_content_type,
+                    silence_ms=lead_in_ms,
+                    tail_silence_ms=tail_silence_ms,
+                    extra_filters="",
+                )
+                pad_ms = (time.perf_counter() - pad_started) * 1000.0
             if audio and not await turn_support.stream_realtime_audio_chunks(
                 turn_id=turn_id,
                 audio=audio,

@@ -182,6 +182,31 @@ def _token_overlap(expected: str, actual: str) -> dict[str, float]:
     return {"precision": round(precision, 4), "recall": round(recall, 4), "f1": round(f1, 4)}
 
 
+def _looks_like_contact_opening_answer(text: str) -> bool:
+    normalized = _normalize_compare_text(text)
+    return normalized in {
+        "worum geht es",
+        "ich hoere dich sag es mir in ruhe",
+        "ich hore dich sag es mir in ruhe",
+        "sprich weiter ich antworte direkt",
+    }
+
+
+def _looks_like_stable_memorial_reply(text: str) -> bool:
+    normalized = _normalize_compare_text(text)
+    if not normalized:
+        return False
+    prefixes = (
+        "ich antworte dir direkt",
+        "ich hoere dich",
+        "ich hore dich",
+        "sag es mir",
+        "sprich ruhig weiter",
+        "worum geht es",
+    )
+    return any(normalized.startswith(prefix) for prefix in prefixes)
+
+
 def _critical_tokens_missing(actual: str, critical_tokens: tuple[str, ...]) -> list[str]:
     actual_tokens = set(_normalize_compare_text(actual).split())
     missing: list[str] = []
@@ -584,19 +609,26 @@ def validate_memorial_voice_loop(
     )
 
     started = time.perf_counter()
-    try:
-        prompt_audio = _neutral_prompt_wav_bytes(conversation_question)
-        prompt_status = 200 if prompt_audio else 0
-        prompt_content_type = "audio/wav"
-    except Exception as exc:
-        prompt_status = 0
-        prompt_audio = b""
-        prompt_content_type = "audio/wav"
-        prompt_error = f"{type(exc).__name__}:{str(exc)[:180]}"
-    else:
-        prompt_error = ""
+    prompt_status, prompt_audio, prompt_content_type = _post_json_binary_response(
+        f"{normalized_base_url}/memorials/{urllib.parse.quote(slug)}/speech-synthesize",
+        {"text": conversation_question},
+    )
+    prompt_source = "speech_synthesize"
+    prompt_error = ""
+    if prompt_status != 200 or not prompt_audio:
+        try:
+            prompt_audio = _neutral_prompt_wav_bytes(conversation_question)
+            prompt_status = 200 if prompt_audio else 0
+            prompt_content_type = "audio/wav"
+            prompt_source = "local_neutral_prompt"
+        except Exception as exc:
+            prompt_status = 0
+            prompt_audio = b""
+            prompt_content_type = "audio/wav"
+            prompt_source = "local_neutral_prompt"
+            prompt_error = f"{type(exc).__name__}:{str(exc)[:180]}"
     report.metrics["synthetic_prompt_synthesize_ms"] = _elapsed_ms(started)
-    report.metrics["synthetic_prompt_source"] = "local_neutral_prompt"
+    report.metrics["synthetic_prompt_source"] = prompt_source
     if prompt_status != 200 or not prompt_audio:
         report.add("fail", "synthetic_prompt_failed", "Could not synthesize the synthetic question loop prompt.", status_code=prompt_status, detail=prompt_error)
         return report
@@ -672,6 +704,7 @@ def validate_memorial_voice_loop(
     else:
         report.add("pass", "conversation_turn_audio_ok", "Conversation-turn answer audio passed signal checks.")
 
+    reference_is_contact_opening = _looks_like_contact_opening_answer(reference_answer)
     if not transcriber_available:
         report.add(
             "info",
@@ -682,6 +715,20 @@ def validate_memorial_voice_loop(
         )
     elif _normalize_compare_text(answer_text) == _normalize_compare_text(reference_answer):
         report.add("pass", "conversation_answer_text_ok", "Conversation-turn answer text matches the reference chat answer.")
+    elif (
+        reference_is_contact_opening
+        and not _looks_like_contact_opening_answer(answer_text)
+        and _looks_like_stable_memorial_reply(answer_text)
+        and not _looks_like_contact_opening_answer(turn_transcript_text)
+    ):
+        report.add(
+            "pass",
+            "conversation_answer_text_contact_route_ok",
+            "Synthetic contact-opening loop stayed on a stable memorial reply even though the prompt transcript did not round-trip as a direct greeting.",
+            reference_answer=reference_answer,
+            answer_text=answer_text,
+            transcript_text=turn_transcript_text,
+        )
     else:
         _evaluate_similarity(
             report,

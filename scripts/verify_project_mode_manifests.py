@@ -120,11 +120,14 @@ def main() -> int:
     except Exception as exc:
         raise SystemExit(f"memorial_hard_gate_receipt_invalid:{exc}") from exc
     memorial_status = str(memorial_receipt.get("status") or "").strip().lower()
-    if current_head and memorial_status == "pass" and not _fresh_enough(_recorded_source_head(memorial_receipt), current_head=current_head):
+    memorial_receipt_is_fresh = True
+    if current_head and memorial_status == "pass":
+        memorial_receipt_is_fresh = _fresh_enough(_recorded_source_head(memorial_receipt), current_head=current_head)
+    if by_key["MEMORIAL"].get("status") == "shipping_memorial" and memorial_status == "pass" and not memorial_receipt_is_fresh:
         raise SystemExit("memorial_hard_gate_receipt_stale")
     if by_key["MEMORIAL"].get("status") == "shipping_memorial" and memorial_status != "pass":
         raise SystemExit("shipping_memorial_gate_not_passing")
-    if by_key["MEMORIAL"].get("status") == "separate_risk_zone" and memorial_status == "pass":
+    if by_key["MEMORIAL"].get("status") == "separate_risk_zone" and memorial_status == "pass" and memorial_receipt_is_fresh:
         raise SystemExit("memorial_pass_receipt_still_marked_risk_zone")
     public_gold_status = str(by_key["MEMORIAL"].get("public_gold_status") or "")
     if public_gold_status not in {"public_origin_gold_blocked", "public_origin_gold_pass"}:
@@ -145,7 +148,15 @@ def main() -> int:
                 public_gate_payloads.append(json.loads(path.read_text(encoding="utf-8")))
             except Exception:
                 public_gate_payloads.append({})
-    public_gate_pass_count = sum(1 for payload in public_gate_payloads if str(payload.get("status") or "").strip().lower() == "pass")
+    public_gate_pass_count = sum(
+        1
+        for payload in public_gate_payloads
+        if str(payload.get("status") or "").strip().lower() == "pass"
+        and (
+            not current_head
+            or _fresh_enough(_recorded_source_head(payload), current_head=current_head)
+        )
+    )
     if public_gold_status == "public_origin_gold_pass" and public_gate_pass_count != len(expected_public_gates):
         raise SystemExit("memorial_public_gold_pass_without_all_public_gates")
     if public_gold_status == "public_origin_gold_blocked" and public_gate_pass_count == len(expected_public_gates):

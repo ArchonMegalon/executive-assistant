@@ -15,6 +15,21 @@ MEMORIAL_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_e
 MEMORIAL_PUBLIC_VOICE_GATE = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 MEMORIAL_PUBLIC_BROWSER_GATE = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 MEMORIAL_PUBLIC_ROOM_GATE = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+GENERATED_RECEIPT_PATHS = {
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+    ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json",
+    ".codex-design/product/PROJECT_MODES.generated.json",
+    ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+    ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+    ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+    ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+}
 
 
 def _utc_now() -> str:
@@ -37,27 +52,62 @@ def _git_head() -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-def _memorial_mode_status() -> str:
+def _recorded_source_head(payload: dict[str, Any]) -> str:
+    return str(payload.get("source_git_head") or payload.get("git_head") or "").strip()
+
+
+def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
+    recorded = str(recorded_head or "").strip()
+    if not recorded or not current_head:
+        return False
+    if recorded == current_head:
+        return True
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", f"{recorded}..{current_head}"],
+            cwd=str(ROOT),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    changed = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    return bool(changed) and changed <= GENERATED_RECEIPT_PATHS
+
+
+def _memorial_mode_status(*, current_head: str) -> str:
     try:
         receipt = json.loads(MEMORIAL_VOICE_GATE.read_text(encoding="utf-8"))
     except Exception:
         return "separate_risk_zone"
-    return "shipping_memorial" if str(receipt.get("status") or "").strip().lower() == "pass" else "separate_risk_zone"
+    status = str(receipt.get("status") or "").strip().lower()
+    if status != "pass":
+        return "separate_risk_zone"
+    if not _fresh_enough(_recorded_source_head(receipt), current_head=current_head):
+        return "separate_risk_zone"
+    return "shipping_memorial"
 
 
-def _receipt_passes(path: Path) -> bool:
+def _receipt_passes(path: Path, *, current_head: str) -> bool:
     try:
         receipt = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return False
-    return str(receipt.get("status") or "").strip().lower() == "pass"
+    if str(receipt.get("status") or "").strip().lower() != "pass":
+        return False
+    return _fresh_enough(_recorded_source_head(receipt), current_head=current_head)
 
 
-def _memorial_public_gold_status() -> str:
+def _memorial_public_gold_status(*, current_head: str) -> str:
     if (
-        _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE)
-        and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE)
-        and _receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE)
+        _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE, current_head=current_head)
+        and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE, current_head=current_head)
+        and _receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE, current_head=current_head)
     ):
         return "public_origin_gold_pass"
     return "public_origin_gold_blocked"
@@ -82,8 +132,8 @@ def project_modes() -> dict[str, Any]:
             },
             {
                 "key": "MEMORIAL",
-                "status": _memorial_mode_status(),
-                "public_gold_status": _memorial_public_gold_status(),
+                "status": _memorial_mode_status(current_head=source_git_head),
+                "public_gold_status": _memorial_public_gold_status(current_head=source_git_head),
                 "claim_labels": {
                     "local": "Memorial local release candidate",
                     "public": "Memorial public-origin gold",
