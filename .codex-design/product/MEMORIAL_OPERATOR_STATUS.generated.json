@@ -24,7 +24,7 @@
   },
   "readiness": {
     "status": "pass",
-    "current_head": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac",
+    "current_head": "b49763c30c3535be37d79c6b5c2c354f44b1f27e",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -56,11 +56,11 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac",
-    "public_voice_receipt": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac",
-    "public_browser_receipt": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac",
-    "public_meaningful_browser_receipt": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac",
-    "room_audio_receipt": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac"
+    "whole_project_map": "b49763c30c3535be37d79c6b5c2c354f44b1f27e",
+    "public_voice_receipt": "b49763c30c3535be37d79c6b5c2c354f44b1f27e",
+    "public_browser_receipt": "b49763c30c3535be37d79c6b5c2c354f44b1f27e",
+    "public_meaningful_browser_receipt": "b49763c30c3535be37d79c6b5c2c354f44b1f27e",
+    "room_audio_receipt": "b49763c30c3535be37d79c6b5c2c354f44b1f27e"
   },
   "workflow_backing": {
     "status": "no",

@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-15T13:07:11Z",
+  "generated_at": "2026-06-15T13:58:30Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "8ef2eeaf8db7bbb69df82cb5d289256fa6dd33ac",
+  "git_head": "b49763c30c3535be37d79c6b5c2c354f44b1f27e",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "gold",
   "gold_claim_allowed": true,
@@ -175,8 +175,8 @@
       "missing_evidence": [],
       "design_notes": [
         "lane_count=11",
-        "runtime_lane_count=2",
-        "draft_or_operator_lane_count=9"
+        "runtime_lane_count=3",
+        "draft_or_operator_lane_count=8"
       ]
     }
   ],
@@ -184,12 +184,11 @@
     "contract_name": "ea.verify_ltd_provider_lanes",
     "status": "pass",
     "lane_count": 11,
-    "runtime_lane_count": 2,
-    "draft_or_operator_lane_count": 9,
+    "runtime_lane_count": 3,
+    "draft_or_operator_lane_count": 8,
     "poppy_runtime_enabled": false,
     "poppy_lane_state": "verified_draft_operator_lane",
     "draft_or_operator_lanes": [
-      "unmixr_voice_runtime",
       "magicfit_media_factory_candidate",
       "poppy_draft_workbench",
       "public_signal_ingest",
