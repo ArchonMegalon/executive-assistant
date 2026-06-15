@@ -444,6 +444,61 @@ def _public_context(
     return context
 
 
+def _activation_preview_for_brand(brand_key: str, status: dict[str, object]) -> dict[str, list[str]]:
+    preview = dict(status.get("brief_preview") or {})
+    if str(brand_key or "").strip().lower() == "ea":
+        return {
+            "brief": _list_rows(
+                preview.get("first_brief_preview") or preview.get("first_brief"),
+                (
+                    "Morning memo shows what changed since the last office cycle.",
+                    "Queue shows what needs a decision now.",
+                    "Commitments keep follow-ups visible until they close.",
+                ),
+            ),
+            "queue": _list_rows(
+                preview.get("suggested_actions"),
+                (
+                    "Review one decision before noon.",
+                    "Keep one follow-up from slipping.",
+                    "Approve one draft before anything sends.",
+                ),
+            ),
+            "commitments": _list_rows(
+                preview.get("trust_notes"),
+                (
+                    "Nothing sends without review.",
+                    "Evidence stays attached to repeated decisions.",
+                ),
+            ),
+        }
+    return {
+        "brief": _list_rows(
+            preview.get("first_brief_preview") or preview.get("first_brief"),
+            (
+                "Shortlist shows which properties actually fit.",
+                "Review shows what still needs checking.",
+                "Research keeps missing facts visible until they close.",
+            ),
+        ),
+        "queue": _list_rows(
+            preview.get("suggested_actions"),
+            (
+                "Review one candidate in more detail.",
+                "Check one missing building fact.",
+                "Decide which property deserves deeper research next.",
+            ),
+        ),
+        "commitments": _list_rows(
+            preview.get("trust_notes"),
+            (
+                "No property gets promoted without visible evidence.",
+                "Preferences stay attached to the shortlist instead of disappearing.",
+            ),
+        ),
+    }
+
+
 def _workspace_plan(container: AppContainer, *, principal_id: str):
     status = container.onboarding.status(principal_id=principal_id)
     workspace = dict(status.get("workspace") or {})
@@ -729,9 +784,10 @@ def landing(
         return HTMLResponse(_archive_home_html(), headers={"Cache-Control": "no-store"})
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
+    activation_preview = _activation_preview_for_brand(brand["key"], status)
     return _render_public_template(
         request,
-        "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "marketing_home.html",
+        "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "ea/home.html",
         **_public_context(
             request=request,
             current_nav="product",
@@ -745,6 +801,7 @@ def landing(
                 "trust_cards": TRUST_CARDS,
                 "landing_faqs": LANDING_FAQS,
                 "doc_links": DOC_LINKS,
+                "activation_preview": activation_preview,
             },
         ),
     )
@@ -1359,52 +1416,10 @@ def get_started(
             event_type="activation_opened",
             surface="get_started",
         )
-    preview = dict(status.get("brief_preview") or {})
-    activation_preview = {
-        "brief": _list_rows(
-            preview.get("first_brief_preview") or preview.get("first_brief"),
-            (
-                "Morning memo shows what changed since the last office cycle.",
-                "Queue shows what needs a decision now.",
-                "Commitments keep follow-ups visible until they close.",
-            )
-            if brand["key"] == "ea"
-            else (
-                "Shortlist shows which properties actually fit.",
-                "Review shows what still needs checking.",
-                "Research keeps missing facts visible until they close.",
-            ),
-        ),
-        "queue": _list_rows(
-            preview.get("suggested_actions"),
-            (
-                "Review one decision before noon.",
-                "Keep one follow-up from slipping.",
-                "Approve one draft before anything sends.",
-            )
-            if brand["key"] == "ea"
-            else (
-                "Review one candidate in more detail.",
-                "Check one missing building fact.",
-                "Decide which property deserves deeper research next.",
-            ),
-        ),
-        "commitments": _list_rows(
-            preview.get("trust_notes"),
-            (
-                "Nothing sends without review.",
-                "Evidence stays attached to repeated decisions.",
-            )
-            if brand["key"] == "ea"
-            else (
-                "No property gets promoted without visible evidence.",
-                "Preferences stay attached to the shortlist instead of disappearing.",
-            ),
-        ),
-    }
+    activation_preview = _activation_preview_for_brand(brand["key"], status)
     return _render_public_template(
         request,
-        "get_started.html",
+        "ea/get_started.html" if brand["key"] == "ea" else "get_started.html",
         **_public_context(
             request=request,
             current_nav="product",

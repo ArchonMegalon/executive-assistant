@@ -6,13 +6,14 @@
     </div>
     <p class="step-context">
       {% if brand.key == 'ea' %}
-      Keep the first setup light. The right choice is mainly about who reviews decisions and follow-up, not about building the perfect office model up front.
+      Keep the first setup light. Name the workspace, set the timezone, and move on. Shared review and heavier operating shape can be added after the first useful memo.
       {% else %}
       Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.
       {% endif %}
     </p>
   </div>
 
+  {% if brand.key != 'ea' %}
   <div class="mode-grid">
     <div class="mode-card">
       <strong>Personal</strong>
@@ -30,6 +31,7 @@
       <button class="btn ghost" type="button" data-set-mode="executive_ops">Use executive support</button>
     </div>
   </div>
+  {% endif %}
 
   <form class="wizard-form" method="post" action="/setup/start" data-next-step="2">
     {{ shared_browser_fields|safe }}
@@ -38,16 +40,29 @@
         <label for="workspace_name">Workspace name</label>
         <input id="workspace_name" name="workspace_name" value="{{ workspace.name or ('Executive Assistant Workspace' if brand.key == 'ea' else 'PropertyQuarry Workspace') }}" required>
       </div>
+      {% if brand.key == 'ea' %}
       <div>
-      <label for="workspace_mode">Workspace type</label>
-      <select id="workspace_mode" name="workspace_mode">
-          <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
-          <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
-          <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>{% if brand.key == 'ea' %}Executive support{% else %}Concierge search{% endif %}</option>
-      </select>
-        <div class="field-help">{% if brand.key == 'ea' %}You can change this later. It helps the product start with the right office loop and review posture.{% else %}You can change this later. It helps the product start with the right review depth and collaboration posture.{% endif %}</div>
+        <label>Workspace type</label>
+        <div class="finish-card">
+          <strong>Personal by default</strong>
+          Start with one office, one memo loop, and one visible queue. Shared review and executive support can be turned on later after first value is proven.
+        </div>
       </div>
+      {% else %}
+      <div>
+        <label for="workspace_mode">Workspace type</label>
+        <select id="workspace_mode" name="workspace_mode">
+            <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
+            <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
+            <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>{% if brand.key == 'ea' %}Executive support{% else %}Concierge search{% endif %}</option>
+        </select>
+        <div class="field-help">You can change this later. It helps the product start with the right review depth and collaboration posture.</div>
+      </div>
+      {% endif %}
     </div>
+    {% if brand.key == 'ea' %}
+    <input type="hidden" name="workspace_mode" value="{{ workspace.mode or 'personal' }}">
+    {% endif %}
     <div class="field-grid two">
       <div>
         <label for="timezone">Timezone</label>
@@ -65,7 +80,7 @@
       </div>
       <div>
         <label>Activation path</label>
-        <div class="field-help">{% if brand.key == 'ea' %}Keep the first loop narrow: workspace, optional Google identity, first morning memo, first queue item. Broader delivery lanes can wait until value is obvious.{% else %}Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.{% endif %}</div>
+        <div class="field-help">{% if brand.key == 'ea' %}Keep the first loop narrow: workspace, optional Google identity, first morning memo, first queue item. Broader delivery lanes and shared review can wait until value is obvious.{% else %}Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.{% endif %}</div>
       </div>
     </div>
     <input type="hidden" name="selected_channels" value="google">
@@ -80,7 +95,7 @@
       </div>
     </div>
     <div class="wizard-actions">
-      <div class="callout">{% if brand.key == 'ea' %}If you are unsure, choose personal and move on. The first useful office loop matters more than perfect setup.{% else %}If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.{% endif %}</div>
+      <div class="callout">{% if brand.key == 'ea' %}If you are unsure, keep the defaults and move on. The first useful office loop matters more than perfect setup.{% else %}If you are unsure, choose personal and move on. The first useful shortlist matters more than perfect setup.{% endif %}</div>
       <div class="right">
         <button class="btn primary" type="submit">Save workspace and continue</button>
       </div>

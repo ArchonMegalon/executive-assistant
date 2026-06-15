@@ -52,8 +52,10 @@ def _include_public_routes(
         app.include_router(public_tours_router)
     if settings.public_memorials_enabled:
         from app.api.routes.public_memorials import router as public_memorials_router
+        from app.api.routes.public_memorial_operator import router as public_memorial_operator_router
 
         app.include_router(public_memorials_router)
+        app.include_router(public_memorial_operator_router)
     app.include_router(health_router)
     app.include_router(register_router)
     app.include_router(landing_archive_router)

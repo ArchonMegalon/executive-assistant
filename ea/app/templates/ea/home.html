@@ -1,0 +1,132 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .ea-home-grid,
+  .ea-proof-grid,
+  .ea-trust-grid {
+    display: grid;
+    gap: 16px;
+  }
+  .ea-home-grid {
+    grid-template-columns: minmax(0, 1.02fr) minmax(320px, 0.98fr);
+    align-items: start;
+  }
+  .ea-hero,
+  .ea-proof,
+  .ea-trust,
+  .ea-pane {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.03);
+    box-shadow: var(--shadow);
+    padding: 20px;
+  }
+  .ea-proof-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ea-trust-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ea-pane strong,
+  .ea-proof strong,
+  .ea-trust strong {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .ea-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+  }
+  .ea-list li + li {
+    margin-top: 6px;
+  }
+  .ea-quiet {
+    color: var(--text-soft);
+  }
+  .ea-accent-note {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  @media (max-width: 1080px) {
+    .ea-home-grid,
+    .ea-proof-grid,
+    .ea-trust-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<section class="ea-home-grid">
+  <section class="ea-hero">
+    <div class="eyebrow">Executive office</div>
+    <h1>Run one office loop without rebuilding it by hand each morning.</h1>
+    <p class="lead">Open one Today view that already tells you what changed, what needs a decision, what is slipping, and what still requires review.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="/get-started">Open the first office loop</a>
+      <a class="btn" href="/sign-in">Return to the workspace</a>
+    </div>
+    <p class="ea-accent-note">Optional Google identity. Review-first approvals. Nothing sends without review.</p>
+  </section>
+
+  <aside class="ea-pane">
+    <div class="kicker">What tomorrow morning should look like</div>
+    <strong>Today</strong>
+    <ul class="ea-list">
+      {% for row in activation_preview.brief %}
+      <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+    <div style="height: 14px;"></div>
+    <strong>Next</strong>
+    <ul class="ea-list">
+      {% for row in activation_preview.queue %}
+      <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+    <div style="height: 14px;"></div>
+    <strong>Trust</strong>
+    <ul class="ea-list">
+      {% for row in activation_preview.commitments %}
+      <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+  </aside>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Office loop</div>
+      <h2>The product is the loop, not the setup ritual.</h2>
+    </div>
+    <p>One page should answer what changed, what needs a decision, what needs approval, and what cannot be forgotten.</p>
+  </div>
+  <div class="ea-proof-grid">
+    <section class="ea-proof">
+      <strong>Today</strong>
+      <p class="ea-quiet">The morning memo leads. It explains why an item is here and what changed since the last office cycle.</p>
+    </section>
+    <section class="ea-proof">
+      <strong>Queue</strong>
+      <p class="ea-quiet">Decisions, drafts, and open questions sit in one place with a visible review boundary.</p>
+    </section>
+    <section class="ea-proof">
+      <strong>Commitments</strong>
+      <p class="ea-quiet">Follow-ups stay visible until they close instead of dissolving into inboxes and chat.</p>
+    </section>
+  </div>
+</section>
+
+<section class="section ea-trust-grid">
+  <section class="ea-trust">
+    <strong>Why people trust it</strong>
+    <p class="ea-quiet">Each important item should show evidence, the recommended action, and who still has to approve it.</p>
+  </section>
+  <section class="ea-trust">
+    <strong>What is not required on day one</strong>
+    <p class="ea-quiet">Broad integrations, extra channels, and shared workflow shape can wait until the first office loop already feels useful.</p>
+  </section>
+</section>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base_public.html" %}
+{% block content %}
+{% include "onboarding/_styles.html" %}
+
+<section class="section">
+  <div class="panel" style="padding: 24px;">
+    <div class="kicker">Get started</div>
+    <h2 style="margin-bottom: 10px;">Get to the first useful office loop quickly.</h2>
+    <h1 style="max-width: 17ch;">See the office loop before you spend time configuring it.</h1>
+    <p class="lead">Get to one visible memo, one visible queue, and one visible follow-up loop quickly. Setup is only there to support the first useful office proof.</p>
+    <div class="summary-strip" style="margin-top: 18px;">
+      <div class="summary">
+        <div class="label">First value</div>
+        <strong>Today shows what changed</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Review</div>
+        <strong>Queue keeps one decision visible</strong>
+      </div>
+      <div class="summary">
+        <div class="label">Trust</div>
+        <strong>Nothing sends without review</strong>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section wizard-shell" data-onboarding-wizard>
+  {% include "onboarding/_wizard_nav.html" %}
+  <div class="wizard-body">
+    {% include "onboarding/_step_office.html" %}
+    {% include "onboarding/_step_google.html" %}
+    {% include "onboarding/_step_rules.html" %}
+  </div>
+</section>
+
+{% include "onboarding/_script.html" %}
+{% endblock %}

@@ -1122,13 +1122,9 @@
         <div class="pq-appbar-row pq-appbar-overview-row">
           <div class="pq-appbar-meta">
             {% if brand.key == 'ea' %}
-            <span class="pq-meta-pill">One office loop</span>
-            <span class="pq-meta-pill">Review-first decisions</span>
-            <span class="pq-meta-pill">Evidence stays attached</span>
+            {% include "ea/_console_overview.html" %}
             {% else %}
-            <span class="pq-meta-pill">Single workspace app</span>
-            <span class="pq-meta-pill">Run-first results</span>
-            <span class="pq-meta-pill">Packet + 360 review</span>
+            {% include "property/_console_overview.html" %}
             {% endif %}
           </div>
           {% if stats %}
