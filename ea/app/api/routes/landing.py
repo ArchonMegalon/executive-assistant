@@ -36,6 +36,7 @@ from app.api.routes.landing_archive_support import (
     _archive_publication_html_path,
     _is_archive_host,
 )
+from app.api.routes import landing_access_support as access_support
 from app.api.routes.landing_content import (
     ADMIN_NAV_GROUPS,
     APP_NAV_GROUPS,
@@ -59,6 +60,7 @@ from app.api.routes.landing_object_support import (
     _object_detail_row,
     _render_console_object_detail,
 )
+from app.api.routes import landing_public_pages_support as public_pages_support
 from app.api.routes.landing_public_support import (
     _activation_preview_for_brand,
     _anonymous_onboarding_status,
@@ -299,64 +301,12 @@ def landing(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    if _is_archive_host(request):
-        return HTMLResponse(_archive_home_html(), headers={"Cache-Control": "no-store"})
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    activation_preview = _activation_preview_for_brand(brand["key"], status)
-    is_ea = brand["key"] == "ea"
-    landing_faqs = EA_LANDING_FAQS if is_ea else PROPERTY_LANDING_FAQS
-    doc_links = EA_DOC_LINKS if is_ea else PROPERTY_DOC_LINKS
-    seo_title = (
-        "Executive Assistant | Morning memo, decision queue, commitments"
-        if is_ea
-        else f"{brand['name']} | Property search, shortlist, research"
-    )
-    seo_description = (
-        "Executive Assistant gives one office a morning memo, decision queue, commitment ledger, and review-first approvals in one Today view."
-        if is_ea
-        else "PropertyQuarry keeps one property brief, one ranked sweep, one shortlist, and one research loop in a single review surface."
-    )
-    return _render_public_template(
-        request,
-        "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "ea/home.html",
-        indexable=True,
-        **_public_context(
-            request=request,
-            current_nav="product",
-            page_title=seo_title,
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "feature_cards": FEATURE_CARDS,
-                "how_steps": HOW_STEPS,
-                "trust_cards": TRUST_CARDS,
-                "landing_faqs": landing_faqs,
-                "doc_links": doc_links,
-                "activation_preview": activation_preview,
-                **_public_page_context(
-                    request=request,
-                    page_title=seo_title,
-                    page_description=seo_description,
-                    path="/",
-                    faq_rows=landing_faqs,
-                ),
-            },
-        ),
-    )
+    return public_pages_support.landing(request=request, container=container, access_identity=access_identity)
 
 
 @archive_router.get("/{archive_slug}", response_class=HTMLResponse, include_in_schema=False)
 def archive_publication_page(archive_slug: str, request: Request) -> HTMLResponse:
-    if not _is_archive_host(request):
-        raise HTTPException(status_code=404, detail="not_found")
-    if archive_slug in {"robots.txt", "favicon.ico"}:
-        raise HTTPException(status_code=404, detail="not_found")
-    path = _archive_publication_html_path(archive_slug)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="archive_publication_not_found")
-    return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-store"})
+    return public_pages_support.archive_publication_page(archive_slug=archive_slug, request=request)
 
 
 @router.get("/modes", response_class=HTMLResponse)
@@ -366,47 +316,7 @@ def project_modes_page(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
     _: None = Depends(require_operator_context),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    modes_payload, show_payload = _load_project_mode_payloads()
-    mode_rows = []
-    display_names = {
-        "EA_CORE": "EA Core",
-        "MEMORIAL": "Memorial",
-        "PROVIDER_LAB": "Provider Lab",
-        "CHUMMER_RELEASE_CONTROL": "Chummer Release Control",
-        "PROPERTY": "Property",
-    }
-    for mode in list(modes_payload.get("modes") or []):
-        if not isinstance(mode, dict):
-            continue
-        key = str(mode.get("key") or "").strip()
-        mode_rows.append(
-            {
-                "key": key,
-                "display_name": display_names.get(key, key.replace("_", " ").title()),
-                "status": str(mode.get("status") or "").strip(),
-                "status_class": "blocked" if key == "MEMORIAL" and str(mode.get("status") or "") == "separate_risk_zone" else "ready",
-                "purpose": str(mode.get("purpose") or "").strip(),
-                "design_language": str(mode.get("design_language") or "").strip(),
-                "hard_gate": str(mode.get("hard_gate") or "").strip(),
-            }
-        )
-    return _render_public_template(
-        request,
-        "project_modes.html",
-        **_public_context(
-            request=request,
-            current_nav="modes",
-            page_title=f"{request_brand(request)['name']} Project Modes",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "project_modes": mode_rows,
-                "show_manifest": show_payload,
-            },
-        ),
-    )
+    return public_pages_support.project_modes_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/product", response_class=HTMLResponse)
@@ -415,33 +325,7 @@ def product_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    if brand["key"] == "ea":
-        return RedirectResponse("/", status_code=307)
-    return _render_public_template(
-        request,
-        "product_page.html",
-        indexable=True,
-        **_public_context(
-            request=request,
-            current_nav="product",
-            page_title=f"{brand['name']} Product",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "product_modules": PRODUCT_MODULES,
-                "app_nav_groups": app_nav_groups_for_brand(brand["key"]),
-                **_public_page_context(
-                    request=request,
-                    page_title=f"{brand['name']} Product",
-                    page_description="PropertyQuarry turns one property brief, one provider sweep, and one shortlist into a visible research loop.",
-                    path="/product",
-                ),
-            },
-        ),
-    )
+    return public_pages_support.product_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/integrations", response_class=HTMLResponse)
@@ -450,31 +334,7 @@ def integrations_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    return _render_public_template(
-        request,
-        "ea/integrations.html" if brand["key"] == "ea" else "integrations_page.html",
-        indexable=True,
-        **_public_context(
-            request=request,
-            current_nav="integrations",
-            page_title=f"{brand['name']} Integrations",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra=_public_page_context(
-                request=request,
-                page_title=f"{brand['name']} Integrations",
-                page_description=(
-                    "Connect only the channels that improve the office loop today, starting with optional Google identity and explicit review boundaries."
-                    if brand["key"] == "ea"
-                    else "Connect only the property channels that improve search, shortlist review, and research quality."
-                ),
-                path="/integrations",
-            ),
-        ),
-    )
+    return public_pages_support.integrations_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/integrations/{channel_name}", response_class=HTMLResponse)
@@ -484,76 +344,7 @@ def integration_detail(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    channels = dict(status.get("channels") or {})
-    mapping = {
-        "google": {
-            "title": "Google sign-in",
-            "eyebrow": "Google",
-            "detail_points": (
-                "Start with Google sign-in unless you already know you need broader workspace actions.",
-                f"{brand['name']} only needs Google identity by default so the same account can return cleanly.",
-                "Broader Gmail or Drive context stays an explicit upgrade path instead of the default.",
-            ),
-            "body_points": (
-                "Explain permissions in plain language first and raw scopes second.",
-                "Show a real connected account and a real first success instead of treating consent as the finish line.",
-                "Keep Google as optional account access, not as the center of the product story.",
-            ),
-        },
-        "telegram": {
-            "title": "Telegram",
-            "eyebrow": "Telegram",
-            "detail_points": (
-                "Personal identity linking and official bot installation are separate decisions.",
-                "Login alone does not imply generic history import.",
-                "Future-only, import-later, and manual-forward are distinct promises and stay distinct in the UI.",
-            ),
-            "body_points": (
-                "Ask first whether this is a personal Telegram setup or a bot rollout.",
-                "Record where EA will operate: DM, groups, or channels.",
-                "Treat the bot as the durable operating surface once installed and verified.",
-            ),
-        },
-        "whatsapp": {
-            "title": "WhatsApp",
-            "eyebrow": "WhatsApp",
-            "detail_points": (
-                "Business onboarding and export intake are separate supported paths.",
-                "The assistant does not promise generic automated history download outside those paths.",
-                "Live messaging, manual history intake, and any future outbound sender stay visibly distinct in the product contract.",
-            ),
-            "body_points": (
-                "Use Business onboarding only for the supported account-linking path that could later unlock live messaging.",
-                "Use export intake for personal or unsupported cases without pretending it is live sync or live outbound send.",
-                "Keep media inclusion, history source, future live sync, and future outbound send as separate explicit choices.",
-            ),
-        },
-    }
-    current = mapping.get(channel_name)
-    if current is None:
-        raise HTTPException(status_code=404, detail="integration_not_found")
-    channel = dict(channels.get(channel_name) or {})
-    return _render_public_template(
-        request,
-        "channel_detail.html",
-        **_public_context(
-            request=request,
-            current_nav="integrations",
-            page_title=f"{brand['name']} {current['title']}",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "channel": channel,
-                "channel_title": current["title"],
-                "channel_eyebrow": current["eyebrow"],
-                "detail_points": current["detail_points"],
-                "body_points": current["body_points"],
-            },
-        ),
-    )
+    return public_pages_support.integration_detail(channel_name=channel_name, request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/security", response_class=HTMLResponse)
@@ -562,34 +353,7 @@ def security_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    return _render_public_template(
-        request,
-        "ea/security.html" if brand["key"] == "ea" else "security_page.html",
-        indexable=True,
-        **_public_context(
-            request=request,
-            current_nav="security",
-            page_title=f"{brand['name']} Security",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "trust_cards": TRUST_CARDS,
-                **_public_page_context(
-                    request=request,
-                    page_title=f"{brand['name']} Security",
-                    page_description=(
-                        "Executive Assistant keeps signals visible, permissions explicit, and outbound actions review-first."
-                        if brand["key"] == "ea"
-                        else "PropertyQuarry keeps portal coverage, research posture, and review boundaries explicit."
-                    ),
-                    path="/security",
-                ),
-            },
-        ),
-    )
+    return public_pages_support.security_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/pricing", response_class=HTMLResponse)
@@ -598,34 +362,7 @@ def pricing_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    return _render_public_template(
-        request,
-        "ea/pricing.html" if brand["key"] == "ea" else "pricing_page.html",
-        indexable=True,
-        **_public_context(
-            request=request,
-            current_nav="pricing",
-            page_title=f"{brand['name']} Pricing",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "pricing_tiers": PRICING_TIERS,
-                **_public_page_context(
-                    request=request,
-                    page_title=f"{brand['name']} Pricing",
-                    page_description=(
-                        "Choose the Executive Assistant plan that matches office load, review depth, and delivery posture."
-                        if brand["key"] == "ea"
-                        else "Choose the PropertyQuarry plan that matches search volume, research depth, and shortlist complexity."
-                    ),
-                    path="/pricing",
-                ),
-            },
-        ),
-    )
+    return public_pages_support.pricing_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/docs", response_class=HTMLResponse)
@@ -634,35 +371,7 @@ def docs_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    doc_links = EA_DOC_LINKS if brand["key"] == "ea" else PROPERTY_DOC_LINKS
-    return _render_public_template(
-        request,
-        "ea/docs.html" if brand["key"] == "ea" else "docs_page.html",
-        indexable=True,
-        **_public_context(
-            request=request,
-            current_nav="docs",
-            page_title=f"{brand['name']} Docs",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "doc_links": doc_links,
-                **_public_page_context(
-                    request=request,
-                    page_title=f"{brand['name']} Docs",
-                    page_description=(
-                        "Read the product, security, and runtime references behind the office loop."
-                        if brand["key"] == "ea"
-                        else "Read the product, provider, and runtime references behind the property workflow."
-                    ),
-                    path="/docs",
-                ),
-            },
-        ),
-    )
+    return public_pages_support.docs_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.api_route("/sign-in", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
@@ -671,35 +380,7 @@ def sign_in_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    link_status = str(request.query_params.get("link_status") or "").strip()
-    link_email = str(request.query_params.get("link_email") or "").strip()
-    link_count = int(request.query_params.get("link_count") or 0)
-    link_failed_total = int(request.query_params.get("link_failed_total") or 0)
-    link_error = str(request.query_params.get("link_error") or "").strip()
-    google_error = str(request.query_params.get("google_error") or "").strip()
-    return _render_public_template(
-        request,
-        "sign_in.html",
-        **_public_context(
-            request=request,
-            current_nav="sign-in",
-            page_title=f"Sign in to {request_brand(request)['name']}",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "sign_in_notes": SIGN_IN_NOTES,
-                "sign_in_link_enabled": email_delivery_enabled(),
-                "sign_in_link_status": link_status,
-                "sign_in_link_email": link_email,
-                "sign_in_link_count": link_count,
-                "sign_in_link_failed_total": link_failed_total,
-                "sign_in_link_error": link_error,
-                "sign_in_google_error": google_error,
-            },
-        ),
-    )
+    return access_support.sign_in_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.post("/sign-in/email-link")
@@ -707,56 +388,7 @@ async def sign_in_email_link(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> RedirectResponse:
-    form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
-    email = _form_value(form_data, "email", "").lower()
-    product = build_product_service(container)
-    try:
-        result = product.request_workspace_sign_in_email_links(
-            email=email,
-            base_url=_public_app_base_url(request),
-        )
-    except ValueError as exc:
-        return RedirectResponse(
-            "/sign-in?"
-            + urllib.parse.urlencode(
-                {
-                    "link_status": "invalid",
-                    "link_email": email,
-                    "link_error": str(exc or "workspace_sign_in_email_invalid"),
-                }
-            ),
-            status_code=303,
-        )
-    except RuntimeError as exc:
-        return RedirectResponse(
-            "/sign-in?"
-            + urllib.parse.urlencode(
-                {
-                    "link_status": "failed",
-                    "link_email": email,
-                    "link_error": str(exc or "workspace_sign_in_email_delivery_not_configured"),
-                }
-            ),
-            status_code=303,
-        )
-    query = {
-        "link_status": str(result.get("status") or "failed").strip() or "failed",
-        "link_email": str(result.get("email") or email).strip().lower(),
-        "link_count": str(int(result.get("sent_total") or 0)),
-        "link_failed_total": str(int(result.get("failed_total") or 0)),
-    }
-    if str(query["link_status"]) == "failed":
-        first_error = next(
-            (
-                str(item.get("error") or "").strip()
-                for item in list(result.get("items") or [])
-                if str(item.get("error") or "").strip()
-            ),
-            "",
-        )
-        if first_error:
-            query["link_error"] = first_error
-    return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
+    return await access_support.sign_in_email_link(request=request, container=container)
 
 
 @router.post("/sign-in/google")
@@ -764,27 +396,7 @@ async def sign_in_google(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> RedirectResponse:
-    from app.services.google_oauth import build_google_oauth_start, browser_google_oauth_redirect_uri
-
-    try:
-        packet = build_google_oauth_start(
-            principal_id="",
-            scope_bundle="identity",
-            redirect_uri_override=browser_google_oauth_redirect_uri(public_base_url=_public_app_base_url(request)),
-            return_to="/sign-in?google_connected=1",
-            browser_source="sign_in",
-        )
-    except RuntimeError as exc:
-        return RedirectResponse(
-            "/sign-in?"
-            + urllib.parse.urlencode(
-                {
-                    "google_error": str(exc or "google_oauth_not_ready"),
-                }
-            ),
-            status_code=303,
-        )
-    return RedirectResponse(str(packet.auth_url), status_code=303)
+    return await access_support.sign_in_google(request=request, container=container)
 
 
 @router.get("/register", response_class=HTMLResponse, response_model=None)
@@ -793,30 +405,7 @@ def register_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ):
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    if principal_id:
-        build_product_service(container).record_surface_event(
-            principal_id=principal_id,
-            event_type="activation_opened",
-            surface="register",
-        )
-    if brand["key"] == "ea":
-        response = RedirectResponse("/get-started", status_code=307)
-        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-        return response
-    return _render_public_template(
-        request,
-        "register.html",
-        **_public_context(
-            request=request,
-            current_nav="product",
-            page_title="Create your property workspace" if brand["key"] == "propertyquarry" else "Start your workspace",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-        ),
-    )
+    return access_support.register_page(request=request, container=container, access_identity=access_identity)
 
 
 @router.api_route("/workspace-invites/{token}", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
@@ -825,56 +414,7 @@ def workspace_invite_preview(
     request: Request,
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse:
-    product = build_product_service(container)
-    invite = product.preview_workspace_invitation(token=token)
-    if invite is None:
-        return _render_secure_link_page(
-            request,
-            page_title="Workspace invite unavailable",
-            current_nav="sign-in",
-            link_kicker="Invite unavailable",
-            link_title="This workspace invite is no longer valid.",
-            link_summary="Ask the workspace owner to send a fresh invitation or use a current sign-in link if you already have access.",
-            link_detail_title="What happened",
-            link_status_label="Invite unavailable",
-            link_rows=[
-                {"label": "Invite status", "value": "Unavailable", "detail": "The invite may be expired, revoked, or already replaced."},
-                {"label": "Next step", "value": "Request a fresh invite", "detail": "Use sign in if you already have another secure link."},
-            ],
-            primary_action_href="/sign-in",
-            primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
-            secondary_action_label="Create account",
-            status_code=404,
-        )
-    access_url = str(invite.get("access_url") or "").strip()
-    if access_url:
-        response = RedirectResponse(access_url, status_code=303)
-        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-        return response
-    return _render_secure_link_page(
-        request,
-        page_title="Review workspace invite",
-        current_nav="sign-in",
-        link_kicker="Workspace invitation",
-        link_title="Review this workspace invite before you join.",
-        link_summary="This secure invite opens one executive office. Accept it when you are ready to enter with the role below.",
-        link_detail_title="Invite details",
-        link_status_label=str(invite.get("status") or "pending").replace("_", " ").title(),
-        link_rows=[
-            {"label": "Email", "value": str(invite.get("email") or "Unknown"), "detail": ""},
-            {"label": "Role", "value": str(invite.get("role") or "operator").replace("_", " ").title(), "detail": ""},
-            {
-                "label": "Expires",
-                "value": str(invite.get("expires_at") or "Not recorded")[:19] or "Not recorded",
-                "detail": "Accept before the invite expires so the workspace can issue access cleanly.",
-            },
-        ],
-        primary_action_href=f"/workspace-invites/{urllib.parse.quote(token, safe='')}/accept",
-        primary_action_label="Accept invitation",
-        secondary_action_href="/sign-in",
-        secondary_action_label="Return through existing access",
-    )
+    return access_support.workspace_invite_preview(token=token, request=request, container=container)
 
 
 @router.api_route("/workspace-access/{token}", methods=["GET", "HEAD"], response_model=None, include_in_schema=False)
@@ -883,43 +423,7 @@ def workspace_access_session(
     request: Request,
     container: AppContainer = Depends(get_container),
 ):
-    product = build_product_service(container)
-    brand = request_brand(request)
-    actor = str(request.headers.get("X-EA-Operator-ID") or request.headers.get("X-EA-Principal-ID") or "").strip()
-    session = product.open_workspace_access_session(token=token, actor=actor)
-    if session is None:
-        return _render_secure_link_page(
-            request,
-            page_title="Sign-in link unavailable",
-            current_nav="sign-in",
-            link_kicker="Secure link expired",
-            link_title="This sign-in link is no longer valid.",
-            link_summary="Request a fresh sign-in link or use another secure workspace path such as an invite, current session, or SSO.",
-            link_detail_title="What to do next",
-            link_status_label="Link expired",
-            link_rows=[
-                {"label": "Link state", "value": "Expired or revoked", "detail": "Secure workspace links rotate and eventually expire."},
-                {"label": "Recovery", "value": "Request a new link", "detail": "Use the same inbox that already has workspace access."},
-            ],
-            primary_action_href="/sign-in",
-            primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
-            secondary_action_label="Create account",
-            status_code=404,
-        )
-    session_default_target = str(session.get("default_target") or "").strip() or str(brand.get("app_home") or "/app/today")
-    target = _normalize_browser_return_to(
-        request.query_params.get("return_to") or session_default_target,
-        default=session_default_target,
-    )
-    response = RedirectResponse(target, status_code=303)
-    response.set_cookie(
-        "ea_workspace_session",
-        str(session.get("access_token") or "").strip(),
-        **_workspace_session_cookie_kwargs(request, expires_at=str(session.get("expires_at") or "").strip()),
-    )
-    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-    return response
+    return access_support.workspace_access_session(token=token, request=request, container=container)
 
 
 @router.api_route("/workspace-invites/{token}/accept", methods=["GET", "HEAD"], response_class=HTMLResponse, include_in_schema=False)
@@ -929,80 +433,7 @@ def workspace_invite_accept(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    product = build_product_service(container)
-    actor = str(
-        getattr(access_identity, "email", "")
-        or request.headers.get("X-EA-Operator-ID")
-        or request.headers.get("X-EA-Principal-ID")
-        or "workspace_invite"
-    ).strip() or "workspace_invite"
-    try:
-        invite = product.accept_workspace_invitation(token=token, accepted_by=actor)
-    except ValueError as exc:
-        if str(exc or "").strip() == "operator_seat_limit_reached":
-            return _render_secure_link_page(
-                request,
-                page_title="Invite cannot be accepted",
-                current_nav="sign-in",
-                link_kicker="Workspace full",
-                link_title="This workspace cannot add another operator right now.",
-                link_summary="The office is at its current operator seat limit. Ask the workspace owner to free a seat or upgrade the plan before retrying.",
-                link_detail_title="Why acceptance stopped",
-                link_status_label="Seat limit reached",
-                link_rows=[
-                    {"label": "Invite status", "value": "Pending", "detail": "The invite is still valid, but the workspace needs room before it can be accepted."},
-                    {"label": "Next step", "value": "Contact the workspace owner", "detail": "They can revoke an unused seat or expand the plan and resend access."},
-                ],
-                primary_action_href="/sign-in",
-                primary_action_label="Return to sign in",
-                secondary_action_href="/register",
-                secondary_action_label="Create account",
-                status_code=409,
-            )
-        raise
-    if invite is None:
-        return _render_secure_link_page(
-            request,
-            page_title="Workspace invite unavailable",
-            current_nav="sign-in",
-            link_kicker="Invite unavailable",
-            link_title="This workspace invite is no longer valid.",
-            link_summary="Ask the workspace owner to send a fresh invitation or use another secure workspace link if you already have access.",
-            link_detail_title="What happened",
-            link_status_label="Invite unavailable",
-            link_rows=[
-                {"label": "Invite state", "value": "Unavailable", "detail": "The invite may be expired, revoked, or already used."},
-                {"label": "Next step", "value": "Request a fresh invite", "detail": "A new secure link will reopen the correct workspace."},
-            ],
-            primary_action_href="/sign-in",
-            primary_action_label="Request new sign-in link",
-            secondary_action_href="/register",
-            secondary_action_label="Create account",
-            status_code=404,
-        )
-    access_url = str(invite.get("access_url") or "").strip()
-    if access_url:
-        response = RedirectResponse(access_url, status_code=303)
-        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-        return response
-    return _render_secure_link_page(
-        request,
-        page_title="Workspace invite accepted",
-        current_nav="sign-in",
-        link_kicker="Invitation accepted",
-        link_title="Your workspace invite was accepted.",
-        link_summary="Continue through sign in if you need another secure access link for this workspace.",
-        link_detail_title="Accepted access",
-        link_status_label=str(invite.get("status") or "accepted").replace("_", " ").title(),
-        link_rows=[
-            {"label": "Email", "value": str(invite.get("email") or "Workspace teammate"), "detail": ""},
-            {"label": "Role", "value": str(invite.get("role") or "operator").replace("_", " ").title(), "detail": ""},
-        ],
-        primary_action_href="/sign-in",
-        primary_action_label="Continue to sign in",
-        secondary_action_href=str(request_brand(request).get("app_home") or "/app/today"),
-        secondary_action_label="Open current session",
-    )
+    return access_support.workspace_invite_accept(token=token, request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/get-started", response_class=HTMLResponse)
@@ -1011,38 +442,7 @@ def get_started(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
-    brand = request_brand(request)
-    if principal_id:
-        build_product_service(container).record_surface_event(
-            principal_id=principal_id,
-            event_type="activation_opened",
-            surface="get_started",
-        )
-    activation_preview = _activation_preview_for_brand(brand["key"], status)
-    return _render_public_template(
-        request,
-        "ea/get_started.html" if brand["key"] == "ea" else "get_started.html",
-        **_public_context(
-            request=request,
-            current_nav="product",
-            page_title="Get started" if brand["key"] == "ea" else "Get started with PropertyQuarry",
-            principal_id=principal_id,
-            status=status,
-            access_identity=access_identity,
-            extra={
-                "activation_preview": activation_preview,
-                "google": dict(status.get("channels") or {}).get("google") or {},
-                "shared_browser_fields": Markup(
-                    _shared_browser_fields(
-                        principal_id=principal_id,
-                        access_identity=access_identity,
-                        container=container,
-                    )
-                ),
-            },
-        ),
-    )
+    return access_support.get_started(request=request, container=container, access_identity=access_identity)
 
 
 @router.get("/app", response_class=HTMLResponse)

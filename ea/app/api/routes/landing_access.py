@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.api.routes import landing as deps
+from app.api.routes import landing_deps as deps
 from app.api.routes import landing_access_support as support
 
 router = APIRouter(tags=["landing-access"])

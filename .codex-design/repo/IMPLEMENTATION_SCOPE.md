@@ -38,7 +38,7 @@ That does not mean:
 
 * canonical product, queue, milestone, blocker, or contract truth
 * raw support-case, user-account, group, reward, or entitlement truth
-* public landing, download, update, or help meaning
+* canonical cross-repo landing, download, update, or help meaning outside the bounded EA plane
 * release-channel, install, or update-feed truth
 * hidden guide or participation canon that other repos must reverse-engineer
 * Fleet landing authority or Hub consent/account authority
@@ -61,7 +61,8 @@ EA product surface canon under `.codex-design/ea/*` is the required read-only re
 
 * If mirrored canon is missing a seam, emit a petition packet instead of inventing local truth.
 * EA may summarize support, release, participation, or horizon signals, but Hub, Fleet, and design remain the owning truth planes.
-* Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.
+* EA may own bounded public product, access, and help projections for the EA plane itself, but those surfaces must compile from mirrored design sources rather than assistant-local prompt lore.
+* EA must not redefine broader Fleet, Hub, or cross-product public meaning while doing so.
 * Provider adapters and runtime telemetry may live here, but they must not redefine product semantics or repo boundaries.
 * Default provider or model changes must follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`; EA may generate challenger briefs, but it must not self-promote a new default.
 

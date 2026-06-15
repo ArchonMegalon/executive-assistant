@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
-from app.api.routes import landing as deps
+from app.api.routes import landing as shared
+from app.api.routes import landing_deps as deps
 from app.api.routes import landing_public_pages_support as support
 
 router = APIRouter(tags=["landing-public"])
@@ -12,7 +13,7 @@ archive_router = APIRouter(tags=["landing-archive"])
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
 def robots_txt(request: Request) -> PlainTextResponse:
-    return deps.robots_txt(request)
+    return shared.robots_txt(request)
 
 
 @router.get("/", response_class=HTMLResponse)

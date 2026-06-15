@@ -118,7 +118,6 @@ def build_settings_section(
                 "items": [
                     row_builder("Memo state", str(memo_loop.get("state") or "watch").replace("_", " ").title(), "Memo", href="/app/settings/outcomes"),
                     row_builder("Enabled", "Yes" if memo_loop.get("enabled") else "No", "Memo", href="/app/settings/outcomes"),
-                    row_builder("Cadence", str(memo_loop.get("cadence") or "daily_morning").replace("_", " "), "Memo", href="/app/settings/outcomes"),
                     row_builder(
                         "Delivery time",
                         f"{memo_loop.get('delivery_time_local') or '08:00'} {memo_loop.get('timezone') or workspace.get('timezone') or 'UTC'}",
@@ -126,7 +125,6 @@ def build_settings_section(
                         href="/app/settings/outcomes",
                     ),
                     row_builder("Recipient", str(memo_loop.get("recipient_email") or "waiting for recipient"), "Memo", href="/app/settings/outcomes"),
-                    row_builder("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo", href="/app/settings/outcomes"),
                     row_builder(
                         "Last memo issue",
                         str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
@@ -141,29 +139,9 @@ def build_settings_section(
                 "body": "The principal surface says plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
                 "items": [
                     row_builder("Gate state", str(office_loop_proof.get("state") or "watch").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
-                    row_builder(
-                        "Passed checks",
-                        f"{int(office_loop_proof.get('passed_checks') or 0)}/{int(office_loop_proof.get('check_total') or 0)}",
-                        "Gate",
-                        href="/app/settings/outcomes",
-                    ),
                     row_builder("Summary", str(office_loop_proof.get("summary") or "No proof summary yet."), "Gate", href="/app/settings/outcomes"),
                     row_builder("Memo open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Memo", href="/app/settings/outcomes"),
                     row_builder("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or analytics.get("approval_coverage_rate") or 0), "Approvals", href="/app/settings/outcomes"),
-                    row_builder("Commitment close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Commitments", href="/app/settings/outcomes"),
-                    *[
-                        row_builder(
-                            str(item.get("label") or "Check"),
-                            (
-                                f"{item.get('actual')} / <= {item.get('target_max')}"
-                                if item.get("target_max") is not None
-                                else f"{item.get('actual')} / {item.get('target')}"
-                            ),
-                            str(item.get("state") or "watch").replace("_", " ").title(),
-                            href="/app/settings/outcomes",
-                        )
-                        for item in proof_checks[:4]
-                    ],
                 ],
             },
             {
@@ -186,14 +164,11 @@ def build_settings_section(
                         action_label="Run now" if analytics_sync.get("google_connected") else "",
                         action_method="get" if analytics_sync.get("google_connected") else "",
                     ),
-                    row_builder("Token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/google"),
                     *(
                         []
                         if property_brand
                         else [
                             row_builder("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
-                            row_builder("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
-                            row_builder("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
                         ]
                     ),
                 ],
@@ -206,19 +181,6 @@ def build_settings_section(
                     row_builder("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
                     row_builder("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
                     row_builder("Accepted invitations", str(analytics_invitations.get("accepted") or 0), "Invites", href="/app/settings/invitations"),
-                    row_builder(
-                        "Invite delivery",
-                        (
-                            f"{int(analytics_delivery.get('invite_sent') or 0)} sent"
-                            + (
-                                f" · {int(analytics_delivery.get('invite_failed') or 0)} failed"
-                                if int(analytics_delivery.get("invite_failed") or 0)
-                                else ""
-                            )
-                        ),
-                        "Email",
-                        href="/app/settings/invitations",
-                    ),
                 ],
             },
             {

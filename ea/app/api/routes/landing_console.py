@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.api.routes import landing as shared
+from app.api.routes import landing_deps as deps
 
 router = APIRouter(tags=["landing-console"])
 
@@ -17,8 +18,8 @@ def app_root(request: Request) -> RedirectResponse:
 def app_shell(
     section: str,
     request: Request,
-    container: shared.AppContainer = Depends(shared.get_container),
-    context: shared.RequestContext = Depends(shared.get_request_context),
+    container: deps.AppContainer = Depends(deps.get_container),
+    context: deps.RequestContext = Depends(deps.get_request_context),
     run_id: str = Query(default=""),
 ) -> HTMLResponse:
     return shared.app_shell(section=section, request=request, container=container, context=context, run_id=run_id)
@@ -33,9 +34,9 @@ def admin_root() -> RedirectResponse:
 def admin_shell(
     section: str,
     request: Request,
-    container: shared.AppContainer = Depends(shared.get_container),
-    context: shared.RequestContext = Depends(shared.get_request_context),
-    _: None = Depends(shared.require_operator_context),
+    container: deps.AppContainer = Depends(deps.get_container),
+    context: deps.RequestContext = Depends(deps.get_request_context),
+    _: None = Depends(deps.require_operator_context),
 ) -> HTMLResponse:
     return shared.admin_shell(section=section, request=request, container=container, context=context)
 
@@ -74,7 +75,7 @@ def legacy_whatsapp_channel_redirect() -> RedirectResponse:
 def commitment_candidate_review(
     candidate_id: str,
     request: Request,
-    container: shared.AppContainer = Depends(shared.get_container),
-    context: shared.RequestContext = Depends(shared.get_request_context),
+    container: deps.AppContainer = Depends(deps.get_container),
+    context: deps.RequestContext = Depends(deps.get_request_context),
 ) -> HTMLResponse:
     return shared.commitment_candidate_review(candidate_id=candidate_id, request=request, container=container, context=context)
