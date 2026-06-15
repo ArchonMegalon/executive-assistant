@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.show_surface_manifest",
-  "generated_at": "2026-06-15T14:41:05Z",
+  "generated_at": "2026-06-15T15:09:56Z",
   "generated_by": "scripts/materialize_project_mode_manifests.py",
-  "source_git_head": "a7897d14e086f23c5d5bd67ed87335d47d7488bd",
+  "source_git_head": "6061fd285ff3f3b0c8e10a791158ae530a05af13",
   "head_semantics": "source_state",
   "demo_mode": "ea_core",
   "allowed_surfaces": [
