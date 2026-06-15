@@ -15,21 +15,21 @@
   ],
   "readiness": {
     "status": "pass",
-    "current_head": "598ead16f39a866aa14f5523a2a89b6ea924fcfa",
+    "current_head": "27e4b1cfecace70cf1ff52522e6dd47e3560fd8b",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
       "memorial_public": "Memorial public-origin gold"
     },
-    "local_release_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+    "local_release_receipt": "/tmp/ea-receipts-4foNB3/.codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     "local_release_issues": [],
-    "public_gold_receipt": "/docker/EA/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    "public_gold_receipt": "/tmp/ea-receipts-4foNB3/.codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_gold_issues": [],
-    "public_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+    "public_browser_gold_receipt": "/tmp/ea-receipts-4foNB3/.codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
     "public_browser_gold_issues": [],
-    "public_meaningful_browser_gold_receipt": "/docker/EA/.codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+    "public_meaningful_browser_gold_receipt": "/tmp/ea-receipts-4foNB3/.codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     "public_meaningful_browser_gold_issues": [],
-    "room_audio_receipt": "/docker/EA/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
+    "room_audio_receipt": "/tmp/ea-receipts-4foNB3/.codex-studio/published/memorial_room_audio_public_origin.generated.json",
     "room_audio_issues": [],
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
@@ -49,7 +49,8 @@
   "whole_project": {
     "status": "blocked",
     "issues": [
-      "whole-project gold map is stale relative to current HEAD"
+      "whole-project gold map is stale relative to current HEAD",
+      "memorial voice receipt is stale relative to current HEAD"
     ]
   },
   "whole_project_map_summary": {
