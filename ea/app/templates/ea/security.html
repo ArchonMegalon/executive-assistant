@@ -1,0 +1,54 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .grid3,.grid2{display:grid;gap:14px}.grid3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card,.hero{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,0.02);padding:18px}
+  .card strong{display:block;margin-bottom:6px}
+  @media (max-width:1080px){.grid3,.grid2{grid-template-columns:1fr}}
+</style>
+<section class="section panel hero">
+  <div class="kicker">Security</div>
+  <h1>See what Executive Assistant can do before you let it act.</h1>
+  <p class="lead">Signals stay visible, permissions stay explicit, and every recommendation stays attached to the office loop. The goal is dependable execution, not hidden automation.</p>
+</section>
+<section class="section grid3">
+  <section class="card"><strong>Can it act without me?</strong>Drafts, prioritization, and recommendations can help early. Sensitive actions and outbound delivery stay reviewable so the office remains in control.</section>
+  <section class="card"><strong>Does it imply broader access than it has?</strong>No. Each connection has a visible support contract so the product does not imply read, write, import, or sync behavior it cannot deliver.</section>
+  <section class="card"><strong>Does context disappear?</strong>No. The workspace can keep people context, commitments, approvals, and recurring office patterns so the next loop starts from reality instead of from zero.</section>
+</section>
+<section class="section">
+  <div class="section-head">
+    <div><div class="section-kicker">Trust model</div><h2>What an office usually wants to confirm</h2></div>
+    <p>Most offices want three answers quickly: what Executive Assistant can see, what it can prepare, and where human review still stays in the loop.</p>
+  </div>
+  <div class="grid3">
+    {% for card in trust_cards %}
+    <section class="card"><strong>{{ card.title }}</strong><p class="copy">{{ card.body }}</p></section>
+    {% endfor %}
+  </div>
+</section>
+<section class="section grid2">
+  <section class="card">
+    <strong>Where context is stored</strong>
+    <ul class="muted-list">
+      <li>{{ status.storage_posture.source_of_truth or 'EA Postgres' }} is the durable source when durable storage is configured.</li>
+      <li>{{ status.storage_posture.projection_note or 'Operational projections are mirrors, not the only source of truth.' }}</li>
+      <li>{{ status.storage_posture.attachment_note or 'Large files and exports belong in object storage when the deployment supports it.' }}</li>
+    </ul>
+  </section>
+  <section class="card">
+    {% set morning_memo = (status.delivery_preferences or {}).get('morning_memo', {}) %}
+    <strong>Saved review defaults</strong>
+    <ul class="muted-list">
+      <li>Retention: {{ privacy.retention_mode or 'not set' }}</li>
+      <li>Metadata-only channels: {{ privacy.metadata_only_channels|join(', ') if privacy.metadata_only_channels else 'none' }}</li>
+      <li>Drafts allowed: {{ 'true' if privacy.allow_drafts else 'false' }}</li>
+      <li>Action suggestions: {{ 'true' if privacy.allow_action_suggestions else 'false' }}</li>
+      <li>Automatic digests: {{ 'true' if privacy.allow_auto_briefs else 'false' }}</li>
+      {% if privacy.allow_auto_briefs %}
+      <li>Digest cadence: {{ morning_memo.get('cadence', 'daily_morning') }} at {{ morning_memo.get('delivery_time_local', '08:00') }} {{ morning_memo.get('timezone', status.workspace.timezone or 'UTC') }}</li>
+      {% endif %}
+    </ul>
+  </section>
+</section>
+{% endblock %}

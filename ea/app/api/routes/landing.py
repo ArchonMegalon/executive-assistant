@@ -907,7 +907,7 @@ def integrations_page(
     brand = request_brand(request)
     return _render_public_template(
         request,
-        "integrations_page.html",
+        "ea/integrations.html" if brand["key"] == "ea" else "integrations_page.html",
         **_public_context(
             request=request,
             current_nav="integrations",
@@ -1008,7 +1008,7 @@ def security_page(
     brand = request_brand(request)
     return _render_public_template(
         request,
-        "security_page.html",
+        "ea/security.html" if brand["key"] == "ea" else "security_page.html",
         **_public_context(
             request=request,
             current_nav="security",
@@ -1031,7 +1031,7 @@ def pricing_page(
     brand = request_brand(request)
     return _render_public_template(
         request,
-        "pricing_page.html",
+        "ea/pricing.html" if brand["key"] == "ea" else "pricing_page.html",
         **_public_context(
             request=request,
             current_nav="pricing",
@@ -1054,7 +1054,7 @@ def docs_page(
     brand = request_brand(request)
     return _render_public_template(
         request,
-        "docs_page.html",
+        "ea/docs.html" if brand["key"] == "ea" else "docs_page.html",
         **_public_context(
             request=request,
             current_nav="docs",

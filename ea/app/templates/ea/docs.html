@@ -1,0 +1,19 @@
+{% extends "base_public.html" %}
+{% block content %}
+<section class="section panel" style="padding:18px;">
+  <div class="kicker">Docs</div>
+  <h1>Executive Assistant references</h1>
+  <p class="lead">Use the product and runtime references when you need the operating model behind the office loop, not the first-use explanation.</p>
+</section>
+<section class="section">
+  <div class="resource-grid">
+    {% for item in doc_links %}
+    <section class="resource-card">
+      <strong>{{ item.title }}</strong>
+      <p>{{ item.body }}</p>
+      <a href="{{ item.href }}">Open</a>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

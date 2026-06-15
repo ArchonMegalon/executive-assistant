@@ -1,0 +1,48 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .grid3,.grid2{display:grid;gap:14px}.grid3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card,.hero{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,0.02);padding:18px}
+  .card strong{display:block;margin-bottom:6px}
+  @media (max-width:1080px){.grid3,.grid2{grid-template-columns:1fr}}
+</style>
+<section class="section panel hero">
+  <div class="kicker">Integrations</div>
+  <h1>Connect only what improves the office loop.</h1>
+  <p class="lead">Start with the narrowest setup that makes return access, delivery, and signal sync work. For most offices that means email-first account creation and optional Google identity, not a broad integration bundle.</p>
+</section>
+<section class="section grid2">
+  <section class="card">
+    <div class="kicker">Recommended order</div>
+    <strong>Google only if it helps return access</strong>
+    <p class="copy">Google should mainly improve sign-in continuity and explicit office sync. It should not force broad mailbox or calendar scope into the first office workflow unless the workspace is ready for it.</p>
+  </section>
+  <section class="card">
+    <div class="kicker">Channel contract</div>
+    <strong>Know what each connection can do</strong>
+    <p class="copy">Each connection should say clearly what Executive Assistant can identify, draft, notify, or sync today. Trust drops when the UI implies more than the contract really allows.</p>
+  </section>
+</section>
+<section class="section grid3">
+  <section class="card"><strong>Google</strong>Best when the same Google identity should reopen the workspace cleanly and later support inbox, calendar, and delivery workflows with explicit review boundaries.</section>
+  <section class="card"><strong>Email notifications</strong>Best when approvals, summaries, and reviewed drafts should be delivered asynchronously without turning email into hidden automation.</section>
+  <section class="card"><strong>Future delivery lanes</strong>Best when later premium workflows justify more channels, not before.</section>
+</section>
+<section class="section">
+  <div class="section-head">
+    <div><div class="section-kicker">Current channels</div><h2>Choose the next useful connection</h2></div>
+    <p>Start with the connection that improves the office loop today. Add the others only when they change real product value.</p>
+  </div>
+  <div class="grid3">
+    {% for card in channel_cards %}
+    <section class="card">
+      <div class="pill {{ card.tone }}">{{ card.status }}</div>
+      <h2>{{ card.label }}</h2>
+      <p class="copy">{{ card.detail }}</p>
+      {% if card.summary %}<p class="copy">{{ card.summary }}</p>{% endif %}
+      <div class="cta-row"><a class="btn" href="{{ card.href }}">View details</a></div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

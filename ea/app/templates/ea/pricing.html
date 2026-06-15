@@ -1,0 +1,58 @@
+{% extends "base_public.html" %}
+{% block content %}
+<style>
+  .grid3,.grid2{display:grid;gap:14px}.grid3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card,.hero{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,0.02);padding:18px}
+  .price{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+  .card strong{display:block;margin-bottom:6px}
+  @media (max-width:1080px){.grid3,.grid2{grid-template-columns:1fr}}
+</style>
+<section class="section panel hero">
+  <div class="kicker">Pricing</div>
+  <h1>Choose the plan that matches the office load, review needs, and delivery posture.</h1>
+  <p class="lead">Plans scale with office complexity, signal volume, and how much drafting, approval, and follow-through the workspace should carry.</p>
+</section>
+<section class="section grid3">
+  <section class="card"><strong>Start with one real office loop</strong>Prove the memo, queue, commitments, and approvals with one real office workflow before expanding the product.</section>
+  <section class="card"><strong>Move up when the office loop gets heavier</strong>Upgrade when you need more connected signals, deeper drafting support, and reliable reviewed delivery across a busier office loop.</section>
+  <section class="card"><strong>Pay for depth when the office gets denser</strong>Larger plans buy broader signal coverage, stronger drafting support, and tighter delivery posture around real decisions and approvals.</section>
+</section>
+<section class="section">
+  <div class="section-head">
+    <div><div class="section-kicker">Plans</div><h2>Pick the lane that matches the real workflow</h2></div>
+    <p>Choose the plan by signal coverage, office load, drafting depth, and how much reviewed automation the workflow should receive.</p>
+  </div>
+  <div class="grid3">
+    {% for tier in pricing_tiers %}
+    <section class="card">
+      <div class="price">{{ tier.price }}</div>
+      <h2>{{ tier.title }}</h2>
+      <p class="copy">{{ tier.body }}</p>
+      {% if tier.facts %}<ul class="muted-list">{% for fact in tier.facts %}<li>{{ fact }}</li>{% endfor %}</ul>{% endif %}
+      <div class="cta-row"><a class="btn {% if loop.first %}primary{% else %}ghost{% endif %}" href="/get-started">{% if loop.first %}Start here{% else %}Upgrade later{% endif %}</a></div>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+<section class="section grid2">
+  <section class="card">
+    <strong>Typical plan differences</strong>
+    <ul class="muted-list">
+      <li>How many inbox, calendar, and delivery lanes can be connected safely</li>
+      <li>How much morning memo, queue, and commitment volume the workspace should carry</li>
+      <li>How much drafting and approval support the office needs</li>
+      <li>Whether reviewed delivery and notifications are enabled</li>
+      <li>How much operator support and audit depth the office needs</li>
+    </ul>
+  </section>
+  <section class="card">
+    <strong>Typical office path</strong>
+    <ul class="muted-list">
+      <li>Start with one executive workspace and one useful morning memo.</li>
+      <li>Move to Plus when inbox/calendar depth, approvals, and delivery reliability start to matter.</li>
+      <li>Use Agent when heavier drafting, follow-through, and multi-lane review become the real bottleneck.</li>
+      <li>Keep the paid tier proportional to the actual office load, not wishful future usage.</li>
+    </ul>
+  </section>
+</section>
+{% endblock %}
