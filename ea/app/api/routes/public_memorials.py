@@ -3342,6 +3342,41 @@ def _is_memorial_present_world_question(question: str) -> bool:
     return any(token in lowered for token in (*weather_terms, *time_terms, *current_terms))
 
 
+def _is_memorial_current_speculation_question(question: str) -> bool:
+    lowered = _text(question, "").lower()
+    if not lowered:
+        return False
+    current_modal_terms = (
+        "würdest du",
+        "wuerdest du",
+        "würdest",
+        "wuerdest",
+        "heute",
+        "jetzt",
+        "heutzutage",
+        "heut",
+        "gegenwart",
+        "aktuell",
+    )
+    medical_political_terms = (
+        "covid",
+        "corona",
+        "impf",
+        "impfen",
+        "impfung",
+        "impfen lassen",
+        "arzt",
+        "ärzte",
+        "aerzte",
+        "pharma",
+        "behandlung",
+        "therapie",
+        "medikament",
+        "medizin",
+    )
+    return any(token in lowered for token in current_modal_terms) and any(token in lowered for token in medical_political_terms)
+
+
 def _is_memorial_weather_question(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
@@ -3374,6 +3409,19 @@ def _memorial_present_world_visible_text(question: str) -> str:
     if _is_memorial_weather_question(question):
         return _text(_memorial_phrase_bank_entry("weather_guardrail").get("visible_text"))
     return _text(_memorial_phrase_bank_entry("present_world_guardrail").get("visible_text"))
+
+
+def _memorial_current_speculation_answer_body(question: str) -> str:
+    del question
+    return "Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische oder politische Entscheidung beantworten."
+
+
+def _memorial_current_speculation_visible_text(question: str) -> str:
+    del question
+    return (
+        "Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische oder politische Entscheidung beantworten. "
+        "Wenn du wissen willst, wie ich ueber Verantwortung, Aerzte, Fairness oder Misstrauen gedacht habe, frag es enger als Erinnerungsfrage."
+    )
 
 
 def _memorial_should_include_mail_memory(question: str) -> bool:
@@ -3723,6 +3771,8 @@ def _canonical_memorial_contact_opening_question(question: str) -> str:
         return "Wie ist das Wetter heute?"
     if _is_memorial_present_world_question(normalized):
         return "Was ist der aktuelle Stand?"
+    if _is_memorial_current_speculation_question(normalized):
+        return normalized
     return normalized
 
 
@@ -4583,6 +4633,8 @@ def _memorial_chat_fallback_answer(
         body = _difficult_memory_blocked_answer(source_labels=source_labels)
     elif _is_memorial_contact_question(normalized_question):
         body = _memorial_contact_answer_body(normalized_question)
+    elif _is_memorial_current_speculation_question(normalized_question):
+        body = _memorial_current_speculation_visible_text(normalized_question)
     elif _is_memorial_present_world_question(normalized_question):
         body = _memorial_present_world_answer_body(normalized_question)
     elif _is_memorial_family_mail_question(normalized_question):
@@ -5209,6 +5261,25 @@ def _memorial_chat_answer(
         if personal_memory_lines and "Nutzer bevorzugt knappe, direkte und paraphrasierende Antworten statt wortwoertlicher oder ausladender Wiedergabe." in _text(fallback.get("answer"), ""):
             fallback["answer"] = "Ich halte es kuenftig knapp, direkt und ohne unnoetige Wiederholungen."
         return fallback
+    if _is_memorial_current_speculation_question(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_current_speculation_visible_text(normalized_question),
+            "answer_audio_text": _memorial_current_speculation_answer_body(normalized_question),
+            "sources": [],
+            "private_context_used": False,
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "current_speculation_guardrail",
+            "current_world_policy": "no_current_medical_or_political_speculation",
+        }
     if _is_memorial_ooda_question(normalized_question):
         fallback = _memorial_chat_fallback_answer(
             payload,
@@ -5297,6 +5368,25 @@ def _memorial_chat_answer(
             "llm_fallback_used": False,
             "fallback_reason": "present_world_guardrail",
             "current_world_policy": "local_memories_and_conversation_only_no_internet_search",
+        }
+    if _is_memorial_current_speculation_question(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_current_speculation_visible_text(normalized_question),
+            "answer_audio_text": _memorial_current_speculation_answer_body(normalized_question),
+            "sources": [],
+            "private_context_used": False,
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "current_speculation_guardrail",
+            "current_world_policy": "no_current_medical_or_political_speculation",
         }
     if _is_memorial_contact_question(normalized_question):
         phrase = _memorial_phrase_bank_entry("contact_opening")
@@ -5529,6 +5619,16 @@ def _memorial_transcript_quality_score(
         "weiter",
         "stand",
         "wetter",
+        "covid",
+        "corona",
+        "impf",
+        "impfung",
+        "impfen",
+        "arzt",
+        "ärzte",
+        "aerzte",
+        "medizin",
+        "behandlung",
     }
     score = 0
     if _looks_like_memorial_contact_opening_transcript(text):
@@ -5537,6 +5637,8 @@ def _memorial_transcript_quality_score(
         score += 20
     if _is_memorial_present_world_question(text):
         score += 52
+    if _is_memorial_current_speculation_question(text):
+        score += 48
     if _is_memorial_live_interaction_question(text):
         score += 24
     if _looks_like_memorial_theme_question(text):
@@ -5615,6 +5717,7 @@ def _memorial_fast_shadow_stt_has_clear_user_intent(transcript_text: str) -> boo
         or _looks_like_memorial_theme_question(text)
         or _is_memorial_live_interaction_question(text)
         or _is_memorial_present_world_question(text)
+        or _is_memorial_current_speculation_question(text)
     )
 
 
@@ -7298,6 +7401,16 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
         "sprechen",
         "hallo",
         "manfred",
+        "covid",
+        "corona",
+        "impf",
+        "impfung",
+        "impfen",
+        "arzt",
+        "ärzte",
+        "aerzte",
+        "medizin",
+        "behandlung",
     }
     english_markers = {
         "i",
@@ -7363,6 +7476,16 @@ def _memorial_shadow_stt_correction_decision(*, primary_transcript: str, shadow_
             "reden",
             "frage",
             "fragen",
+            "covid",
+            "corona",
+            "impf",
+            "impfung",
+            "impfen",
+            "arzt",
+            "ärzte",
+            "aerzte",
+            "medizin",
+            "behandlung",
         }
     )
     if _looks_like_memorial_theme_question(shadow):

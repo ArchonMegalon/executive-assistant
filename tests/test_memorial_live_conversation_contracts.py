@@ -665,6 +665,18 @@ def test_memorial_shadow_stt_allows_question_like_upgrade_from_low_information_p
     assert correction["corrected_transcript"] == "Wie ist das Wetter heute in Wien?"
 
 
+def test_memorial_shadow_stt_allows_current_medical_question_upgrade_from_low_information_primary() -> None:
+    from app.api.routes import public_memorials
+
+    correction = public_memorials._memorial_shadow_stt_correction_decision(
+        primary_transcript="Ich höre dich.",
+        shadow_transcript="Würdest du dich heute gegen Covid impfen lassen?",
+    )
+
+    assert correction["should_correct"] is True
+    assert correction["corrected_transcript"] == "Würdest du dich heute gegen Covid impfen lassen?"
+
+
 def test_memorial_shadow_stt_fast_primary_candidate_accepts_plausible_user_question() -> None:
     from app.api.routes import public_memorials
 
@@ -672,6 +684,7 @@ def test_memorial_shadow_stt_fast_primary_candidate_accepts_plausible_user_quest
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Hallo Manfred, kannst du jetzt mit mir sprechen?") is True
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Kannst du mit mir reden?") is True
     assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Was ist der aktuelle Stand?") is True
+    assert public_memorials._memorial_shadow_stt_is_fast_primary_candidate("Würdest du dich heute gegen Covid impfen lassen?") is True
 
 
 def test_memorial_shadow_stt_fast_primary_candidate_rejects_brief_or_language_drift() -> None:
@@ -1272,6 +1285,33 @@ def test_memorial_chat_future_current_state_phrasing_routes_to_present_world_gua
     assert "famil" not in body["answer"].lower()
 
 
+def test_memorial_chat_current_medical_speculation_short_circuits_to_guardrail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-current-medical-speculation")
+
+    response = client.post(f"/memorials/{slug}/chat", json={"question": "Wuerdest du dich heute gegen Covid impfen lassen?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert called["generate_text"] == 0
+    assert body["fallback_reason"] == "current_speculation_guardrail"
+    assert body["llm_provider"] == "memorial_guardrail"
+    assert body["current_world_policy"] == "no_current_medical_or_political_speculation"
+    assert "aktuelle medizinische oder politische entscheidung" in body["answer"].lower()
+
+
 def test_memorial_chat_current_weather_ignores_present_world_search_even_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1378,7 +1418,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
     monkeypatch.setattr(
         public_memorials,
-        "openvoice_synthesize_request_with_variant",
+        "_render_memorial_tts_audio",
         lambda **kwargs: (output_audio, "audio/wav"),
     )
     monkeypatch.setattr(
@@ -1486,7 +1526,7 @@ def test_memorial_conversation_turn_canonicalizes_short_contact_openings(
     )
     monkeypatch.setattr(
         public_memorials,
-        "openvoice_synthesize_request_with_variant",
+        "_render_memorial_tts_audio",
         lambda **kwargs: (output_audio, "audio/wav"),
     )
 
@@ -1637,7 +1677,7 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     )
     monkeypatch.setattr(
         public_memorials,
-        "openvoice_synthesize_request_with_variant",
+        "_render_memorial_tts_audio",
         lambda **kwargs: (output_audio, "audio/wav"),
     )
 
@@ -1665,6 +1705,71 @@ def test_memorial_conversation_turn_current_weather_short_circuits_to_present_wo
     assert body["answer_audio_text"] == "Zum Wetter brauche ich den Ort."
     assert "famil" not in body["answer"].lower()
     assert "schach" not in body["answer"].lower()
+
+
+def test_memorial_conversation_turn_current_medical_speculation_short_circuits_to_guardrail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    input_audio = _generated_wav_bytes(textish_seed="Wuerdest du dich heute gegen Covid impfen lassen?")
+    output_audio = _generated_wav_bytes(textish_seed="Das kann ich aus meiner Erinnerung nicht als aktuelle medizinische oder politische Entscheidung beantworten.")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Wuerdest du dich heute gegen Covid impfen lassen?",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+
+    called = {"generate_text": 0}
+
+    def _fake_generate_text(**kwargs):
+        called["generate_text"] += 1
+        return SimpleNamespace(text="Sollte hier nicht benutzt werden.", provider_key="unit-test-model", model="unit-test-model")
+
+    monkeypatch.setattr(public_memorials, "generate_text", _fake_generate_text)
+    client = _client(principal_id="exec-memorial-current-medical-turn")
+
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert called["generate_text"] == 0
+    assert body["fallback_reason"] == "current_speculation_guardrail"
+    assert body["current_world_policy"] == "no_current_medical_or_political_speculation"
+    assert "aktuelle medizinische oder politische entscheidung" in body["answer"].lower()
 
 
 def test_memorial_conversation_turn_exposes_original_and_effective_transcript_text(
