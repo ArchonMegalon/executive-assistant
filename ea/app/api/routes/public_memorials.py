@@ -160,6 +160,7 @@ _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 640
 _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 760
+_MEMORIAL_REALTIME_STREAM_YIELD_SECONDS = 0.015
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
 _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
 _BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
@@ -15223,7 +15224,10 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         }
                     ):
                         return
-                    await asyncio.sleep(0)
+                    await asyncio.sleep(_MEMORIAL_REALTIME_STREAM_YIELD_SECONDS)
+                if turn_id in cancelled_turn_ids:
+                    await _send_cancelled(turn_id)
+                    return
                 if not await _safe_send_json(
                     {
                         "type": "audio_complete",
@@ -15233,6 +15237,9 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                     }
                 ):
                     return
+            if turn_id in cancelled_turn_ids:
+                await _send_cancelled(turn_id)
+                return
             await _safe_send_json({"type": "turn_complete", "turn_id": turn_id})
             _log_memorial_timing(
                 "realtime_transcript_turn",

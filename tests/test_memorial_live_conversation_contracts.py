@@ -135,6 +135,24 @@ def _wav_from_pcm16_bytes(payload: bytes, *, sample_rate: int = 16_000) -> bytes
     return buffer.getvalue()
 
 
+def _pcm16_mix_bytes(*parts: bytes) -> bytes:
+    decoded_parts: list[list[int]] = []
+    max_samples = 0
+    for payload in parts:
+        raw = payload[: len(payload) - (len(payload) % 2)]
+        values = [sample for (sample,) in struct.iter_unpack("<h", raw)]
+        decoded_parts.append(values)
+        max_samples = max(max_samples, len(values))
+    mixed: list[int] = []
+    for index in range(max_samples):
+        total = 0
+        for values in decoded_parts:
+            if index < len(values):
+                total += values[index]
+        mixed.append(max(-32768, min(32767, total)))
+    return struct.pack("<" + "h" * len(mixed), *mixed)
+
+
 def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     slug = "manfred"
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
@@ -2905,6 +2923,90 @@ def test_memorial_realtime_supports_multiple_consecutive_turns_without_state_dri
         assert not any(message.get("type") == "error" for message in messages)
 
 
+def test_memorial_realtime_supports_ten_consecutive_turns_without_reset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.", duration_seconds=0.18)
+    asked: list[str] = []
+
+    def _chat_answer(payload, question, *args, **kwargs):
+        asked.append(question)
+        return {
+            "answer": f"Antwort lang {len(asked)}.",
+            "sources": [],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-ten-turn-soak")
+    turns = [(f"turn_{index}", f"Frage Nummer {index} an Manfred?") for index in range(1, 11)]
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+
+        for index, (turn_id, question) in enumerate(turns, start=1):
+            websocket.send_json(
+                {
+                    "type": "user_text_turn",
+                    "turn_id": turn_id,
+                    "text": question,
+                    "personal_memory_enabled": False,
+                }
+            )
+            messages: list[dict[str, object]] = []
+            for _ in range(16):
+                message = websocket.receive_json()
+                messages.append(message)
+                if message.get("type") in {"turn_complete", "error"} and message.get("turn_id") == turn_id:
+                    break
+            assert any(message.get("type") == "transcript" and message.get("turn_id") == turn_id for message in messages)
+            assert any(
+                message.get("type") == "answer"
+                and message.get("turn_id") == turn_id
+                and message.get("text") == f"Antwort lang {index}."
+                for message in messages
+            )
+            assert any(message.get("type") == "turn_complete" and message.get("turn_id") == turn_id for message in messages)
+            assert not any(message.get("type") in {"cancelled", "error"} for message in messages)
+
+    assert asked == [question for _, question in turns]
+
+
 def test_memorial_realtime_cancelled_turn_allows_clean_follow_up_after_interruption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3122,6 +3224,123 @@ def test_memorial_realtime_new_turn_preempts_inflight_reply_without_explicit_can
         for message in messages
     )
     assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_new" for message in messages)
+
+
+def test_memorial_realtime_cancel_during_streaming_audio_allows_clean_follow_up(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    large_audio = b"\x00" * 120_000
+
+    def _chat_answer(payload, question, *args, **kwargs):
+        if "zweite" in question.lower():
+            return {
+                "answer": "Ich antworte jetzt auf deinen zweiten Punkt.",
+                "sources": [],
+                "llm_model": "memorial_guardrail",
+                "llm_provider": "memorial_guardrail",
+                "llm_request_model": "ea-gemini-flash",
+                "llm_fallback_used": False,
+            }
+        return {
+            "answer": "Diese erste lange Antwort sollte unterbrochen werden.",
+            "sources": [],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (large_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-stream-cancel-follow-up")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_stream_old",
+                "text": "Erster langer Punkt.",
+                "personal_memory_enabled": False,
+            }
+        )
+
+        messages: list[dict[str, object]] = []
+        for _ in range(16):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "audio_chunk" and message.get("turn_id") == "turn_stream_old":
+                break
+
+        websocket.send_json(
+            {
+                "type": "cancel_current_turn",
+                "turn_id": "turn_stream_old",
+                "reason": "user_interrupt",
+            }
+        )
+        for _ in range(8):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") == "cancelled" and message.get("turn_id") == "turn_stream_old":
+                break
+
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_stream_new",
+                "text": "Zweite Frage direkt danach.",
+                "personal_memory_enabled": False,
+            }
+        )
+
+        for _ in range(16):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"} and message.get("turn_id") == "turn_stream_new":
+                break
+
+    assert any(message.get("type") == "audio_chunk" and message.get("turn_id") == "turn_stream_old" for message in messages)
+    assert any(message.get("type") == "cancelled" and message.get("turn_id") == "turn_stream_old" for message in messages)
+    assert not any(message.get("type") == "audio_complete" and message.get("turn_id") == "turn_stream_old" for message in messages)
+    assert any(
+        message.get("type") == "answer"
+        and message.get("turn_id") == "turn_stream_new"
+        and message.get("text") == "Ich antworte jetzt auf deinen zweiten Punkt."
+        for message in messages
+    )
+    assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_stream_new" for message in messages)
 
 
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
@@ -4741,6 +4960,93 @@ def test_memorial_gemini_live_rejects_silent_pcm_before_model_answer(
         for payload in fake_socket.sent
     )
     assert not any(message.get("type") in {"audio", "audio_chunk", "turn_complete"} for message in messages)
+
+
+def test_memorial_gemini_live_accepts_quiet_speech_mixed_with_room_noise(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "test-gemini-key")
+    monkeypatch.setattr(public_memorials, "_require_voice_consent", lambda *args, **kwargs: None)
+    seen: dict[str, object] = {}
+
+    class _FakeGeminiSocket:
+        def __init__(self) -> None:
+            self.sent: list[dict[str, object]] = []
+            self._queue: asyncio.Queue[object] = asyncio.Queue()
+
+        async def send(self, raw: str) -> None:
+            payload = json.loads(raw)
+            self.sent.append(payload)
+            if "setup" in payload:
+                await self._queue.put({"setupComplete": {}})
+            realtime_input = payload.get("realtimeInput")
+            if isinstance(realtime_input, dict) and realtime_input.get("audioStreamEnd") is True:
+                await self._queue.put(
+                    {
+                        "serverContent": {
+                            "inputTranscription": {"text": "Hallo Manfred."},
+                            "outputTranscription": {"text": "Ja, ich bin da."},
+                            "generationComplete": True,
+                            "turnComplete": True,
+                        }
+                    }
+                )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            item = await self._queue.get()
+            if item is None:
+                raise StopAsyncIteration
+            return json.dumps(item)
+
+        async def close(self) -> None:
+            await self._queue.put(None)
+
+    async def _fake_connect(uri: str, **kwargs):
+        socket = _FakeGeminiSocket()
+        seen["socket"] = socket
+        return socket
+
+    monkeypatch.setattr(public_memorials, "websockets", SimpleNamespace(connect=_fake_connect))
+    client = _client(principal_id="exec-memorial-live-quiet-noisy-pcm")
+    mixed_pcm = _pcm16_mix_bytes(
+        _pcm16_speech_bytes(samples=3200, sample=1700),
+        _pcm16_noise_bytes(samples=3200, sample=120),
+    )
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime?personal_memory=1") as websocket:
+        assert websocket.receive_json()["provider"] == "gemini_live"
+        websocket.send_json(
+            {
+                "type": "user_audio_start",
+                "turn_id": "turn_quiet_noisy_pcm",
+                "content_type": "audio/pcm;rate=16000",
+                "transport": "gemini_live",
+            }
+        )
+        websocket.send_bytes(mixed_pcm)
+        websocket.send_json({"type": "user_audio_end", "turn_id": "turn_quiet_noisy_pcm"})
+        messages = []
+        for _ in range(12):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"}:
+                break
+
+    fake_socket = seen["socket"]
+    assert any(
+        isinstance(payload.get("realtimeInput"), dict) and payload["realtimeInput"].get("audioStreamEnd") is True
+        for payload in fake_socket.sent
+    )
+    assert any(message.get("type") == "transcript" and "Hallo Manfred" in message.get("text", "") for message in messages)
+    assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_quiet_noisy_pcm" for message in messages)
+    assert not any(message.get("type") == "error" and message.get("message") == "speech_not_detected" for message in messages)
 
 
 def test_memorial_gemini_live_reports_oauth_scope_errors(
