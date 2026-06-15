@@ -109,6 +109,12 @@ def _pcm16_speech_bytes(*, samples: int = 400, sample: int = 8192) -> bytes:
     return struct.pack("<" + "h" * samples, *([sample] * samples))
 
 
+def _pcm16_noise_bytes(*, samples: int = 1600, sample: int = 96) -> bytes:
+    pattern = [sample, -sample, sample // 2, -(sample // 2)]
+    values = [pattern[index % len(pattern)] for index in range(samples)]
+    return struct.pack("<" + "h" * samples, *values)
+
+
 def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     slug = "manfred"
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
@@ -2787,6 +2793,211 @@ def test_memorial_realtime_latest_turn_replaces_active_turn_instead_of_too_many_
     assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_new" for message in messages)
 
 
+def test_memorial_realtime_supports_multiple_consecutive_turns_without_state_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.", duration_seconds=0.18)
+    asked: list[str] = []
+
+    def _chat_answer(payload, question, *args, **kwargs):
+        asked.append(question)
+        return {
+            "answer": f"Antwort {len(asked)}.",
+            "sources": [],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-consecutive-turns")
+
+    turns = [
+        ("turn_1", "Hallo Manfred, kannst du jetzt mit mir sprechen?"),
+        ("turn_2", "Was war dir bei Gerechtigkeit wichtig?"),
+        ("turn_3", "Und was war dir bei Verantwortung wichtig?"),
+        ("turn_4", "Wie hättest du das Susanna erklärt?"),
+        ("turn_5", "Danke, ich höre noch zu."),
+    ]
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+
+        turn_messages: dict[str, list[dict[str, object]]] = {}
+        for turn_id, question in turns:
+            websocket.send_json(
+                {
+                    "type": "user_text_turn",
+                    "turn_id": turn_id,
+                    "text": question,
+                    "personal_memory_enabled": False,
+                }
+            )
+            messages: list[dict[str, object]] = []
+            for _ in range(12):
+                message = websocket.receive_json()
+                messages.append(message)
+                if message.get("type") in {"turn_complete", "error"} and message.get("turn_id") == turn_id:
+                    break
+            turn_messages[turn_id] = messages
+
+    assert asked == [question for _, question in turns]
+    for index, (turn_id, _) in enumerate(turns, start=1):
+        messages = turn_messages[turn_id]
+        assert any(message.get("type") == "transcript" and message.get("turn_id") == turn_id for message in messages)
+        assert any(message.get("type") == "answer" and message.get("turn_id") == turn_id and message.get("text") == f"Antwort {index}." for message in messages)
+        assert any(message.get("type") == "turn_complete" and message.get("turn_id") == turn_id for message in messages)
+        assert not any(message.get("type") == "cancelled" for message in messages)
+        assert not any(message.get("type") == "error" for message in messages)
+
+
+def test_memorial_realtime_cancelled_turn_allows_clean_follow_up_after_interruption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.", duration_seconds=0.18)
+
+    def _chat_answer(payload, question, *args, **kwargs):
+        if "unterbrochen" in question.lower():
+            time.sleep(0.25)
+            return {
+                "answer": "Die langsame Antwort sollte abgebrochen werden.",
+                "sources": [],
+                "llm_model": "slow-guardrail",
+                "llm_provider": "memorial_guardrail",
+                "llm_request_model": "ea-gemini-flash",
+                "llm_fallback_used": False,
+            }
+        return {
+            "answer": "Ich bin wieder bei dir.",
+            "sources": [],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-interruption-follow-up")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_interrupted",
+                "text": "Ich werde gleich unterbrochen.",
+                "personal_memory_enabled": False,
+            }
+        )
+        websocket.send_json(
+            {
+                "type": "cancel_current_turn",
+                "turn_id": "turn_interrupted",
+                "reason": "user_interrupt",
+            }
+        )
+        interruption_messages = []
+        for _ in range(6):
+            message = websocket.receive_json()
+            interruption_messages.append(message)
+            if message.get("type") == "cancelled" and message.get("turn_id") == "turn_interrupted":
+                break
+
+        assert any(
+            message.get("type") == "transcript" and message.get("turn_id") == "turn_interrupted"
+            for message in interruption_messages
+        )
+        interrupted = next(
+            message
+            for message in interruption_messages
+            if message.get("type") == "cancelled" and message.get("turn_id") == "turn_interrupted"
+        )
+
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_follow_up",
+                "text": "Hallo Manfred, ich fange nochmal an.",
+                "personal_memory_enabled": False,
+            }
+        )
+        messages = [interrupted]
+        for _ in range(12):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"} and message.get("turn_id") == "turn_follow_up":
+                break
+
+    assert any(message.get("type") == "answer" and message.get("turn_id") == "turn_follow_up" and message.get("text") == "Ich bin wieder bei dir." for message in messages)
+    assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_follow_up" for message in messages)
+    assert not any(message.get("type") == "answer" and message.get("turn_id") == "turn_interrupted" for message in messages)
+
+
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 
@@ -3183,6 +3394,19 @@ def test_memorial_live_page_source_uses_more_tolerant_turn_detection_and_barge_i
     assert "setTimeout(recordConversationTurn, 90);" not in source
 
 
+def test_memorial_live_page_source_keeps_long_pause_budget_before_forcing_turn_end() -> None:
+    source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
+
+    assert "autoStopMs: 5200" in source
+    assert "maxAfterSpeechMs: 5200" in source
+    assert "silenceMs: 900" in source
+    assert "autoStopMs: 6800" in source
+    assert "maxAfterSpeechMs: 6800" in source
+    assert "silenceMs: 1100" in source
+    assert "const maxAfterSpeechMs = Math.max(1800, Number(options.maxAfterSpeechMs || 4200));" in source
+    assert "activeSpeechMs > maxAfterSpeechMs" in source
+
+
 def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcripts() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
@@ -3191,6 +3415,14 @@ def test_memorial_live_page_source_accepts_shorter_first_turn_browser_transcript
     assert "isFirstConversationTurn && hasSpeechLikeChars && normalized.length >= 3" in source
     assert "conversationIdleMisses >= 1 && hasSpeechLikeChars && normalized.length >= 2" in source
     assert "if (!looksDirected && !(conversationIdleMisses >= 1 && normalized.length >= 8 && words.length >= 2)) return false;" in source
+
+
+def test_memorial_pcm_gate_ignores_low_energy_room_noise() -> None:
+    from app.api.routes import public_memorials
+
+    assert not public_memorials._pcm16_payload_has_speech_energy(_pcm16_noise_bytes(sample=96))
+    assert not public_memorials._pcm16_payload_has_speech_energy(_pcm16_noise_bytes(sample=160))
+    assert public_memorials._pcm16_payload_has_speech_energy(_pcm16_speech_bytes(samples=1600, sample=4096))
 
 
 def test_memorial_live_page_source_does_not_fallback_to_browser_voice_when_realtime_server_audio_is_missing() -> None:
