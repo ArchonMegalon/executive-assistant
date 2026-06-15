@@ -6,8 +6,13 @@
 <section class="section">
   <div class="panel" style="padding: 24px;">
     <div class="kicker">First run</div>
-    <h1 style="max-width: 18ch;">Get to the first useful memo without turning setup into a project.</h1>
-    <p class="lead">Connect Google, prove one useful loop, and keep the rest of the workspace narrow until the product has earned more scope.</p>
+    {% if brand.key == 'ea' %}
+    <h1 style="max-width: 18ch;">See the office loop before you spend time configuring it.</h1>
+    <p class="lead">Start with one visible memo, one visible queue, and one visible follow-up loop. Setup should stay behind the first useful office proof, not in front of it.</p>
+    {% else %}
+    <h1 style="max-width: 18ch;">Get to the first useful shortlist without turning setup into a project.</h1>
+    <p class="lead">Connect Google only if needed, prove one useful shortlist, and keep the rest of the workspace narrow until the product has earned more scope.</p>
+    {% endif %}
   </div>
 </section>
 

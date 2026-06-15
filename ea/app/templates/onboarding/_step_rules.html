@@ -2,18 +2,18 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 3</div>
-      <h2>Refine the shortlist after first value, and add integrations later.</h2>
+      <h2>{% if brand.key == 'ea' %}Refine the office loop after first value, and add integrations later.{% else %}Refine the shortlist after first value, and add integrations later.{% endif %}</h2>
     </div>
-    <p class="step-context">Use this final step to confirm the first property loop: shortlist, next actions, research posture, and review controls. Keep integrations narrow until the property workspace is already useful.</p>
+    <p class="step-context">{% if brand.key == 'ea' %}Use this final step to confirm the first office loop: memo, next actions, approvals, and review controls. Keep integrations narrow until the workspace is already useful.{% else %}Use this final step to confirm the first property loop: shortlist, next actions, research posture, and review controls. Keep integrations narrow until the property workspace is already useful.{% endif %}</p>
   </div>
 
   <div class="finish-grid">
     <div class="finish-card">
-      <strong>What the first useful property loop reveals</strong>
+      <strong>{% if brand.key == 'ea' %}What the first useful office loop reveals{% else %}What the first useful property loop reveals{% endif %}</strong>
       {% if activation_preview.brief %}
-      <p class="copy">Shortlist: {{ activation_preview.brief|join(' · ') }}</p>
+      <p class="copy">{% if brand.key == 'ea' %}Memo: {% else %}Shortlist: {% endif %}{{ activation_preview.brief|join(' · ') }}</p>
       {% else %}
-      <p class="copy">Shortlist: define one good property brief, surface the first ranked candidates, and keep the scope narrow.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Memo: show what changed, what needs a decision, and what must stay visible.{% else %}Shortlist: define one good property brief, surface the first ranked candidates, and keep the scope narrow.{% endif %}</p>
       {% endif %}
       {% if activation_preview.queue %}
       <p class="copy">Next: {{ activation_preview.queue|join(' · ') }}</p>
@@ -23,14 +23,14 @@
     </div>
     <div class="finish-card">
       <strong>Rules after first value</strong>
-      <p class="copy">Start with reviewable recommendations and explicit notifications. Change automation depth only after the shortlist and research packet feel credible.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Start with reviewable recommendations and explicit approvals. Change automation depth only after the memo and queue feel credible.{% else %}Start with reviewable recommendations and explicit notifications. Change automation depth only after the shortlist and research packet feel credible.{% endif %}</p>
     </div>
   </div>
 
   <div class="path-grid">
     <section class="path-card">
-      <strong>Email alerts later</strong>
-      <p class="copy">Add alerts only when the shortlist quality already justifies asynchronous notifications to clients or teammates.</p>
+      <strong>{% if brand.key == 'ea' %}Delivery later{% else %}Email alerts later{% endif %}</strong>
+      <p class="copy">{% if brand.key == 'ea' %}Add more delivery only when the memo and queue quality already justify asynchronous outreach or reminders.{% else %}Add alerts only when the shortlist quality already justifies asynchronous notifications to clients or teammates.{% endif %}</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/integrations">Review notification options</a>
@@ -40,7 +40,7 @@
 
     <section class="path-card">
       <strong>Shared review later</strong>
-      <p class="copy">Add shared review only when more than one person truly needs the same shortlist, comments, and follow-ups.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Add broader shared review only when more than one person truly needs the same queue, commitments, and approvals.{% else %}Add shared review only when more than one person truly needs the same shortlist, comments, and follow-ups.{% endif %}</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/pricing">Review paid tiers</a>
@@ -49,8 +49,8 @@
     </section>
 
     <section class="path-card">
-      <strong>Preference tuning after proof</strong>
-      <p class="copy">Use the preferences surface after first value to change profile rules, limits, or automation depth based on real use.</p>
+      <strong>{% if brand.key == 'ea' %}Policy tuning after proof{% else %}Preference tuning after proof{% endif %}</strong>
+      <p class="copy">{% if brand.key == 'ea' %}Use settings after first value to change review rules, memory posture, or automation depth based on real use.{% else %}Use the preferences surface after first value to change profile rules, limits, or automation depth based on real use.{% endif %}</p>
       <div class="wizard-actions">
         <div class="right">
           <a class="btn" href="/app/settings">Open preferences</a>
@@ -59,22 +59,22 @@
     </section>
 
     <section class="path-card">
-      <strong>Evidence for follow-up research</strong>
-      <p class="copy">If the first shortlist does not feel useful, inspect missing facts and weak-fit reasons before adding more portals.</p>
+      <strong>{% if brand.key == 'ea' %}Evidence for follow-up{% else %}Evidence for follow-up research{% endif %}</strong>
+      <p class="copy">{% if brand.key == 'ea' %}If the first office loop does not feel useful, inspect missing signals, weak priorities, and unclear approvals before adding more channels.{% else %}If the first shortlist does not feel useful, inspect missing facts and weak-fit reasons before adding more portals.{% endif %}</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/app/properties">Open property workspace</a>
+          <a class="btn" href="{% if brand.key == 'ea' %}/app/today{% else %}/app/properties{% endif %}">{% if brand.key == 'ea' %}Open Today{% else %}Open property workspace{% endif %}</a>
         </div>
       </div>
     </section>
     <section class="path-card">
       <strong>Recommended starting point</strong>
-      <p class="copy">Allow recommendations, keep notifications reviewable, and avoid over-configuring the workspace before the first shortlist is visible.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Allow recommendations, keep approvals reviewable, and avoid over-configuring the workspace before the first office loop is visible.{% else %}Allow recommendations, keep notifications reviewable, and avoid over-configuring the workspace before the first shortlist is visible.{% endif %}</p>
     </section>
 
     <section class="path-card">
       <strong>Expand after proof</strong>
-      <p class="copy">Add shared review, more providers, or deeper automation only after the first shortlist is already useful day to day.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Add shared review, more channels, or deeper automation only after the first office loop is already useful day to day.{% else %}Add shared review, more providers, or deeper automation only after the first shortlist is already useful day to day.{% endif %}</p>
     </section>
   </div>
 
@@ -101,7 +101,7 @@
         <input id="auto_brief_delivery_time_local" name="auto_brief_delivery_time_local" type="time" value="{{ morning_memo.get('delivery_time_local', '08:00') }}">
       </div>
       <div>
-        <label for="auto_brief_recipient_email">Delivery email override</label>
+        <label for="auto_brief_recipient_email">{% if brand.key == 'ea' %}Memo delivery email override{% else %}Delivery email override{% endif %}</label>
         <input id="auto_brief_recipient_email" name="auto_brief_recipient_email" type="email" placeholder="Uses Google primary email by default" value="{{ morning_memo.get('recipient_email', '') }}">
       </div>
       <div>
@@ -139,7 +139,7 @@
     <div class="wizard-actions">
       <button class="btn ghost" type="button" data-step-back="2">Back</button>
       <div class="right">
-        <button class="btn primary" type="submit">Finish setup and open the property workspace</button>
+        <button class="btn primary" type="submit">{% if brand.key == 'ea' %}Finish setup and open Today{% else %}Finish setup and open the property workspace{% endif %}</button>
       </div>
     </div>
   </form>

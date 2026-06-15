@@ -110,6 +110,9 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "PropertyQuarry is designed for the daily loop" not in product.text
     assert "Run one office loop without rebuilding it by hand each morning." in landing.text
     assert "PropertyQuarry turns fragmented property search" not in landing.text
+    assert "See the office loop before you spend time configuring it." in get_started.text
+    assert "Get to the first useful office loop quickly." in get_started.text
+    assert "Connect the first real signal" in get_started.text
     assert "Choose the property workflow" not in get_started.text
     assert "PropertyQuarry Workspace" not in get_started.text
     assert "Executive Assistant Security" in security.text
@@ -123,6 +126,9 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "one real property workflow" not in pricing.text
     assert "Executive Assistant Docs" in docs.text
     assert "Create your property workspace" not in register.text
+    assert "One useful office loop" in register.text
+    assert "Google Core" in register.text
+    assert "define the property brief" not in register.text
     assert "PropertyQuarry only needs Google identity" not in google.text
     assert "live assistant path" not in whatsapp.text
 

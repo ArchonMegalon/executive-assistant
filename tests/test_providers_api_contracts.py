@@ -4095,7 +4095,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
     assert "Start a workspace that shows the first useful loop." in setup.text
-    assert "Workspace shape" in setup.text
+    assert "Open one workspace first" in setup.text
     assert "Google Core" in setup.text
 
     sign_in = owner.get("/sign-in")
@@ -4107,7 +4107,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
-    assert legacy_setup.headers["location"] == "/register"
+    assert legacy_setup.headers["location"] == "/get-started"
 
     privacy = owner.get("/security")
     assert privacy.status_code == 200

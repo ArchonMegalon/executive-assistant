@@ -2,11 +2,11 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 1</div>
-      <h2>{% if brand.key == 'ea' %}Choose the office workflow this workspace should support.{% else %}Choose the property workflow this workspace should support.{% endif %}</h2>
+      <h2>{% if brand.key == 'ea' %}Start with one office loop you can actually review.{% else %}Choose the property workflow this workspace should support.{% endif %}</h2>
     </div>
     <p class="step-context">
       {% if brand.key == 'ea' %}
-      Pick the option that matches the real office rhythm. The right choice is about who reviews decisions, who receives follow-up, and how much support depth the workspace should assume.
+      Keep the first setup light. The right choice is mainly about who reviews decisions and follow-up, not about building the perfect office model up front.
       {% else %}
       Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.
       {% endif %}
@@ -43,7 +43,7 @@
       <select id="workspace_mode" name="workspace_mode">
           <option value="personal" {% if workspace.mode == 'personal' %}selected{% endif %}>Personal</option>
           <option value="team" {% if workspace.mode == 'team' %}selected{% endif %}>Shared workspace</option>
-          <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>Concierge search</option>
+          <option value="executive_ops" {% if workspace.mode == 'executive_ops' %}selected{% endif %}>{% if brand.key == 'ea' %}Executive support{% else %}Concierge search{% endif %}</option>
       </select>
         <div class="field-help">{% if brand.key == 'ea' %}You can change this later. It helps the product start with the right office loop and review posture.{% else %}You can change this later. It helps the product start with the right review depth and collaboration posture.{% endif %}</div>
       </div>

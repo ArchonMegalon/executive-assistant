@@ -1,14 +1,14 @@
 <aside class="panel wizard-nav">
   <button class="wizard-step-button" type="button" data-step-trigger="1">
-    <strong>1. Search shape</strong>
-    <span>Choose the search posture and review rhythm this workspace should support.</span>
+    <strong>1. {% if brand.key == 'ea' %}Open one office loop{% else %}Search shape{% endif %}</strong>
+    <span>{% if brand.key == 'ea' %}Keep the first workspace narrow enough to prove value quickly.{% else %}Choose the search posture and review rhythm this workspace should support.{% endif %}</span>
   </button>
   <button class="wizard-step-button" type="button" data-step-trigger="2">
-    <strong>2. Connect Google</strong>
-    <span>Keep sign-in simple and reuse the same identity later if you want.</span>
+    <strong>2. {% if brand.key == 'ea' %}Connect the first real signal{% else %}Connect Google{% endif %}</strong>
+    <span>{% if brand.key == 'ea' %}Use Google only when it improves the memo and queue, not just because it exists.{% else %}Keep sign-in simple and reuse the same identity later if you want.{% endif %}</span>
   </button>
   <button class="wizard-step-button" type="button" data-step-trigger="3">
     <strong>3. Rules after first value</strong>
-    <span>Only enable digests and deeper automation after the first shortlist already feels useful.</span>
+    <span>{% if brand.key == 'ea' %}Only enable broader automation after the first office loop already feels useful.{% else %}Only enable digests and deeper automation after the first shortlist already feels useful.{% endif %}</span>
   </button>
 </aside>

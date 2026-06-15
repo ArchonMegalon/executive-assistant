@@ -1343,8 +1343,85 @@ def workspace_invite_accept(
 
 
 @router.get("/get-started", response_class=HTMLResponse)
-def get_started() -> RedirectResponse:
-    return RedirectResponse("/register", status_code=307)
+def get_started(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> HTMLResponse:
+    principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
+    if principal_id:
+        build_product_service(container).record_surface_event(
+            principal_id=principal_id,
+            event_type="activation_opened",
+            surface="get_started",
+        )
+    preview = dict(status.get("brief_preview") or {})
+    activation_preview = {
+        "brief": _list_rows(
+            preview.get("first_brief_preview") or preview.get("first_brief"),
+            (
+                "Morning memo shows what changed since the last office cycle.",
+                "Queue shows what needs a decision now.",
+                "Commitments keep follow-ups visible until they close.",
+            )
+            if brand["key"] == "ea"
+            else (
+                "Shortlist shows which properties actually fit.",
+                "Review shows what still needs checking.",
+                "Research keeps missing facts visible until they close.",
+            ),
+        ),
+        "queue": _list_rows(
+            preview.get("suggested_actions"),
+            (
+                "Review one decision before noon.",
+                "Keep one follow-up from slipping.",
+                "Approve one draft before anything sends.",
+            )
+            if brand["key"] == "ea"
+            else (
+                "Review one candidate in more detail.",
+                "Check one missing building fact.",
+                "Decide which property deserves deeper research next.",
+            ),
+        ),
+        "commitments": _list_rows(
+            preview.get("trust_notes"),
+            (
+                "Nothing sends without review.",
+                "Evidence stays attached to repeated decisions.",
+            )
+            if brand["key"] == "ea"
+            else (
+                "No property gets promoted without visible evidence.",
+                "Preferences stay attached to the shortlist instead of disappearing.",
+            ),
+        ),
+    }
+    return _render_public_template(
+        request,
+        "get_started.html",
+        **_public_context(
+            request=request,
+            current_nav="product",
+            page_title="Get started" if brand["key"] == "ea" else "Get started with PropertyQuarry",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "activation_preview": activation_preview,
+                "google": dict(status.get("channels") or {}).get("google") or {},
+                "shared_browser_fields": Markup(
+                    _shared_browser_fields(
+                        principal_id=principal_id,
+                        access_identity=access_identity,
+                        container=container,
+                    )
+                ),
+            },
+        ),
+    )
 
 
 @router.get("/app", response_class=HTMLResponse)
@@ -2833,7 +2910,7 @@ def admin_shell(
 
 @router.get("/setup")
 def legacy_setup_redirect() -> RedirectResponse:
-    return RedirectResponse("/register", status_code=307)
+    return RedirectResponse("/get-started", status_code=307)
 
 
 @router.get("/privacy")

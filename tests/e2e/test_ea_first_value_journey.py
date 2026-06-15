@@ -13,8 +13,8 @@ def test_ea_core_first_value_journey_reaches_reviewable_office_loop() -> None:
     onboarding = client.get("/register")
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
-    assert "Google sign-in" in onboarding.text
-    assert "Workspace shape" in onboarding.text
+    assert "Google Core" in onboarding.text
+    assert "Open one workspace first" in onboarding.text
     assert 'href="/app/today"' in onboarding.text
 
     settings = client.get("/app/settings")

@@ -2,50 +2,55 @@
   <div class="panel hero-copy">
     <div>
       <div class="kicker">Get started</div>
+      {% if brand.key == 'ea' %}
+      <h1>Get to the first useful office loop quickly.</h1>
+      <p class="lead">Keep the first run narrow. Create the workspace, prove the first morning memo, and only then widen channels, automation, or shared review.</p>
+      {% else %}
       <h1>Get to the first useful shortlist and first visible fit explanation quickly.</h1>
       <p class="lead">Keep the first run narrow. Create the account, set the property brief, and only then widen provider coverage, paid research, or shared review.</p>
+      {% endif %}
     </div>
     <div class="summary-strip">
       <div class="summary">
         <div class="label">Step 1</div>
-        <strong>Create the account</strong>
+        <strong>{% if brand.key == 'ea' %}Open the workspace{% else %}Create the account{% endif %}</strong>
       </div>
       <div class="summary">
         <div class="label">Step 2</div>
-        <strong>Run the first property search</strong>
+        <strong>{% if brand.key == 'ea' %}Connect the first real signal{% else %}Run the first property search{% endif %}</strong>
       </div>
       <div class="summary">
         <div class="label">Step 3</div>
-        <strong>Refine the shortlist after first value</strong>
+        <strong>{% if brand.key == 'ea' %}Refine after first value{% else %}Refine the shortlist after first value{% endif %}</strong>
       </div>
     </div>
-    <p class="copy">The first activation goal is a useful shortlist, visible fit reasons, and one real feedback loop. Everything else can wait.</p>
+    <p class="copy">{% if brand.key == 'ea' %}The first activation goal is a useful memo, visible next actions, and one real approval boundary. Everything else can wait.{% else %}The first activation goal is a useful shortlist, visible fit reasons, and one real feedback loop. Everything else can wait.{% endif %}</p>
   </div>
 
   <aside class="panel onboarding-side">
     <div>
       <div class="kicker">Recommended path</div>
       <h2>Start simple.</h2>
-      <p class="copy">Most workspaces should start with a single property brief, one ranked search run, and no more integration complexity than they actually need on day one.</p>
+      <p class="copy">{% if brand.key == 'ea' %}Most workspaces should start with one office, one review loop, and no more integration complexity than they actually need on day one.{% else %}Most workspaces should start with a single property brief, one ranked search run, and no more integration complexity than they actually need on day one.{% endif %}</p>
     </div>
     <div class="callout">
-      <strong>Personal workspace first</strong>
-      One person, one property brief, one shortlist.
+      <strong>{% if brand.key == 'ea' %}One office first{% else %}Personal workspace first{% endif %}</strong>
+      {% if brand.key == 'ea' %}One executive office, one memo loop, one visible queue.{% else %}One person, one property brief, one shortlist.{% endif %}
     </div>
     <div class="callout">
       <strong>Add shared review later</strong>
-      Bring in an operator or teammate only after the first shortlist and research packet already feel useful.
+      {% if brand.key == 'ea' %}Bring in broader operator or teammate review only after the first memo and queue already feel useful.{% else %}Bring in an operator or teammate only after the first shortlist and research packet already feel useful.{% endif %}
     </div>
     <div class="callout">
       <strong>Channels come after proof</strong>
-      Keep Google narrow and optional until account return access is enough to keep the product usable.
+      {% if brand.key == 'ea' %}Keep Google narrow until it is clearly improving the office loop instead of just expanding scope.{% else %}Keep Google narrow and optional until account return access is enough to keep the product usable.{% endif %}
     </div>
     <div class="callout">
       <strong>What the first useful loop reveals</strong>
       {% if activation_preview.brief %}
-      <div class="copy">Shortlist: {{ activation_preview.brief|join(' · ') }}</div>
+      <div class="copy">{% if brand.key == 'ea' %}Memo: {% else %}Shortlist: {% endif %}{{ activation_preview.brief|join(' · ') }}</div>
       {% else %}
-      <div class="copy">Shortlist: define one good search posture, rank a first sweep, and keep the scope narrow.</div>
+      <div class="copy">{% if brand.key == 'ea' %}Memo: show what changed, what needs a decision, and what must not be forgotten.{% else %}Shortlist: define one good search posture, rank a first sweep, and keep the scope narrow.{% endif %}</div>
       {% endif %}
       {% if activation_preview.queue %}
       <div class="copy">Next: {{ activation_preview.queue|join(' · ') }}</div>
@@ -53,9 +58,9 @@
       <div class="copy">Next: get to one useful review decision that feels real.</div>
       {% endif %}
       {% if activation_preview.commitments %}
-      <div class="copy">Research: {{ activation_preview.commitments|join(' · ') }}</div>
+      <div class="copy">{% if brand.key == 'ea' %}Trust: {% else %}Research: {% endif %}{{ activation_preview.commitments|join(' · ') }}</div>
       {% else %}
-      <div class="copy">Research: make one missing fact visible before widening setup.</div>
+      <div class="copy">{% if brand.key == 'ea' %}Trust: keep the approval boundary visible before widening setup.{% else %}Research: make one missing fact visible before widening setup.{% endif %}</div>
       {% endif %}
     </div>
   </aside>

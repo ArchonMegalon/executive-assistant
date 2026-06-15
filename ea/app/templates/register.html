@@ -169,18 +169,18 @@
     <section class="register-hero">
       <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal workspace{% endif %}</div>
       <h1>{% if brand.key == 'propertyquarry' %}Start a workspace that finds, ranks, and explains the right properties.{% else %}Start a workspace that shows the first useful loop.{% endif %}</h1>
-      <p class="lead">{% if brand.key == 'propertyquarry' %}Start a workspace that shows the first useful loop. Create the account, link Google only if you want easier return access, then move straight into the property brief and first crawl.{% else %}Create the account, define the property brief, and keep the first week narrow until the shortlist is already useful.{% endif %}</p>
+      <p class="lead">{% if brand.key == 'propertyquarry' %}Create the account, define the property brief, and keep the first week narrow until the shortlist is already useful.{% else %}Create the account, keep the workspace narrow, and move straight into the first visible memo, queue, and approval boundary.{% endif %}</p>
       <div class="register-note">
-        {% if brand.key == 'propertyquarry' %}We’ll use your email to create the account and reopen your saved search posture later. Google is optional account context, not the sign-in method.{% else %}We’ll use your email to create the workspace and let you come back. Google is a workspace data source, not the app login method.{% endif %}
+        {% if brand.key == 'propertyquarry' %}We’ll use your email to create the account and reopen your saved search posture later. Google is optional account context, not the sign-in method.{% else %}We’ll use your email to create the workspace and let you come back. Google is an optional workspace signal source, not the app login method.{% endif %}
       </div>
       <div class="summary-strip">
         <div class="summary">
           <div class="label">First goal</div>
-          <strong>{% if brand.key == 'propertyquarry' %}One useful ranked shortlist{% else %}One useful property workspace{% endif %}</strong>
+          <strong>{% if brand.key == 'propertyquarry' %}One useful ranked shortlist{% else %}One useful office loop{% endif %}</strong>
         </div>
         <div class="summary">
-          <div class="label">{% if brand.key == 'propertyquarry' %}Research lane{% else %}Recommended connection{% endif %}</div>
-          <strong>{% if brand.key == 'propertyquarry' %}Property search and review{% else %}Google sign-in{% endif %}</strong>
+          <div class="label">{% if brand.key == 'propertyquarry' %}Research lane{% else %}Recommended first signal{% endif %}</div>
+          <strong>{% if brand.key == 'propertyquarry' %}Property search and review{% else %}Google Core{% endif %}</strong>
         </div>
         <div class="summary">
           <div class="label">Expand later</div>
@@ -220,8 +220,8 @@
       <section class="register-step" data-step="2">
         <div>
           <div class="kicker">Step 2</div>
-          <h2>{% if brand.key == 'propertyquarry' %}Search shape{% else %}Workspace shape{% endif %}</h2>
-          <p class="copy">Keep the first workspace personal until the loop proves it is useful. No plan or team decisions yet.</p>
+          <h2>{% if brand.key == 'propertyquarry' %}Search shape{% else %}Open one workspace first{% endif %}</h2>
+          <p class="copy">{% if brand.key == 'propertyquarry' %}Keep the first workspace personal until the loop proves it is useful. No plan or team decisions yet.{% else %}Keep the first workspace simple. You are proving one useful office loop here, not building the full org model yet.{% endif %}</p>
         </div>
         <div class="register-verify-note" data-verify-note></div>
         <form class="register-form" data-form="verify">
@@ -255,7 +255,7 @@
         <div>
           <div class="kicker">Step 3</div>
           <h2>{% if brand.key == 'propertyquarry' %}Link Google{% else %}Connect Google{% endif %}</h2>
-          <p class="copy">{% if brand.key == 'propertyquarry' %}Keep Google narrow. PropertyQuarry only needs identity and return access in the default path.{% else %}Start with Google Core so the first connected channel is useful before you broaden the workspace.{% endif %}</p>
+          <p class="copy">{% if brand.key == 'propertyquarry' %}Keep Google narrow. PropertyQuarry only needs identity and return access in the default path.{% else %}Use Google Core only if it improves the first memo and queue. Keep it narrow until it proves value.{% endif %}</p>
         </div>
         <div class="register-choice">
           <strong>{% if brand.key == 'propertyquarry' %}Google sign-in{% else %}Google Core{% endif %}</strong>
@@ -288,7 +288,7 @@
         <div>
           <div class="kicker">Step 5</div>
           <h2>{% if brand.key == 'propertyquarry' %}Your PropertyQuarry workspace is ready.{% else %}Your workspace is ready.{% endif %}</h2>
-          <p class="copy">{% if brand.key == 'propertyquarry' %}Start with your first shortlist, your first research packet, and the first visible feedback loop. Shared review can come later.{% else %}Start with the first morning memo, the first queue, and the first visible office loop. Shared review can come later.{% endif %}</p>
+          <p class="copy">{% if brand.key == 'propertyquarry' %}Start with your first shortlist, your first research packet, and the first visible feedback loop. Shared review can come later.{% else %}Start with the first morning memo, the first queue, and the first visible approval boundary. Shared review can come later.{% endif %}</p>
         </div>
         <div class="register-preview-grid">
           <section class="register-preview">

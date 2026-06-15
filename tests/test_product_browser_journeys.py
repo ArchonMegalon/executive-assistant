@@ -76,8 +76,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     onboarding = client.get("/register")
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
-    assert "Google sign-in" in onboarding.text
-    assert "Workspace shape" in onboarding.text
+    assert "Google Core" in onboarding.text
+    assert "Open one workspace first" in onboarding.text
     assert 'href="/app/today"' in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text
@@ -389,7 +389,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
     settings = client.get("/app/settings", headers={"host": "propertyquarry.com"})
     assert settings.status_code == 200
     assert "Identity and return access" in settings.text
-    assert "Google sign-in" in settings.text
+    assert "Google" in settings.text
     assert "Current search brief state" in settings.text
     assert "Operating posture" in settings.text
     assert "Open pricing" in settings.text
@@ -402,7 +402,7 @@ def test_propertyquarry_settings_hide_generic_google_sync_metrics() -> None:
 
     google_settings = client.get("/app/settings/google", headers={"host": "propertyquarry.com"})
     assert google_settings.status_code == 200
-    assert "PropertyQuarry Google connection" in google_settings.text
+    assert "Google connection" in google_settings.text
     assert "Sync runs" not in google_settings.text
     assert "Last sync" not in google_settings.text
     assert "Freshness" not in google_settings.text
@@ -1849,7 +1849,7 @@ def test_browser_google_settings_page_and_run_now_action_work() -> None:
 
     sync_page = client.get("/app/settings/google")
     assert sync_page.status_code == 200
-    assert "PropertyQuarry Google connection" in sync_page.text
+    assert "Workspace Google connection" in sync_page.text
     assert "No connected inboxes" in sync_page.text
     assert "Connect inbox" in sync_page.text
 

@@ -2,21 +2,21 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 2</div>
-      <h2>Connect Google first.</h2>
+      <h2>{% if brand.key == 'ea' %}Connect Google only if it improves the first office loop.{% else %}Connect Google first.{% endif %}</h2>
     </div>
-    <p class="step-context">For most customers, Google is where the product becomes useful first: email context, calendar pressure, people context, and a real morning memo.</p>
+    <p class="step-context">{% if brand.key == 'ea' %}For EA, Google is useful when it makes the memo, queue, and timing better. It should not become setup theatre before the workspace has proved value.{% else %}For most customers, Google is where the product becomes useful first: email context, calendar pressure, people context, and a real morning memo.{% endif %}</p>
   </div>
 
   <div class="status-grid">
     <div class="status-card">
       <div class="kicker">Current status</div>
       <strong>{{ google.status|replace('_', ' ') if google.status else 'Not selected yet' }}</strong>
-      <p class="copy">This shows where the Google connection stands today.</p>
+      <p class="copy">{% if brand.key == 'ea' %}This shows whether Google is already helping the office loop or still unnecessary at this stage.{% else %}This shows where the Google connection stands today.{% endif %}</p>
     </div>
       <div class="status-card">
         <div class="kicker">Recommended choice</div>
-        <strong>Google Core</strong>
-      <p class="copy">Enough for a useful memo, a first draft workflow, and a commitment loop without expanding the scope more than necessary on day one.</p>
+        <strong>{% if brand.key == 'ea' %}Google Core when needed{% else %}Google Core{% endif %}</strong>
+      <p class="copy">{% if brand.key == 'ea' %}Enough for a useful memo, a first draft workflow, and a commitment loop without expanding scope more than necessary on day one.{% else %}Enough for a useful memo, a first draft workflow, and a commitment loop without expanding the scope more than necessary on day one.{% endif %}</p>
     </div>
     <div class="status-card">
       <div class="kicker">Identity boundary</div>
