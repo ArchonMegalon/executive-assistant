@@ -43,15 +43,14 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Morning memo delivery" in settings.text
     assert "What is feeding the office loop" in settings.text
     assert "Office-loop proof" in settings.text
-    assert "Journey gate health" in settings.text
     assert "Connect now" in settings.text
     assert "/app/settings/outcomes" in settings.text
     assert "/app/settings/google" in settings.text
-    assert "/app/settings/support" in settings.text
     assert "/app/settings/access" in settings.text
     assert "/app/settings/invitations" in settings.text
     assert "Who can enter and who is waiting" in settings.text
-    assert "What needs support before the loop slips" in settings.text
+    assert "Journey gate health" not in settings.text
+    assert "What needs support before the loop slips" not in settings.text
 
     invitations = client.get("/app/settings/invitations")
     assert invitations.status_code == 200
@@ -1825,7 +1824,7 @@ def test_browser_rules_page_can_update_morning_memo_schedule() -> None:
 
     settings = client.get("/app/settings")
     assert settings.status_code == 200
-    assert "Update workspace and morning memo rules" in settings.text
+    assert "Update office and morning memo rules" in settings.text
     assert "Office Rules Lab" in settings.text
     assert "Europe/Vienna" in settings.text
     assert "briefs@example.com" in settings.text

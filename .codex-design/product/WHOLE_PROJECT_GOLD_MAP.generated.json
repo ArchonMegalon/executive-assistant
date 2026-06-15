@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-15T09:01:25Z",
+  "generated_at": "2026-06-15T09:27:30Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "7d50eb0054e4c691fbb93ae2e7d27f848c5af19f",
+  "git_head": "7449891b947bf7cb0eba594ec6c47e69ec658649",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "gold",
   "gold_claim_allowed": true,

@@ -134,7 +134,7 @@ def build_settings_section(
                         "Last memo issue",
                         str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
                         "Memo",
-                        href="/app/settings/outcomes",
+                        href="/app/settings/support" if str(memo_loop.get("last_issue_reason") or "").strip() else "/app/settings/outcomes",
                     ),
                 ],
             },

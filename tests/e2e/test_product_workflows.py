@@ -430,7 +430,7 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert "Start a workspace that shows the first useful loop." in page.content()
     assert "Open Today first" in page.content()
     assert "Google Core" in page.content()
-    assert "Build first morning memo" in page.content()
+    assert "One useful office loop" in page.content()
 
     response = page.goto(f"{base_url}/app/today", wait_until="networkidle")
     assert response is not None and response.ok
