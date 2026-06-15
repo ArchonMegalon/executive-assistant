@@ -36,6 +36,7 @@ from app.api.routes.landing_content import (
     PRICING_TIERS,
     PRODUCT_MODULES,
     PUBLIC_NAV,
+    public_nav_for_brand,
     SIGN_IN_NOTES,
     TRUST_CARDS,
 )
@@ -408,7 +409,7 @@ def _public_context(
     context: dict[str, object] = {
         "page_title": page_title,
         "brand": brand,
-        "public_nav": PUBLIC_NAV,
+        "public_nav": public_nav_for_brand(str(brand.get("key") or "")),
         "current_nav": current_nav,
         "access_identity": access_identity,
         "principal_id": principal_id,
@@ -819,6 +820,8 @@ def product_page(
 ) -> HTMLResponse:
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
+    if brand["key"] == "ea":
+        return RedirectResponse("/", status_code=307)
     return _render_public_template(
         request,
         "product_page.html",

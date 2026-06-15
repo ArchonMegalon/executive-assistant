@@ -176,7 +176,7 @@
       {% endif %}
     </div>
     <div class="cta-row">
-      <a class="btn primary" href="/register">Create account</a>
+      <a class="btn primary" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">Create account</a>
       <a class="btn" href="#sample-memo">{% if brand.key == 'ea' %}See sample morning memo{% else %}See sample shortlist{% endif %}</a>
     </div>
     <div class="microcopy">{% if brand.key == 'ea' %}Review-first office execution. Optional Google identity. Nothing sends without review.{% else %}Review-first property research. Optional Google identity. No hidden workspace drift.{% endif %}</div>

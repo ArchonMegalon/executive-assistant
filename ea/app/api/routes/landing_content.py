@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-PUBLIC_NAV = (
+EA_PUBLIC_NAV = (
+    {"href": "/", "label": "Product", "key": "product"},
+    {"href": "/security", "label": "Security", "key": "security"},
+    {"href": "/sign-in", "label": "Sign in", "key": "sign-in"},
+)
+
+PROPERTY_PUBLIC_NAV = (
     {"href": "/", "label": "Product", "key": "product"},
     {"href": "/security", "label": "Security", "key": "security"},
     {"href": "/pricing", "label": "Pricing", "key": "pricing"},
@@ -14,8 +20,6 @@ EA_APP_NAV_GROUPS = (
             {"href": "/app/today", "label": "Today", "key": "today"},
             {"href": "/app/queue", "label": "Queue", "key": "queue"},
             {"href": "/app/commitments", "label": "Commitments", "key": "commitments"},
-            {"href": "/app/people", "label": "People", "key": "people"},
-            {"href": "/app/evidence", "label": "Evidence", "key": "evidence"},
             {"href": "/app/settings", "label": "Settings", "key": "settings"},
         ),
     },
@@ -44,7 +48,14 @@ def app_nav_groups_for_brand(brand_key: str) -> tuple[dict[str, object], ...]:
     return EA_APP_NAV_GROUPS
 
 
+def public_nav_for_brand(brand_key: str) -> tuple[dict[str, object], ...]:
+    if str(brand_key or "").strip().lower() == "propertyquarry":
+        return PROPERTY_PUBLIC_NAV
+    return EA_PUBLIC_NAV
+
+
 APP_NAV_GROUPS = EA_APP_NAV_GROUPS
+PUBLIC_NAV = EA_PUBLIC_NAV
 
 ADMIN_NAV_GROUPS = (
     {

@@ -614,7 +614,7 @@
       </nav>
       <div class="actions">
         <a class="btn ghost" href="{% if access_identity %}{{ brand.app_home or '/app/properties' }}{% else %}/sign-in{% endif %}">{% if access_identity %}Open current session{% else %}{{ brand.sign_in_label }}{% endif %}</a>
-        <a class="btn primary" href="/register">{{ brand.create_label }}</a>
+        <a class="btn primary" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a>
       </div>
     </div>
   </header>
@@ -634,7 +634,7 @@
         {% endfor %}
         <a href="/docs">Docs</a>
         <a href="/integrations">Integrations</a>
-        <a href="/openapi.json">API</a>
+        {% if brand.key != 'ea' %}<a href="/openapi.json">API</a>{% endif %}
         <a href="{{ brand.repo_url }}">{% if brand.key == 'propertyquarry' %}Repository{% else %}Architecture{% endif %}</a>
       </nav>
     </div>

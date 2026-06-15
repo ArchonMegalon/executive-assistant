@@ -67,7 +67,7 @@
     <p class="lead">{% if brand.key == 'propertyquarry' %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start by creating a property research account first.{% else %}Return through a current session, a secure email link, a workspace invite, or SSO. New customers start with a personal workspace first.{% endif %}</p>
     <div class="cta-row">
       <a class="btn primary" href="{% if brand.key == 'propertyquarry' %}/app/properties{% else %}/app/today{% endif %}">Open current session</a>
-      <a class="btn" href="/register">{{ brand.create_label }}</a>
+      <a class="btn" href="{% if brand.key == 'ea' %}/get-started{% else %}/register{% endif %}">{{ brand.create_label }}</a>
     </div>
     <form class="access-form" method="post" action="/sign-in/google">
       <label>Continue with Google</label>

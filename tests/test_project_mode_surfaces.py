@@ -106,7 +106,7 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert register.status_code == 200
     assert google.status_code == 200
     assert whatsapp.status_code == 200
-    assert "One executive office workspace" in product.text
+    assert "Run one office loop without rebuilding it by hand each morning." in product.text
     assert "PropertyQuarry is designed for the daily loop" not in product.text
     assert "Run one office loop without rebuilding it by hand each morning." in landing.text
     assert "PropertyQuarry turns fragmented property search" not in landing.text
