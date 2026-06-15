@@ -3881,6 +3881,9 @@ def _memorial_gemini_live_answer_requires_turn_fallback(transcript_text: str, an
         "grundsatzgedaechtnis:",
         "stilgedaechtnis:",
         "erinnerungsgedaechtnis:",
+        "die importierten gesendeten mails",
+        "wiederkehrend einen formalen aufbau",
+        "sachliche lagebeschreibung",
     )
     if any(marker in normalized_answer for marker in meta_markers):
         return True

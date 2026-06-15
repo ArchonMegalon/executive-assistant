@@ -1497,6 +1497,15 @@ def test_memorial_gemini_live_contact_opening_requires_real_contact_reply() -> N
     ) is False
 
 
+def test_memorial_gemini_live_rejects_mail_style_summary_answer() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "Ich wuerde es so fassen: [Grundsatz] Die importierten gesendeten Mails zeigen wiederkehrend einen formalen Aufbau: Anrede, sachliche Lagebeschreibung, konkrete Punkte.",
+    ) is True
+
+
 def test_memorial_gemini_live_values_prompt_rejects_vague_narrowing_reply() -> None:
     from app.api.routes import public_memorials
 
