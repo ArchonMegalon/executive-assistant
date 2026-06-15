@@ -33,7 +33,7 @@
       <p class="copy">{% if brand.key == 'ea' %}Add more delivery only when the memo and queue quality already justify asynchronous outreach or reminders.{% else %}Add alerts only when the shortlist quality already justifies asynchronous notifications to clients or teammates.{% endif %}</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/integrations">Review notification options</a>
+          <a class="btn" href="{% if brand.key == 'ea' %}/security{% else %}/integrations{% endif %}">{% if brand.key == 'ea' %}Review approval rules{% else %}Review notification options{% endif %}</a>
         </div>
       </div>
     </section>
@@ -43,7 +43,7 @@
       <p class="copy">{% if brand.key == 'ea' %}Add broader shared review only when more than one person truly needs the same queue, commitments, and approvals.{% else %}Add shared review only when more than one person truly needs the same shortlist, comments, and follow-ups.{% endif %}</p>
       <div class="wizard-actions">
         <div class="right">
-          <a class="btn" href="/pricing">Review paid tiers</a>
+          <a class="btn" href="{% if brand.key == 'ea' %}/app/settings{% else %}/pricing{% endif %}">{% if brand.key == 'ea' %}Open office settings{% else %}Review paid tiers{% endif %}</a>
         </div>
       </div>
     </section>

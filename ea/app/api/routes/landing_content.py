@@ -191,9 +191,8 @@ PRICING_TIERS = (
 )
 
 EA_DOC_LINKS = (
-    {"title": "Docs", "href": "/docs", "body": "Product and runtime references for the office loop and its review boundaries."},
     {"title": "Security", "href": "/security", "body": "What the assistant can see, prepare, and never send without review."},
-    {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery lanes."},
+    {"title": "Getting started", "href": "/get-started", "body": "Open the first office loop first and add extra setup only after Today feels useful."},
     {"title": "Architecture", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
 )
 

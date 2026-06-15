@@ -412,6 +412,7 @@ def build_gold_map(
         "generated_by": "scripts/materialize_whole_project_gold_map.py",
         "source_git_head": source_git_head,
         "head_semantics": "source_state",
+        "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
         "output_path": output_path.relative_to(ROOT).as_posix(),
         "overall_status": overall_status,
         "gold_claim_allowed": gold_claim_allowed,

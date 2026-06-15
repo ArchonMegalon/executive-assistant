@@ -134,21 +134,12 @@ def build_settings_section(
                 ],
             },
             {
-                "eyebrow": "Office-loop proof",
-                "title": "How the daily office loop is proving itself",
-                "body": "The principal surface says plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
-                "items": [
-                    row_builder("Gate state", str(office_loop_proof.get("state") or "watch").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
-                    row_builder("Summary", str(office_loop_proof.get("summary") or "No proof summary yet."), "Gate", href="/app/settings/outcomes"),
-                ],
-            },
-            {
                 "eyebrow": "Google connection" if property_brand else "Google signal loop",
-                "title": "Connected Google identity posture" if property_brand else "What is feeding the office loop",
+                "title": "Connected Google identity posture" if property_brand else "Optional Google access for the office loop",
                 "body": (
                     "PropertyQuarry only needs identity, token health, and reauth posture here."
                     if property_brand
-                    else "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review."
+                    else "Keep Google narrow. Connect it only when return access or live signals genuinely improve Today."
                 ),
                 "items": [
                     google_settings_action_row_builder(analytics_sync),
@@ -173,7 +164,7 @@ def build_settings_section(
             {
                 "eyebrow": "Workspace entry",
                 "title": "Who can enter and who is waiting",
-                "body": "Keep the office reachable without turning the main settings surface into a delivery dashboard.",
+                "body": "Keep access simple and reviewable without turning this page into an invitation console.",
                 "items": [
                     row_builder("Active access sessions", "Manage secure entry links", "Access", href="/app/settings/access"),
                     row_builder("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),

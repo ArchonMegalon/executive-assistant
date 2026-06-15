@@ -121,10 +121,11 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "Executive Assistant Integrations" in integrations.text
     assert "Connect only what improves the office loop." in integrations.text
     assert "PropertyQuarry can identify" not in integrations.text
-    assert "Executive Assistant Pricing" in pricing.text
-    assert "Choose the plan that matches the office load, review needs, and delivery posture." in pricing.text
-    assert "one real property workflow" not in pricing.text
-    assert "Executive Assistant Docs" in docs.text
+    assert "See the office loop before you spend time configuring it." in pricing.text
+    assert "Executive Assistant Pricing" not in pricing.text
+    assert "Choose the plan that matches the office load, review needs, and delivery posture." not in pricing.text
+    assert "See what Executive Assistant can do before you let it act." in docs.text
+    assert "Executive Assistant Docs" not in docs.text
     assert register.headers["location"] == "/get-started"
     assert "PropertyQuarry only needs Google identity" not in google.text
     assert "live assistant path" not in whatsapp.text

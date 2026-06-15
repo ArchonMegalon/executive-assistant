@@ -161,7 +161,9 @@ def main() -> int:
             "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
             "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
             "The current public voice receipt is a provenance proof when its transcriber mode is provenance_cache; browser + room receipts carry the intelligibility proof.",
+            "source_git_head records the proved source state; a later artifact-only commit may differ without making the proof stale.",
         ],
+        "source_head_note": "source_git_head records the source state the receipts prove. Generated-only follow-up commits may change repository HEAD without invalidating those receipts.",
         "artifact_paths": {
             "local_release_receipt": _display_path(ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"),
             "public_gold_receipt": _display_path(ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"),

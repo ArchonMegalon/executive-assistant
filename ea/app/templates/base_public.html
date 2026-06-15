@@ -663,8 +663,10 @@
         {% for item in public_nav %}
         <a href="{{ item.href }}">{{ item.label }}</a>
         {% endfor %}
+        {% if brand.key != 'ea' %}
         <a href="/docs">Docs</a>
         <a href="/integrations">Integrations</a>
+        {% endif %}
         {% if brand.key != 'ea' %}<a href="/openapi.json">API</a>{% endif %}
         <a href="{{ brand.repo_url }}">{% if brand.key == 'propertyquarry' %}Repository{% else %}Architecture{% endif %}</a>
       </nav>

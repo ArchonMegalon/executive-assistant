@@ -325,6 +325,8 @@ def pricing_page(
 ) -> HTMLResponse:
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
+    if brand["key"] == "ea":
+        return RedirectResponse("/get-started", status_code=307)
     return _render_public_template(
         request,
         "ea/pricing.html" if brand["key"] == "ea" else "pricing_page.html",
@@ -360,6 +362,8 @@ def docs_page(
 ) -> HTMLResponse:
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
+    if brand["key"] == "ea":
+        return RedirectResponse("/security", status_code=307)
     doc_links = EA_DOC_LINKS if brand["key"] == "ea" else PROPERTY_DOC_LINKS
     return _render_public_template(
         request,
