@@ -41,31 +41,31 @@
 
 <section class="section panel integration-hero">
   <div class="kicker">Integrations</div>
-  <h1>Connect only what improves the property workflow.</h1>
-  <p class="lead">Start with the narrowest setup that makes return access and notifications work. For most customers that means email-first account creation and optional Google identity, not a broad integration bundle.</p>
+  <h1>{% if brand.key == 'ea' %}Connect only what improves the office loop.{% else %}Connect only what improves the property workflow.{% endif %}</h1>
+  <p class="lead">{% if brand.key == 'ea' %}Start with the narrowest setup that makes return access, delivery, and signal sync work. For most customers that means email-first account creation and optional Google identity, not a broad integration bundle.{% else %}Start with the narrowest setup that makes return access and notifications work. For most customers that means email-first account creation and optional Google identity, not a broad integration bundle.{% endif %}</p>
 </section>
 
 <section class="section integration-note-grid">
   <section class="integration-note">
     <div class="kicker">Recommended order</div>
     <h2>Google only if it helps return access</h2>
-    <p class="copy">Google should mainly improve sign-in continuity and optional delivery lanes. It should not force unrelated mailbox or calendar scope into the first property workflow.</p>
+    <p class="copy">{% if brand.key == 'ea' %}Google should mainly improve sign-in continuity and explicit office sync. It should not force broad mailbox or calendar scope into the first office workflow unless the workspace is ready for it.{% else %}Google should mainly improve sign-in continuity and optional delivery lanes. It should not force unrelated mailbox or calendar scope into the first property workflow.{% endif %}</p>
   </section>
   <section class="integration-note">
     <div class="kicker">Channel contract</div>
     <h2>Know what each connection can do</h2>
-    <p class="copy">Each connection should say clearly what PropertyQuarry can identify, notify, or enrich today. Trust drops when the UI implies more than the contract really allows.</p>
+    <p class="copy">{% if brand.key == 'ea' %}Each connection should say clearly what Executive Assistant can identify, draft, notify, or sync today. Trust drops when the UI implies more than the contract really allows.{% else %}Each connection should say clearly what PropertyQuarry can identify, notify, or enrich today. Trust drops when the UI implies more than the contract really allows.{% endif %}</p>
   </section>
 </section>
 
 <section class="section integration-use-case-grid">
   <section class="integration-use-case">
     <strong>Google</strong>
-    Best when the same Google identity should reopen the workspace cleanly and support later delivery features.
+    {% if brand.key == 'ea' %}Best when the same Google identity should reopen the workspace cleanly and later support inbox, calendar, and delivery workflows with explicit review boundaries.{% else %}Best when the same Google identity should reopen the workspace cleanly and support later delivery features.{% endif %}
   </section>
   <section class="integration-use-case">
     <strong>Email notifications</strong>
-    Best when shortlisted properties and research packets should be sent to clients or reviewers asynchronously.
+    {% if brand.key == 'ea' %}Best when approvals, summaries, and reviewed drafts should be delivered asynchronously without turning email into hidden automation.{% else %}Best when shortlisted properties and research packets should be sent to clients or reviewers asynchronously.{% endif %}
   </section>
   <section class="integration-use-case">
     <strong>Future delivery lanes</strong>
@@ -79,7 +79,7 @@
       <div class="kicker">Current channels</div>
       <h2>Choose the next useful connection</h2>
     </div>
-    <p>Start with the connection that improves property discovery today. Add the others only when they change real product value.</p>
+    <p>{% if brand.key == 'ea' %}Start with the connection that improves the office loop today. Add the others only when they change real product value.{% else %}Start with the connection that improves property discovery today. Add the others only when they change real product value.{% endif %}</p>
   </div>
   <div class="integration-grid">
     {% for card in channel_cards %}

@@ -54,22 +54,22 @@
 
 <section class="section panel pricing-hero">
   <div class="kicker">Pricing</div>
-  <h1>Choose the plan that matches the search depth, review needs, and delivery posture.</h1>
-  <p class="lead">Plans scale with search breadth, research depth, and how much of the shortlist should be enriched and delivered automatically.</p>
+  <h1>{% if brand.key == 'ea' %}Choose the plan that matches the office load, review needs, and delivery posture.{% else %}Choose the plan that matches the search depth, review needs, and delivery posture.{% endif %}</h1>
+  <p class="lead">{% if brand.key == 'ea' %}Plans scale with office complexity, signal volume, and how much drafting, approval, and follow-through the workspace should carry.{% else %}Plans scale with search breadth, research depth, and how much of the shortlist should be enriched and delivered automatically.{% endif %}</p>
 </section>
 
 <section class="section pricing-strip">
   <section class="pricing-summary">
-    <strong>Start with one real search</strong>
-    Prove the shortlist, ranking, and research packet with one real property workflow before expanding the product.
+    <strong>{% if brand.key == 'ea' %}Start with one real office loop{% else %}Start with one real search{% endif %}</strong>
+    {% if brand.key == 'ea' %}Prove the memo, queue, commitments, and approvals with one real office workflow before expanding the product.{% else %}Prove the shortlist, ranking, and research packet with one real property workflow before expanding the product.{% endif %}
   </section>
   <section class="pricing-summary">
-    <strong>Move up when the shortlist becomes serious</strong>
-    Upgrade when you need more providers, deeper research, and reliable notifications on strong matches.
+    <strong>{% if brand.key == 'ea' %}Move up when the office loop gets heavier{% else %}Move up when the shortlist becomes serious{% endif %}</strong>
+    {% if brand.key == 'ea' %}Upgrade when you need more connected signals, deeper drafting support, and reliable reviewed delivery across a busier office loop.{% else %}Upgrade when you need more providers, deeper research, and reliable notifications on strong matches.{% endif %}
   </section>
   <section class="pricing-summary">
-    <strong>Pay for depth when the search gets heavier</strong>
-    Larger plans buy broader provider coverage, more enrichment, and stronger delivery around real property decisions.
+    <strong>{% if brand.key == 'ea' %}Pay for depth when the office gets denser{% else %}Pay for depth when the search gets heavier{% endif %}</strong>
+    {% if brand.key == 'ea' %}Larger plans buy broader signal coverage, stronger drafting support, and tighter delivery posture around real decisions and approvals.{% else %}Larger plans buy broader provider coverage, more enrichment, and stronger delivery around real property decisions.{% endif %}
   </section>
 </section>
 
@@ -79,7 +79,7 @@
       <div class="kicker">Plans</div>
       <h2>Pick the lane that matches the real workflow</h2>
     </div>
-    <p>Choose the plan by provider coverage, search volume, enrichment depth, and how much automation the shortlist should receive.</p>
+    <p>{% if brand.key == 'ea' %}Choose the plan by signal coverage, office load, drafting depth, and how much reviewed automation the workflow should receive.{% else %}Choose the plan by provider coverage, search volume, enrichment depth, and how much automation the shortlist should receive.{% endif %}</p>
   </div>
   <div class="tier-grid">
     {% for tier in pricing_tiers %}
@@ -104,43 +104,73 @@
   <section class="pricing-row">
     <strong>Typical plan differences</strong>
     <ul class="muted-list">
+      {% if brand.key == 'ea' %}
+      <li>How many inbox, calendar, and delivery lanes can be connected safely</li>
+      <li>How much morning memo, queue, and commitment volume the workspace should carry</li>
+      <li>How much drafting and approval support the office needs</li>
+      <li>Whether reviewed delivery and notifications are enabled</li>
+      <li>How much operator support and audit depth the office needs</li>
+      {% else %}
       <li>Number of providers that can be searched in one run</li>
       <li>How many results per source can be kept</li>
       <li>How deep the research packet should go</li>
       <li>Whether alerts and saved runs are enabled</li>
       <li>How much follow-up and enrichment the agent can trigger</li>
       <li>How much support and delivery priority the search needs</li>
+      {% endif %}
     </ul>
   </section>
   <section class="pricing-row">
-    <strong>Typical search path</strong>
+    <strong>{% if brand.key == 'ea' %}Typical office path{% else %}Typical search path{% endif %}</strong>
     <ul class="muted-list">
+      {% if brand.key == 'ea' %}
+      <li>Start with one executive workspace and one useful morning memo.</li>
+      <li>Move to Plus when inbox/calendar depth, approvals, and delivery reliability start to matter.</li>
+      <li>Use Agent when heavier drafting, follow-through, and multi-lane review become the real bottleneck.</li>
+      <li>Keep the paid tier proportional to the actual office load, not wishful future usage.</li>
+      {% else %}
       <li>Start with one buyer profile and one useful shortlist.</li>
       <li>Move to Plus when provider breadth, alerts, and stronger review packets start to matter.</li>
       <li>Use Agent when missing facts, follow-up research, and repeated reranking become the real bottleneck.</li>
       <li>Keep the paid tier proportional to the actual search workload, not wishful future usage.</li>
+      {% endif %}
     </ul>
   </section>
 </section>
 
 <section class="section comparison-grid">
   <section class="comparison-card">
-    <strong>Pilot usually includes</strong>
+    <strong>{% if brand.key == 'ea' %}Pilot usually includes{% else %}Pilot usually includes{% endif %}</strong>
     <ul class="muted-list">
+      {% if brand.key == 'ea' %}
+      <li>One active workspace</li>
+      <li>One reviewed morning memo</li>
+      <li>One decision queue</li>
+      <li>One commitment ledger</li>
+      <li>Review-first onboarding</li>
+      {% else %}
       <li>One active workspace</li>
       <li>One saved search profile</li>
       <li>One ranked shortlist</li>
       <li>Lightweight research packet</li>
       <li>Review-first onboarding</li>
+      {% endif %}
     </ul>
   </section>
   <section class="comparison-card">
     <strong>Plus and Agent usually add</strong>
     <ul class="muted-list">
+      {% if brand.key == 'ea' %}
+      <li>Broader signal coverage</li>
+      <li>Deeper drafting and approval support</li>
+      <li>More delivery and notification options</li>
+      <li>Closer support around workload, follow-through, and office reliability</li>
+      {% else %}
       <li>Broader provider coverage</li>
       <li>Deeper research packets</li>
       <li>More delivery and alerting options</li>
       <li>Closer support around search quality, follow-up, and delivery</li>
+      {% endif %}
     </ul>
   </section>
 </section>

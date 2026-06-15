@@ -86,8 +86,10 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     client = build_product_client(principal_id="exec-public-brand-copy")
 
     product = client.get("/product")
+    landing = client.get("/")
     get_started = client.get("/get-started")
     security = client.get("/security")
+    integrations = client.get("/integrations")
     pricing = client.get("/pricing")
     docs = client.get("/docs")
     register = client.get("/register")
@@ -95,8 +97,10 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     whatsapp = client.get("/integrations/whatsapp")
 
     assert product.status_code == 200
+    assert landing.status_code == 200
     assert get_started.status_code == 200
     assert security.status_code == 200
+    assert integrations.status_code == 200
     assert pricing.status_code == 200
     assert docs.status_code == 200
     assert register.status_code == 200
@@ -104,14 +108,46 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert whatsapp.status_code == 200
     assert "One executive office workspace" in product.text
     assert "PropertyQuarry is designed for the daily loop" not in product.text
+    assert "Run one office loop without rebuilding it by hand each morning." in landing.text
+    assert "PropertyQuarry turns fragmented property search" not in landing.text
     assert "Choose the property workflow" not in get_started.text
     assert "PropertyQuarry Workspace" not in get_started.text
     assert "Executive Assistant Security" in security.text
+    assert "See what Executive Assistant can do before you let it act." in security.text
+    assert "PropertyQuarry can do before you let it act." not in security.text
+    assert "Executive Assistant Integrations" in integrations.text
+    assert "Connect only what improves the office loop." in integrations.text
+    assert "PropertyQuarry can identify" not in integrations.text
     assert "Executive Assistant Pricing" in pricing.text
+    assert "Choose the plan that matches the office load, review needs, and delivery posture." in pricing.text
+    assert "one real property workflow" not in pricing.text
     assert "Executive Assistant Docs" in docs.text
     assert "Create your property workspace" not in register.text
     assert "PropertyQuarry only needs Google identity" not in google.text
     assert "live assistant path" not in whatsapp.text
+
+
+def test_ea_workspace_settings_surfaces_do_not_fall_back_to_propertyquarry_labels() -> None:
+    client = build_product_client(principal_id="exec-settings-brand-copy")
+    seed_product_state(client, principal_id="exec-settings-brand-copy")
+
+    google = client.get("/app/settings/google")
+    usage = client.get("/app/settings/usage")
+    trust = client.get("/app/settings/trust")
+    access = client.get("/app/settings/access")
+    invitations = client.get("/app/settings/invitations")
+
+    assert google.status_code == 200
+    assert usage.status_code == 200
+    assert trust.status_code == 200
+    assert access.status_code == 200
+    assert invitations.status_code == 200
+    assert "PropertyQuarry Google connection" not in google.text
+    assert "PropertyQuarry Workspace" not in google.text
+    assert "PropertyQuarry usage" not in usage.text
+    assert "PropertyQuarry trust" not in trust.text
+    assert "PropertyQuarry access" not in access.text
+    assert "PropertyQuarry invitations" not in invitations.text
 
 
 def test_ea_core_allowed_surfaces_do_not_leak_forbidden_planes() -> None:

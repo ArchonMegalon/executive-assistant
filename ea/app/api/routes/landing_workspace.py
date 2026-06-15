@@ -24,6 +24,13 @@ from app.services.public_branding import request_brand
 router = APIRouter(tags=["landing"])
 
 
+def _workspace_plane_defaults(request: Request) -> tuple[bool, str]:
+    brand = request_brand(request)
+    is_property_brand = brand["key"] == "propertyquarry"
+    workspace_label = "PropertyQuarry Workspace" if is_property_brand else "Executive Assistant Workspace"
+    return is_property_brand, workspace_label
+
+
 def _search_item_key(item: dict[str, object]) -> tuple[str, str, str]:
     return (
         str(item.get("kind") or "").strip(),
@@ -356,7 +363,7 @@ def settings_usage_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
-    is_property_brand = request_brand(request)["key"] == "propertyquarry"
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -407,8 +414,8 @@ def settings_usage_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry usage",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry usage" if is_property_brand else "Workspace usage",
         current_nav="settings",
         console_title="Usage and activation",
         console_summary="Queue pressure, memo activity, operator load, and time-to-value stay visible while shaping rules and support posture.",
@@ -502,6 +509,7 @@ def settings_support_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -535,8 +543,8 @@ def settings_support_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry support",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry support" if is_property_brand else "Workspace support",
         current_nav="settings",
         console_title="Support and recovery",
         console_summary="Support posture explains what is blocked, what is pending human review, what the providers are doing, and what bundle is ready to export.",
@@ -829,6 +837,7 @@ def settings_outcomes_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -853,8 +862,8 @@ def settings_outcomes_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry outcomes",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry outcomes" if is_property_brand else "Workspace outcomes",
         current_nav="settings",
         console_title="Workspace outcomes",
         console_summary="First value, review activity, commitment closure, and correction signals explain whether this office is actually getting value.",
@@ -1018,7 +1027,7 @@ def settings_google_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
-    is_property_brand = request_brand(request)["key"] == "propertyquarry"
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1183,8 +1192,8 @@ def settings_google_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry Google connection",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry Google connection" if is_property_brand else "Workspace Google connection",
         current_nav="settings",
         console_title="Google connection",
         console_summary=(
@@ -1329,6 +1338,7 @@ def settings_trust_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1347,8 +1357,8 @@ def settings_trust_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry trust",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry trust" if is_property_brand else "Workspace trust",
         current_nav="settings",
         console_title="Workspace trust",
         console_summary="Evidence, rules, readiness, provider posture, and recent product events make the assistant legible when the office asks why something happened.",
@@ -1454,6 +1464,7 @@ def settings_access_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1486,8 +1497,8 @@ def settings_access_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry access",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry access" if is_property_brand else "Workspace access",
         current_nav="settings",
         console_title="Workspace access",
         console_summary="Active access sessions are visible and revocable from the browser, not buried in API payloads or support tooling.",
@@ -1580,6 +1591,7 @@ def settings_invitations_detail(
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> HTMLResponse:
+    is_property_brand, workspace_default_label = _workspace_plane_defaults(request)
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
@@ -1610,8 +1622,8 @@ def settings_invitations_detail(
     return _render_console_object_detail(
         request=request,
         context=context,
-        workspace_label=str(workspace.get("name") or "PropertyQuarry Workspace"),
-        page_title="PropertyQuarry invitations",
+        workspace_label=str(workspace.get("name") or workspace_default_label),
+        page_title="PropertyQuarry invitations" if is_property_brand else "Workspace invitations",
         current_nav="settings",
         console_title="Workspace invitations",
         console_summary="Pending invites, accepted roles, and revoked access stay visible where the workspace decides who joins the office loop.",

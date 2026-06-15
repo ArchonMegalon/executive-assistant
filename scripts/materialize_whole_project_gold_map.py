@@ -383,6 +383,20 @@ def build_gold_map(
     gold_claim_allowed = not blocking_planes and ea_status == "pass"
     overall_status = "gold" if gold_claim_allowed else "not_gold"
     claim_scope = "whole_project_plane_set"
+    claim_scope_label = (
+        "Whole-project gold is permitted only for the listed plane set, including memorial public-origin experience, proved by the current receipts."
+        if gold_claim_allowed
+        else "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven."
+    )
+    required_next_receipts = (
+        []
+        if gold_claim_allowed
+        else [
+            "memorial_voice_roundtrip_public_origin.generated.json",
+            "memorial_realtime_browser_public_origin.generated.json",
+            "memorial_room_audio_public_origin.generated.json",
+        ]
+    )
 
     return {
         "contract_name": "ea.whole_project_gold_map",
@@ -393,7 +407,7 @@ def build_gold_map(
         "overall_status": overall_status,
         "gold_claim_allowed": gold_claim_allowed,
         "claim_scope": claim_scope,
-        "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
+        "claim_scope_label": claim_scope_label,
         "operator_summary": (
             "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes."
             if not gold_claim_allowed and ea_status == "pass"
@@ -414,11 +428,7 @@ def build_gold_map(
         "blocking_planes": blocking_planes,
         "planes": planes,
         "ltd_provider_lane_summary": ltd_summary,
-        "required_next_receipts": [
-            "memorial_voice_roundtrip_public_origin.generated.json",
-            "memorial_realtime_browser_public_origin.generated.json",
-            "memorial_room_audio_public_origin.generated.json",
-        ],
+        "required_next_receipts": required_next_receipts,
     }
 
 

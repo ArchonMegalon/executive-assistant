@@ -1,13 +1,13 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-14T21:37:58Z",
+  "generated_at": "2026-06-15T04:05:59Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "git_head": "20235c9de516a8a872141c95456c4a6d29a4504a",
+  "git_head": "7824904774b9fe18446d7e6edec21fa76a350d4c",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
   "overall_status": "gold",
   "gold_claim_allowed": true,
   "claim_scope": "whole_project_plane_set",
-  "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
+  "claim_scope_label": "Whole-project gold is permitted only for the listed plane set, including memorial public-origin experience, proved by the current receipts.",
   "operator_summary": "Whole-project gold is permitted by the current receipts. Owning repos remain authoritative for their planes.",
   "rules": [
     "EA flagship readiness does not imply whole Chummer project readiness.",
@@ -199,9 +199,5 @@
       "commercial_ops"
     ]
   },
-  "required_next_receipts": [
-    "memorial_voice_roundtrip_public_origin.generated.json",
-    "memorial_realtime_browser_public_origin.generated.json",
-    "memorial_room_audio_public_origin.generated.json"
-  ]
+  "required_next_receipts": []
 }
