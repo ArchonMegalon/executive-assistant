@@ -120,7 +120,7 @@ def main() -> int:
     except Exception as exc:
         raise SystemExit(f"memorial_hard_gate_receipt_invalid:{exc}") from exc
     memorial_status = str(memorial_receipt.get("status") or "").strip().lower()
-    if current_head and memorial_status == "pass" and not _fresh_enough(str(memorial_receipt.get("git_head") or ""), current_head=current_head):
+    if current_head and memorial_status == "pass" and not _fresh_enough(_recorded_source_head(memorial_receipt), current_head=current_head):
         raise SystemExit("memorial_hard_gate_receipt_stale")
     if by_key["MEMORIAL"].get("status") == "shipping_memorial" and memorial_status != "pass":
         raise SystemExit("shipping_memorial_gate_not_passing")
