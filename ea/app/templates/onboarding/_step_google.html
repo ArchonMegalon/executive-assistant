@@ -7,6 +7,31 @@
     <p class="step-context">{% if brand.key == 'ea' %}For EA, Google is useful when it makes the memo, queue, and timing better. It should not become setup theatre before the workspace has proved value.{% else %}For most customers, Google is where the product becomes useful first: email context, calendar pressure, people context, and a real morning memo.{% endif %}</p>
   </div>
 
+  {% if brand.key == 'ea' %}
+  <form class="wizard-form" method="post" action="/google/connect" data-next-step="3">
+    {{ shared_browser_fields|safe }}
+    <input type="hidden" name="scope_bundle" value="core">
+    <div class="status-grid">
+      <div class="status-card">
+        <div class="kicker">Default move</div>
+        <strong>Open Today first</strong>
+        <p class="copy">Do not spend another setup step here unless the memo, queue, or timing already has an obvious gap that Google would fill.</p>
+      </div>
+      <div class="status-card">
+        <div class="kicker">Optional upgrade</div>
+        <strong>Google Core</strong>
+        <p class="copy">If the office loop needs better calendar pressure or Gmail context, connect the narrow core bundle and return straight to Today.</p>
+      </div>
+    </div>
+    <div class="wizard-actions">
+      <button class="btn ghost" type="button" data-step-back="1">Back</button>
+      <div class="right">
+        <button class="btn ghost" type="button" data-step-next="3">Open Today first</button>
+        <button class="btn primary" type="submit">Connect Google Core</button>
+      </div>
+    </div>
+  </form>
+  {% else %}
   <div class="status-grid">
     <div class="status-card">
       <div class="kicker">Current status</div>
@@ -72,4 +97,5 @@
       </div>
     </div>
   </form>
+  {% endif %}
 </section>

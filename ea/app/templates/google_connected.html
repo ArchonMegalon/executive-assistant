@@ -74,6 +74,40 @@
   </p>
 </section>
 
+{% if brand.key == 'ea' %}
+<section class="section google-step-grid">
+  <section class="google-step">
+    <strong>Use this as a Today check, not a setup milestone.</strong>
+    <p class="copy">{{ sync_detail or 'Open Today and check whether the memo, queue, and timing are actually better now.' }}</p>
+  </section>
+  <section class="google-step">
+    <strong>Only keep this if it improves the loop.</strong>
+    <p class="copy">If Today is not materially better, reduce scope again instead of expanding more settings or channels.</p>
+  </section>
+</section>
+
+<section class="section panel google-actions">
+  <div class="cta-row">
+    <a class="btn primary" href="/app/today">Open Today</a>
+    {% if return_to %}<a class="btn" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
+    <a class="btn ghost" href="/app/settings/google">Google settings</a>
+  </div>
+  <details class="scope-details">
+    <summary>Show Google connection details</summary>
+    <ul class="muted-list">
+      <li>Email: {{ account.google_email }}</li>
+      <li>Consent stage: {{ account.consent_stage }}</li>
+      <li>Token status: {{ account.token_status }}</li>
+      <li>Workspace mode: {{ account.workspace_mode|replace('_', ' ')|title }}</li>
+      {% if account.connector_binding %}<li>Connector binding: {{ account.connector_binding.binding_id }}</li>{% endif %}
+    </ul>
+    <p class="copy" style="margin: 12px 0 10px;">Raw Google OAuth scopes remain available for security review.</p>
+    <ul class="muted-list">
+      {% for scope in scopes %}<li>{{ scope }}</li>{% endfor %}
+    </ul>
+  </details>
+</section>
+{% else %}
 <section class="section google-step-grid">
   <section class="google-step">
     <strong>What just happened</strong>
@@ -137,6 +171,7 @@
     </ul>
   </details>
 </section>
+{% endif %}
 {% if register_signal_payload %}
 <script>
 (() => {
@@ -162,7 +197,7 @@
   }
   window.setTimeout(() => {
     window.location.replace(`${target}${separator}${query.toString()}`);
-  }, 1200);
+  }, {{ 900 if brand.key == 'ea' else 1200 }});
 })();
 </script>
 {% endif %}

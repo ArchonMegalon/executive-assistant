@@ -73,11 +73,15 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert "Open commitments" in person_detail.text
     assert "Send board materials" in person_detail.text
 
-    onboarding = client.get("/register")
+    onboarding_redirect = client.get("/register", follow_redirects=False)
+    assert onboarding_redirect.status_code == 307
+    assert onboarding_redirect.headers["location"] == "/get-started"
+
+    onboarding = client.get("/get-started")
     assert onboarding.status_code == 200
     assert "Start a workspace that shows the first useful loop." in onboarding.text
     assert "Google Core" in onboarding.text
-    assert "Open one workspace first" in onboarding.text
+    assert "Open Today first" in onboarding.text
     assert 'href="/app/today"' in onboarding.text
     assert "Current plan posture" not in onboarding.text
     assert "operator seat" not in onboarding.text

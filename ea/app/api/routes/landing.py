@@ -1321,12 +1321,12 @@ async def sign_in_google(
     return RedirectResponse(str(packet.auth_url), status_code=303)
 
 
-@router.get("/register", response_class=HTMLResponse)
+@router.get("/register", response_class=HTMLResponse, response_model=None)
 def register_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
-) -> HTMLResponse:
+):
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
     if principal_id:
@@ -1336,30 +1336,9 @@ def register_page(
             surface="register",
         )
     if brand["key"] == "ea":
-        activation_preview = _activation_preview_for_brand(brand["key"], status)
-        return _render_public_template(
-            request,
-            "ea/get_started.html",
-            **_public_context(
-                request=request,
-                current_nav="product",
-                page_title="Start your workspace",
-                principal_id=principal_id,
-                status=status,
-                access_identity=access_identity,
-                extra={
-                    "activation_preview": activation_preview,
-                    "google": dict(status.get("channels") or {}).get("google") or {},
-                    "shared_browser_fields": Markup(
-                        _shared_browser_fields(
-                            principal_id=principal_id,
-                            access_identity=access_identity,
-                            container=container,
-                        )
-                    ),
-                },
-            ),
-        )
+        response = RedirectResponse("/get-started", status_code=307)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        return response
     return _render_public_template(
         request,
         "register.html",

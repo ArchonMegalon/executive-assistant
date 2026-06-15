@@ -124,7 +124,7 @@
       </div>
       <div class="summary">
         <div class="label">New users</div>
-        <strong>{% if brand.key == 'propertyquarry' %}Start at /register and set up the first search profile before running crawls.{% else %}Start at /register and prove value with a personal workspace first.{% endif %}</strong>
+        <strong>{% if brand.key == 'propertyquarry' %}Start at /register and set up the first search profile before running crawls.{% else %}Start at /get-started and open Today before you add more setup.{% endif %}</strong>
       </div>
       <div class="summary">
       <div class="label">Google</div>
@@ -147,7 +147,7 @@
       </section>
       <section class="access-card">
         <strong>First visit</strong>
-        <p class="copy">If you do not already have access, the right next step is /register, not a support ticket or a deeper settings page.</p>
+        <p class="copy">If you do not already have access, the right next step is {% if brand.key == 'propertyquarry' %}/register{% else %}/get-started{% endif %}, not a support ticket or a deeper settings page.</p>
       </section>
       <section class="access-card">
         <strong>Shared review when needed</strong>

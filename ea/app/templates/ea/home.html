@@ -71,22 +71,22 @@
   </section>
 
   <aside class="ea-pane">
-    <div class="kicker">What tomorrow morning should look like</div>
-    <strong>Today</strong>
+    <div class="kicker">Today should already look like this</div>
+    <strong>Changed since yesterday</strong>
     <ul class="ea-list">
       {% for row in activation_preview.brief %}
       <li>{{ row }}</li>
       {% endfor %}
     </ul>
     <div style="height: 14px;"></div>
-    <strong>Next</strong>
+    <strong>Needs review now</strong>
     <ul class="ea-list">
       {% for row in activation_preview.queue %}
       <li>{{ row }}</li>
       {% endfor %}
     </ul>
     <div style="height: 14px;"></div>
-    <strong>Trust</strong>
+    <strong>Stays visible until closed</strong>
     <ul class="ea-list">
       {% for row in activation_preview.commitments %}
       <li>{{ row }}</li>
@@ -99,9 +99,9 @@
   <div class="section-head">
     <div>
       <div class="section-kicker">Office loop</div>
-      <h2>The product is the loop, not the setup ritual.</h2>
+      <h2>The first screen should already feel like a working office loop.</h2>
     </div>
-    <p>One page should answer what changed, what needs a decision, what needs approval, and what cannot be forgotten.</p>
+    <p>One page should answer what changed, what needs a decision, what needs approval, and what cannot be forgotten before you touch any settings.</p>
   </div>
   <div class="ea-proof-grid">
     <section class="ea-proof">

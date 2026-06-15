@@ -4091,18 +4091,22 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
         resolved = owner.get(href, follow_redirects=False)
         assert resolved.status_code in {200, 303, 307}, href
 
-    setup = owner.get("/register")
+    setup_redirect = owner.get("/register", follow_redirects=False)
+    assert setup_redirect.status_code == 307
+    assert setup_redirect.headers["location"] == "/get-started"
+
+    setup = owner.get("/get-started")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
     assert "Start a workspace that shows the first useful loop." in setup.text
-    assert "Open one workspace first" in setup.text
+    assert "Open Today first" in setup.text
     assert "Google Core" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
     assert "Sign in if you already have workspace access." in sign_in.text
-    assert "New customers start with a personal workspace first." in sign_in.text
+    assert "Start at /get-started and open Today before you add more setup." in sign_in.text
     assert "Email me a sign-in link" in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)

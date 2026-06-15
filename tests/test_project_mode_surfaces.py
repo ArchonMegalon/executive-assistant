@@ -92,7 +92,7 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     integrations = client.get("/integrations")
     pricing = client.get("/pricing")
     docs = client.get("/docs")
-    register = client.get("/register")
+    register = client.get("/register", follow_redirects=False)
     google = client.get("/integrations/google")
     whatsapp = client.get("/integrations/whatsapp")
 
@@ -103,7 +103,7 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert integrations.status_code == 200
     assert pricing.status_code == 200
     assert docs.status_code == 200
-    assert register.status_code == 200
+    assert register.status_code == 307
     assert google.status_code == 200
     assert whatsapp.status_code == 200
     assert "Run one office loop without rebuilding it by hand each morning." in product.text
@@ -125,10 +125,7 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "Choose the plan that matches the office load, review needs, and delivery posture." in pricing.text
     assert "one real property workflow" not in pricing.text
     assert "Executive Assistant Docs" in docs.text
-    assert "Create your property workspace" not in register.text
-    assert "One useful office loop" in register.text
-    assert "Google Core" in register.text
-    assert "define the property brief" not in register.text
+    assert register.headers["location"] == "/get-started"
     assert "PropertyQuarry only needs Google identity" not in google.text
     assert "live assistant path" not in whatsapp.text
 
@@ -161,6 +158,16 @@ def test_public_robots_txt_allows_public_pages_and_blocks_private_surfaces() -> 
     assert "Disallow: /register" in lines
     assert "Disallow: /memorials" in lines
     assert "Disallow: /" not in lines
+
+
+def test_ea_register_is_only_a_continuation_into_get_started() -> None:
+    client = build_product_client(principal_id="exec-register-redirect")
+
+    response = client.get("/register", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/get-started"
+    assert response.headers.get("X-Robots-Tag") == "noindex, nofollow, noarchive, nosnippet"
 
 
 def test_ea_workspace_settings_surfaces_do_not_fall_back_to_propertyquarry_labels() -> None:
