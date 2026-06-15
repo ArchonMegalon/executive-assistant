@@ -105,7 +105,22 @@ TRUST_CARDS = (
     {"title": "Saved learning loop", "body": "Feedback, property reasons, and shortlist context stay visible so search quality improves instead of drifting."},
 )
 
-LANDING_FAQS = (
+EA_LANDING_FAQS = (
+    {
+        "question": "What shows up first each morning?",
+        "answer": "The Today view starts with a morning memo, the current decision queue, the commitments that are at risk of slipping, and the items that still require review before anything sends.",
+    },
+    {
+        "question": "Do I need Google on day one?",
+        "answer": "No. Start with the office loop first. Add Google only when return access, timing, or signal sync clearly improves Today.",
+    },
+    {
+        "question": "Can it send things without my approval?",
+        "answer": "No. The office loop is review-first. Drafts, recommendations, and reminders can be prepared, but outbound actions stay visible and approval-bound.",
+    },
+)
+
+PROPERTY_LANDING_FAQS = (
     {
         "question": "What does it connect to?",
         "answer": "Start with account creation and property preferences. Google is optional for sign-in continuity. Portal coverage and research expand from there.",
@@ -175,9 +190,19 @@ PRICING_TIERS = (
     },
 )
 
-DOC_LINKS = (
+EA_DOC_LINKS = (
+    {"title": "Docs", "href": "/docs", "body": "Product and runtime references for the office loop and its review boundaries."},
+    {"title": "Security", "href": "/security", "body": "What the assistant can see, prepare, and never send without review."},
+    {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery lanes."},
+    {"title": "Architecture", "href": "https://github.com/ArchonMegalon/executive-assistant/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
+)
+
+PROPERTY_DOC_LINKS = (
     {"title": "Docs", "href": "/docs", "body": "Product and runtime references for teams that want the detailed operating model."},
     {"title": "Integrations", "href": "/integrations", "body": "Connection details for Google identity, notifications, and later delivery lanes."},
     {"title": "API schema", "href": "/openapi.json", "body": "The machine-readable contract for product and runtime integrations."},
     {"title": "Architecture map", "href": "https://github.com/ArchonMegalon/property/blob/main/ARCHITECTURE_MAP.md", "body": "Route and system documentation for operators and developers."},
 )
+
+LANDING_FAQS = EA_LANDING_FAQS
+DOC_LINKS = EA_DOC_LINKS

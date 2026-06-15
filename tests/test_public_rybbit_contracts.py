@@ -100,6 +100,16 @@ def test_public_result_page_includes_rybbit_snippet_for_myexternalbrain_host(
     assert f'data-site-id="{_MYEXTERNALBRAIN_SITE_ID}"' in response.text
 
 
+def test_public_landing_includes_rybbit_snippet_for_myexternalbrain_host() -> None:
+    client = _client()
+
+    response = client.get("/", headers={"host": "myexternalbrain.com"})
+
+    assert response.status_code == 200
+    assert 'src="https://app.rybbit.io/api/script.js"' in response.text
+    assert f'data-site-id="{_MYEXTERNALBRAIN_SITE_ID}"' in response.text
+
+
 def test_public_tour_page_includes_rybbit_snippet_and_csp(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

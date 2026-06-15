@@ -4,7 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }}</title>
+  {% if meta_description %}<meta name="description" content="{{ meta_description }}">{% endif %}
+  {% if robots_meta_content %}<meta name="robots" content="{{ robots_meta_content }}">{% endif %}
+  {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
+  <meta property="og:title" content="{{ og_title or page_title }}">
+  {% if og_description or meta_description %}<meta property="og:description" content="{{ og_description or meta_description }}">{% endif %}
+  {% if og_url or canonical_url %}<meta property="og:url" content="{{ og_url or canonical_url }}">{% endif %}
+  <meta property="og:type" content="{{ og_type or 'website' }}">
+  <meta name="twitter:card" content="{{ twitter_card or 'summary_large_image' }}">
+  <meta name="twitter:title" content="{{ og_title or page_title }}">
+  {% if og_description or meta_description %}<meta name="twitter:description" content="{{ og_description or meta_description }}">{% endif %}
   {{ clickrank_head_snippet(request) }}
+  {{ rybbit_head_snippet(request) }}
+  {% for block in structured_data_blocks or () %}
+  <script type="application/ld+json">{{ block | safe }}</script>
+  {% endfor %}
   <style>
     :root {
       --bg: #f6f3ee;
@@ -374,6 +388,22 @@
       color: var(--text-soft);
       font-size: 14px;
     }
+    .faq-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .faq-card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+    }
+    .faq-card strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
     footer { padding: 0 0 32px; }
     .footer {
       border-top: 1px solid rgba(185, 173, 154, 0.72);
@@ -573,6 +603,7 @@
       .cards-4,
       .cards-3,
       .cards-2,
+      .faq-grid,
       .console-grid-2,
       .console-grid-3,
       .preview-grid {

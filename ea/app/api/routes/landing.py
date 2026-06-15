@@ -36,10 +36,13 @@ from app.api.routes.landing_content import (
     ADMIN_NAV_GROUPS,
     APP_NAV_GROUPS,
     app_nav_groups_for_brand,
-    DOC_LINKS,
     FEATURE_CARDS,
     HOW_STEPS,
+    EA_DOC_LINKS,
     LANDING_FAQS,
+    PROPERTY_DOC_LINKS,
+    EA_LANDING_FAQS,
+    PROPERTY_LANDING_FAQS,
     PERSONAS,
     PRICING_TIERS,
     PRODUCT_MODULES,
@@ -89,6 +92,7 @@ from app.services.property_market_catalog import (
 )
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import clickrank_head_snippet as _clickrank_head_snippet, request_hostname as _request_hostname
+from app.services.public_rybbit import rybbit_head_snippet as _rybbit_head_snippet
 from app.services.registration_email import email_delivery_enabled
 from app.services.memorial_archive_registry import load_json as _load_archive_json, public_registry_path as _public_registry_path, public_registry_payload as _public_registry_payload
 
@@ -97,6 +101,7 @@ archive_router = APIRouter(tags=["landing_archive"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(_clickrank_head_snippet(_request_hostname(request)))
+templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(_request_hostname(request)))
 
 def _repo_root() -> Path:
     resolved = Path(__file__).resolve()
@@ -175,10 +180,26 @@ def _archive_home_html() -> str:
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
-def robots_txt() -> PlainTextResponse:
-    response = PlainTextResponse("User-agent: *\nDisallow: /\n")
-    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-    return response
+def robots_txt(request: Request) -> PlainTextResponse:
+    if _is_archive_host(request):
+        response = PlainTextResponse("User-agent: *\nDisallow: /\n")
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+        return response
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /app",
+        "Disallow: /admin",
+        "Disallow: /api",
+        "Disallow: /modes",
+        "Disallow: /workspace-",
+        "Disallow: /sign-in",
+        "Disallow: /register",
+        "Disallow: /get-started",
+        "Disallow: /setup",
+        "Disallow: /memorials",
+    ]
+    return PlainTextResponse("\n".join(lines) + "\n")
 
 
 
@@ -254,6 +275,101 @@ def _first_forwarded_https_or_first_token(raw: str) -> str:
     if "wss" in tokens:
         return "wss"
     return tokens[0] if tokens else ""
+
+
+def _public_page_url(request: Request, path: str = "") -> str:
+    brand = request_brand(request)
+    base = str(brand.get("public_base_url") or "").strip().rstrip("/")
+    if not base:
+        base = _public_app_base_url(request)
+    normalized_path = "/" + str(path or request.url.path or "/").lstrip("/")
+    if normalized_path == "//":
+        normalized_path = "/"
+    return f"{base}{normalized_path}"
+
+
+def _faq_schema_entries(rows: tuple[dict[str, str], ...] | list[dict[str, str]]) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        question = str(row.get("question") or "").strip()
+        answer = str(row.get("answer") or "").strip()
+        if not question or not answer:
+            continue
+        entries.append(
+            {
+                "@type": "Question",
+                "name": question,
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": answer,
+                },
+            }
+        )
+    return entries
+
+
+def _public_page_schema(
+    *,
+    request: Request,
+    page_title: str,
+    page_description: str,
+    path: str,
+    faq_rows: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+) -> tuple[str, ...]:
+    brand = request_brand(request)
+    canonical_url = _public_page_url(request, path)
+    is_ea = str(brand.get("key") or "") == "ea"
+    blocks: list[dict[str, object]] = [
+        {
+            "@context": "https://schema.org",
+            "@type": "WebApplication" if is_ea else "WebPage",
+            "name": page_title,
+            "description": page_description,
+            "url": canonical_url,
+            **({"applicationCategory": "BusinessApplication"} if is_ea else {}),
+        }
+    ]
+    faq_entries = _faq_schema_entries(faq_rows)
+    if faq_entries:
+        blocks.append(
+            {
+                "@context": "https://schema.org",
+                "@type": "FAQPage",
+                "mainEntity": faq_entries,
+            }
+        )
+    return tuple(json.dumps(block, ensure_ascii=False, separators=(",", ":")) for block in blocks)
+
+
+def _public_page_context(
+    *,
+    request: Request,
+    page_title: str,
+    page_description: str,
+    path: str,
+    indexable: bool = True,
+    faq_rows: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+) -> dict[str, object]:
+    canonical_url = _public_page_url(request, path)
+    return {
+        "meta_description": page_description,
+        "canonical_url": canonical_url,
+        "og_title": page_title,
+        "og_description": page_description,
+        "og_url": canonical_url,
+        "og_type": "website",
+        "twitter_card": "summary_large_image",
+        "robots_meta_content": "index,follow,max-image-preview:large" if indexable else "noindex,nofollow,noarchive,nosnippet",
+        "structured_data_blocks": _public_page_schema(
+            request=request,
+            page_title=page_title,
+            page_description=page_description,
+            path=path,
+            faq_rows=faq_rows,
+        ),
+    }
 
 def _public_context(
     *,
@@ -474,11 +590,13 @@ def _today_activation_banner(*, request: Request, status: dict[str, object]) -> 
 
 
 
-def _render_public_template(request: Request, template_name: str, **context: Any) -> HTMLResponse:
+def _render_public_template(request: Request, template_name: str, *, indexable: bool = False, **context: Any) -> HTMLResponse:
     context.setdefault("request", request)
     context.setdefault("brand", request_brand(request))
+    context.setdefault("robots_meta_content", "index,follow,max-image-preview:large" if indexable else "noindex,nofollow,noarchive,nosnippet")
     response = templates.TemplateResponse(request, template_name, context)
-    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    if not indexable:
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
 
@@ -720,13 +838,27 @@ def landing(
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
     activation_preview = _activation_preview_for_brand(brand["key"], status)
+    is_ea = brand["key"] == "ea"
+    landing_faqs = EA_LANDING_FAQS if is_ea else PROPERTY_LANDING_FAQS
+    doc_links = EA_DOC_LINKS if is_ea else PROPERTY_DOC_LINKS
+    seo_title = (
+        "Executive Assistant | Morning memo, decision queue, commitments"
+        if is_ea
+        else f"{brand['name']} | Property search, shortlist, research"
+    )
+    seo_description = (
+        "Executive Assistant gives one office a morning memo, decision queue, commitment ledger, and review-first approvals in one Today view."
+        if is_ea
+        else "PropertyQuarry keeps one property brief, one ranked sweep, one shortlist, and one research loop in a single review surface."
+    )
     return _render_public_template(
         request,
         "propertyquarry_home.html" if brand["key"] == "propertyquarry" else "ea/home.html",
+        indexable=True,
         **_public_context(
             request=request,
             current_nav="product",
-            page_title=brand["name"],
+            page_title=seo_title,
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
@@ -734,9 +866,16 @@ def landing(
                 "feature_cards": FEATURE_CARDS,
                 "how_steps": HOW_STEPS,
                 "trust_cards": TRUST_CARDS,
-                "landing_faqs": LANDING_FAQS,
-                "doc_links": DOC_LINKS,
+                "landing_faqs": landing_faqs,
+                "doc_links": doc_links,
                 "activation_preview": activation_preview,
+                **_public_page_context(
+                    request=request,
+                    page_title=seo_title,
+                    page_description=seo_description,
+                    path="/",
+                    faq_rows=landing_faqs,
+                ),
             },
         ),
     )
@@ -817,6 +956,7 @@ def product_page(
     return _render_public_template(
         request,
         "product_page.html",
+        indexable=True,
         **_public_context(
             request=request,
             current_nav="product",
@@ -827,6 +967,12 @@ def product_page(
             extra={
                 "product_modules": PRODUCT_MODULES,
                 "app_nav_groups": app_nav_groups_for_brand(brand["key"]),
+                **_public_page_context(
+                    request=request,
+                    page_title=f"{brand['name']} Product",
+                    page_description="PropertyQuarry turns one property brief, one provider sweep, and one shortlist into a visible research loop.",
+                    path="/product",
+                ),
             },
         ),
     )
@@ -843,6 +989,7 @@ def integrations_page(
     return _render_public_template(
         request,
         "ea/integrations.html" if brand["key"] == "ea" else "integrations_page.html",
+        indexable=True,
         **_public_context(
             request=request,
             current_nav="integrations",
@@ -850,6 +997,16 @@ def integrations_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
+            extra=_public_page_context(
+                request=request,
+                page_title=f"{brand['name']} Integrations",
+                page_description=(
+                    "Connect only the channels that improve the office loop today, starting with optional Google identity and explicit review boundaries."
+                    if brand["key"] == "ea"
+                    else "Connect only the property channels that improve search, shortlist review, and research quality."
+                ),
+                path="/integrations",
+            ),
         ),
     )
 
@@ -944,6 +1101,7 @@ def security_page(
     return _render_public_template(
         request,
         "ea/security.html" if brand["key"] == "ea" else "security_page.html",
+        indexable=True,
         **_public_context(
             request=request,
             current_nav="security",
@@ -951,7 +1109,19 @@ def security_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
-            extra={"trust_cards": TRUST_CARDS},
+            extra={
+                "trust_cards": TRUST_CARDS,
+                **_public_page_context(
+                    request=request,
+                    page_title=f"{brand['name']} Security",
+                    page_description=(
+                        "Executive Assistant keeps signals visible, permissions explicit, and outbound actions review-first."
+                        if brand["key"] == "ea"
+                        else "PropertyQuarry keeps portal coverage, research posture, and review boundaries explicit."
+                    ),
+                    path="/security",
+                ),
+            },
         ),
     )
 
@@ -967,6 +1137,7 @@ def pricing_page(
     return _render_public_template(
         request,
         "ea/pricing.html" if brand["key"] == "ea" else "pricing_page.html",
+        indexable=True,
         **_public_context(
             request=request,
             current_nav="pricing",
@@ -974,7 +1145,19 @@ def pricing_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
-            extra={"pricing_tiers": PRICING_TIERS},
+            extra={
+                "pricing_tiers": PRICING_TIERS,
+                **_public_page_context(
+                    request=request,
+                    page_title=f"{brand['name']} Pricing",
+                    page_description=(
+                        "Choose the Executive Assistant plan that matches office load, review depth, and delivery posture."
+                        if brand["key"] == "ea"
+                        else "Choose the PropertyQuarry plan that matches search volume, research depth, and shortlist complexity."
+                    ),
+                    path="/pricing",
+                ),
+            },
         ),
     )
 
@@ -987,9 +1170,11 @@ def docs_page(
 ) -> HTMLResponse:
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
     brand = request_brand(request)
+    doc_links = EA_DOC_LINKS if brand["key"] == "ea" else PROPERTY_DOC_LINKS
     return _render_public_template(
         request,
         "ea/docs.html" if brand["key"] == "ea" else "docs_page.html",
+        indexable=True,
         **_public_context(
             request=request,
             current_nav="docs",
@@ -997,7 +1182,19 @@ def docs_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
-            extra={"doc_links": DOC_LINKS},
+            extra={
+                "doc_links": doc_links,
+                **_public_page_context(
+                    request=request,
+                    page_title=f"{brand['name']} Docs",
+                    page_description=(
+                        "Read the product, security, and runtime references behind the office loop."
+                        if brand["key"] == "ea"
+                        else "Read the product, provider, and runtime references behind the property workflow."
+                    ),
+                    path="/docs",
+                ),
+            },
         ),
     )
 

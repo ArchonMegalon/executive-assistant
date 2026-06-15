@@ -133,6 +133,36 @@ def test_ea_public_pages_do_not_fall_back_to_propertyquarry_brand_copy() -> None
     assert "live assistant path" not in whatsapp.text
 
 
+def test_ea_public_home_is_indexable_and_contains_growth_metadata() -> None:
+    client = build_product_client(principal_id="exec-public-growth")
+
+    response = client.get("/", headers={"host": "myexternalbrain.com", "x-forwarded-host": "myexternalbrain.com", "x-forwarded-proto": "https"})
+
+    assert response.status_code == 200
+    assert response.headers.get("X-Robots-Tag") is None
+    assert '<meta name="robots" content="index,follow,max-image-preview:large">' in response.text
+    assert '<link rel="canonical" href="https://myexternalbrain.com/">' in response.text
+    assert '<meta name="description" content="Executive Assistant gives one office a morning memo, decision queue, commitment ledger, and review-first approvals in one Today view.">' in response.text
+    assert '"@type":"FAQPage"' in response.text
+    assert '"@type":"WebApplication"' in response.text
+    assert "What shows up first each morning?" in response.text
+
+
+def test_public_robots_txt_allows_public_pages_and_blocks_private_surfaces() -> None:
+    client = build_product_client(principal_id="exec-public-robots")
+
+    response = client.get("/robots.txt", headers={"host": "myexternalbrain.com", "x-forwarded-host": "myexternalbrain.com", "x-forwarded-proto": "https"})
+
+    assert response.status_code == 200
+    lines = set(response.text.splitlines())
+    assert "Disallow: /app" in lines
+    assert "Disallow: /admin" in lines
+    assert "Disallow: /sign-in" in lines
+    assert "Disallow: /register" in lines
+    assert "Disallow: /memorials" in lines
+    assert "Disallow: /" not in lines
+
+
 def test_ea_workspace_settings_surfaces_do_not_fall_back_to_propertyquarry_labels() -> None:
     client = build_product_client(principal_id="exec-settings-brand-copy")
     seed_product_state(client, principal_id="exec-settings-brand-copy")

@@ -129,4 +129,24 @@
     <p class="ea-quiet">Broad integrations, extra channels, and shared workflow shape can wait until the first office loop already feels useful.</p>
   </section>
 </section>
+
+{% if landing_faqs %}
+<section class="section">
+  <div class="section-head">
+    <div>
+      <div class="section-kicker">Common questions</div>
+      <h2>What most offices want answered before they start</h2>
+    </div>
+    <p>Keep the entry narrow: one Today view, one review boundary, and one visible follow-through loop.</p>
+  </div>
+  <div class="faq-grid">
+    {% for row in landing_faqs %}
+    <section class="faq-card">
+      <strong>{{ row.question }}</strong>
+      <p class="copy">{{ row.answer }}</p>
+    </section>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 {% endblock %}

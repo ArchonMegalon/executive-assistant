@@ -10,8 +10,8 @@ archive_router = APIRouter(tags=["landing-archive"])
 
 
 @router.get("/robots.txt", include_in_schema=False, response_class=PlainTextResponse)
-def robots_txt() -> PlainTextResponse:
-    return shared.robots_txt()
+def robots_txt(request: Request) -> PlainTextResponse:
+    return shared.robots_txt(request)
 
 
 @router.get("/", response_class=HTMLResponse)
