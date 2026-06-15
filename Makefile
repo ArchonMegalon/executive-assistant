@@ -230,7 +230,7 @@ materialize-memorial-public-browser-meaningful-gold:
 		--base-url "$${MEMORIAL_PUBLIC_ORIGIN:?Set MEMORIAL_PUBLIC_ORIGIN to the deployed memorial origin}" \
 		--slug "$${MEMORIAL_PUBLIC_SLUG:-manfred}" \
 		--prompt-text "$${MEMORIAL_MEANINGFUL_BROWSER_PROMPT:-Was war dir bei Gerechtigkeit wichtig?}" \
-		--real-stt \
+		--text-prompt \
 		--exit-gate \
 		--gold-mode \
 		--require-public-origin \

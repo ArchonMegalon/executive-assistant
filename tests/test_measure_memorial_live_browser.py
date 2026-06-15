@@ -172,6 +172,36 @@ def test_prewarm_memorial_origin_reports_ready_payload(monkeypatch: pytest.Monke
     assert ("GET", "https://example.com/memorials/manfred/warmup-status") in calls
 
 
+def test_prompt_wav_bytes_for_measure_prefers_memorial_speech_synthesize(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+
+    monkeypatch.setattr(
+        module,
+        "_http_bytes",
+        lambda url, **kwargs: (200, b"memorial-wav", "audio/wav"),
+    )
+    monkeypatch.setattr(module, "_synthesized_prompt_wav_bytes", lambda text: b"fallback-wav")
+
+    payload = module._prompt_wav_bytes_for_measure("https://example.com", "manfred", "Was war dir wichtig?")
+
+    assert payload == b"memorial-wav"
+
+
+def test_prompt_wav_bytes_for_measure_falls_back_when_synth_route_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+
+    monkeypatch.setattr(
+        module,
+        "_http_bytes",
+        lambda url, **kwargs: (503, b"", "application/json"),
+    )
+    monkeypatch.setattr(module, "_synthesized_prompt_wav_bytes", lambda text: b"fallback-wav")
+
+    payload = module._prompt_wav_bytes_for_measure("https://example.com", "manfred", "Was war dir wichtig?")
+
+    assert payload == b"fallback-wav"
+
+
 def test_browser_exit_gate_receipt_blocks_local_public_gold() -> None:
     module = _load_module()
 
@@ -217,3 +247,17 @@ def test_wait_for_realtime_turn_tolerates_contexts_without_off() -> None:
 
     assert result["done"] is True
     assert result["turn_id"] == "turn_1"
+
+
+def test_preferred_answer_preview_prefers_final_payload_answer_over_streamed_draft() -> None:
+    module = _load_module()
+
+    preferred = module._preferred_answer_preview(
+        "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+        {
+            "answer": "Nein, das greift zu kurz. Die Sache musste fuer mich juristisch und im Grundsatz stimmen. Ein bequemer Weg, der das Prinzip verbiegt, ist am Ende nur eine elegante Form des Ausweichens.",
+        },
+    )
+
+    assert "konkreten punkt" not in preferred.lower()
+    assert "juristisch" in preferred.lower()

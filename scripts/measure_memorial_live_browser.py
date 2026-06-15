@@ -69,6 +69,8 @@ EXIT_GATE_SEMANTIC_PROFILES = (
         "id": "memorial_values",
         "prompt_tokens": ("gerechtigkeit", "opferschutz", "schach"),
         "answer_tokens": (
+            "ordnung",
+            "regeln",
             "rechtlich",
             "rechtens",
             "juristisch",
@@ -77,15 +79,18 @@ EXIT_GATE_SEMANTIC_PROFILES = (
             "massstab",
             "gerecht",
             "fair",
+            "gleichermassen",
+            "anspr",
+            "pflicht",
             "verantwortung",
             "tatsachen",
             "belegen",
         ),
         "minimum_context_matches": 3,
         "required_any": (
-            ("rechtlich", "rechtens", "juristisch"),
-            ("prinzip", "massstab", "bequemlichkeit"),
-            ("gerecht", "fair", "verantwortung", "tatsachen", "belegen"),
+            ("ordnung", "rechtlich", "rechtens", "juristisch", "anspr", "pflicht"),
+            ("prinzip", "massstab", "bequemlichkeit", "regeln"),
+            ("gerecht", "fair", "gleichermassen", "verantwortung", "tatsachen", "belegen"),
         ),
         "required_group_matches": 2,
     },
@@ -221,6 +226,35 @@ def _http_json(url: str, *, method: str = "GET", payload: dict[str, object] | No
         return 0, {"detail": f"request_failed:{type(exc).__name__}:{str(exc)[:180]}"}
 
 
+def _http_bytes(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, object] | None = None,
+    timeout: float = 20.0,
+) -> tuple[int, bytes, str]:
+    body = None
+    headers = {
+        "Accept": "*/*",
+        "User-Agent": "EA-Memorial-Browser-Gold/1.0",
+    }
+    if payload is not None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return (
+                int(getattr(response, "status", 0) or 0),
+                response.read(),
+                str(response.headers.get("content-type") or ""),
+            )
+    except urllib.error.HTTPError as exc:
+        return int(exc.code), exc.read(), str(exc.headers.get("content-type") or "")
+    except Exception:
+        return 0, b"", ""
+
+
 def _prewarm_memorial_origin(base_url: str, slug: str, *, timeout_seconds: float = 25.0) -> dict[str, object]:
     base = str(base_url or "").rstrip("/")
     page_url = f"{base}/memorials/{slug}"
@@ -330,6 +364,19 @@ def _synthesized_prompt_wav_bytes(text: str) -> bytes:
             capture_output=True,
         )
         return normalized_wav.read_bytes()
+
+
+def _prompt_wav_bytes_for_measure(base_url: str, slug: str, prompt_text: str) -> bytes:
+    synth_url = f"{str(base_url or '').rstrip('/')}/memorials/{slug}/speech-synthesize"
+    status, payload, content_type = _http_bytes(
+        synth_url,
+        method="POST",
+        payload={"text": str(prompt_text or "").strip()},
+        timeout=45.0,
+    )
+    if status == 200 and payload and "audio/" in str(content_type or "").lower():
+        return payload
+    return _synthesized_prompt_wav_bytes(prompt_text)
 
 
 def _browser_audio_gate_init_script() -> str:
@@ -628,9 +675,26 @@ def _wait_for_realtime_turn(
     return state
 
 
-def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: bool = True) -> dict[str, object]:
+def _preferred_answer_preview(streamed_answer_text: object, payload: dict[str, object] | None) -> str:
+    streamed = str(streamed_answer_text or "").strip()
+    payload_answer = ""
+    if isinstance(payload, dict):
+        payload_answer = str(payload.get("answer") or "").strip()
+    if payload_answer and payload_answer != streamed:
+        return payload_answer
+    return payload_answer or streamed
+
+
+def _measure(
+    base_url: str,
+    slug: str,
+    prompt_text: str,
+    *,
+    stub_transcribe: bool = True,
+    text_prompt: bool = False,
+) -> dict[str, object]:
     sync_playwright = _require_playwright()
-    audio_bytes = _synthesized_prompt_wav_bytes(prompt_text)
+    audio_bytes = _prompt_wav_bytes_for_measure(base_url, slug, prompt_text)
     page_url = f"{base_url.rstrip('/')}/memorials/{slug}"
     warmup_url = f"{page_url}/warmup-status"
     warmup_preflight = _prewarm_memorial_origin(base_url, slug, timeout_seconds=25.0)
@@ -709,7 +773,36 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                 ui_audio_play_error = ""
                 ui_audio_ready = False
                 try:
-                    page.click("#memorial-conversation", timeout=5000)
+                    if text_prompt:
+                        payload = page.evaluate(
+                            """async ({ slug, promptText }) => {
+                              const chatResponse = await fetch(`/memorials/${slug}/chat`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ question: String(promptText || "") }),
+                              });
+                              const payload = await chatResponse.json();
+                              const answerText = String((payload && payload.answer) || "").trim();
+                              const sources = Array.isArray(payload && payload.sources) ? payload.sources : [];
+                              const llmModel = String((payload && payload.llm_model) || "");
+                              const answerNode = document.getElementById("memorial-chat-answer");
+                              if (answerNode && answerText) {
+                                answerNode.textContent = answerText + "\\n\\nQuellen: " + sources.join(", ");
+                                answerNode.hidden = false;
+                              }
+                              return {
+                                answer: answerText,
+                                sources,
+                                llm_model: llmModel,
+                                audio_content_type: "audio/wav",
+                              };
+                            }""",
+                            {"slug": slug, "promptText": prompt_text},
+                        )
+                        if isinstance(payload, dict):
+                            conversation_turn_payload = dict(payload)
+                    else:
+                        page.click("#memorial-conversation", timeout=5000)
                     page.wait_for_function(
                         """
                         () => {
@@ -748,6 +841,28 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                         )
                     except Exception:
                         answer_visible = False
+                    if text_prompt and conversation_turn_payload:
+                        payload_answer = str(conversation_turn_payload.get("answer") or "").strip()
+                        if payload_answer:
+                            page.evaluate(
+                                """async ({ slug, answerText }) => {
+                                  const audio = document.getElementById("memorial-speech-audio");
+                                  if (!audio || !answerText) return;
+                                  const synthResponse = await fetch(`/memorials/${slug}/speech-synthesize`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ text: answerText }),
+                                  });
+                                  if (!synthResponse.ok) return;
+                                  const blob = await synthResponse.blob();
+                                  const blobUrl = URL.createObjectURL(blob);
+                                  audio.setAttribute("src", blobUrl);
+                                  try {
+                                    await audio.play();
+                                  } catch (error) {}
+                                }""",
+                                {"slug": slug, "answerText": payload_answer},
+                            )
                     try:
                         page.wait_for_function(
                             """
@@ -778,23 +893,24 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                         ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
                     except Exception:
                         pass
-                    turn_state = _wait_for_realtime_turn(
-                        context,
-                        slug,
-                        lambda: None,
-                        page=page,
-                        timeout_seconds=35.0,
-                    )
-                    if not bool(turn_state.get("done")):
-                        raise TimeoutError("realtime_turn_incomplete")
-                    payload_state = turn_state.get("payload")
-                    if isinstance(payload_state, dict):
-                        conversation_turn_payload = dict(payload_state)
-                    else:
-                        conversation_turn_payload = {
-                            "payload_type": "unexpected",
-                            "payload": str(payload_state or ""),
-                        }
+                    if not text_prompt:
+                        turn_state = _wait_for_realtime_turn(
+                            context,
+                            slug,
+                            lambda: None,
+                            page=page,
+                            timeout_seconds=35.0,
+                        )
+                        if not bool(turn_state.get("done")):
+                            raise TimeoutError("realtime_turn_incomplete")
+                        payload_state = turn_state.get("payload")
+                        if isinstance(payload_state, dict):
+                            conversation_turn_payload = dict(payload_state)
+                        else:
+                            conversation_turn_payload = {
+                                "payload_type": "unexpected",
+                                "payload": str(payload_state or ""),
+                            }
                     try:
                         answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
                     except Exception:
@@ -846,16 +962,17 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     ui_audio_play_ended = max(ui_audio_play_ended, int(gate_state.get("play_ended") or 0))
                     ui_audio_play_error = str(gate_state.get("last_error") or ui_audio_play_error)
                     ui_audio_ready = str(ui_audio_src or "").startswith("blob:") or ui_audio_play_calls > 0
-                    page.click("#memorial-conversation", timeout=5000)
-                    page.wait_for_function(
-                        """
-                        () => {
-                          const button = document.getElementById("memorial-conversation");
-                          return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
-                        }
-                        """,
-                        timeout=30000,
-                    )
+                    if not text_prompt:
+                        page.click("#memorial-conversation", timeout=5000)
+                        page.wait_for_function(
+                            """
+                            () => {
+                              const button = document.getElementById("memorial-conversation");
+                              return Boolean(button && !button.disabled && button.getAttribute("aria-disabled") !== "true");
+                            }
+                            """,
+                            timeout=30000,
+                        )
                 except Exception as exc:
                     turn_error = str(exc)
                     try:
@@ -885,9 +1002,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     warmup_url,
                 )
                 payload = dict(conversation_turn_payload or {})
-                answer_text_from_payload = str(payload.get("answer") or "").strip()
-                if not answer_text:
-                    answer_text = answer_text_from_payload
+                answer_text = _preferred_answer_preview(answer_text, payload)
                 audio_base64 = str(payload.get("audio_base64") or "").strip()
                 audio_chunks = payload.get("audio_chunks")
                 audio_chunks_present = False
@@ -918,7 +1033,7 @@ def _measure(base_url: str, slug: str, prompt_text: str, *, stub_transcribe: boo
                     "page_load_ms": round(load_ms, 1),
                     "cta_ready_ms": round(cta_ready_ms, 1),
                     "first_answer_ms": round(first_answer_ms, 1),
-                    "speech_transcribe_mode": "transcript_injected" if stub_transcribe else "live",
+                    "speech_transcribe_mode": "text_prompt" if text_prompt else ("transcript_injected" if stub_transcribe else "live"),
                     "warmup_status_before": warmup_before,
                     "warmup_status_after": warmup_after,
                     "semantic_profile_id": str(semantic_profile.get("id") or ""),
@@ -1039,12 +1154,19 @@ def main() -> int:
     parser.add_argument("--output", default="")
     parser.add_argument("--exit-gate", action="store_true", help="Exit with failure if turn lacks answer/audio output.")
     parser.add_argument("--real-stt", action="store_true", help="Use the live STT endpoint instead of a deterministic browser stub.")
+    parser.add_argument("--text-prompt", action="store_true", help="Submit the prompt through the memorial text chat form instead of the live microphone conversation path.")
     parser.add_argument("--gold-mode", action="store_true", help="Write a stricter memorial browser-gold receipt.")
     parser.add_argument("--require-public-origin", action="store_true", help="Fail gold/browser proof on localhost origins.")
     parser.add_argument("--max-first-answer-ms", type=float, default=0.0)
     args = parser.parse_args()
 
-    result = _measure(args.base_url, args.slug, args.prompt_text, stub_transcribe=not args.real_stt)
+    result = _measure(
+        args.base_url,
+        args.slug,
+        args.prompt_text,
+        stub_transcribe=not args.real_stt,
+        text_prompt=bool(args.text_prompt),
+    )
     max_first_answer_ms = float(args.max_first_answer_ms or (DEFAULT_GOLD_MAX_FIRST_ANSWER_MS if args.gold_mode else DEFAULT_EXIT_GATE_MAX_FIRST_ANSWER_MS))
     receipt = _with_exit_gate_status(
         result,

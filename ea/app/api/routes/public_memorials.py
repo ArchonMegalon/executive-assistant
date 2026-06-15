@@ -5328,6 +5328,12 @@ def _memorial_chat_answer(
             "llm_fallback_used": False,
             "fallback_reason": "direct_contact_opening",
         }
+    source_labels = _memorial_chat_source_labels(
+        payload,
+        question=normalized_question,
+        private_profile=private_profile,
+        has_imported_mail=has_imported_mail,
+    )
     if _is_memorial_values_question(normalized_question):
         return {
             "person_name": person_name,
@@ -5368,12 +5374,6 @@ def _memorial_chat_answer(
         fallback["llm_request_model"] = requested_model
         fallback["llm_fallback_used"] = True
         return fallback
-    source_labels = _memorial_chat_source_labels(
-        payload,
-        question=normalized_question,
-        private_profile=private_profile,
-        has_imported_mail=has_imported_mail,
-    )
     if not difficult_memory_mode and _is_difficult_memory_question(normalized_question):
         fallback = _memorial_chat_fallback_answer(
             payload,
@@ -7661,6 +7661,55 @@ def _minimal_public_memorial_html(
         text-align: left;
         font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
       }}
+      .speech-transcript-shell {{
+        margin-top: 12px;
+        display: grid;
+        gap: 8px;
+      }}
+      .speech-transcript-live {{
+        padding: 12px 13px;
+        border: 1px solid rgba(65, 53, 43, 0.1);
+        border-radius: 14px;
+        background: rgba(255,255,255,.74);
+        text-align: left;
+      }}
+      .speech-transcript-live strong {{
+        display: block;
+        margin-bottom: 4px;
+        font: 700 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: 0;
+        color: var(--muted);
+        text-transform: uppercase;
+      }}
+      .speech-transcript-live p,
+      .status-note {{
+        margin: 0;
+        color: var(--muted);
+        font: 12px/1.45 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .speech-transcript-live p + p {{ margin-top: 6px; }}
+      .speech-transcript {{
+        display: grid;
+        gap: 8px;
+      }}
+      .speech-turn {{
+        padding: 11px 12px;
+        border: 1px solid rgba(65, 53, 43, 0.08);
+        border-radius: 14px;
+        background: rgba(255,255,255,.55);
+        text-align: left;
+      }}
+      .speech-turn strong {{
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font: 700 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+      }}
+      .speech-turn p {{
+        margin: 0;
+        color: var(--ink);
+        font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+      }}
       .chat-tools {{ margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }}
       .chat-tool {{
         appearance: none;
@@ -7715,6 +7764,14 @@ def _minimal_public_memorial_html(
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
+        <section class="speech-transcript-shell" id="memorial-speech-transcript-shell" aria-live="polite">
+          <div class="speech-transcript-live" id="memorial-speech-transcript-live" hidden>
+            <strong id="memorial-speech-transcript-label">Transkript</strong>
+            <p id="memorial-speech-transcript-live-text"></p>
+            <p class="status-note" id="memorial-speech-transcript-effective" hidden></p>
+          </div>
+          <div class="speech-transcript" id="memorial-speech-transcript"></div>
+        </section>
         <div class="chat-tools" id="memorial-chat-tools" hidden>
           <button type="button" class="chat-tool" id="memorial-read-answer">Antwort lesen</button>
           <button type="button" class="chat-tool" id="memorial-replay-answer" hidden>Noch einmal anhören</button>
@@ -7736,6 +7793,11 @@ def _minimal_public_memorial_html(
       const speechPhase = document.getElementById("memorial-speech-phase");
       const speechDetail = document.getElementById("memorial-speech-detail");
       const answer = document.getElementById("memorial-chat-answer");
+      const speechTranscriptLive = document.getElementById("memorial-speech-transcript-live");
+      const speechTranscriptLabel = document.getElementById("memorial-speech-transcript-label");
+      const speechTranscriptLiveText = document.getElementById("memorial-speech-transcript-live-text");
+      const speechTranscriptEffective = document.getElementById("memorial-speech-transcript-effective");
+      const speechTranscript = document.getElementById("memorial-speech-transcript");
       const answerTools = document.getElementById("memorial-chat-tools");
       const readAnswerButton = document.getElementById("memorial-read-answer");
       const replayAnswerButton = document.getElementById("memorial-replay-answer");
@@ -7821,6 +7883,51 @@ def _minimal_public_memorial_html(
         answer.textContent = text;
         answer.hidden = false;
         if (answerTools) answerTools.hidden = false;
+      }}
+
+      function appendSpeechTurn(role, text) {{
+        if (!speechTranscript) return;
+        const normalized = normalizeTranscriptText(text || "");
+        if (!normalized) return;
+        const turn = document.createElement("div");
+        turn.className = "speech-turn " + (role === "assistant" ? "assistant" : "user");
+        const label = document.createElement("strong");
+        label.textContent = role === "assistant" ? "Manfred" : "Du";
+        const body = document.createElement("p");
+        body.textContent = normalized;
+        turn.append(label, body);
+        speechTranscript.prepend(turn);
+        while (speechTranscript.childElementCount > 8) {{
+          speechTranscript.removeChild(speechTranscript.lastElementChild);
+        }}
+      }}
+
+      function setSpeechTranscriptPreview(text = "", options = {{}}) {{
+        if (!speechTranscriptLive || !speechTranscriptLiveText) return;
+        const normalized = normalizeTranscriptText(text || "");
+        const label = String(options.label || "Transkript").trim() || "Transkript";
+        const effectiveText = normalizeTranscriptText(options.effectiveText || "");
+        const placeholder = String(options.placeholder || "").trim();
+        if (speechTranscriptLabel) speechTranscriptLabel.textContent = label;
+        if (normalized) {{
+          speechTranscriptLive.hidden = false;
+          speechTranscriptLiveText.textContent = normalized;
+        }} else if (placeholder) {{
+          speechTranscriptLive.hidden = false;
+          speechTranscriptLiveText.textContent = placeholder;
+        }} else {{
+          speechTranscriptLive.hidden = true;
+          speechTranscriptLiveText.textContent = "";
+        }}
+        if (speechTranscriptEffective) {{
+          if (effectiveText && effectiveText !== normalized) {{
+            speechTranscriptEffective.hidden = false;
+            speechTranscriptEffective.textContent = "Verstanden als: " + effectiveText;
+          }} else {{
+            speechTranscriptEffective.hidden = true;
+            speechTranscriptEffective.textContent = "";
+          }}
+        }}
       }}
 
       function setAnswerStatus(value) {{
@@ -8129,6 +8236,12 @@ def _minimal_public_memorial_html(
         const statusBits = [];
         const originalTranscript = normalizeTranscriptText((payload && payload.transcript_original_text) || "");
         const effectiveTranscript = normalizeTranscriptText((payload && payload.transcript_effective_text) || (payload && payload.transcript_text) || "");
+        setSpeechTranscriptPreview(originalTranscript, {{
+          label: originalTranscript ? "Gesagt" : "Transkript",
+          effectiveText: effectiveTranscript,
+          placeholder: originalTranscript || effectiveTranscript ? "" : "Ich zeige hier an, was ich verstanden habe.",
+        }});
+        if (originalTranscript) appendSpeechTurn("user", originalTranscript);
         if (originalTranscript && effectiveTranscript && originalTranscript !== effectiveTranscript) {{
           statusBits.push("Verstanden als: " + effectiveTranscript);
         }}
@@ -8136,6 +8249,7 @@ def _minimal_public_memorial_html(
         if (payload && payload.current_world_policy) statusBits.push("Policy: " + String(payload.current_world_policy || ""));
         if (payload && Array.isArray(payload.sources) && payload.sources.length) statusBits.push("Quellen: " + payload.sources.join(", "));
         setAnswerStatus(statusBits.join("\\n"));
+        if (payload && payload.answer) appendSpeechTurn("assistant", payload.answer);
         return payload && typeof payload === "object" ? payload : {{}};
       }}
 

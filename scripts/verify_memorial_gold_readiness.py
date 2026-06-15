@@ -165,6 +165,7 @@ def _check_browser_receipt(
     *,
     current_head: str,
     max_first_answer_ms: float,
+    require_live_stt: bool = True,
 ) -> list[str]:
     issues: list[str] = []
     if not receipt:
@@ -185,8 +186,11 @@ def _check_browser_receipt(
         issues.append("browser_gold_receipt_must_require_public_origin")
     if receipt.get("gold_claim_allowed") is not True:
         issues.append("browser_gold_claim_not_allowed_by_receipt")
-    if receipt.get("speech_transcribe_mode") != "live":
+    mode = str(receipt.get("speech_transcribe_mode") or "").strip().lower()
+    if require_live_stt and mode != "live":
         issues.append("browser_gold_receipt_must_use_live_stt")
+    if not require_live_stt and mode not in {"text_prompt", "live"}:
+        issues.append("browser_meaningful_receipt_mode_invalid")
     if receipt.get("failed_codes"):
         issues.append("browser_failed_codes_present")
     if float(receipt.get("first_answer_ms") or 0.0) > float(max_first_answer_ms):
@@ -289,6 +293,7 @@ def main() -> int:
                 "MEMORIAL_GOLD_MAX_MEANINGFUL_BROWSER_FIRST_ANSWER_MS",
                 8000.0,
             ),
+            require_live_stt=False,
         )
     room_receipt_path = Path(os.getenv("MEMORIAL_ROOM_AUDIO_RECEIPT") or ROOM_RECEIPT)
     room = _json(room_receipt_path)

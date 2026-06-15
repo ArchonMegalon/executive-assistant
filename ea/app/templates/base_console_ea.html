@@ -1140,7 +1140,7 @@
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
             <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-            <span>{% if brand.key == 'ea' %}Live office loop{% else %}Persistent {{ brand.name }} workspace surface{% endif %}</span>
+            <span>{% if brand.key == 'ea' %}Today, queue, commitments, and review in one office loop{% else %}Persistent {{ brand.name }} workspace surface{% endif %}</span>
           </div>
           <div class="pq-appbar-meta">
             <span class="pq-meta-pill">{{ workspace_label }}</span>
@@ -1175,7 +1175,7 @@
     <main class="console-main">
       <div class="console-topbar">
         <div class="console-title">
-          <div class="context">{{ workspace_context_label or 'Office loop' }}</div>
+          <div class="context">{{ workspace_context_label or 'What changed, what needs review, what stays open' }}</div>
           <h1>{{ page_heading or console_title or page_title }}</h1>
           {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
         </div>

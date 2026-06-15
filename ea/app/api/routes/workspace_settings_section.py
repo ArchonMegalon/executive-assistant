@@ -126,10 +126,7 @@ def build_settings_section(
                         href="/app/settings/outcomes",
                     ),
                     row_builder("Recipient", str(memo_loop.get("recipient_email") or "waiting for recipient"), "Memo", href="/app/settings/outcomes"),
-                    row_builder("Useful loop days", str(memo_loop.get("days_with_useful_loop") or 0), "Memo", href="/app/settings/outcomes"),
                     row_builder("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo", href="/app/settings/outcomes"),
-                    row_builder("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo", href="/app/settings/outcomes"),
-                    row_builder("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo", href="/app/settings/outcomes"),
                     row_builder(
                         "Last memo issue",
                         str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
@@ -153,31 +150,6 @@ def build_settings_section(
                     row_builder("Summary", str(office_loop_proof.get("summary") or "No proof summary yet."), "Gate", href="/app/settings/outcomes"),
                     row_builder("Memo open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Memo", href="/app/settings/outcomes"),
                     row_builder("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or analytics.get("approval_coverage_rate") or 0), "Approvals", href="/app/settings/outcomes"),
-                    row_builder("Approval send rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
-                    row_builder(
-                        "Delivery closeout rate",
-                        str(
-                            outcomes.get("delivery_followup_resolution_rate")
-                            if outcomes.get("delivery_followup_resolution_rate") is not None
-                            else analytics.get("delivery_followup_resolution_rate")
-                            if analytics.get("delivery_followup_resolution_rate") is not None
-                            else "n/a"
-                        ),
-                        "Operators",
-                        href="/app/settings/outcomes",
-                    ),
-                    row_builder(
-                        "Blocked delivery rate",
-                        str(
-                            outcomes.get("delivery_followup_blocked_rate")
-                            if outcomes.get("delivery_followup_blocked_rate") is not None
-                            else analytics.get("delivery_followup_blocked_rate")
-                            if analytics.get("delivery_followup_blocked_rate") is not None
-                            else "n/a"
-                        ),
-                        "Operators",
-                        href="/app/settings/outcomes",
-                    ),
                     row_builder("Commitment close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Commitments", href="/app/settings/outcomes"),
                     *[
                         row_builder(
@@ -219,10 +191,8 @@ def build_settings_section(
                         []
                         if property_brand
                         else [
-                            row_builder("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
                             row_builder("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
                             row_builder("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
-                            row_builder("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
                             row_builder("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
                         ]
                     ),
@@ -230,17 +200,25 @@ def build_settings_section(
             },
             {
                 "eyebrow": "Workspace entry",
-                "title": "Who can enter and who is waiting",
-                "body": "Access links, pending invitations, and delivery outcomes belong on the main settings surface instead of hiding in support-only routes.",
+                "title": "Who can enter and what still needs a handoff",
+                "body": "Keep the office reachable without turning the main settings surface into a delivery dashboard.",
                 "items": [
                     row_builder("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
-                    row_builder("Access links opened", str(analytics_access.get("opened") or 0), "Access", href="/app/settings/access"),
-                    row_builder("Access sessions revoked", str(analytics_access.get("revoked") or 0), "Access", href="/app/settings/access"),
                     row_builder("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
                     row_builder("Accepted invitations", str(analytics_invitations.get("accepted") or 0), "Invites", href="/app/settings/invitations"),
-                    row_builder("Revoked invitations", str(analytics_invitations.get("revoked") or 0), "Invites", href="/app/settings/invitations"),
-                    row_builder("Invite emails sent", str(analytics_delivery.get("invite_sent") or 0), "Email", href="/app/settings/invitations"),
-                    row_builder("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/invitations"),
+                    row_builder(
+                        "Invite delivery",
+                        (
+                            f"{int(analytics_delivery.get('invite_sent') or 0)} sent"
+                            + (
+                                f" · {int(analytics_delivery.get('invite_failed') or 0)} failed"
+                                if int(analytics_delivery.get("invite_failed") or 0)
+                                else ""
+                            )
+                        ),
+                        "Email",
+                        href="/app/settings/invitations",
+                    ),
                 ],
             },
             {
