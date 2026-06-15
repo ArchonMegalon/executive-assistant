@@ -4214,6 +4214,27 @@ def _looks_like_memorial_reply_text(text: str) -> bool:
     return any(normalized.startswith(prefix) for prefix in reply_prefixes)
 
 
+def _memorial_gemini_live_answer_requires_turn_fallback(transcript_text: str, answer_text: str) -> bool:
+    normalized_answer = _normalize_memorial_transcript_text(answer_text).lower()
+    if not normalized_answer:
+        return False
+    meta_markers = (
+        "[erinnerung]",
+        "soll im dialog",
+        "wenn es zur person passt",
+        "antwortmodus:",
+        "wichtiger provenienzhinweis",
+        "text in evidence",
+        "persoenliches gespraechsgedaechtnis",
+        "grundsatzgedaechtnis:",
+        "stilgedaechtnis:",
+        "erinnerungsgedaechtnis:",
+    )
+    if any(marker in normalized_answer for marker in meta_markers):
+        return True
+    return _looks_like_memorial_contact_opening_transcript(transcript_text) and not _looks_like_memorial_reply_text(answer_text)
+
+
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
     mapping = {
         "real_estate": ("grundbuch", "vertrag", "rücklage", "ruecklage", "betriebskosten", "sanierungen", "lasten"),
@@ -9550,6 +9571,34 @@ def _memorial_html(
         <div class="prompt-row">{prompts_html}</div>
       </section>"""
     archive_html = ""
+    operator_surfaces_enabled = _public_memorial_operator_surfaces_enabled()
+    initial_voice_config = _load_voice_config(slug)
+    public_voice_config = {
+        "tts_plugin": _text(initial_voice_config.get("tts_plugin"), "browser_speech_synthesis"),
+        "tts_plugin_voice_id": _text(initial_voice_config.get("tts_plugin_voice_id"), ""),
+        "tts_plugin_options": list(initial_voice_config.get("tts_plugin_options") or []),
+        "voice_label": _text(initial_voice_config.get("voice_label"), "Austauschbare synthetische Stimme"),
+        "lang": _text(initial_voice_config.get("lang"), "de-AT"),
+        "tts_base_voice_variant": _text(initial_voice_config.get("tts_base_voice_variant"), "high") or "high",
+        "rate": _float_between(initial_voice_config.get("rate"), fallback=0.92, minimum=0.45, maximum=1.5),
+        "pitch": _float_between(initial_voice_config.get("pitch"), fallback=0.92, minimum=0.5, maximum=1.5),
+        "volume": _float_between(initial_voice_config.get("volume"), fallback=1.0, minimum=0.0, maximum=1.0),
+        "voice_name_hints": [
+            str(item).strip()
+            for item in (initial_voice_config.get("voice_name_hints") or [])
+            if str(item).strip()
+        ][:8],
+        "synthetic_voice_clone_of_memorial_person": bool(
+            initial_voice_config.get("synthetic_voice_clone_of_memorial_person")
+        ),
+    }
+    voice_config_path = f"/memorials/{slug}/voice-config" if operator_surfaces_enabled else ""
+    voice_ab_path = f"/memorials/{slug}/voice-ab" if operator_surfaces_enabled else ""
+    voice_ab_rate_path = f"/memorials/{slug}/voice-ab/rate" if operator_surfaces_enabled else ""
+    voice_ab_finalize_path = f"/memorials/{slug}/voice-ab-admin/finalize" if operator_surfaces_enabled else ""
+    voice_profile_path = f"/memorials/{slug}/voice-profile" if operator_surfaces_enabled else ""
+    voice_profile_build_path = f"/memorials/{slug}/voice-profile/build" if operator_surfaces_enabled else ""
+    voice_clone_path = f"/memorials/{slug}/voice-clone" if operator_surfaces_enabled else ""
     return f"""<!doctype html>
 <html lang="de">
   <head>
@@ -11140,6 +11189,13 @@ def _memorial_html(
       const memorialPersonalMemoryStorageKey = "memorial_personal_memory_enabled_v1";
       const memorialVoiceAbRoundStorageKey = "memorial_voice_ab_round_v1";
       const browserPreferredLanguage = "de-AT";
+      const memorialVoiceConfigPath = {json.dumps(voice_config_path)};
+      const memorialVoiceAbPath = {json.dumps(voice_ab_path)};
+      const memorialVoiceAbRatePath = {json.dumps(voice_ab_rate_path)};
+      const memorialVoiceAbFinalizePath = {json.dumps(voice_ab_finalize_path)};
+      const memorialVoiceProfilePath = {json.dumps(voice_profile_path)};
+      const memorialVoiceProfileBuildPath = {json.dumps(voice_profile_build_path)};
+      const memorialVoiceClonePath = {json.dumps(voice_clone_path)};
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
       const voiceYoutubeQueryInput = document.getElementById("memorial-voice-youtube-query");
       const voiceYoutubeLimitInput = document.getElementById("memorial-voice-youtube-limit");
@@ -11214,19 +11270,7 @@ def _memorial_html(
       let memorialWarmupPromise = null;
       let memorialLandingReady = false;
       const settledRealtimeTurnIds = new Set();
-      let memorialVoiceConfig = {{
-        tts_plugin: "browser_speech_synthesis",
-        tts_plugin_voice_id: "",
-        tts_plugin_options: [],
-        voice_label: "Austauschbare synthetische Stimme",
-        lang: "de-AT",
-        tts_base_voice_variant: "high",
-        rate: 0.92,
-        pitch: 0.92,
-        volume: 1,
-        voice_name_hints: ["de-AT", "de-DE", "German"],
-        synthetic_voice_clone_of_memorial_person: false
-      }};
+      let memorialVoiceConfig = {json.dumps(public_voice_config, ensure_ascii=False)};
       let personalMemoryStatusPayload = {{ available: false, enabled: false, guest_mode: true, item_count: 0, frozen: false, approved_voice_choice: "" }};
       let voiceAbState = {{
         variants: [],
@@ -11392,8 +11436,9 @@ def _memorial_html(
         }}
       }}
       async function loadVoiceAbConfig() {{
+        if (!memorialVoiceAbPath) return;
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-ab", {{
+          const response = await fetch(memorialVoiceAbPath, {{
             headers: Object.assign({{}}, personalMemoryHeaders(), memorialAdminHeaders()),
           }});
           if (!response.ok) return;
@@ -11435,8 +11480,9 @@ def _memorial_html(
         }} catch (error) {{}}
       }}
       async function submitVoiceAbRating(choice, approvedVariant = "") {{
+        if (!memorialVoiceAbRatePath) return;
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-ab/rate", {{
+          const response = await fetch(memorialVoiceAbRatePath, {{
             method: "POST",
             headers: Object.assign({{ "Content-Type": "application/json" }}, personalMemoryHeaders()),
             body: JSON.stringify({{
@@ -11477,9 +11523,10 @@ def _memorial_html(
       async function finalizeVoiceAbWinner(winnerVariant) {{
         const winner = String(winnerVariant || "").trim().toLowerCase();
         if (winner !== "a" && winner !== "b") return;
+        if (!memorialVoiceAbFinalizePath) return;
         try {{
           if (voiceAbStatus) voiceAbStatus.textContent = "Wechsel laeuft. Neuer Vergleich wird vorbereitet.";
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-ab-admin/finalize", {{
+          const response = await fetch(memorialVoiceAbFinalizePath, {{
             method: "POST",
             headers: Object.assign({{ "Content-Type": "application/json" }}, memorialAdminHeaders()),
             body: JSON.stringify({{ winner_variant: winner }}),
@@ -12102,8 +12149,9 @@ def _memorial_html(
         activeRealtimeTurnId = "";
       }}
       async function loadVoiceConfig() {{
+        if (!memorialVoiceConfigPath) return;
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-config");
+          const response = await fetch(memorialVoiceConfigPath);
           if (!response.ok) return;
           const payload = await response.json();
           memorialVoiceConfig = Object.assign(memorialVoiceConfig, payload || {{}});
@@ -12216,8 +12264,9 @@ def _memorial_html(
         return lines.join(" · ");
       }}
       async function refreshVoiceProfileSummary() {{
+        if (!memorialVoiceProfilePath) return;
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-profile");
+          const response = await fetch(memorialVoiceProfilePath);
           if (!response.ok) return;
           const payload = await readJsonResponse(response);
           const summary = buildProfileSummaryText(payload);
@@ -12229,6 +12278,7 @@ def _memorial_html(
       }}
       async function saveVoiceConfig() {{
         if (!voiceConfigForm) return;
+        if (!memorialVoiceConfigPath) return;
         if (voiceProfileStatus) voiceProfileStatus.textContent = "Speichere Stimmenprofil...";
         const selectedTtsPlugin = getActiveTtsPluginOption();
         const selectedPluginId = String(ttsPluginSelect ? (ttsPluginSelect.value || "") : String(memorialVoiceConfig.tts_plugin || ""));
@@ -12247,7 +12297,7 @@ def _memorial_html(
           voice_name_hints: String(voiceHintsInput ? (voiceHintsInput.value || "") : "").split(/[\\n,]/).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 8),
         }};
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-config", {{
+          const response = await fetch(memorialVoiceConfigPath, {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify(payload)
@@ -12273,6 +12323,7 @@ def _memorial_html(
         }}
       }}
       async function buildVoiceProfile() {{
+        if (!memorialVoiceProfileBuildPath) return;
         if (voiceBuildStatus) voiceBuildStatus.textContent = "Starte Profilaufbau...";
         const payload = {{
           youtube_query: String(voiceYoutubeQueryInput ? (voiceYoutubeQueryInput.value || "") : ""),
@@ -12280,7 +12331,7 @@ def _memorial_html(
           youtube_limit: Number(voiceYoutubeLimitInput ? (voiceYoutubeLimitInput.value || 5) : 5),
         }};
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-profile/build", {{
+          const response = await fetch(memorialVoiceProfileBuildPath, {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify(payload)
@@ -12295,13 +12346,14 @@ def _memorial_html(
       }}
       async function cloneVoiceProfile() {{
         if (!ttsCloneButton) return;
+        if (!memorialVoiceClonePath) return;
         if (ttsCloneStatus) ttsCloneStatus.textContent = "Starte Stimmklon...";
         ttsCloneButton.disabled = true;
         const profileLabel = String(
           voiceLabelInput ? (voiceLabelInput.value || memorialVoiceConfig.voice_label || "Memorial") : (memorialVoiceConfig.voice_label || "Memorial")
         ).trim();
         try {{
-          const response = await fetch("/memorials/{html.escape(slug)}/voice-clone", {{
+          const response = await fetch(memorialVoiceClonePath, {{
             method: "POST",
             headers: {{ "Content-Type": "application/json" }},
             body: JSON.stringify({{ voice_label: profileLabel }}),
@@ -13993,6 +14045,7 @@ def _memorial_html(
           askMemorialChat(question.value);
         }});
       }});
+      applyTtsPluginState();
       window.addEventListener("load", () => {{
         syncMemorialAutostartOptin();
         updatePersonalMemoryStatusUi();
@@ -15492,6 +15545,25 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             slug=slug,
                             turn_id=turn_id,
                             live_transcript_chars=len(normalized_transcript),
+                            audio_bytes=len(fallback_audio),
+                            content_type=fallback_content_type,
+                        )
+                        await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "transcribing", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
+                        task = asyncio.create_task(_process_turn(turn_id, fallback_audio, fallback_content_type))
+                        _register_turn_task(turn_id, task)
+                        return
+                    if _memorial_gemini_live_answer_requires_turn_fallback(transcript_text, answer_text) and current_audio:
+                        fallback_audio = bytes(current_audio)
+                        fallback_content_type = current_content_type
+                        if current_content_type.startswith("audio/pcm"):
+                            fallback_audio = _pcm16_payload_to_wav(fallback_audio, content_type=current_content_type)
+                            fallback_content_type = "audio/wav"
+                        _log_memorial_timing(
+                            "gemini_live_answer_fallback",
+                            slug=slug,
+                            turn_id=turn_id,
+                            live_transcript_chars=len(normalized_transcript),
+                            answer_chars=len(_normalize_memorial_transcript_text(answer_text)),
                             audio_bytes=len(fallback_audio),
                             content_type=fallback_content_type,
                         )

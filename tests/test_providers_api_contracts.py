@@ -8520,6 +8520,9 @@ def test_public_memorial_chat_uses_private_context_without_public_diagnosis_leak
     assert 'id="memorial-speech-speak"' not in page.text
     assert 'id="memorial-voice-config-form"' not in page.text
     assert 'id="memorial-voice-ab-wrap"' not in page.text
+    assert "/voice-config" not in page.text
+    assert "/voice-ab" not in page.text
+    assert "/voice-clone" not in page.text
     assert "MediaRecorder" in page.text
     assert "SpeechRecognition" not in page.text
     assert "SpeechSynthesisUtterance" not in page.text

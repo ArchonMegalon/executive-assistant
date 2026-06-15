@@ -1475,6 +1475,28 @@ def test_memorial_contact_opening_detection_repairs_missing_sentence_space() -> 
     assert public_memorials._is_memorial_direct_contact_opening_text("Ich höre dich.Sag es mir in Ruhe.") is True
 
 
+def test_memorial_gemini_live_answer_falls_back_on_meta_instruction_output() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "Ich wuerde es so fassen: [Erinnerung] Soll im Dialog nicht weichgespuelt pragmatisch wirken, sondern wie ein Jurist, Prinzipienmensch und Schachspieler.",
+    ) is True
+
+
+def test_memorial_gemini_live_contact_opening_requires_real_contact_reply() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "Dazu gibt es mehrere Ebenen, die man sauber auseinanderhalten muss.",
+    ) is True
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "Worum geht es?",
+    ) is False
+
+
 def test_memorial_content_length_helper_tolerates_malformed_header() -> None:
     from starlette.requests import Request
     from app.api.routes import public_memorials
