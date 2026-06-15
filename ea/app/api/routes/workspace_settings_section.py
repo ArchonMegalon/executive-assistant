@@ -36,7 +36,7 @@ def build_settings_section(
     workspace = dict(diagnostics.get("workspace") or {})
     return {
         "title": "Office settings",
-        "summary": "Keep the office loop usable: memo timing, what is feeding Today, who can enter, and what still needs review.",
+        "summary": "Keep the office loop usable: memo timing, access, and the few connections that actually improve Today.",
         "console_form": {
             "action": "/app/actions/settings/morning-memo",
             "method": "post",
@@ -114,10 +114,8 @@ def build_settings_section(
             {
                 "eyebrow": "Morning memo",
                 "title": "Morning memo delivery",
-                "body": "The scheduled memo stays legible: when it lands, who it lands to, and whether it is producing a useful daily loop.",
+                "body": "Keep the memo dependable: when it lands, where it lands, and whether it currently needs attention.",
                 "items": [
-                    row_builder("Memo state", str(memo_loop.get("state") or "watch").replace("_", " ").title(), "Memo", href="/app/settings/outcomes"),
-                    row_builder("Enabled", "Yes" if memo_loop.get("enabled") else "No", "Memo", href="/app/settings/outcomes"),
                     row_builder(
                         "Delivery time",
                         f"{memo_loop.get('delivery_time_local') or '08:00'} {memo_loop.get('timezone') or workspace.get('timezone') or 'UTC'}",
@@ -139,7 +137,7 @@ def build_settings_section(
                 "body": (
                     "PropertyQuarry only needs identity, token health, and reauth posture here."
                     if property_brand
-                    else "Keep Google narrow. Connect it only when return access or live signals genuinely improve Today."
+                    else "Keep Google narrow. Connect it only when it makes Today more useful or keeps return access simple."
                 ),
                 "items": [
                     google_settings_action_row_builder(analytics_sync),
@@ -164,7 +162,7 @@ def build_settings_section(
             {
                 "eyebrow": "Workspace entry",
                 "title": "Who can enter and who is waiting",
-                "body": "Keep access simple and reviewable without turning this page into an invitation console.",
+                "body": "Keep access simple and reviewable without turning this page into a delivery dashboard.",
                 "items": [
                     row_builder("Active access sessions", "Manage secure entry links", "Access", href="/app/settings/access"),
                     row_builder("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),

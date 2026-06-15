@@ -1140,7 +1140,7 @@
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
             <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-            <span>{% if brand.key == 'ea' %}Today, Queue, and Commitments stay in one office loop until the work is closed.{% else %}Persistent {{ brand.name }} workspace surface{% endif %}</span>
+            <span>{% if brand.key == 'ea' %}Open Today first. Queue and Commitments stay visible until the work is closed.{% else %}Persistent {{ brand.name }} workspace surface{% endif %}</span>
           </div>
           <div class="pq-appbar-meta">
             <span class="pq-meta-pill">{{ workspace_label }}</span>
@@ -1158,7 +1158,7 @@
       <div class="workspace-card">
         <div class="label">Office loop</div>
         <strong>{{ workspace_label }}</strong>
-        <div>{% if brand.key == 'ea' %}What changed, what needs review, what may slip next{% else %}{{ brand.workspace_label }}{% endif %}</div>
+        <div>{% if brand.key == 'ea' %}Today first, then Queue and Commitments until the work is closed{% else %}{{ brand.workspace_label }}{% endif %}</div>
       </div>
       {% for group in nav_groups %}
       <div class="group-label">{{ group.label }}</div>
