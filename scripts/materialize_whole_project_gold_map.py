@@ -201,6 +201,7 @@ def build_gold_map(
     memorial_public_room_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
+    source_git_head = _git_head()
     flagship_status = _status_from_receipt(flagship_receipt_path, {"pass"})
     weekly_status = _status_from_receipt(weekly_pulse_path, {"ready", "clear", "pass"})
     browser_status = _status_from_receipt(browser_proof_path, {"pass"})
@@ -409,7 +410,8 @@ def build_gold_map(
         "contract_name": "ea.whole_project_gold_map",
         "generated_at": generated_at or _utc_now(),
         "generated_by": "scripts/materialize_whole_project_gold_map.py",
-        "git_head": _git_head(),
+        "source_git_head": source_git_head,
+        "head_semantics": "source_state",
         "output_path": output_path.relative_to(ROOT).as_posix(),
         "overall_status": overall_status,
         "gold_claim_allowed": gold_claim_allowed,

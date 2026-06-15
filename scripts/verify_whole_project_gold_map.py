@@ -76,6 +76,10 @@ def _git_head(path: Path = ROOT) -> str:
         return ""
 
 
+def _recorded_source_head(payload: dict[str, Any]) -> str:
+    return str(payload.get("source_git_head") or payload.get("git_head") or "").strip()
+
+
 def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
     recorded = str(recorded_head or "").strip()
     if not recorded or not current_head:
@@ -107,7 +111,7 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
     if receipt.get("contract_name") != "ea.whole_project_gold_map":
         issues.append("contract_name must be ea.whole_project_gold_map")
     current_head = _git_head()
-    if current_head and not _fresh_enough(str(receipt.get("git_head") or ""), current_head=current_head):
+    if current_head and not _fresh_enough(_recorded_source_head(receipt), current_head=current_head):
         issues.append("whole-project gold map is stale relative to current HEAD")
 
     planes = receipt.get("planes")

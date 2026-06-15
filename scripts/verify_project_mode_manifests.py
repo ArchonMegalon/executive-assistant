@@ -46,6 +46,10 @@ def _git_head() -> str:
         return ""
 
 
+def _recorded_source_head(payload: dict) -> str:
+    return str(payload.get("source_git_head") or payload.get("git_head") or "").strip()
+
+
 def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
     recorded = str(recorded_head or "").strip()
     if not recorded or not current_head:
@@ -72,9 +76,9 @@ def main() -> int:
     modes = _load(PROJECT_MODES)
     show = _load(SHOW_SURFACE)
     current_head = _git_head()
-    if current_head and not _fresh_enough(str(modes.get("git_head") or ""), current_head=current_head):
+    if current_head and not _fresh_enough(_recorded_source_head(modes), current_head=current_head):
         raise SystemExit("project_modes_manifest_stale")
-    if current_head and not _fresh_enough(str(show.get("git_head") or ""), current_head=current_head):
+    if current_head and not _fresh_enough(_recorded_source_head(show), current_head=current_head):
         raise SystemExit("show_surface_manifest_stale")
     keys = {str(item.get("key") or "") for item in modes.get("modes", []) if isinstance(item, dict)}
     required = {"EA_CORE", "MEMORIAL", "PROVIDER_LAB", "CHUMMER_RELEASE_CONTROL", "PROPERTY"}

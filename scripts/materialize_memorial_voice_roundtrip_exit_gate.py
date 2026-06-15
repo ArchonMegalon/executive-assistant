@@ -216,12 +216,13 @@ def build_receipt(
             }
         )
         payload["status"] = "fail"
+    source_git_head = _git_head()
     return {
         "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-        "git_head": _git_head(),
-        "source_git_head": _git_head(),
+        "source_git_head": source_git_head,
+        "head_semantics": "source_state",
         "source_tree_fingerprint": _source_tree_fingerprint(),
         "dirty_worktree": dirty_worktree,
         "status": payload.get("status"),

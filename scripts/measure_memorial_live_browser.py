@@ -1086,6 +1086,7 @@ def _with_exit_gate_status(
     max_first_answer_ms: float,
 ) -> dict[str, object]:
     reasons: list[str] = []
+    source_git_head = _git_head()
 
     def add_reason(reason: str) -> None:
         if reason and reason not in reasons:
@@ -1130,8 +1131,8 @@ def _with_exit_gate_status(
             "contract_name": "ea.memorial_realtime_browser_exit_gate",
             "generated_at": _utc_now(),
             "generated_by": "scripts/measure_memorial_live_browser.py",
-            "git_head": _git_head(),
-            "source_git_head": _git_head(),
+            "source_git_head": source_git_head,
+            "head_semantics": "source_state",
             "source_tree_fingerprint": _source_tree_fingerprint(),
             "dirty_worktree": _git_dirty(),
             "status": "pass" if not reasons else "fail",

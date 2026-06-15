@@ -160,7 +160,7 @@ def main() -> int:
         },
         "readiness": readiness,
         "evidence_heads": {
-            "whole_project_map": str(whole_project_map.get("git_head") or "").strip(),
+            "whole_project_map": str(whole_project_map.get("source_git_head") or whole_project_map.get("git_head") or "").strip(),
             "public_voice_receipt": _receipt_git_head(PUBLIC_VOICE_RECEIPT),
             "public_browser_receipt": _receipt_git_head(PUBLIC_BROWSER_RECEIPT),
             "public_meaningful_browser_receipt": _receipt_git_head(MEANINGFUL_BROWSER_RECEIPT),

@@ -64,11 +64,13 @@ def _memorial_public_gold_status() -> str:
 
 
 def project_modes() -> dict[str, Any]:
+    source_git_head = _git_head()
     return {
         "contract_name": "ea.project_modes",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_project_mode_manifests.py",
-        "git_head": _git_head(),
+        "source_git_head": source_git_head,
+        "head_semantics": "source_state",
         "modes": [
             {
                 "key": "EA_CORE",
@@ -132,11 +134,13 @@ def project_modes() -> dict[str, Any]:
 
 
 def show_surface_manifest() -> dict[str, Any]:
+    source_git_head = _git_head()
     return {
         "contract_name": "ea.show_surface_manifest",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_project_mode_manifests.py",
-        "git_head": _git_head(),
+        "source_git_head": source_git_head,
+        "head_semantics": "source_state",
         "demo_mode": "ea_core",
         "allowed_surfaces": ["/", "/product", "/get-started", "/sign-in", "/app/today", "/app/queue", "/app/commitments", "/app/settings"],
         "operator_surfaces": ["/modes", "/admin/*"],

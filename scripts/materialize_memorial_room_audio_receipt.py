@@ -86,6 +86,7 @@ def _is_local_base_url(value: str) -> bool:
 
 
 def build_receipt(args: argparse.Namespace) -> dict[str, object]:
+    source_git_head = _git_head()
     checks = {
         "actual_device_checked": bool(args.actual_device_checked),
         "actual_speaker_checked": bool(args.actual_speaker_checked),
@@ -107,8 +108,8 @@ def build_receipt(args: argparse.Namespace) -> dict[str, object]:
         "contract_name": "ea.memorial_room_audio_public_origin",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_memorial_room_audio_receipt.py",
-        "git_head": _git_head(),
-        "source_git_head": _git_head(),
+        "source_git_head": source_git_head,
+        "head_semantics": "source_state",
         "source_tree_fingerprint": _source_tree_fingerprint(),
         "dirty_worktree": dirty_worktree,
         "status": status,
