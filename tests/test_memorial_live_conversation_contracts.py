@@ -115,6 +115,26 @@ def _pcm16_noise_bytes(*, samples: int = 1600, sample: int = 96) -> bytes:
     return struct.pack("<" + "h" * samples, *values)
 
 
+def _pcm16_impulse_burst_bytes(*, samples: int = 1600, impulse: int = 12_000, spacing: int = 160) -> bytes:
+    values = [0] * samples
+    for index in range(0, samples, spacing):
+        values[index] = impulse
+        if index + 1 < samples:
+            values[index + 1] = -impulse
+    return struct.pack("<" + "h" * samples, *values)
+
+
+def _wav_from_pcm16_bytes(payload: bytes, *, sample_rate: int = 16_000) -> bytes:
+    raw = payload[: len(payload) - (len(payload) % 2)]
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(raw)
+    return buffer.getvalue()
+
+
 def _setup_memorial(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
     slug = "manfred"
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "1")
@@ -144,6 +164,7 @@ def test_memorial_audio_energy_gate_rejects_silent_or_tiny_wav() -> None:
     assert public_memorials._wav_payload_has_speech_energy(_generated_wav_bytes(textish_seed="Hallo", duration_seconds=0.8))
     assert not public_memorials._wav_payload_has_speech_energy(_silent_wav_bytes(duration_seconds=1.0))
     assert not public_memorials._wav_payload_has_speech_energy(b"RIFF")
+    assert not public_memorials._wav_payload_has_speech_energy(_wav_from_pcm16_bytes(_pcm16_impulse_burst_bytes()))
 
 
 def test_memorial_speech_transcribe_rejects_silent_wav_before_provider_upload(
@@ -2998,6 +3019,111 @@ def test_memorial_realtime_cancelled_turn_allows_clean_follow_up_after_interrupt
     assert not any(message.get("type") == "answer" and message.get("turn_id") == "turn_interrupted" for message in messages)
 
 
+def test_memorial_realtime_new_turn_preempts_inflight_reply_without_explicit_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Ja.", duration_seconds=0.18)
+
+    def _chat_answer(payload, question, *args, **kwargs):
+        if "langsame" in question.lower():
+            time.sleep(0.25)
+            return {
+                "answer": "Diese Antwort darf nicht mehr ankommen.",
+                "sources": [],
+                "llm_model": "slow-guardrail",
+                "llm_provider": "memorial_guardrail",
+                "llm_request_model": "ea-gemini-flash",
+                "llm_fallback_used": False,
+            }
+        return {
+            "answer": "Ich bin bei deiner neuen Frage.",
+            "sources": [],
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+        }
+
+    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _chat_answer)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-preempt-follow-up")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_old",
+                "text": "Ich habe eine langsame Frage.",
+                "personal_memory_enabled": False,
+            }
+        )
+
+        old_turn_messages = []
+        for _ in range(6):
+            message = websocket.receive_json()
+            old_turn_messages.append(message)
+            if message.get("turn_id") == "turn_old" and message.get("type") in {"transcript", "phase"}:
+                break
+
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_new",
+                "text": "Hallo Manfred, antworte mir jetzt direkt.",
+                "personal_memory_enabled": False,
+            }
+        )
+
+        messages = list(old_turn_messages)
+        for _ in range(14):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"} and message.get("turn_id") == "turn_new":
+                break
+
+    assert any(message.get("type") == "cancelled" and message.get("turn_id") == "turn_old" for message in messages)
+    assert not any(message.get("type") == "answer" and message.get("turn_id") == "turn_old" for message in messages)
+    assert any(
+        message.get("type") == "answer"
+        and message.get("turn_id") == "turn_new"
+        and message.get("text") == "Ich bin bei deiner neuen Frage."
+        for message in messages
+    )
+    assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_new" for message in messages)
+
+
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 
@@ -3422,6 +3548,7 @@ def test_memorial_pcm_gate_ignores_low_energy_room_noise() -> None:
 
     assert not public_memorials._pcm16_payload_has_speech_energy(_pcm16_noise_bytes(sample=96))
     assert not public_memorials._pcm16_payload_has_speech_energy(_pcm16_noise_bytes(sample=160))
+    assert not public_memorials._pcm16_payload_has_speech_energy(_pcm16_impulse_burst_bytes())
     assert public_memorials._pcm16_payload_has_speech_energy(_pcm16_speech_bytes(samples=1600, sample=4096))
 
 

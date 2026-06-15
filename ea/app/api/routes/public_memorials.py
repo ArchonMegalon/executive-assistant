@@ -158,8 +158,8 @@ _MEMORIAL_CONTACT_TTS_LEAD_IN_MS = 420
 _MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS = 320
 _MEMORIAL_FAST_TTS_LEAD_IN_MS = 280
 _MEMORIAL_FAST_TTS_TAIL_SILENCE_MS = 320
-_MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 560
-_MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 620
+_MEMORIAL_REALTIME_TTS_LEAD_IN_MS = 640
+_MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 760
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
 _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
 _BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
@@ -7402,50 +7402,89 @@ def _wav_payload_has_speech_energy(payload: bytes) -> bool:
             raw = wav_file.readframes(frame_count)
     except Exception:
         return True
-    if len(raw) < 1024:
-        return False
-    samples = struct.iter_unpack("<h", raw[: len(raw) - (len(raw) % 2)])
-    total = 0
-    loud = 0
-    sum_sq = 0.0
-    stride = max(1, channels)
-    for index, (sample,) in enumerate(samples):
-        if index % stride:
-            continue
-        normalized = abs(float(sample) / 32768.0)
-        total += 1
-        sum_sq += normalized * normalized
-        if normalized >= 0.012:
-            loud += 1
-    if total <= 0:
-        return False
-    rms = math.sqrt(sum_sq / total)
-    loud_ratio = loud / total
-    return rms >= 0.004 and loud_ratio >= 0.003
+    return _pcm16_stream_has_speech_energy(
+        raw,
+        channels=channels,
+        frame_rate=frame_rate,
+        threshold=0.012,
+    )
 
 
-def _pcm16_payload_has_speech_energy(payload: bytes, *, threshold: float = 0.01) -> bool:
+def _pcm16_stream_has_speech_energy(
+    payload: bytes,
+    *,
+    channels: int = 1,
+    frame_rate: int = 16_000,
+    threshold: float = 0.01,
+) -> bool:
     if len(payload or b"") < 320:
         return False
     raw = payload[: len(payload) - (len(payload) % 2)]
     if not raw:
         return False
+    stride = max(1, int(channels or 1))
+    usable_samples = len(raw) // 2 // stride
+    if usable_samples <= 0:
+        return False
+    frame_samples = max(80, int(max(8_000, int(frame_rate or 16_000)) * 0.02))
+    min_speech_frames = 3 if usable_samples >= frame_samples * 3 else 2 if usable_samples >= frame_samples * 2 else 1
     total = 0
     loud = 0
     sum_sq = 0.0
+    speech_frames = 0
+    frame_count = 0
+    frame_loud = 0
+    frame_sum_sq = 0.0
+    frame_peak = 0.0
+    frame_rms_threshold = max(0.0055, threshold * 0.52)
+    frame_peak_threshold = max(0.014, threshold * 1.2)
+    frame_loud_ratio_threshold = 0.015
     try:
-        for (sample,) in struct.iter_unpack("<h", raw):
+        for index, (sample,) in enumerate(struct.iter_unpack("<h", raw)):
+            if index % stride:
+                continue
             normalized = abs(float(sample) / 32768.0)
             total += 1
             sum_sq += normalized * normalized
-            if normalized >= threshold:
+            if normalized >= threshold * 0.82:
                 loud += 1
+            frame_count += 1
+            frame_sum_sq += normalized * normalized
+            if normalized > frame_peak:
+                frame_peak = normalized
+            if normalized >= threshold * 0.82:
+                frame_loud += 1
+            if frame_count >= frame_samples:
+                frame_rms = math.sqrt(frame_sum_sq / frame_count)
+                if (
+                    frame_rms >= frame_rms_threshold
+                    and frame_peak >= frame_peak_threshold
+                    and (frame_loud / frame_count) >= frame_loud_ratio_threshold
+                ):
+                    speech_frames += 1
+                frame_count = 0
+                frame_loud = 0
+                frame_sum_sq = 0.0
+                frame_peak = 0.0
     except Exception:
         return False
     if total <= 0:
         return False
+    if frame_count >= max(24, frame_samples // 2):
+        frame_rms = math.sqrt(frame_sum_sq / frame_count)
+        if (
+            frame_rms >= frame_rms_threshold
+            and frame_peak >= frame_peak_threshold
+            and (frame_loud / frame_count) >= frame_loud_ratio_threshold
+        ):
+            speech_frames += 1
     rms = math.sqrt(sum_sq / total)
-    return rms >= 0.004 and (loud / total) >= 0.003
+    loud_ratio = loud / total
+    return rms >= 0.0035 and loud_ratio >= 0.002 and speech_frames >= min_speech_frames
+
+
+def _pcm16_payload_has_speech_energy(payload: bytes, *, threshold: float = 0.01) -> bool:
+    return _pcm16_stream_has_speech_energy(payload, threshold=threshold)
 
 
 def _pcm16_payload_to_wav(payload: bytes, *, content_type: str) -> bytes:
