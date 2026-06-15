@@ -3945,25 +3945,10 @@ def _memorial_values_answer_is_too_vague(answer_text: str, question: str) -> boo
 
 
 def _memorial_values_guardrail_answer_body(question: str) -> str:
-    normalized_question = _normalize_memorial_transcript_text(question)
-    if normalized_question:
-        fallback = _memorial_chat_fallback_answer(
-            {"person_name": "Manfred", "slug": "manfred", "audio_clips": []},
-            normalized_question,
-            {},
-            slug="manfred",
-            memory_runtime=None,
-            personal_memory_context=None,
-            llm_model=GEMINI_VORTEX_PUBLIC_MODEL,
-            fallback_reason="memorial_values_guardrail",
-            difficult_memory_mode=False,
-        )
-        answer = _compact_memorial_spoken_answer(fallback.get("answer"))
-        if answer:
-            return answer
     return (
         "Nein, fuer mich musste man zuerst die Tatsachen sauber trennen und die Sache rechtlich ordnen. "
-        "Bequemlichkeit war nie mein Massstab. Gerecht ist fuer mich etwas erst dann, wenn Prinzip, Verantwortung und Fairness zusammenpassen."
+        "Gerecht war etwas fuer mich erst dann, wenn Prinzip, Verantwortung und Fairness zusammenpassen. "
+        "Bequemlichkeit war fuer mich kein Massstab. Ein bequemer Weg, der das Prinzip verbiegt, war am Ende kein sauberer Weg."
     )
 
 
