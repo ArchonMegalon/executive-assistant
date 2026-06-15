@@ -8495,7 +8495,10 @@ def _minimal_public_memorial_html(
       }}
 
       function supportsLiveRealtimeSession() {{
-        return Boolean(window.WebSocket && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext));
+        // The direct Gemini-live browser audio lane is still less reliable than the
+        // server-centered STT + guarded websocket turn path under noisy/public conditions.
+        // Keep the robust lane as the default public memorial conversation experience.
+        return false;
       }}
 
       function cleanupLiveRealtimeSession() {{

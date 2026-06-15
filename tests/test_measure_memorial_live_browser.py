@@ -129,6 +129,30 @@ def test_answer_satisfies_contact_profile_rejects_narrowing_clarification() -> N
     assert details["context_match_count"] >= 1
 
 
+def test_should_accept_visible_answer_early_accepts_contact_ack() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt("Hallo Manfred, kannst du jetzt mit mir sprechen?")
+
+    assert module._should_accept_visible_answer_early(
+        profile,
+        "Worum geht es?",
+        ui_audio_ready=True,
+    ) is True
+
+
+def test_should_accept_visible_answer_early_rejects_non_contact_profile() -> None:
+    module = _load_module()
+
+    profile = module._semantic_profile_for_prompt("Was war dir bei Gerechtigkeit wichtig?")
+
+    assert module._should_accept_visible_answer_early(
+        profile,
+        "Worum geht es?",
+        ui_audio_ready=True,
+    ) is False
+
+
 def test_measure_script_avoids_networkidle_as_primary_page_gate() -> None:
     source = Path("/docker/EA/scripts/measure_memorial_live_browser.py").read_text(encoding="utf-8")
 

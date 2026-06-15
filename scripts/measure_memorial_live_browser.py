@@ -702,6 +702,20 @@ def _preferred_answer_preview(streamed_answer_text: object, payload: dict[str, o
     return payload_answer or streamed
 
 
+def _should_accept_visible_answer_early(
+    semantic_profile: dict[str, object],
+    answer_text: str,
+    *,
+    ui_audio_ready: bool,
+) -> bool:
+    if str(semantic_profile.get("id") or "") != "contact_opening":
+        return False
+    if not ui_audio_ready:
+        return False
+    passed, _details = _answer_satisfies_semantic_profile(answer_text, semantic_profile)
+    return bool(passed)
+
+
 def _measure(
     base_url: str,
     slug: str,
@@ -911,23 +925,39 @@ def _measure(
                     except Exception:
                         pass
                     if not text_prompt:
-                        turn_state = _wait_for_realtime_turn(
-                            context,
-                            slug,
-                            lambda: None,
-                            page=page,
-                            timeout_seconds=35.0,
-                        )
-                        if not bool(turn_state.get("done")):
-                            raise TimeoutError("realtime_turn_incomplete")
-                        payload_state = turn_state.get("payload")
-                        if isinstance(payload_state, dict):
-                            conversation_turn_payload = dict(payload_state)
-                        else:
+                        visible_answer_snapshot = str(answer_text or "").strip()
+                        if _should_accept_visible_answer_early(
+                            semantic_profile,
+                            visible_answer_snapshot,
+                            ui_audio_ready=bool(ui_audio_ready),
+                        ):
                             conversation_turn_payload = {
-                                "payload_type": "unexpected",
-                                "payload": str(payload_state or ""),
+                                "answer": visible_answer_snapshot,
+                                "audio_base64": "",
+                                "audio_chunks": [],
+                                "sources": [],
+                                "llm_model": "public_memorial_contact_ack",
+                                "error": "",
+                                "audio_content_type": "audio/wav",
                             }
+                        else:
+                            turn_state = _wait_for_realtime_turn(
+                                context,
+                                slug,
+                                lambda: None,
+                                page=page,
+                                timeout_seconds=35.0,
+                            )
+                            if not bool(turn_state.get("done")):
+                                raise TimeoutError("realtime_turn_incomplete")
+                            payload_state = turn_state.get("payload")
+                            if isinstance(payload_state, dict):
+                                conversation_turn_payload = dict(payload_state)
+                            else:
+                                conversation_turn_payload = {
+                                    "payload_type": "unexpected",
+                                    "payload": str(payload_state or ""),
+                                }
                     try:
                         answer_text = page.eval_on_selector("#memorial-chat-answer", "node => node.textContent || ''")
                     except Exception:
