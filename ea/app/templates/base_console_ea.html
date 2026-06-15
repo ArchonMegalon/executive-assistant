@@ -1140,7 +1140,7 @@
         <div class="pq-stage-window-bar">
           <div class="pq-stage-window-title">
             <strong>{{ current_nav|replace('_', ' ')|title }}</strong>
-            <span>{% if brand.key == 'ea' %}Today first. Queue, commitments, and review stay visible until they close.{% else %}Persistent {{ brand.name }} workspace surface{% endif %}</span>
+            <span>{% if brand.key == 'ea' %}Today first. Review, commitments, and open work stay visible until they close.{% else %}Persistent {{ brand.name }} workspace surface{% endif %}</span>
           </div>
           <div class="pq-appbar-meta">
             <span class="pq-meta-pill">{{ workspace_label }}</span>
@@ -1158,7 +1158,7 @@
       <div class="workspace-card">
         <div class="label">Office loop</div>
         <strong>{{ workspace_label }}</strong>
-        <div>{% if brand.key == 'ea' %}What changed today, what needs review, what still stays open{% else %}{{ brand.workspace_label }}{% endif %}</div>
+        <div>{% if brand.key == 'ea' %}What changed, what needs review, what still stays open{% else %}{{ brand.workspace_label }}{% endif %}</div>
       </div>
       {% for group in nav_groups %}
       <div class="group-label">{{ group.label }}</div>
@@ -1175,7 +1175,7 @@
     <main class="console-main">
       <div class="console-topbar">
         <div class="console-title">
-          <div class="context">{{ workspace_context_label or 'What changed today, what needs review, what still stays open' }}</div>
+          <div class="context">{{ workspace_context_label or 'What changed, what needs review, what still stays open' }}</div>
           <h1>{{ page_heading or console_title or page_title }}</h1>
           {% if page_summary or console_summary %}<p>{{ page_summary or console_summary }}</p>{% endif %}
         </div>

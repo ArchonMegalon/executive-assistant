@@ -94,6 +94,15 @@ def _public_voice_receipt_semantics() -> dict[str, object]:
 
 
 def main() -> int:
+    source_head = str(
+        subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    )
     readiness = _run_json("scripts/verify_memorial_gold_readiness.py")
     whole_project = _run_json("scripts/verify_whole_project_gold_map.py")
     whole_project_map = _load_json(WHOLE_PROJECT_GOLD_MAP)
@@ -137,6 +146,8 @@ def main() -> int:
     payload = {
         "contract_name": "ea.memorial_operator_status",
         "generated_by": "scripts/materialize_memorial_operator_status.py",
+        "source_git_head": source_head,
+        "head_semantics": "source_state",
         "slug": "manfred",
         "status": final_status,
         "current_label": "Memorial public-origin gold: pass" if final_status == "pass" else "Memorial public-origin gold: blocked",

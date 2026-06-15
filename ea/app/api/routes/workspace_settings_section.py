@@ -153,20 +153,19 @@ def build_settings_section(
                 "items": [
                     google_settings_action_row_builder(analytics_sync),
                     row_builder("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
-                    row_builder(
-                        "Freshness",
-                        str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(),
-                        "Sync",
-                        href="/app/settings/google",
-                        action_href="/app/actions/signals/google/sync?return_to=/app/settings/google" if analytics_sync.get("google_connected") else "",
-                        action_label="Run now" if analytics_sync.get("google_connected") else "",
-                        action_method="get" if analytics_sync.get("google_connected") else "",
-                    ),
                     *(
                         []
                         if property_brand
                         else [
-                            row_builder("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
+                            row_builder(
+                                "Refresh action",
+                                "Run sync now" if analytics_sync.get("google_connected") else "Connect Google first",
+                                "Sync",
+                                href="/app/settings/google",
+                                action_href="/app/actions/signals/google/sync?return_to=/app/settings/google" if analytics_sync.get("google_connected") else "",
+                                action_label="Run now" if analytics_sync.get("google_connected") else "",
+                                action_method="get" if analytics_sync.get("google_connected") else "",
+                            ),
                         ]
                     ),
                 ],
@@ -176,7 +175,7 @@ def build_settings_section(
                 "title": "Who can enter and who is waiting",
                 "body": "Keep the office reachable without turning the main settings surface into a delivery dashboard.",
                 "items": [
-                    row_builder("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
+                    row_builder("Active access sessions", "Manage secure entry links", "Access", href="/app/settings/access"),
                     row_builder("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
                 ],
             },
