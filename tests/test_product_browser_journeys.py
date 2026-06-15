@@ -41,8 +41,8 @@ def test_workspace_pages_render_seeded_product_objects() -> None:
     assert settings.status_code == 200
     assert "Rules" in settings.text
     assert "Morning memo delivery" in settings.text
-    assert "What is feeding the office loop" in settings.text
-    assert "Office-loop proof" in settings.text
+    assert "Optional Google access for the office loop" in settings.text
+    assert "Who can enter and who is waiting" in settings.text
     assert "Connect now" in settings.text
     assert "/app/settings/outcomes" in settings.text
     assert "/app/settings/google" in settings.text

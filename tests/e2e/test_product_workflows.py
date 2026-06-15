@@ -453,7 +453,7 @@ def test_activation_and_memo_flow_in_real_browser(page: Page, product_browser_se
     assert response is not None and response.ok
     assert "Rules" in page.content()
     assert "Morning memo delivery" in page.content()
-    assert "What is feeding the office loop" in page.content()
+    assert "Optional Google access for the office loop" in page.content()
     assert "Draft approval" in page.content()
     assert "Google-first activation" in page.content()
 
