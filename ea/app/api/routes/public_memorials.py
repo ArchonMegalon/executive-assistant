@@ -14927,15 +14927,6 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                                     "audio_base64": audio_base64,
                                 }
                             )
-                if bool(server_content.get("generationComplete")):
-                    if answer_text.strip():
-                        await _safe_send_json(
-                            {
-                                "type": "response.output_audio_transcript.done",
-                                "turn_id": turn_id,
-                                "transcript": answer_text.strip(),
-                            }
-                        )
                 if bool(server_content.get("turnComplete")):
                     normalized_transcript = _normalize_memorial_transcript_text(transcript_text)
                     transcript_tokens = [token for token in re.split(r"\s+", normalized_transcript) if token]
