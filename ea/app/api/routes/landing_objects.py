@@ -6,14 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.routes.landing_public_support import _console_shell_context, _render_public_template
 from app.api.routes.landing import (
-    _console_shell_context,
     _evidence_detail_rows,
     _object_detail_row,
     _property_distance_ooda_rows,
     _property_tour_media_payload,
     _render_console_object_detail,
-    _render_public_template,
     app_shell,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand

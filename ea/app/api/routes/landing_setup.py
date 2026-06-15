@@ -13,11 +13,11 @@ from app.api.routes.landing_browser import (
     _form_values,
     _normalize_browser_return_to,
 )
+from app.api.routes.landing_public_support import _render_public_template
 from app.api.routes.landing import (
     PUBLIC_NAV,
     _channel_cards,
     _humanize,
-    _render_public_template,
     _workspace_plan,
 )
 from app.container import AppContainer

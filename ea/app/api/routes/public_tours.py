@@ -22,8 +22,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 import requests
 
 from app.api.dependencies import get_container
+from app.api.routes.landing_public_support import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.container import AppContainer
-from app.api.routes.landing import _anonymous_onboarding_status, _public_context, templates as public_templates
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.public_rybbit import rybbit_head_snippet
