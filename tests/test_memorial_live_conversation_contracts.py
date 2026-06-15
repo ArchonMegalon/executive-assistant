@@ -1506,6 +1506,27 @@ def test_memorial_gemini_live_values_prompt_rejects_vague_narrowing_reply() -> N
     ) is True
 
 
+def test_memorial_gemini_live_rejects_narrowing_reply_even_with_soft_transcript() -> None:
+    from app.api.routes import public_memorials
+
+    assert public_memorials._memorial_gemini_live_answer_requires_turn_fallback(
+        "Was war dir wichtig?",
+        "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+    ) is True
+
+
+def test_memorial_values_guardrail_answer_body_stays_substantive_without_context() -> None:
+    from app.api.routes import public_memorials
+
+    answer = public_memorials._memorial_values_guardrail_answer_body("")
+
+    lowered = answer.lower()
+    assert "konkreten punkt" not in lowered
+    assert "rechtlich" in lowered
+    assert "bequemlichkeit" in lowered
+    assert any(token in lowered for token in ("fairness", "gerecht", "verantwortung"))
+
+
 def test_memorial_content_length_helper_tolerates_malformed_header() -> None:
     from starlette.requests import Request
     from app.api.routes import public_memorials
@@ -3133,18 +3154,22 @@ def test_memorial_live_status_copy_is_quieter_and_less_chattery() -> None:
 def test_memorial_live_page_source_uses_more_tolerant_turn_detection_and_barge_in_restart() -> None:
     source = Path("/docker/EA/ea/app/api/routes/public_memorials.py").read_text(encoding="utf-8")
 
-    assert "autoStopMs: 2200" in source
-    assert "maxAfterSpeechMs: 4200" in source
-    assert "silenceMs: 420" in source
-    assert "pauseMs: 260" in source
-    assert "autoStopMs: 3200" in source
+    assert "autoStopMs: 5200" in source
     assert "maxAfterSpeechMs: 5200" in source
-    assert "silenceMs: 520" in source
-    assert "pauseMs: 320" in source
+    assert "silenceMs: 900" in source
+    assert "pauseMs: 360" in source
+    assert "autoStopMs: 6800" in source
+    assert "maxAfterSpeechMs: 6800" in source
+    assert "silenceMs: 1100" in source
+    assert "pauseMs: 420" in source
+    assert "void startServerSpeechInput();" in source
+    assert "return captureServerTranscript(options);" in source
     assert "const maxAfterSpeechMs = Math.max(1800, Number(options.maxAfterSpeechMs || 4200));" in source
     assert "const speechThreshold = Math.max(0.0045, Number(options.silenceThreshold || 0.0075));" in source
     assert "activeSpeechMs > maxAfterSpeechMs" in source
-    assert "void resumeConversationAfterBargeIn(heardText);" in source
+    assert "void resumeConversationAfterBargeIn(\"\");" in source
+    assert "const rms = Math.sqrt(sum / data.length);" in source
+    assert "if (rms >= 0.028) speechFrames += 1;" in source
     assert "setTimeout(() => {{" in source
     assert "setTimeout(recordConversationTurn, 90);" not in source
 

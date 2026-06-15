@@ -3884,6 +3884,8 @@ def _memorial_gemini_live_answer_requires_turn_fallback(transcript_text: str, an
     )
     if any(marker in normalized_answer for marker in meta_markers):
         return True
+    if _memorial_answer_has_narrowing_clarification(answer_text):
+        return True
     if _memorial_values_answer_is_too_vague(answer_text, transcript_text):
         return True
     return _looks_like_memorial_contact_opening_transcript(transcript_text) and not _looks_like_memorial_reply_text(answer_text)
@@ -3910,12 +3912,10 @@ def _is_memorial_values_question(question: str) -> bool:
     )
 
 
-def _memorial_values_answer_is_too_vague(answer_text: str, question: str) -> bool:
-    if not _is_memorial_values_question(question):
-        return False
+def _memorial_answer_has_narrowing_clarification(answer_text: str) -> bool:
     normalized_answer = _normalize_memorial_transcript_text(answer_text).lower()
     if not normalized_answer:
-        return True
+        return False
     clarification_markers = (
         "konkreten punkt",
         "etwas enger",
@@ -3924,15 +3924,47 @@ def _memorial_values_answer_is_too_vague(answer_text: str, question: str) -> boo
         "sage mir den konkreten punkt",
         "ziehe den punkt enger",
     )
-    if any(marker in normalized_answer for marker in clarification_markers):
+    return any(marker in normalized_answer for marker in clarification_markers)
+
+
+def _memorial_values_answer_is_too_vague(answer_text: str, question: str) -> bool:
+    if not _is_memorial_values_question(question):
+        return False
+    normalized_answer = _normalize_memorial_transcript_text(answer_text).lower()
+    if not normalized_answer:
+        return True
+    if _memorial_answer_has_narrowing_clarification(answer_text):
         return True
     semantic_groups = (
-        ("rechtlich", "rechtens", "juristisch", "anspruch", "pflicht"),
-        ("prinzip", "massstab", "bequemlichkeit", "bequemer", "ausweich"),
-        ("fair", "gerecht", "verantwort", "tatsachen", "belegen"),
+        ("ordnung", "rechtlich", "rechtens", "juristisch", "anspr", "pflicht"),
+        ("prinzip", "massstab", "bequemlichkeit", "bequemer", "ausweich", "regeln"),
+        ("fair", "gerecht", "gleichermassen", "verantwort", "tatsachen", "belegen"),
     )
     group_matches = sum(1 for group in semantic_groups if any(token in normalized_answer for token in group))
     return group_matches < 2
+
+
+def _memorial_values_guardrail_answer_body(question: str) -> str:
+    normalized_question = _normalize_memorial_transcript_text(question)
+    if normalized_question:
+        fallback = _memorial_chat_fallback_answer(
+            {"person_name": "Manfred", "slug": "manfred", "audio_clips": []},
+            normalized_question,
+            {},
+            slug="manfred",
+            memory_runtime=None,
+            personal_memory_context=None,
+            llm_model=GEMINI_VORTEX_PUBLIC_MODEL,
+            fallback_reason="memorial_values_guardrail",
+            difficult_memory_mode=False,
+        )
+        answer = _compact_memorial_spoken_answer(fallback.get("answer"))
+        if answer:
+            return answer
+    return (
+        "Nein, fuer mich musste man zuerst die Tatsachen sauber trennen und die Sache rechtlich ordnen. "
+        "Bequemlichkeit war nie mein Massstab. Gerecht ist fuer mich etwas erst dann, wenn Prinzip, Verantwortung und Fairness zusammenpassen."
+    )
 
 
 def _memorial_ooda_required_terms(domain: str) -> tuple[str, ...]:
@@ -5295,6 +5327,27 @@ def _memorial_chat_answer(
             "llm_request_model": requested_model,
             "llm_fallback_used": False,
             "fallback_reason": "direct_contact_opening",
+        }
+    if _is_memorial_values_question(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_values_guardrail_answer_body(normalized_question),
+            "sources": [item for item in source_labels if item],
+            "private_context_used": bool(_list_of_dicts(private_profile.get("family_context_notes"))),
+            "personal_memory_used": bool(_personal_memory_context_lines(
+                slug=slug or _text(payload.get("slug"), ""),
+                context=personal_memory_context or {},
+                question=normalized_question,
+            )),
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": True,
+            "fallback_reason": "memorial_values_guardrail",
         }
     if _is_memorial_live_interaction_question(normalized_question):
         requested_model = requested_model or DEFAULT_PUBLIC_MODEL
@@ -10317,7 +10370,35 @@ def _memorial_html(
         opacity: .9;
       }}
       .speech-transcript {{
-        display: block;
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }}
+      .speech-transcript-shell {{
+        display: grid;
+        gap: 12px;
+        margin-top: 14px;
+      }}
+      .speech-transcript-live {{
+        display: grid;
+        gap: 6px;
+        padding: 12px 14px;
+        border: 1px solid rgba(72,103,126,.16);
+        border-radius: 16px;
+        background: rgba(246,248,250,.88);
+      }}
+      .speech-transcript-live strong {{
+        color: var(--blue);
+        font: 700 12px/1.2 "Trebuchet MS", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      .speech-transcript-live p {{
+        margin: 0;
+        color: var(--ink);
+      }}
+      .speech-transcript-live .status-note {{
+        color: var(--ink-soft);
       }}
       .speech-turn {{
         border: 1px solid rgba(132,104,74,.14);
@@ -10838,6 +10919,14 @@ def _memorial_html(
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
+        <section class="speech-transcript-shell" id="memorial-speech-transcript-shell" aria-live="polite">
+          <div class="speech-transcript-live" id="memorial-speech-transcript-live" hidden>
+            <strong id="memorial-speech-transcript-label">Transkript</strong>
+            <p id="memorial-speech-transcript-live-text"></p>
+            <p class="status-note" id="memorial-speech-transcript-effective" hidden></p>
+          </div>
+          <div class="speech-transcript" id="memorial-speech-transcript"></div>
+        </section>
         <div class="minimal-hidden" hidden aria-hidden="true">
           <form class="chat-form" id="memorial-chat-form">
             <select id="memorial-chat-model" class="voice-input chat-model-select" hidden>
@@ -10947,6 +11036,10 @@ def _memorial_html(
       const speakingOverlay = document.getElementById("memorial-speaking-overlay");
       const speakingOverlayTitle = document.getElementById("memorial-speaking-overlay-title");
       const speakingOverlayDetail = document.getElementById("memorial-speaking-overlay-detail");
+      const speechTranscriptLive = document.getElementById("memorial-speech-transcript-live");
+      const speechTranscriptLabel = document.getElementById("memorial-speech-transcript-label");
+      const speechTranscriptLiveText = document.getElementById("memorial-speech-transcript-live-text");
+      const speechTranscriptEffective = document.getElementById("memorial-speech-transcript-effective");
       const speechTranscript = document.getElementById("memorial-speech-transcript");
       let lastAnswerText = "";
       let activeRecognition = null;
@@ -10959,6 +11052,9 @@ def _memorial_html(
       let activeMaxTimer = null;
       let activeLevelMonitor = null;
       let activeBargeInRecognition = null;
+      let activeBargeInStream = null;
+      let activeBargeInAudioContext = null;
+      let activeBargeInLevelMonitor = null;
       let conversationTurnInFlight = false;
       let conversationIdleMisses = 0;
       let speechHadError = false;
@@ -11549,6 +11645,33 @@ def _memorial_html(
           speechTranscript.removeChild(speechTranscript.lastElementChild);
         }}
       }}
+      function setSpeechTranscriptPreview(text = "", options = {{}}) {{
+        if (!speechTranscriptLive || !speechTranscriptLiveText) return;
+        const normalized = normalizeTranscriptText(text || "");
+        const label = String(options.label || "Transkript").trim() || "Transkript";
+        const effectiveText = normalizeTranscriptText(options.effectiveText || "");
+        const placeholder = String(options.placeholder || "").trim();
+        if (speechTranscriptLabel) speechTranscriptLabel.textContent = label;
+        if (normalized) {{
+          speechTranscriptLive.hidden = false;
+          speechTranscriptLiveText.textContent = normalized;
+        }} else if (placeholder) {{
+          speechTranscriptLive.hidden = false;
+          speechTranscriptLiveText.textContent = placeholder;
+        }} else {{
+          speechTranscriptLive.hidden = true;
+          speechTranscriptLiveText.textContent = "";
+        }}
+        if (speechTranscriptEffective) {{
+          if (effectiveText && effectiveText !== normalized) {{
+            speechTranscriptEffective.hidden = false;
+            speechTranscriptEffective.textContent = "Verstanden als: " + effectiveText;
+          }} else {{
+            speechTranscriptEffective.hidden = true;
+            speechTranscriptEffective.textContent = "";
+          }}
+        }}
+      }}
       async function fetchWithTimeout(url, options = {{}}, timeoutMs = 45000) {{
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -11582,25 +11705,25 @@ def _memorial_html(
         const firstTurn = conversationTurnCount <= 0;
         if (firstTurn) {{
           return {{
-            autoStopMs: 2200,
-            maxAfterSpeechMs: 4200,
-            silenceMs: 420,
-            silenceThreshold: 0.0075,
+            autoStopMs: 5200,
+            maxAfterSpeechMs: 5200,
+            silenceMs: 900,
+            silenceThreshold: 0.0105,
             minTranscriptLength: 1,
             minTranscriptWords: 1,
-            pauseMs: 260,
+            pauseMs: 360,
             listeningText: "Sprich direkt los.",
             transcribingText: "Einen Moment ..."
           }};
         }}
         return {{
-          autoStopMs: 3200,
-          maxAfterSpeechMs: 5200,
-          silenceMs: 520,
-          silenceThreshold: 0.0085,
+          autoStopMs: 6800,
+          maxAfterSpeechMs: 6800,
+          silenceMs: 1100,
+          silenceThreshold: 0.011,
           minTranscriptLength: 1,
           minTranscriptWords: 1,
-          pauseMs: 320,
+          pauseMs: 420,
           listeningText: "Sprich einfach los.",
           transcribingText: "Einen Moment ..."
         }};
@@ -11702,6 +11825,7 @@ def _memorial_html(
           realtimeTurnData.transcript_text = text;
           realtimeTurnData.transcript_effective_text = effectiveText;
           if (text) question.value = text;
+          setSpeechTranscriptPreview(text, {{ label: "Ich habe verstanden", effectiveText }});
           if (text && effectiveText && effectiveText !== text) setAnswerStatus("Verstanden als: " + effectiveText);
           return;
         }}
@@ -12201,6 +12325,7 @@ def _memorial_html(
         return false;
       }}
       function stopSpeechPlayback() {{
+        disarmConversationBargeIn();
         if (speechPlaybackWatchdogTimer) {{
           clearTimeout(speechPlaybackWatchdogTimer);
           speechPlaybackWatchdogTimer = null;
@@ -12472,6 +12597,7 @@ def _memorial_html(
         speechAudio.onplaying = () => {{
           playbackStarted = true;
           setSpeechStatus("", "speaking", "");
+          if (conversationActive) void armConversationBargeIn();
           reportPlaybackTelemetry("playing", {{
             context: contextLabel,
             plugin: safePluginId,
@@ -12692,6 +12818,20 @@ def _memorial_html(
         if (activeBargeInRecognition) {{
           try {{ activeBargeInRecognition.onresult = null; activeBargeInRecognition.onerror = null; activeBargeInRecognition.onend = null; activeBargeInRecognition.stop(); }} catch (error) {{}}
           activeBargeInRecognition = null;
+        }}
+        if (activeBargeInLevelMonitor) {{
+          clearInterval(activeBargeInLevelMonitor);
+          activeBargeInLevelMonitor = null;
+        }}
+        if (activeBargeInAudioContext) {{
+          try {{ activeBargeInAudioContext.close(); }} catch (error) {{}}
+          activeBargeInAudioContext = null;
+        }}
+        if (activeBargeInStream) {{
+          activeBargeInStream.getTracks().forEach((track) => {{
+            try {{ track.stop(); }} catch (error) {{}}
+          }});
+          activeBargeInStream = null;
         }}
       }}
       function supportsLiveRealtimeConversation() {{
@@ -12982,46 +13122,60 @@ def _memorial_html(
         }}
         setTimeout(() => {{
           if (conversationActive && !conversationTurnInFlight) void recordConversationTurn();
-        }}, 90);
+        }}, 140);
       }}
       function armConversationBargeIn() {{
         if (!conversationActive || conversationTurnInFlight || !speechAudio || speechAudio.paused) return;
-        if (activeBargeInRecognition || activeRecognition) return;
-        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!Recognition) return;
+        if (activeBargeInLevelMonitor || activeBargeInStream) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
         if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") return;
-        const recognition = new Recognition();
-        activeBargeInRecognition = recognition;
-        let settled = false;
-        let heardText = "";
-        const startedAt = Date.now();
-        recognition.lang = "de-AT";
-        recognition.interimResults = true;
-        recognition.continuous = true;
-        recognition.maxAlternatives = 1;
-        recognition.onresult = (event) => {{
-          let next = "";
-          for (let index = event.resultIndex; index < event.results.length; index += 1) {{
-            next += " " + String(event.results[index][0].transcript || "");
+        void (async () => {{
+          try {{
+            const stream = await navigator.mediaDevices.getUserMedia({{ audio: {{ echoCancellation: true, noiseSuppression: true, autoGainControl: true }} }});
+            if (!conversationActive || !speechAudio || speechAudio.paused) {{
+              stream.getTracks().forEach((track) => track.stop());
+              return;
+            }}
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) {{
+              stream.getTracks().forEach((track) => track.stop());
+              return;
+            }}
+            const context = new AudioCtx();
+            const source = context.createMediaStreamSource(stream);
+            const analyser = context.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
+            const data = new Float32Array(analyser.fftSize);
+            const startedAt = Date.now();
+            let speechFrames = 0;
+            let triggered = false;
+            activeBargeInStream = stream;
+            activeBargeInAudioContext = context;
+            activeBargeInLevelMonitor = setInterval(() => {{
+              if (triggered) return;
+              if (!conversationActive || conversationTurnInFlight || !speechAudio || speechAudio.paused) {{
+                disarmConversationBargeIn();
+                return;
+              }}
+              analyser.getFloatTimeDomainData(data);
+              let sum = 0;
+              for (let i = 0; i < data.length; i += 1) sum += data[i] * data[i];
+              const rms = Math.sqrt(sum / data.length);
+              if (Date.now() - startedAt < 260) return;
+              if (rms >= 0.028) speechFrames += 1;
+              else speechFrames = Math.max(0, speechFrames - 1);
+              if (speechFrames < 2) return;
+              triggered = true;
+              disarmConversationBargeIn();
+              void cancelRealtimeTurn("speech_barge_in");
+              stopSpeechPlayback();
+              void resumeConversationAfterBargeIn("");
+            }}, 90);
+          }} catch (error) {{
+            disarmConversationBargeIn();
           }}
-          heardText = normalizeTranscriptText((heardText + " " + next).trim());
-          if (Date.now() - startedAt < 320) return;
-          if (heardText.replace(/\\s+/g, " ").trim().length < 3) return;
-          if (settled) return;
-          settled = true;
-          activeBargeInRecognition = null;
-          void cancelRealtimeTurn("speech_barge_in");
-          stopSpeechPlayback();
-          void resumeConversationAfterBargeIn(heardText);
-          try {{ recognition.stop(); }} catch (error) {{}}
-        }};
-        recognition.onerror = () => {{
-          if (activeBargeInRecognition === recognition) activeBargeInRecognition = null;
-        }};
-        recognition.onend = () => {{
-          if (activeBargeInRecognition === recognition) activeBargeInRecognition = null;
-        }};
-        try {{ recognition.start(); }} catch (error) {{ activeBargeInRecognition = null; }}
+        }})();
       }}
       function setConversationUi(active) {{
         syncConversationButtons();
@@ -13062,6 +13216,7 @@ def _memorial_html(
         const maxMs = autoStopMs > 0 ? Math.max(autoStopMs, 900) : 9000;
         const silenceMs = Math.max(120, Number(options.silenceMs || 850));
         const silenceThreshold = Number(options.silenceThreshold || 0.018);
+        setSpeechTranscriptPreview("", {{ label: "Ich höre", placeholder: listeningText }});
         const runCapture = async () => {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {{
             throw new Error("Sprechen geht auf diesem Geraet gerade nicht. Bitte oeffne die Seite in einem neueren Browser und versuche es noch einmal.");
@@ -13087,6 +13242,7 @@ def _memorial_html(
             if (serverSttButton) serverSttButton.textContent = "Ich hoere zu ...";
             if (listenButton) listenButton.disabled = true;
             setSpeechStatus(listeningText, "listening", "Ich hoere dir direkt zu");
+            setSpeechTranscriptPreview("", {{ label: "Ich höre", placeholder: listeningText }});
             try {{
               const AudioCtx = window.AudioContext || window.webkitAudioContext;
               if (AudioCtx) {{
@@ -13146,10 +13302,12 @@ def _memorial_html(
             const blob = new Blob(recorderChunks, {{ type: mimeType }});
             recorderChunks = [];
             if (!blob.size) {{
+              setSpeechTranscriptPreview("", {{ label: "Ich habe noch nichts verstanden", placeholder: "Bitte sprich noch einmal." }});
               reject(memorialJsError("Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.", "no_speech"));
               return;
             }}
             setSpeechStatus(transcribingText, "transcribing", "Einen Moment");
+            setSpeechTranscriptPreview("", {{ label: "Transkribiere", placeholder: transcribingText }});
             try {{
               const payload = await transcribeAudioBlob(blob);
               const transcript = normalizeTranscriptText(payload.transcript_text || "");
@@ -13157,6 +13315,10 @@ def _memorial_html(
               serverTranscriptFailureCount = 0;
               serverTranscriptCooldownUntil = 0;
               question.value = originalTranscript || transcript;
+              setSpeechTranscriptPreview(originalTranscript || transcript, {{
+                label: "Ich habe verstanden",
+                effectiveText: transcript
+              }});
               resolve({{ transcript: originalTranscript || transcript, blob, effectiveTranscript: transcript }});
             }} catch (error) {{
               const retryDelay = serverTranscriptRetryDelayMs(error);
@@ -13164,6 +13326,7 @@ def _memorial_html(
                 serverTranscriptFailureCount += 1;
                 serverTranscriptCooldownUntil = Date.now() + Math.max(retryDelay, Math.min(9000, 2200 + (serverTranscriptFailureCount - 1) * 1800));
               }}
+              setSpeechTranscriptPreview("", {{ label: "Transkript fehlgeschlagen", placeholder: "Bitte sprich noch einmal." }});
               reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
             }}
           }};
@@ -13181,72 +13344,7 @@ def _memorial_html(
         }}
       }}
       function startSpeechInput() {{
-        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!Recognition) {{
-          setSpeechStatus("Dein Browser kann gerade nicht direkt zuhoeren. Ich versuche es anders.", "error", "Bitte sprich noch einmal");
-          if (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {{
-            void startServerSpeechInput();
-          }}
-          return;
-        }}
-        if (window.location.protocol !== "https:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {{
-          setSpeechStatus("Das Mikrofon braucht eine geschuetzte Verbindung.", "error", "Bitte die sichere Seite oeffnen");
-          return;
-        }}
-        if (activeRecognition) {{
-          try {{ activeRecognition.stop(); }} catch (error) {{}}
-          activeRecognition = null;
-        }}
-        const recognition = new Recognition();
-        activeRecognition = recognition;
-        speechHadError = false;
-        recognition.lang = "de-AT";
-        recognition.interimResults = true;
-        recognition.continuous = true;
-        let finalText = "";
-        recognition.onstart = () => {{
-          setSpeechStatus("Ich hoere dir zu.", "listening", "Sprich einfach los");
-          if (listenButton) listenButton.disabled = true;
-          if (stopButton) stopButton.disabled = false;
-        }};
-        recognition.onresult = (event) => {{
-          let interim = "";
-          for (let index = event.resultIndex; index < event.results.length; index += 1) {{
-            const transcript = event.results[index][0].transcript;
-            if (event.results[index].isFinal) finalText += transcript;
-            else interim += transcript;
-          }}
-          question.value = (finalText || interim || "").trim();
-        }};
-        recognition.onerror = (event) => {{
-          speechHadError = true;
-          const errorCode = String(event.error || "unknown");
-          const messages = {{
-            "not-allowed": "Bitte erlaube kurz das Mikrofon und versuche es noch einmal.",
-            "service-not-allowed": "Dein Browser blockiert das Mikrofon gerade. Bitte versuche es noch einmal.",
-            "no-speech": "Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.",
-            "audio-capture": "Ich finde gerade kein Mikrofon. Bitte pruefe dein Geraet.",
-            "network": "Die Verbindung zum Mikrofon war gerade instabil. Bitte versuche es noch einmal.",
-            "aborted": "Ich habe angehalten."
-          }};
-          setSpeechStatus(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal.", "error", "Bitte sprich noch einmal");
-        }};
-        recognition.onend = () => {{
-          if (listenButton) listenButton.disabled = false;
-          if (stopButton) stopButton.disabled = false;
-          if (activeRecognition === recognition) activeRecognition = null;
-          if (speechHadError) return;
-          const text = normalizeTranscriptText(question.value || finalText || "");
-          setSpeechStatus(text ? "Ich habe dich verstanden." : "Ich habe dich gerade nicht gehoert. Bitte sprich noch einmal.", text ? "working" : "error", text ? "Einen Moment" : "Bitte sprich noch einmal");
-          if (text) askMemorialChat(text);
-        }};
-        try {{
-          recognition.start();
-        }} catch (error) {{
-          activeRecognition = null;
-          if (listenButton) listenButton.disabled = false;
-          setSpeechStatus("Ich konnte das Mikrofon gerade nicht starten. Bitte versuche es noch einmal.", "error", "Bitte sprich noch einmal");
-        }}
+        void startServerSpeechInput();
       }}
       async function startServerSpeechInput() {{
         try {{
@@ -13259,194 +13357,8 @@ def _memorial_html(
         }}
       }}
       async function captureRealtimeTranscript(options = {{}}) {{
-        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const canUseBrowserRecognition = Boolean(
-          Recognition &&
-          !navigator.webdriver &&
-          (window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-        );
         if (question) question.value = "";
-        if (!canUseBrowserRecognition) return captureServerTranscript(options);
-        return await new Promise((resolve, reject) => {{
-          const recognition = new Recognition();
-          let finalText = "";
-          let interimText = "";
-          let settled = false;
-          let fallbackInFlight = false;
-          let settleTimer = null;
-          let hardStopTimer = null;
-          let startedAt = Date.now();
-          speechHadError = false;
-          activeRecognition = recognition;
-          const autoStopMs = Math.max(420, Number(options.autoStopMs || 1600));
-          const pauseMs = Math.max(110, Number(options.pauseMs || options.silenceMs || 260));
-          const minTranscriptLength = Math.max(1, Number(options.minTranscriptLength || 1));
-          const minTranscriptWords = Math.max(1, Number(options.minTranscriptWords || 1));
-          const isTranscriptReady = (text) => {{
-            const normalized = normalizeTranscriptText(text || "");
-            if (normalized.length < minTranscriptLength) return false;
-            const words = normalized.split(/\\s+/).filter(Boolean);
-            return words.length >= minTranscriptWords;
-          }};
-          const isConversationalBoundary = (text) => {{
-            const normalized = normalizeTranscriptText(text || "");
-            if (!normalized) return false;
-            const trimmed = String(text || "").trim();
-            if (/[\\?\\.!…]$/.test(trimmed)) return true;
-            const words = normalized.split(/\\s+/).filter(Boolean);
-            return words.length >= 6 || normalized.length >= 72;
-          }};
-          const currentTranscript = () => normalizeTranscriptText(finalText || interimText || "");
-          const resolveWith = (payload) => {{
-            if (settled || speechHadError) return;
-            settled = true;
-            if (settleTimer) {{
-              clearTimeout(settleTimer);
-              settleTimer = null;
-            }}
-            if (hardStopTimer) {{
-              clearTimeout(hardStopTimer);
-              hardStopTimer = null;
-            }}
-            activeRecognition = null;
-            resolve(payload);
-            try {{
-              recognition.stop();
-            }} catch (error) {{}}
-          }};
-          const finalizeTranscript = () => {{
-            const transcript = currentTranscript();
-            if (!isTranscriptReady(transcript)) return false;
-            resolveWith({{ transcript, blob: null }});
-            return true;
-          }};
-          const scheduleSettle = () => {{
-            if (settled || fallbackInFlight) return;
-            if (settleTimer) {{
-              clearTimeout(settleTimer);
-            }}
-            settleTimer = window.setTimeout(() => {{
-              if (!settled && !fallbackInFlight) {{
-                if (!finalizeTranscript()) {{
-                  fallbackToServerTranscript();
-                }}
-              }}
-            }}, pauseMs);
-          }};
-          const fallbackToServerTranscript = () => {{
-            if (settled || fallbackInFlight) return;
-            fallbackInFlight = true;
-            if (settleTimer) {{
-              clearTimeout(settleTimer);
-              settleTimer = null;
-            }}
-            if (hardStopTimer) {{
-              clearTimeout(hardStopTimer);
-              hardStopTimer = null;
-            }}
-            if (activeRecognition === recognition) {{
-              activeRecognition = null;
-            }}
-            void captureServerTranscript(options)
-              .then((result) => {{
-                resolveWith(result);
-              }})
-              .catch((error) => {{
-                if (settled) return;
-                settled = true;
-                reject(error instanceof Error ? error : new Error(String(error || "speech_transcription_failed")));
-              }});
-          }};
-          recognition.lang = "de-AT";
-          recognition.interimResults = true;
-          recognition.continuous = true;
-          recognition.maxAlternatives = 1;
-          recognition.onstart = () => {{
-            if (pushToTalkButton) pushToTalkButton.textContent = "Ich höre...";
-            setSpeechStatus(String(options.listeningText || "Sprich einfach los."), "listening", "Ich hoere dir direkt zu");
-            startedAt = Date.now();
-            if (hardStopTimer) {{
-              clearTimeout(hardStopTimer);
-            }}
-            hardStopTimer = window.setTimeout(() => {{
-              const transcript = normalizeTranscriptText(finalText || interimText || "");
-              if (isTranscriptReady(transcript)) {{
-                finalizeTranscript();
-              }} else {{
-                fallbackToServerTranscript();
-              }}
-            }}, autoStopMs);
-          }};
-          recognition.onresult = (event) => {{
-            let nextFinal = "";
-            let nextInterim = "";
-            for (let index = event.resultIndex; index < event.results.length; index += 1) {{
-              const transcript = normalizeTranscriptText(event.results[index][0].transcript || "");
-              if (!transcript) continue;
-              if (event.results[index].isFinal) nextFinal += (nextFinal ? " " : "") + transcript;
-              else nextInterim += (nextInterim ? " " : "") + transcript;
-            }}
-            if (nextFinal) finalText = normalizeTranscriptText((finalText ? finalText + " " : "") + nextFinal);
-            interimText = normalizeTranscriptText(nextInterim);
-            const combined = normalizeTranscriptText(finalText || interimText || "");
-            question.value = combined;
-            if (Date.now() - startedAt > 110 && isTranscriptReady(combined) && (
-              looksImmediateLivePrompt(combined) ||
-              isConversationalBoundary(combined)
-            )) {{
-              finalizeTranscript();
-              return;
-            }}
-            setSpeechStatus(interimText || finalText || String(options.listeningText || "Sprich einfach los."), "listening", interimText ? "Ich hoere schon mit" : "Ich hoere dir direkt zu");
-            scheduleSettle();
-          }};
-          recognition.onerror = (event) => {{
-            speechHadError = true;
-            const errorCode = String(event.error || "unknown");
-            if (errorCode === "no-speech" || errorCode === "network" || errorCode === "aborted") {{
-              fallbackToServerTranscript();
-              return;
-            }}
-            if (settled || speechHadError) return;
-            if (settleTimer) {{
-              clearTimeout(settleTimer);
-              settleTimer = null;
-            }}
-            if (hardStopTimer) {{
-              clearTimeout(hardStopTimer);
-              hardStopTimer = null;
-            }}
-            activeRecognition = null;
-            const messages = {{
-              "not-allowed": "Bitte erlaube kurz das Mikrofon und versuche es noch einmal.",
-              "service-not-allowed": "Dein Browser blockiert das Mikrofon gerade. Bitte versuche es noch einmal.",
-              "audio-capture": "Ich finde gerade kein Mikrofon. Bitte pruefe dein Geraet.",
-              "aborted": "Ich habe angehalten."
-            }};
-            reject(new Error(messages[errorCode] || "Ich konnte dir gerade nicht zuhoeren. Bitte versuche es noch einmal."));
-          }};
-          recognition.onend = () => {{
-            if (settleTimer) {{
-              clearTimeout(settleTimer);
-              settleTimer = null;
-            }}
-            if (hardStopTimer) {{
-              clearTimeout(hardStopTimer);
-              hardStopTimer = null;
-            }}
-            if (activeRecognition === recognition) activeRecognition = null;
-            if (settled || fallbackInFlight || speechHadError) return;
-            if (!finalizeTranscript()) {{
-              fallbackToServerTranscript();
-            }}
-          }};
-          try {{
-            recognition.start();
-          }} catch (error) {{
-            activeRecognition = null;
-            void captureServerTranscript(options).then(resolve).catch(reject);
-          }}
-        }});
+        return captureServerTranscript(options);
       }}
       function continueConversationAfterAssistantTurn() {{
         if (!conversationActive) return;
@@ -13530,19 +13442,6 @@ def _memorial_html(
       }}
       async function recordConversationTurn() {{
         if (!conversationActive || conversationTurnInFlight) return;
-        if (supportsLiveRealtimeConversation()) {{
-          try {{
-            const livePayload = await startLiveRealtimeConversationTurn(recordConversationOptions());
-            await handleLiveRealtimeConversationTurn(livePayload);
-            return;
-          }} catch (error) {{
-            cleanupLiveRealtimeConversation();
-            if (!conversationActive) return;
-            if (String(error && error.message || error || "") !== "live_realtime_unsupported") {{
-              setSpeechStatus("Ich wechsle kurz auf sichere Erkennung.", "working", "Fallback");
-            }}
-          }}
-        }}
         try {{
           const result = await captureRealtimeTranscript(recordConversationOptions());
           const transcript = normalizeTranscriptText(result && result.transcript || "");
@@ -15021,6 +14920,15 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         return
                     if _is_memorial_contact_question(_canonical_memorial_contact_opening_question(transcript_text)) or _is_memorial_direct_contact_opening_text(answer_text):
                         answer_text = _memorial_contact_answer_body(f"{transcript_text} {turn_id}")
+                        await _safe_send_json(
+                            {
+                                "type": "response.output_audio_transcript.done",
+                                "turn_id": turn_id,
+                                "transcript": answer_text.strip(),
+                            }
+                        )
+                    elif _memorial_answer_has_narrowing_clarification(answer_text):
+                        answer_text = _memorial_values_guardrail_answer_body(transcript_text)
                         await _safe_send_json(
                             {
                                 "type": "response.output_audio_transcript.done",
