@@ -164,6 +164,9 @@ _MEMORIAL_REALTIME_TTS_TAIL_SILENCE_MS = 760
 _MEMORIAL_REALTIME_STREAM_YIELD_SECONDS = 0.015
 _MEMORIAL_SHADOW_STT_ALLOWED_PROVIDERS = {"blipai"}
 _BLIPAI_DEFAULT_STT_URL = "https://mantra-backend-app.azurewebsites.net/api/blipai/stt/transcribe"
+_CARTESIA_STT_URL = "https://api.cartesia.ai/stt"
+_CARTESIA_VERSION = "2026-03-01"
+_CARTESIA_STT_MODEL = "ink-whisper"
 _BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
 _BLIPAI_SUPABASE_ANON_KEY = "sb_publishable_TCu8hwzGitgxmzCu2rYHiA_6r3MImeD"
 _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
@@ -7016,7 +7019,8 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         from app.product import service as product_service
 
         keys = product_service._pocket_onemin_api_keys()
-        if not keys:
+        cartesia_api_key = _memorial_cartesia_api_key()
+        if not keys and not cartesia_api_key:
             raise HTTPException(status_code=503, detail="speech_transcriber_unavailable")
         upload_variants: list[tuple[bytes, str, str, str]] = []
         if normalized_content_type in _ONEMIN_SPEECH_AUDIO_TYPES:
@@ -7058,6 +7062,73 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         upload_variants = _prioritize_memorial_transcription_variants(upload_variants)
         last_error: Exception | None = None
         transcript_candidates: list[dict[str, object]] = []
+        if cartesia_api_key:
+            for variant_payload, variant_content_type, _variant_extension, variant_label in upload_variants:
+                try:
+                    transcribed = _cartesia_transcribe_audio(
+                        api_key=cartesia_api_key,
+                        payload=variant_payload,
+                        content_type=variant_content_type,
+                        language="de",
+                    )
+                    text = _repair_memorial_transcript_text(transcribed.get("text"))
+                    if not text:
+                        raise RuntimeError(f"cartesia_transcript_empty:{variant_label}")
+                    transcriber = "cartesia/ink-whisper"
+                    if variant_label != "original":
+                        transcriber = f"{transcriber}+{variant_label}"
+                    shadow_stt = _memorial_shadow_stt_result(
+                        user_audio_payload=variant_payload,
+                        content_type=variant_content_type,
+                        primary_transcript=text,
+                        primary_transcriber=transcriber,
+                    )
+                    correction = dict(shadow_stt.get("correction") or {})
+                    effective_text = text
+                    if bool(correction.get("should_correct")):
+                        corrected_text = _repair_memorial_transcript_text(_text(correction.get("corrected_transcript")))
+                        if corrected_text:
+                            effective_text = corrected_text
+                    transcript_candidates.append(
+                        {
+                            "transcription_status": "transcribed",
+                            "transcript_text": effective_text,
+                            "transcriber": transcriber,
+                            "shadow_stt": shadow_stt,
+                            "primary_transcript_text": text,
+                        }
+                    )
+                    if _memorial_transcript_is_confident_early_accept(
+                        effective_text,
+                        transcriber=transcriber,
+                        corrected=effective_text != text,
+                    ):
+                        return {
+                            "transcription_status": "transcribed",
+                            "transcript_text": effective_text,
+                            "transcriber": transcriber,
+                            "shadow_stt": shadow_stt,
+                            "primary_transcript_text": text,
+                        }
+                    if (
+                        effective_text
+                        and not _looks_like_memorial_contact_opening_transcript(text)
+                        and not _is_known_bad_memorial_subtitle_transcript(text)
+                        and variant_label == "enhanced_wav"
+                    ):
+                        break
+                except Exception as exc:
+                    last_error = exc
+                    continue
+            best_candidate = _select_best_memorial_transcription(transcript_candidates)
+            if best_candidate:
+                return {
+                    "transcription_status": "transcribed",
+                    "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
+                    "transcriber": _text(best_candidate.get("transcriber"), "cartesia/ink-whisper"),
+                    "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
+                    "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
+                }
         for api_key in keys:
             for variant_payload, variant_content_type, variant_extension, variant_label in upload_variants:
                 try:
@@ -7687,6 +7758,55 @@ def _convert_audio_to_wav(*, payload: bytes, extension: str, enhance_for_speech:
             stderr = proc.stderr.decode("utf-8", errors="ignore").strip()
             raise RuntimeError(f"speech_audio_convert_failed:{stderr[:160]}")
         return output_path.read_bytes()
+
+
+def _memorial_cartesia_api_key() -> str:
+    for name in ("CARTESIA_API_KEY", "EA_CARTESIA_API_KEY"):
+        value = _text(os.getenv(name)).strip()
+        if value:
+            return value
+    return ""
+
+
+def _memorial_cartesia_language(language: str) -> str:
+    normalized = _text(language).strip().lower()
+    if normalized.startswith("de"):
+        return "de"
+    return normalized or "de"
+
+
+def _cartesia_transcribe_audio(*, api_key: str, payload: bytes, content_type: str, language: str) -> dict[str, object]:
+    response = requests.post(
+        _CARTESIA_STT_URL,
+        headers={
+            "Authorization": f"Bearer {str(api_key or '').strip()}",
+            "Cartesia-Version": _CARTESIA_VERSION,
+            "Accept": "application/json",
+            "User-Agent": "EA-Memorial-STT/1.0",
+        },
+        data={
+            "model": _CARTESIA_STT_MODEL,
+            "language": _memorial_cartesia_language(language),
+            "timestamp_granularities[]": "word",
+        },
+        files={
+            "file": (
+                "memorial-speech.wav",
+                payload,
+                str(content_type or "audio/wav").strip() or "audio/wav",
+            )
+        },
+        timeout=180,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"cartesia_transcribe_http_{response.status_code}:{response.text[:200]}")
+    try:
+        parsed = response.json()
+    except Exception as exc:
+        raise RuntimeError("cartesia_transcribe_invalid_json") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("cartesia_transcribe_invalid_payload")
+    return parsed
 
 
 def _minimal_public_memorial_html(

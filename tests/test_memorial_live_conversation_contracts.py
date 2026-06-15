@@ -866,6 +866,44 @@ def test_memorial_transcribe_uses_fast_shadow_stt_candidate_before_slow_primary(
     assert result["transcriber"] == "shadow:blipai"
 
 
+def test_memorial_transcribe_prefers_cartesia_stt_before_onemin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        lambda **kwargs: {"text": "Würdest du dich gegen Covid impfen lassen?"},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_pocket_onemin_api_keys",
+        lambda: (),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Würdest du dich gegen Covid impfen lassen?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Würdest du dich gegen Covid impfen lassen?"
+    assert result["transcriber"] == "cartesia/ink-whisper+enhanced_wav"
+
+
 def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_primary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -881,6 +919,47 @@ def test_memorial_transcribe_ignores_fast_shadow_stt_junk_and_falls_back_to_prim
             "status": "ok",
             "transcript_text": "you",
         },
+    )
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}})
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Wie ist das Wetter heute in Wien?"}}}},
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
+
+
+def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("cartesia_transcribe_http_401:unauthorized")),
     )
     monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
     monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}})
