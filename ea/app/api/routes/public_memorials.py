@@ -34,6 +34,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 import requests
+from app.api.routes import public_memorial_turn_support as turn_support
 
 try:
     import websockets
@@ -15203,40 +15204,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 raise HTTPException(status_code=502, detail="tts_plugin_failed")
             tts_ms = (time.perf_counter() - tts_started) * 1000.0
             pad_ms = 0.0
-            audio_base64 = base64.b64encode(audio).decode("ascii")
-            if audio_base64:
-                chunk_size = 96_000
-                total_parts = max(1, (len(audio_base64) + chunk_size - 1) // chunk_size)
-                for index in range(total_parts):
-                    if turn_id in cancelled_turn_ids:
-                        await _send_cancelled(turn_id)
-                        return
-                    start = index * chunk_size
-                    end = start + chunk_size
-                    if not await _safe_send_json(
-                        {
-                            "type": "audio_chunk",
-                            "turn_id": turn_id,
-                            "content_type": audio_content_type,
-                            "part": index + 1,
-                            "total_parts": total_parts,
-                            "audio_base64": audio_base64[start:end],
-                        }
-                    ):
-                        return
-                    await asyncio.sleep(_MEMORIAL_REALTIME_STREAM_YIELD_SECONDS)
-                if turn_id in cancelled_turn_ids:
-                    await _send_cancelled(turn_id)
-                    return
-                if not await _safe_send_json(
-                    {
-                        "type": "audio_complete",
-                        "turn_id": turn_id,
-                        "content_type": audio_content_type,
-                        "total_parts": total_parts,
-                    }
-                ):
-                    return
+            if audio and not await turn_support.stream_realtime_audio_chunks(
+                turn_id=turn_id,
+                audio=audio,
+                audio_content_type=audio_content_type,
+                chunk_size=96_000,
+                cancelled_turn_ids=cancelled_turn_ids,
+                send_json=_safe_send_json,
+                send_cancelled=_send_cancelled,
+            ):
+                return
             if turn_id in cancelled_turn_ids:
                 await _send_cancelled(turn_id)
                 return

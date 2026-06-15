@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import time
+from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -176,3 +179,48 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
             total_ms=(time.perf_counter() - total_started) * 1000.0,
         )
         raise
+
+
+async def stream_realtime_audio_chunks(
+    *,
+    turn_id: str,
+    audio: bytes,
+    audio_content_type: str,
+    chunk_size: int,
+    cancelled_turn_ids: set[str],
+    send_json: Callable[[dict[str, object]], Awaitable[bool]],
+    send_cancelled: Callable[[str], Awaitable[None]],
+) -> bool:
+    audio_base64 = base64.b64encode(audio).decode("ascii")
+    if not audio_base64:
+        return True
+    total_parts = max(1, (len(audio_base64) + chunk_size - 1) // chunk_size)
+    for index in range(total_parts):
+        if turn_id in cancelled_turn_ids:
+            await send_cancelled(turn_id)
+            return False
+        start = index * chunk_size
+        end = start + chunk_size
+        if not await send_json(
+            {
+                "type": "audio_chunk",
+                "turn_id": turn_id,
+                "content_type": audio_content_type,
+                "part": index + 1,
+                "total_parts": total_parts,
+                "audio_base64": audio_base64[start:end],
+            }
+        ):
+            return False
+        await asyncio.sleep(shared._MEMORIAL_REALTIME_STREAM_YIELD_SECONDS)
+    if turn_id in cancelled_turn_ids:
+        await send_cancelled(turn_id)
+        return False
+    return await send_json(
+        {
+            "type": "audio_complete",
+            "turn_id": turn_id,
+            "content_type": audio_content_type,
+            "total_parts": total_parts,
+        }
+    )
