@@ -16,10 +16,10 @@ def _memorial_healthcheck_slug() -> str:
 
 
 def _probe_public_memorial_surface(slug: str) -> dict[str, object]:
-    from app.api.routes import public_memorials
+    from app.api.routes.public_memorial_surface_support import _public_memorial_surface_probe
 
     started = time.perf_counter()
-    probe = public_memorials._public_memorial_surface_probe(slug)
+    probe = _public_memorial_surface_probe(slug)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     if not str(probe.get("person_name") or "").strip():
         raise HTTPException(status_code=503, detail="not_live:memorial_surface_probe_incomplete")

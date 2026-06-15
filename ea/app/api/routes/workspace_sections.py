@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from app.api.routes.workspace_settings_section import build_settings_section
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, HandoffNote, PersonProfile, ProductSnapshot, RuleItem, ThreadItem
 from app.product.projections.common import due_bonus, parse_when, priority_weight, status_open
 from app.product.projections.handoffs import handoff_action_options, handoff_action_plan
@@ -1210,269 +1211,32 @@ def workspace_section_payload(
                 },
             ],
         },
-        "settings": {
-            "title": "Office settings",
-            "summary": "Keep the office loop usable: memo timing, what is feeding Today, who can enter, and what still needs review.",
-            "console_form": {
-                "action": "/app/actions/settings/morning-memo",
-                "method": "post",
-                "eyebrow": "Office profile",
-                "title": "Update office and morning memo rules",
-                "copy": "Keep the office name and memo timing editable after onboarding so Today stays aligned with the real office rhythm.",
-                "submit_label": "Save workspace rules",
-                "fields": [
-                    {
-                        "label": "Workspace name",
-                        "name": "workspace_name",
-                        "type": "text",
-                        "value": str(dict(diagnostics.get("workspace") or {}).get("name") or ""),
-                        "placeholder": "Executive Assistant Workspace" if not property_brand else "PropertyQuarry Workspace",
-                    },
-                    {
-                        "label": "Language",
-                        "name": "language",
-                        "type": "text",
-                        "value": str(dict(diagnostics.get("workspace") or {}).get("language") or "en"),
-                        "placeholder": "en",
-                    },
-                    {
-                        "label": "Timezone",
-                        "name": "timezone",
-                        "type": "text",
-                        "value": str(dict(diagnostics.get("workspace") or {}).get("timezone") or "Europe/Vienna"),
-                        "placeholder": "Europe/Vienna",
-                    },
-                    {
-                        "label": "Enable scheduled memo",
-                        "name": "enabled",
-                        "type": "checkbox",
-                        "value": "true",
-                        "checked": bool(memo_loop.get("enabled")),
-                    },
-                    {
-                        "label": "Cadence",
-                        "name": "cadence",
-                        "type": "select",
-                        "value": str(memo_loop.get("cadence") or "daily_morning"),
-                        "options": [
-                            {"label": "Every day", "value": "daily_morning"},
-                            {"label": "Weekdays", "value": "weekdays_morning"},
-                        ],
-                    },
-                    {
-                        "label": "Recipient email",
-                        "name": "recipient_email",
-                        "type": "email",
-                        "value": str(memo_loop.get("recipient_email") or ""),
-                        "placeholder": "Uses the connected Google email when left blank",
-                    },
-                    {
-                        "label": "Delivery time",
-                        "name": "delivery_time_local",
-                        "type": "time",
-                        "value": str(memo_loop.get("delivery_time_local") or "08:00"),
-                    },
-                    {
-                        "label": "Quiet hours start",
-                        "name": "quiet_hours_start",
-                        "type": "time",
-                        "value": str(memo_loop.get("quiet_hours_start") or "20:00"),
-                    },
-                    {
-                        "label": "Quiet hours end",
-                        "name": "quiet_hours_end",
-                        "type": "time",
-                        "value": str(memo_loop.get("quiet_hours_end") or "07:00"),
-                    },
-                ],
-            },
-            "cards": [
-                {
-                    "eyebrow": "Morning memo",
-                    "title": "Morning memo delivery",
-                    "body": "The scheduled memo stays legible: when it lands, who it lands to, and whether it is producing a useful daily loop.",
-                    "items": [
-                        _row("Memo state", str(memo_loop.get("state") or "watch").replace("_", " ").title(), "Memo", href="/app/settings/outcomes"),
-                        _row("Enabled", "Yes" if memo_loop.get("enabled") else "No", "Memo", href="/app/settings/outcomes"),
-                        _row("Cadence", str(memo_loop.get("cadence") or "daily_morning").replace("_", " "), "Memo", href="/app/settings/outcomes"),
-                        _row(
-                            "Delivery time",
-                            f"{memo_loop.get('delivery_time_local') or '08:00'} {memo_loop.get('timezone') or dict(diagnostics.get('workspace') or {}).get('timezone') or 'UTC'}",
-                            "Memo",
-                            href="/app/settings/outcomes",
-                        ),
-                        _row("Recipient", str(memo_loop.get("recipient_email") or "waiting for recipient"), "Memo", href="/app/settings/outcomes"),
-                        _row("Useful loop days", str(memo_loop.get("days_with_useful_loop") or 0), "Memo", href="/app/settings/outcomes"),
-                        _row("Last scheduled send", str(memo_loop.get("last_scheduled_sent_at") or "not yet sent"), "Memo", href="/app/settings/outcomes"),
-                        _row("Blocked sends", str(memo_loop.get("scheduled_blocked") or 0), "Memo", href="/app/settings/outcomes"),
-                        _row("Failed sends", str(memo_loop.get("scheduled_failed") or 0), "Memo", href="/app/settings/outcomes"),
-                        _row(
-                            "Last memo issue",
-                            str(memo_loop.get("last_issue_reason") or "No current memo blocker"),
-                            "Memo",
-                            href="/app/settings/outcomes",
-                        ),
-                    ],
-                },
-                {
-                    "eyebrow": "Office-loop proof",
-                    "title": "How the daily office loop is proving itself",
-                    "body": "The principal surface says plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
-                    "items": [
-                        _row("Gate state", str(office_loop_proof.get("state") or "watch").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
-                        _row(
-                            "Passed checks",
-                            f"{int(office_loop_proof.get('passed_checks') or 0)}/{int(office_loop_proof.get('check_total') or 0)}",
-                            "Gate",
-                            href="/app/settings/outcomes",
-                        ),
-                        _row("Summary", str(office_loop_proof.get("summary") or "No proof summary yet."), "Gate", href="/app/settings/outcomes"),
-                        _row("Memo open rate", str(outcomes.get("memo_open_rate") or analytics.get("memo_open_rate") or 0), "Memo", href="/app/settings/outcomes"),
-                        _row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or analytics.get("approval_coverage_rate") or 0), "Approvals", href="/app/settings/outcomes"),
-                        _row("Approval send rate", str(outcomes.get("approval_action_rate") or analytics.get("approval_action_rate") or 0), "Approvals", href="/app/settings/outcomes"),
-                        _row(
-                            "Delivery closeout rate",
-                            str(
-                                outcomes.get("delivery_followup_resolution_rate")
-                                if outcomes.get("delivery_followup_resolution_rate") is not None
-                                else analytics.get("delivery_followup_resolution_rate")
-                                if analytics.get("delivery_followup_resolution_rate") is not None
-                                else "n/a"
-                            ),
-                            "Operators",
-                            href="/app/settings/outcomes",
-                        ),
-                        _row(
-                            "Blocked delivery rate",
-                            str(
-                                outcomes.get("delivery_followup_blocked_rate")
-                                if outcomes.get("delivery_followup_blocked_rate") is not None
-                                else analytics.get("delivery_followup_blocked_rate")
-                                if analytics.get("delivery_followup_blocked_rate") is not None
-                                else "n/a"
-                            ),
-                            "Operators",
-                            href="/app/settings/outcomes",
-                        ),
-                        _row("Commitment close rate", str(outcomes.get("commitment_close_rate") or analytics.get("commitment_close_rate") or 0), "Commitments", href="/app/settings/outcomes"),
-                        *[
-                            _row(
-                                str(item.get("label") or "Check"),
-                                (
-                                    f"{item.get('actual')} / <= {item.get('target_max')}"
-                                    if item.get("target_max") is not None
-                                    else f"{item.get('actual')} / {item.get('target')}"
-                                ),
-                                str(item.get("state") or "watch").replace("_", " ").title(),
-                                href="/app/settings/outcomes",
-                            )
-                            for item in proof_checks[:4]
-                        ],
-                    ],
-                },
-                {
-                    "eyebrow": "Google connection" if property_brand else "Google signal loop",
-                    "title": "Connected Google identity posture" if property_brand else "What is feeding the office loop",
-                    "body": (
-                        "PropertyQuarry only needs identity, token health, and reauth posture here."
-                        if property_brand
-                        else "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review."
-                    ),
-                    "items": [
-                        _google_settings_action_row(analytics_sync, return_to="/app/settings/google"),
-                        _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
-                        _row(
-                            "Freshness",
-                            str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(),
-                            "Sync",
-                            href="/app/settings/google",
-                            action_href="/app/actions/signals/google/sync?return_to=/app/settings/google" if analytics_sync.get("google_connected") else "",
-                            action_label="Run now" if analytics_sync.get("google_connected") else "",
-                            action_method="get" if analytics_sync.get("google_connected") else "",
-                        ),
-                        _row("Token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/google"),
-                        *(
-                            []
-                            if property_brand
-                            else [
-                                _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
-                                _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
-                                _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
-                                _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
-                                _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
-                            ]
-                        ),
-                    ],
-                },
-                {
-                    "eyebrow": "Workspace entry",
-                    "title": "Who can enter and who is waiting",
-                    "body": "Access links, pending invitations, and delivery outcomes belong on the main settings surface instead of hiding in support-only routes.",
-                    "items": [
-                        _row("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
-                        _row("Access links opened", str(analytics_access.get("opened") or 0), "Access", href="/app/settings/access"),
-                        _row("Access sessions revoked", str(analytics_access.get("revoked") or 0), "Access", href="/app/settings/access"),
-                        _row("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
-                        _row("Accepted invitations", str(analytics_invitations.get("accepted") or 0), "Invites", href="/app/settings/invitations"),
-                        _row("Revoked invitations", str(analytics_invitations.get("revoked") or 0), "Invites", href="/app/settings/invitations"),
-                        _row("Invite emails sent", str(analytics_delivery.get("invite_sent") or 0), "Email", href="/app/settings/invitations"),
-                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/invitations"),
-                    ],
-                },
-                {
-                    "eyebrow": "Workspace rules",
-                    "title": "What this office currently allows",
-                    "body": "Rules explain the review-first posture, channel boundary, and durable controls behind the current loop.",
-                    "items": _rule_rows(snapshot.rules[:8]),
-                },
-                *(
-                    [
-                        {
-                            "eyebrow": "Support and delivery",
-                            "title": "What needs support before the loop slips",
-                            "body": "Delivery failures, blocked actions, and support verification stay visible before they turn into executive surprise.",
-                            "items": [
-                                _row(
-                                    "Support state",
-                                    str(support_verification.get("summary") or support_verification.get("state") or "No support issue is active."),
-                                    "Support",
-                                    href="/app/settings/support",
-                                ),
-                                _row(
-                                    "Support action",
-                                    str(support_verification.get("recommended_action") or "Open support diagnostics when something stalls."),
-                                    "Support",
-                                    href="/app/settings/support",
-                                ),
-                                _row("Blocked actions", str(len(blocked_actions)), "Support", href="/app/settings/support"),
-                                _row("Warnings", str(len(warning_messages)), "Support", href="/app/settings/support"),
-                                _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
-                                _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/support"),
-                                _row("Digest email failures", str(analytics_delivery.get("digest_failed") or 0), "Email", href="/app/settings/support"),
-                            ],
-                        },
-                        {
-                            "eyebrow": "Product control",
-                            "title": "What the release proof says right now",
-                            "body": "This surface mirrors the weekly product pulse and published journey-gate truth without turning the assistant into a second roadmap owner.",
-                            "items": [
-                                _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave", href="/app/settings/outcomes"),
-                                _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
-                                _row("Journey gate action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate", href="/app/settings/outcomes"),
-                                _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/outcomes"),
-                                _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
-                                _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
-                                _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
-                                _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
-                                _row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof", href="/app/settings/outcomes"),
-                                _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/outcomes"),
-                            ],
-                        },
-                    ]
-                    if operator_key
-                    else []
-                ),
-            ],
-        },
+        "settings": build_settings_section(
+            snapshot=snapshot,
+            diagnostics=diagnostics,
+            outcomes=outcomes,
+            property_brand=property_brand,
+            memo_loop=memo_loop,
+            office_loop_proof=office_loop_proof,
+            proof_checks=proof_checks,
+            analytics=analytics,
+            analytics_delivery=analytics_delivery,
+            analytics_access=analytics_access,
+            analytics_invitations=analytics_invitations,
+            analytics_sync=analytics_sync,
+            support_verification=support_verification,
+            blocked_actions=blocked_actions,
+            warning_messages=warning_messages,
+            operator_key=operator_key,
+            product_control=product_control,
+            journey_gate=journey_gate,
+            journey_freshness=journey_freshness,
+            support_fallout=support_fallout,
+            public_guide_freshness=public_guide_freshness,
+            route_stewardship=route_stewardship,
+            row_builder=_row,
+            rule_rows_builder=_rule_rows,
+            google_settings_action_row_builder=lambda sync: _google_settings_action_row(sync, return_to="/app/settings/google"),
+        ),
     }
     return {"stats": stats, **mapping[section]}

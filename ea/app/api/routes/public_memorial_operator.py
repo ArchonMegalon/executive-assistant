@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.api.routes.public_memorials import (
+from app.api.routes.public_memorial_operator_support import (
     _collect_memorial_public_audio_paths,
     _extract_personal_memory_request_context,
     _load_memorial,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from app.api.routes.public_memorials import (
+from app.api.routes.public_memorial_surface_support import (
     _asset_file,
     _ensure_memorial_guest_cookie,
     _load_memorial,

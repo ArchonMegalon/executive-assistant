@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.container import AppContainer
+from app.api.routes.public_memorial_surface_support import _load_memorial, _load_private_profile
 from app.services.memorial_memory import memorial_memory_principal_id, seed_memorial_source_memories
-from app.api.routes.public_memorials import _load_memorial, _load_private_profile
 
 router = APIRouter(tags=['memory'])
 

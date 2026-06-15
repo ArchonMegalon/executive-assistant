@@ -57,11 +57,31 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
 
 
 def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) -> None:
-    receipt = build_gold_map(generated_at="2026-06-12T00:00:00Z")
+    from scripts import verify_whole_project_gold_map as module
+
+    current_head = _git_head()
+    memorial_voice_receipt = json.loads((ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json").read_text(encoding="utf-8"))
+    memorial_voice_receipt["git_head"] = current_head
+    memorial_voice_path = tmp_path / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
+    memorial_voice_path.parent.mkdir(parents=True, exist_ok=True)
+    memorial_voice_path.write_text(json.dumps(memorial_voice_receipt), encoding="utf-8")
+
+    receipt = build_gold_map(
+        generated_at="2026-06-12T00:00:00Z",
+        memorial_voice_roundtrip_receipt=memorial_voice_path,
+    )
+    for plane in receipt["planes"]:
+        if plane["key"] == "memorial_voice_demo":
+            plane["evidence"] = [".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"]
     path = tmp_path / "gold-map.json"
     path.write_text(json.dumps(receipt), encoding="utf-8")
 
-    assert verify(path) == []
+    original_root = module.ROOT
+    module.ROOT = tmp_path
+    try:
+        assert module.verify(path) == []
+    finally:
+        module.ROOT = original_root
 
     overclaim = copy.deepcopy(receipt)
     for plane in overclaim["planes"]:
@@ -72,7 +92,11 @@ def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) 
     overclaim["blocking_planes"] = ["memorial_public_origin_gold"]
     path.write_text(json.dumps(overclaim), encoding="utf-8")
 
-    issues = verify(path)
+    module.ROOT = tmp_path
+    try:
+        issues = module.verify(path)
+    finally:
+        module.ROOT = original_root
     assert any("gold_claim_allowed cannot be true" in issue for issue in issues)
     assert any("overall_status cannot be gold" in issue for issue in issues)
 
