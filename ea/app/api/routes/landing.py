@@ -521,6 +521,11 @@ def _console_shell_context(
     console_form: dict[str, object] | None = None,
 ) -> dict[str, object]:
     brand = request_brand(request)
+    workspace_context_label = "Property workspace" if brand["key"] == "propertyquarry" else "Office status"
+    if context.access_email:
+        workspace_context_label = context.access_email
+    elif context.operator_id:
+        workspace_context_label = "Operator access"
     return {
         "page_title": page_title,
         "brand": brand,
@@ -535,6 +540,7 @@ def _console_shell_context(
         "principal_id": context.principal_id,
         "access_email": context.access_email,
         "operator_id": context.operator_id,
+        "workspace_context_label": workspace_context_label,
         "base_console_template": "base_console_property.html" if brand["key"] == "propertyquarry" else "base_console_ea.html",
     }
 
@@ -1197,11 +1203,37 @@ def register_page(
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
     principal_id, status = _load_status(request=request, container=container, access_identity=access_identity)
+    brand = request_brand(request)
     if principal_id:
         build_product_service(container).record_surface_event(
             principal_id=principal_id,
             event_type="activation_opened",
             surface="register",
+        )
+    if brand["key"] == "ea":
+        activation_preview = _activation_preview_for_brand(brand["key"], status)
+        return _render_public_template(
+            request,
+            "ea/get_started.html",
+            **_public_context(
+                request=request,
+                current_nav="product",
+                page_title="Start your workspace",
+                principal_id=principal_id,
+                status=status,
+                access_identity=access_identity,
+                extra={
+                    "activation_preview": activation_preview,
+                    "google": dict(status.get("channels") or {}).get("google") or {},
+                    "shared_browser_fields": Markup(
+                        _shared_browser_fields(
+                            principal_id=principal_id,
+                            access_identity=access_identity,
+                            container=container,
+                        )
+                    ),
+                },
+            ),
         )
     return _render_public_template(
         request,
@@ -1209,7 +1241,7 @@ def register_page(
         **_public_context(
             request=request,
             current_nav="product",
-            page_title="Create your property workspace" if request_brand(request)["key"] == "propertyquarry" else "Start your workspace",
+            page_title="Create your property workspace" if brand["key"] == "propertyquarry" else "Start your workspace",
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,

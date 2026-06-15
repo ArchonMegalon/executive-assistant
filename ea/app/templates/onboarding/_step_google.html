@@ -2,7 +2,7 @@
   <div class="wizard-panel-header">
     <div>
       <div class="eyebrow">Step 2</div>
-      <h2>{% if brand.key == 'ea' %}Connect Google only if it improves the first office loop.{% else %}Connect Google first.{% endif %}</h2>
+      <h2>{% if brand.key == 'ea' %}Skip Google unless Today actually needs it.{% else %}Connect Google first.{% endif %}</h2>
     </div>
     <p class="step-context">{% if brand.key == 'ea' %}For EA, Google is useful when it makes the memo, queue, and timing better. It should not become setup theatre before the workspace has proved value.{% else %}For most customers, Google is where the product becomes useful first: email context, calendar pressure, people context, and a real morning memo.{% endif %}</p>
   </div>
@@ -13,10 +13,10 @@
       <strong>{{ google.status|replace('_', ' ') if google.status else 'Not selected yet' }}</strong>
       <p class="copy">{% if brand.key == 'ea' %}This shows whether Google is already helping the office loop or still unnecessary at this stage.{% else %}This shows where the Google connection stands today.{% endif %}</p>
     </div>
-      <div class="status-card">
-        <div class="kicker">Recommended choice</div>
-        <strong>{% if brand.key == 'ea' %}Google Core when needed{% else %}Google Core{% endif %}</strong>
-      <p class="copy">{% if brand.key == 'ea' %}Enough for a useful memo, a first draft workflow, and a commitment loop without expanding scope more than necessary on day one.{% else %}Enough for a useful memo, a first draft workflow, and a commitment loop without expanding the scope more than necessary on day one.{% endif %}</p>
+    <div class="status-card">
+      <div class="kicker">Recommended choice</div>
+        <strong>{% if brand.key == 'ea' %}Skip first, connect later if needed{% else %}Google Core{% endif %}</strong>
+      <p class="copy">{% if brand.key == 'ea' %}Open one workspace first. Add Google only when the memo, queue, or timing would clearly improve from live signals.{% else %}Enough for a useful memo, a first draft workflow, and a commitment loop without expanding the scope more than necessary on day one.{% endif %}</p>
     </div>
     <div class="status-card">
       <div class="kicker">Identity boundary</div>
@@ -31,11 +31,13 @@
       <p class="copy">Read email metadata, calendar, and people context, and support drafting and verification where needed.</p>
       <button class="btn ghost" type="button" data-set-google-bundle="core">Select Google Core</button>
     </div>
+    {% if brand.key != 'ea' %}
     <div class="bundle-card">
       <strong>Full Workspace</strong>
       <p class="copy">Use this only when the office loop genuinely needs broader Google coverage from the beginning.</p>
       <button class="btn ghost" type="button" data-set-google-bundle="full_workspace">Select Full Workspace</button>
     </div>
+    {% endif %}
   </div>
 
   <form class="wizard-form" method="post" action="/google/connect" data-next-step="3">
@@ -65,7 +67,7 @@
     <div class="wizard-actions">
       <button class="btn ghost" type="button" data-step-back="1">Back</button>
       <div class="right">
-        <button class="btn ghost" type="button" data-step-next="3">Skip for now</button>
+        <button class="btn ghost" type="button" data-step-next="3">{% if brand.key == 'ea' %}Open Today first{% else %}Skip for now{% endif %}</button>
         <button class="btn primary" type="submit">Connect Google</button>
       </div>
     </div>

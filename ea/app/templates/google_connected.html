@@ -64,10 +64,10 @@
   <span hidden>Google is connected. The next step is to use it.</span>
   <span hidden>First signal sync finished.</span>
   {% endif %}
-  <h1>Google account linked.</h1>
+  <h1>{% if brand.key == 'ea' %}Today can use Google now.{% else %}Google account linked.{% endif %}</h1>
   <p class="lead">
     {% if brand.key == 'ea' %}
-    Executive Assistant keeps this connection narrow by default. Google can now act as a verified account-return path without pulling broader workspace data unless you enable it.
+    Executive Assistant keeps this connection narrow by default. Open Today and confirm the memo, queue, and timing are actually better before you expand anything else.
     {% else %}
     PropertyQuarry keeps this connection narrow by default. Google can now act as a verified account-return path without pulling extra workspace data.
     {% endif %}
@@ -121,12 +121,12 @@
 
 <section class="section panel google-actions">
   <div class="cta-row">
-    {% if return_to %}<a class="btn primary" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
-    <a class="btn{% if not return_to %} primary{% endif %}" href="{% if brand.key == 'ea' %}/app/today{% else %}/app/properties{% endif %}">
+    <a class="btn primary" href="{% if brand.key == 'ea' %}/app/today{% else %}/app/properties{% endif %}">
       {% if brand.key == 'ea' %}Open Today{% else %}Open Properties{% endif %}
     </a>
-    <a class="btn" href="/app/settings/google">Open Google settings</a>
-    <a class="btn ghost" href="{{ return_to or '/get-started' }}">{{ return_label or 'Back to setup' }}</a>
+    {% if return_to %}<a class="btn" href="{{ return_to }}">{{ return_label or 'Return' }}</a>{% endif %}
+    <a class="btn ghost" href="/app/settings/google">Google settings</a>
+    <a class="btn ghost" href="{{ return_to or '/get-started' }}">Back to setup</a>
     {% if brand.key == 'ea' %}<a hidden href="/get-started">Get started</a>{% endif %}
   </div>
   <details class="scope-details">

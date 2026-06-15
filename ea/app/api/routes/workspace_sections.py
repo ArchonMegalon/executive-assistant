@@ -1211,14 +1211,14 @@ def workspace_section_payload(
             ],
         },
         "settings": {
-            "title": "Rules",
-            "summary": "Keep the memo loop, capture rules, and proof of value visible without dragging the operator center into the principal workspace.",
+            "title": "Office settings",
+            "summary": "Keep the daily office loop legible: memo timing, what is feeding Today, who can enter, and which issues need attention now.",
             "console_form": {
                 "action": "/app/actions/settings/morning-memo",
                 "method": "post",
-                "eyebrow": "Workspace rules",
-                "title": "Update workspace and morning memo rules",
-                "copy": "Keep the office profile and the memo schedule editable after onboarding so the live loop can stay aligned with the real workspace.",
+                "eyebrow": "Office profile",
+                "title": "Update office and morning memo rules",
+                "copy": "Keep the office name and memo timing editable after onboarding so Today stays aligned with the real office rhythm.",
                 "submit_label": "Save workspace rules",
                 "fields": [
                     {
@@ -1226,7 +1226,7 @@ def workspace_section_payload(
                         "name": "workspace_name",
                         "type": "text",
                         "value": str(dict(diagnostics.get("workspace") or {}).get("name") or ""),
-                        "placeholder": "PropertyQuarry Workspace",
+                        "placeholder": "Executive Assistant Workspace" if not property_brand else "PropertyQuarry Workspace",
                     },
                     {
                         "label": "Language",

@@ -6,7 +6,7 @@
     </div>
     <p class="step-context">
       {% if brand.key == 'ea' %}
-      Keep the first setup light. Name the workspace, set the timezone, and move on. Shared review and heavier operating shape can be added after the first useful memo.
+      Keep the first setup light. Name the workspace and move on. Shared review, timezone tuning, and heavier operating shape can be added after the first useful memo.
       {% else %}
       Pick the option that matches the real search rhythm. The right choice is about who reviews properties, who receives alerts, and how much research depth the workspace should assume.
       {% endif %}
@@ -63,6 +63,17 @@
     {% if brand.key == 'ea' %}
     <input type="hidden" name="workspace_mode" value="{{ workspace.mode or 'personal' }}">
     {% endif %}
+    {% if brand.key == 'ea' %}
+    <input type="hidden" name="timezone" value="{{ workspace.timezone or 'Europe/Vienna' }}">
+    <input type="hidden" name="region" value="{{ workspace.region or 'AT' }}">
+    <input type="hidden" name="language" value="{{ workspace.language or 'en' }}">
+    <div class="field-grid one">
+      <div>
+        <label>Activation path</label>
+        <div class="field-help">Keep the first loop narrow: workspace, optional Google identity, first morning memo, first queue item. Broader delivery lanes and shared review can wait until value is obvious.</div>
+      </div>
+    </div>
+    {% else %}
     <div class="field-grid two">
       <div>
         <label for="timezone">Timezone</label>
@@ -80,9 +91,10 @@
       </div>
       <div>
         <label>Activation path</label>
-        <div class="field-help">{% if brand.key == 'ea' %}Keep the first loop narrow: workspace, optional Google identity, first morning memo, first queue item. Broader delivery lanes and shared review can wait until value is obvious.{% else %}Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.{% endif %}</div>
+        <div class="field-help">Keep the first loop narrow: workspace, optional Google identity, first shortlist, first review. Broader delivery lanes can wait until value is obvious.</div>
       </div>
     </div>
+    {% endif %}
     <input type="hidden" name="selected_channels" value="google">
     <div class="finish-grid">
       <div class="finish-card">
