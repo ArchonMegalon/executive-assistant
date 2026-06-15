@@ -191,6 +191,10 @@ def test_ea_workspace_settings_surfaces_do_not_fall_back_to_propertyquarry_label
     assert "PropertyQuarry trust" not in trust.text
     assert "PropertyQuarry access" not in access.text
     assert "PropertyQuarry invitations" not in invitations.text
+    settings = client.get("/app/settings")
+    assert settings.status_code == 200
+    assert "What the release proof says right now" not in settings.text
+    assert "What needs support before the loop slips" not in settings.text
 
 
 def test_ea_setup_start_opens_live_today_instead_of_bouncing_back_to_setup() -> None:

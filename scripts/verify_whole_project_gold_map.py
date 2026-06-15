@@ -48,6 +48,13 @@ GENERATED_RECEIPT_PATHS = {
 }
 
 
+def _is_stable_repo_evidence_path(path_text: str) -> bool:
+    normalized = str(path_text or "").strip()
+    if normalized.startswith("/tmp/"):
+        return False
+    return normalized.startswith(".codex-design/") or normalized.startswith(".codex-studio/") or normalized.startswith("/")
+
+
 def _json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -118,11 +125,20 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
 
     memorial_plane = by_key.get("memorial_voice_demo") or {}
     if str(memorial_plane.get("status") or "").strip().lower() == "pass":
-        evidence = [Path(str(item)) for item in list(memorial_plane.get("evidence") or []) if str(item)]
-        for evidence_path in evidence:
-            payload = _json(evidence_path if evidence_path.is_absolute() else ROOT / evidence_path)
+        evidence_paths = [str(item) for item in list(memorial_plane.get("evidence") or []) if str(item)]
+        for evidence_text in evidence_paths:
+            if not _is_stable_repo_evidence_path(evidence_text):
+                issues.append("memorial voice evidence path must be repo-relative or generated-artifact relative")
+                continue
+            evidence_path = Path(evidence_text)
+            payload = _json(ROOT / evidence_path)
             if payload and current_head and not _fresh_enough(str(payload.get("git_head") or ""), current_head=current_head):
                 issues.append("memorial voice receipt is stale relative to current HEAD")
+
+    memorial_public_plane = by_key.get("memorial_public_origin_gold") or {}
+    for evidence_text in [str(item) for item in list(memorial_public_plane.get("evidence") or []) if str(item)]:
+        if not _is_stable_repo_evidence_path(evidence_text):
+            issues.append("memorial public-origin evidence paths must be repo-relative or generated-artifact relative")
 
     blocking_planes = [
         key

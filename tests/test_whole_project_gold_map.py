@@ -45,29 +45,19 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert "Whole-project gold requires every listed plane to pass" in rules
     assert receipt["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
     assert receipt["ltd_provider_lane_summary"]["poppy_lane_state"] == "verified_draft_operator_lane"
-    assert "memorial_room_audio_public_origin.generated.json" in receipt["required_next_receipts"]
+    if receipt["overall_status"] != "gold":
+        assert "memorial_room_audio_public_origin.generated.json" in receipt["required_next_receipts"]
     memorial_public_plane = planes["memorial_public_origin_gold"]
     if memorial_public_plane["status"] == "blocked":
         assert "public-origin room/device audio intelligibility receipt" in memorial_public_plane["missing_evidence"]
+    assert all(not str(path).startswith("/tmp/") for path in planes["memorial_voice_demo"]["evidence"])
+    assert all(not str(path).startswith("/tmp/") for path in memorial_public_plane["evidence"])
+    assert all(str(path).startswith(".codex-studio/") for path in planes["memorial_voice_demo"]["evidence"])
+    assert all(str(path).startswith(".codex-studio/") for path in memorial_public_plane["evidence"])
 
 
 def test_whole_project_gold_map_verifier_rejects_gold_overclaim(tmp_path: Path) -> None:
-    current_head = _git_head()
-    memorial_voice_receipt = tmp_path / "memorial-voice.json"
-    memorial_voice_receipt.write_text(
-        json.dumps(
-            {
-                "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-                "status": "pass",
-                "git_head": current_head,
-            }
-        ),
-        encoding="utf-8",
-    )
-    receipt = build_gold_map(
-        generated_at="2026-06-12T00:00:00Z",
-        memorial_voice_roundtrip_receipt=memorial_voice_receipt,
-    )
+    receipt = build_gold_map(generated_at="2026-06-12T00:00:00Z")
     path = tmp_path / "gold-map.json"
     path.write_text(json.dumps(receipt), encoding="utf-8")
 
@@ -96,3 +86,15 @@ def test_whole_project_gold_map_treats_operator_status_as_generated_only_artifac
     from scripts import verify_whole_project_gold_map as module
 
     assert ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json" in module.GENERATED_RECEIPT_PATHS
+
+
+def test_whole_project_gold_map_verifier_rejects_tmp_evidence_paths(tmp_path: Path) -> None:
+    receipt = build_gold_map(generated_at="2026-06-12T00:00:00Z")
+    for plane in receipt["planes"]:
+        if plane["key"] == "memorial_public_origin_gold":
+            plane["evidence"] = ["/tmp/ea-memorial-refresh-123/.codex-studio/published/memorial_room_audio_public_origin.generated.json"]
+    path = tmp_path / "gold-map.json"
+    path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    issues = verify(path)
+    assert any("memorial public-origin evidence paths must be repo-relative" in issue for issue in issues)

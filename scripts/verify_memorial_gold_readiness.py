@@ -31,6 +31,13 @@ GENERATED_RECEIPT_PATHS = {
 }
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -307,15 +314,15 @@ def main() -> int:
             "memorial_local": "Memorial local release candidate",
             "memorial_public": "Memorial public-origin gold",
         },
-        "local_release_receipt": LOCAL_RECEIPT.as_posix(),
+        "local_release_receipt": _display_path(LOCAL_RECEIPT),
         "local_release_issues": local_issues,
-        "public_gold_receipt": public_receipt_path.as_posix(),
+        "public_gold_receipt": _display_path(public_receipt_path),
         "public_gold_issues": public_issues,
-        "public_browser_gold_receipt": browser_receipt_path.as_posix(),
+        "public_browser_gold_receipt": _display_path(browser_receipt_path),
         "public_browser_gold_issues": browser_issues,
-        "public_meaningful_browser_gold_receipt": meaningful_browser_receipt_path.as_posix(),
+        "public_meaningful_browser_gold_receipt": _display_path(meaningful_browser_receipt_path),
         "public_meaningful_browser_gold_issues": meaningful_browser_issues,
-        "room_audio_receipt": room_receipt_path.as_posix(),
+        "room_audio_receipt": _display_path(room_receipt_path),
         "room_audio_issues": room_issues,
         "gold_thresholds": {
             "direct_tts_f1_min": 0.92,

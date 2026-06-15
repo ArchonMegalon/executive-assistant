@@ -120,6 +120,8 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "pass"
     assert payload["public_browser_meaningful_receipt"] == "pass"
+    assert payload["status"] == "pass"
+    assert payload["artifact_paths"]["public_gold_receipt"] == ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 
 
 def test_memorial_operator_status_marks_memorial_pass_blocked_if_whole_project_gold_disallowed(tmp_path, monkeypatch) -> None:
@@ -157,6 +159,46 @@ def test_memorial_operator_status_marks_memorial_pass_blocked_if_whole_project_g
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["current_label"] == "Memorial public-origin gold: blocked"
     assert payload["whole_project_gold"] == "blocked"
+    assert payload["status"] == "blocked"
+
+
+def test_memorial_operator_status_fails_closed_when_whole_project_verifier_blocks(tmp_path, monkeypatch) -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_verifier_blocked")
+    monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
+    whole_project_map = tmp_path / "whole-project-gold-map.json"
+    whole_project_map.write_text(
+        json.dumps(
+            {
+                "overall_status": "gold",
+                "gold_claim_allowed": True,
+                "blocking_planes": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "WHOLE_PROJECT_GOLD_MAP", whole_project_map)
+    monkeypatch.setattr(
+        module,
+        "_run_json",
+        lambda script: (
+            {
+                "status": "pass",
+                "memorial_voice_gold_claim_allowed": True,
+                "local_release_issues": [],
+                "public_gold_issues": [],
+                "public_browser_gold_issues": [],
+                "room_audio_issues": [],
+            }
+            if "verify_memorial_gold_readiness" in script
+            else {"status": "blocked", "issues": ["whole-project gold map is stale relative to current HEAD"]}
+        ),
+    )
+
+    assert module.main() == 0
+    payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
+    assert payload["whole_project_gold"] == "blocked"
+    assert payload["current_label"] == "Memorial public-origin gold: blocked"
+    assert payload["status"] == "blocked"
 
 
 def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command() -> None:

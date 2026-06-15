@@ -1212,7 +1212,7 @@ def workspace_section_payload(
         },
         "settings": {
             "title": "Office settings",
-            "summary": "Keep the daily office loop legible: memo timing, what is feeding Today, who can enter, and which issues need attention now.",
+            "summary": "Keep the office loop usable: memo timing, what is feeding Today, who can enter, and what still needs review.",
             "console_form": {
                 "action": "/app/actions/settings/morning-memo",
                 "method": "post",
@@ -1315,85 +1315,6 @@ def workspace_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Google connection" if property_brand else "Google signal loop",
-                    "title": "Connected Google identity posture" if property_brand else "What is feeding the office loop",
-                    "body": (
-                        "PropertyQuarry only needs identity, token health, and reauth posture here."
-                        if property_brand
-                        else "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review."
-                    ),
-                    "items": [
-                        _google_settings_action_row(analytics_sync, return_to="/app/settings/google"),
-                        _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
-                        _row(
-                            "Freshness",
-                            str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(),
-                            "Sync",
-                            href="/app/settings/google",
-                            action_href="/app/actions/signals/google/sync?return_to=/app/settings/google" if analytics_sync.get("google_connected") else "",
-                            action_label="Run now" if analytics_sync.get("google_connected") else "",
-                            action_method="get" if analytics_sync.get("google_connected") else "",
-                        ),
-                        _row("Token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/google"),
-                        *(
-                            []
-                            if property_brand
-                            else [
-                                _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
-                                _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
-                                _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
-                                _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
-                                _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
-                            ]
-                        ),
-                    ],
-                },
-                {
-                    "eyebrow": "Workspace entry",
-                    "title": "Who can enter and who is waiting",
-                    "body": "Access links, pending invitations, and delivery outcomes belong on the main settings surface instead of hiding in support-only routes.",
-                    "items": [
-                        _row("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
-                        _row("Access links opened", str(analytics_access.get("opened") or 0), "Access", href="/app/settings/access"),
-                        _row("Access sessions revoked", str(analytics_access.get("revoked") or 0), "Access", href="/app/settings/access"),
-                        _row("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
-                        _row("Accepted invitations", str(analytics_invitations.get("accepted") or 0), "Invites", href="/app/settings/invitations"),
-                        _row("Revoked invitations", str(analytics_invitations.get("revoked") or 0), "Invites", href="/app/settings/invitations"),
-                        _row("Invite emails sent", str(analytics_delivery.get("invite_sent") or 0), "Email", href="/app/settings/invitations"),
-                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/invitations"),
-                    ],
-                },
-                {
-                    "eyebrow": "Support and delivery",
-                    "title": "What needs support before the loop slips",
-                    "body": "Delivery failures, blocked actions, and support verification stay visible before they turn into executive surprise.",
-                    "items": [
-                        _row(
-                            "Support state",
-                            str(support_verification.get("summary") or support_verification.get("state") or "No support issue is active."),
-                            "Support",
-                            href="/app/settings/support",
-                        ),
-                        _row(
-                            "Support action",
-                            str(support_verification.get("recommended_action") or "Open support diagnostics when something stalls."),
-                            "Support",
-                            href="/app/settings/support",
-                        ),
-                        _row("Blocked actions", str(len(blocked_actions)), "Support", href="/app/settings/support"),
-                        _row("Warnings", str(len(warning_messages)), "Support", href="/app/settings/support"),
-                        _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
-                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/support"),
-                        _row("Digest email failures", str(analytics_delivery.get("digest_failed") or 0), "Email", href="/app/settings/support"),
-                    ],
-                },
-                {
-                    "eyebrow": "Workspace rules",
-                    "title": "What this office currently allows",
-                    "body": "Rules explain the review-first posture, channel boundary, and durable controls behind the current loop.",
-                    "items": _rule_rows(snapshot.rules[:8]),
-                },
-                {
                     "eyebrow": "Office-loop proof",
                     "title": "How the daily office loop is proving itself",
                     "body": "The principal surface says plainly whether the memo is being opened, approvals are moving, and commitments are closing at a believable rate.",
@@ -1450,22 +1371,107 @@ def workspace_section_payload(
                     ],
                 },
                 {
-                    "eyebrow": "Product control",
-                    "title": "What the release proof says right now",
-                    "body": "This surface mirrors the weekly product pulse and published journey-gate truth without turning the assistant into a second roadmap owner.",
+                    "eyebrow": "Google connection" if property_brand else "Google signal loop",
+                    "title": "Connected Google identity posture" if property_brand else "What is feeding the office loop",
+                    "body": (
+                        "PropertyQuarry only needs identity, token health, and reauth posture here."
+                        if property_brand
+                        else "Gmail and Calendar explain whether fresh signals are entering the queue and whether staged work is ready for review."
+                    ),
                     "items": [
-                        _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave", href="/app/settings/outcomes"),
-                        _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
-                        _row("Journey gate action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate", href="/app/settings/outcomes"),
-                        _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/outcomes"),
-                        _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
-                        _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
-                        _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
-                        _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
-                        _row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof", href="/app/settings/outcomes"),
-                        _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/outcomes"),
+                        _google_settings_action_row(analytics_sync, return_to="/app/settings/google"),
+                        _row("Google account", str(analytics_sync.get("google_account_email") or "Not connected"), "Sync", href="/app/settings/google"),
+                        _row(
+                            "Freshness",
+                            str(analytics_sync.get("google_sync_freshness_state") or "watch").replace("_", " ").title(),
+                            "Sync",
+                            href="/app/settings/google",
+                            action_href="/app/actions/signals/google/sync?return_to=/app/settings/google" if analytics_sync.get("google_connected") else "",
+                            action_label="Run now" if analytics_sync.get("google_connected") else "",
+                            action_method="get" if analytics_sync.get("google_connected") else "",
+                        ),
+                        _row("Token status", str(analytics_sync.get("google_token_status") or "missing").replace("_", " ").title(), "Sync", href="/app/settings/google"),
+                        *(
+                            []
+                            if property_brand
+                            else [
+                                _row("Sync runs", str(analytics_sync.get("google_sync_completed") or 0), "Sync", href="/app/settings/google"),
+                                _row("Last Google sync", str(analytics_sync.get("google_sync_last_completed_at") or "Not yet run"), "Sync", href="/app/settings/google"),
+                                _row("Office signals ingested", str(analytics_sync.get("office_signal_ingested") or 0), "Sync", href="/app/settings/google"),
+                                _row("Suppressed sync noise", str(analytics_sync.get("google_sync_last_suppressed_total") or 0), "Sync", href="/app/settings/google"),
+                                _row("Pending sync candidates", str(analytics_sync.get("pending_commitment_candidates") or 0), "Sync", href="/app/queue"),
+                            ]
+                        ),
                     ],
                 },
+                {
+                    "eyebrow": "Workspace entry",
+                    "title": "Who can enter and who is waiting",
+                    "body": "Access links, pending invitations, and delivery outcomes belong on the main settings surface instead of hiding in support-only routes.",
+                    "items": [
+                        _row("Active access sessions", str(analytics_access.get("active") or 0), "Access", href="/app/settings/access"),
+                        _row("Access links opened", str(analytics_access.get("opened") or 0), "Access", href="/app/settings/access"),
+                        _row("Access sessions revoked", str(analytics_access.get("revoked") or 0), "Access", href="/app/settings/access"),
+                        _row("Pending invitations", str(analytics_invitations.get("pending") or 0), "Invites", href="/app/settings/invitations"),
+                        _row("Accepted invitations", str(analytics_invitations.get("accepted") or 0), "Invites", href="/app/settings/invitations"),
+                        _row("Revoked invitations", str(analytics_invitations.get("revoked") or 0), "Invites", href="/app/settings/invitations"),
+                        _row("Invite emails sent", str(analytics_delivery.get("invite_sent") or 0), "Email", href="/app/settings/invitations"),
+                        _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/invitations"),
+                    ],
+                },
+                {
+                    "eyebrow": "Workspace rules",
+                    "title": "What this office currently allows",
+                    "body": "Rules explain the review-first posture, channel boundary, and durable controls behind the current loop.",
+                    "items": _rule_rows(snapshot.rules[:8]),
+                },
+                *(
+                    [
+                        {
+                            "eyebrow": "Support and delivery",
+                            "title": "What needs support before the loop slips",
+                            "body": "Delivery failures, blocked actions, and support verification stay visible before they turn into executive surprise.",
+                            "items": [
+                                _row(
+                                    "Support state",
+                                    str(support_verification.get("summary") or support_verification.get("state") or "No support issue is active."),
+                                    "Support",
+                                    href="/app/settings/support",
+                                ),
+                                _row(
+                                    "Support action",
+                                    str(support_verification.get("recommended_action") or "Open support diagnostics when something stalls."),
+                                    "Support",
+                                    href="/app/settings/support",
+                                ),
+                                _row("Blocked actions", str(len(blocked_actions)), "Support", href="/app/settings/support"),
+                                _row("Warnings", str(len(warning_messages)), "Support", href="/app/settings/support"),
+                                _row("Registration email failures", str(analytics_delivery.get("registration_failed") or 0), "Email", href="/app/settings/support"),
+                                _row("Invite email failures", str(analytics_delivery.get("invite_failed") or 0), "Email", href="/app/settings/support"),
+                                _row("Digest email failures", str(analytics_delivery.get("digest_failed") or 0), "Email", href="/app/settings/support"),
+                            ],
+                        },
+                        {
+                            "eyebrow": "Product control",
+                            "title": "What the release proof says right now",
+                            "body": "This surface mirrors the weekly product pulse and published journey-gate truth without turning the assistant into a second roadmap owner.",
+                            "items": [
+                                _row("Active product wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave", href="/app/settings/outcomes"),
+                                _row("Journey gate health", str(journey_gate.get("state") or "missing").replace("_", " ").title(), "Gate", href="/app/settings/outcomes"),
+                                _row("Journey gate action", str(journey_gate.get("recommended_action") or journey_gate.get("reason") or "No published action."), "Gate", href="/app/settings/outcomes"),
+                                _row("Support fallout", str(support_fallout.get("detail") or "No support fallout mirrored."), "Support", href="/app/settings/outcomes"),
+                                _row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch", href="/app/settings/outcomes"),
+                                _row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route", href="/app/settings/outcomes"),
+                                _row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route", href="/app/settings/outcomes"),
+                                _row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route", href="/app/settings/outcomes"),
+                                _row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof", href="/app/settings/outcomes"),
+                                _row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide", href="/app/settings/outcomes"),
+                            ],
+                        },
+                    ]
+                    if operator_key
+                    else []
+                ),
             ],
         },
     }

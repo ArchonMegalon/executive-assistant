@@ -12,6 +12,13 @@ WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOL
 MEANINGFUL_BROWSER_RECEIPT = ROOT / ".codex-studio" / "published" / "memorial_realtime_browser_meaningful_public_origin.generated.json"
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _run_json(script: str) -> dict:
     proc = subprocess.run(
         [sys.executable, str(ROOT / script)],
@@ -49,7 +56,12 @@ def main() -> int:
     whole_project = _run_json("scripts/verify_whole_project_gold_map.py")
     whole_project_map = _load_json(WHOLE_PROJECT_GOLD_MAP)
     whole_project_gold = "blocked"
-    if whole_project_map.get("gold_claim_allowed") is True and str(whole_project_map.get("overall_status") or "").strip().lower() == "gold":
+    whole_project_verifier_status = str(whole_project.get("status") or "blocked").strip().lower()
+    if (
+        whole_project_verifier_status == "pass"
+        and whole_project_map.get("gold_claim_allowed") is True
+        and str(whole_project_map.get("overall_status") or "").strip().lower() == "gold"
+    ):
         whole_project_gold = "pass"
     elif whole_project_map:
         whole_project_gold = "blocked"
@@ -72,13 +84,13 @@ def main() -> int:
     )
     whole_project_gold_allowed = whole_project_gold == "pass"
     memorial_public_gold_allowed = memorial_public_gold_claim_allowed and whole_project_gold_allowed
+    final_status = "pass" if memorial_public_gold_allowed else "blocked"
     payload = {
         "contract_name": "ea.memorial_operator_status",
         "generated_by": "scripts/materialize_memorial_operator_status.py",
         "slug": "manfred",
-        "current_label": "Memorial public-origin gold: pass"
-        if memorial_public_gold_allowed
-        else "Memorial public-origin gold: blocked",
+        "status": final_status,
+        "current_label": "Memorial public-origin gold: pass" if final_status == "pass" else "Memorial public-origin gold: blocked",
         "local_release_candidate": "pass" if not list(readiness.get("local_release_issues") or []) else "blocked",
         "public_voice_receipt": "pass" if not list(readiness.get("public_gold_issues") or []) else "missing_or_blocked",
         "public_browser_receipt": "pass" if not list(readiness.get("public_browser_gold_issues") or []) else "missing_or_blocked",
@@ -89,6 +101,13 @@ def main() -> int:
             "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
             "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
         ],
+        "artifact_paths": {
+            "local_release_receipt": _display_path(ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"),
+            "public_gold_receipt": _display_path(ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"),
+            "public_browser_gold_receipt": _display_path(ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"),
+            "public_meaningful_browser_gold_receipt": _display_path(MEANINGFUL_BROWSER_RECEIPT),
+            "room_audio_receipt": _display_path(ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"),
+        },
         "readiness": readiness,
         "whole_project": whole_project,
         "whole_project_map_summary": {
@@ -102,7 +121,7 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "status": readiness_status if memorial_public_gold_allowed else "blocked",
+                "status": final_status,
                 "output": OUTPUT.as_posix(),
                 "current_label": payload["current_label"],
             },

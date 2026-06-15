@@ -91,6 +91,13 @@ def _exists(path: Path) -> bool:
         return False
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _load_ltd_summary() -> dict[str, Any]:
     receipt = build_ltd_provider_governance_receipt()
     lanes = list(receipt.get("lanes") or [])
@@ -153,13 +160,13 @@ def _receipt_group_status(
     for path in paths:
         payload = _json(path)
         if not payload:
-            missing_or_blocked.append(path.as_posix())
+            missing_or_blocked.append(_display_path(path))
             continue
         status = str(payload.get("status") or payload.get("overall_status") or payload.get("verdict") or "").strip().lower()
         if status in allowed:
-            evidence.append(path.as_posix())
+            evidence.append(_display_path(path))
         else:
-            missing_or_blocked.append(f"{path.as_posix()} status={status or 'missing'}")
+            missing_or_blocked.append(f"{_display_path(path)} status={status or 'missing'}")
     return ("pass" if not missing_or_blocked else "unknown_missing_receipt", evidence, missing_or_blocked)
 
 
@@ -167,12 +174,12 @@ def _fleet_status(path: Path) -> tuple[str, list[str], list[str]]:
     payload = _json(path)
     summary = payload.get("summary")
     if not isinstance(summary, dict):
-        return "unknown_missing_receipt", [], [path.as_posix()]
+        return "unknown_missing_receipt", [], [_display_path(path)]
     state = str(summary.get("overall_state") or "").strip().lower()
     blocked_count = int(summary.get("blocked_count") or 0)
     if state == "ready" and blocked_count == 0:
-        return "pass", [path.as_posix()], []
-    return "blocked", [path.as_posix()], [f"fleet journey state={state or 'missing'} blocked_count={blocked_count}"]
+        return "pass", [_display_path(path)], []
+    return "blocked", [_display_path(path)], [f"fleet journey state={state or 'missing'} blocked_count={blocked_count}"]
 
 
 def build_gold_map(
@@ -207,7 +214,7 @@ def build_gold_map(
     media_status = "bounded_pass" if media_status_raw == "pass" else media_status_raw
     memorial_voice_status_raw = _status_from_receipt(memorial_voice_roundtrip_receipt, {"pass"})
     memorial_voice_status = "pass" if memorial_voice_status_raw == "pass" else "separate_risk_zone"
-    memorial_voice_evidence = [memorial_voice_roundtrip_receipt.as_posix()] if memorial_voice_roundtrip_receipt.is_file() else []
+    memorial_voice_evidence = [_display_path(memorial_voice_roundtrip_receipt)] if memorial_voice_roundtrip_receipt.is_file() else []
     memorial_public_voice_status = _status_from_receipt(memorial_public_voice_receipt, {"pass"})
     memorial_public_browser_status = _status_from_receipt(memorial_public_browser_receipt, {"pass"})
     memorial_public_room_status = _status_from_receipt(memorial_public_room_receipt, {"pass"})
@@ -349,7 +356,7 @@ def build_gold_map(
             status=memorial_public_gold_status,
             claim="The public memorial experience is gold only when the deployed public origin proves voice roundtrip, browser realtime playback, live STT, and latency. Local release receipts do not satisfy this plane.",
             evidence=[
-                path.as_posix()
+                _display_path(path)
                 for path in (
                     memorial_public_voice_receipt,
                     memorial_public_browser_receipt,
