@@ -15,6 +15,7 @@ import os
 import re
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 import wave
@@ -65,6 +66,8 @@ from app.services.memorial_openvoice import (
 )
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
+from app.domain.memorial.turns import MemorialTurnRequest
+from app.services.memorial_turn_service import build_public_memorial_turn
 from app.services.memorial_memory import (
     format_memorial_memory_context,
     memorial_has_imported_mail,
@@ -6868,142 +6871,19 @@ def _build_memorial_conversation_turn_payload(
     voice_ab_variant: str = "",
     difficult_memory_mode: bool = False,
 ) -> dict[str, object]:
-    total_started = time.perf_counter()
-    payload = _load_memorial(slug)
-    private_profile = _load_private_profile(slug)
-    stt_started = time.perf_counter()
-    transcript_payload = _memorial_transcribe_audio_blob(payload=audio_payload, content_type=content_type)
-    stt_ms = (time.perf_counter() - stt_started) * 1000.0
-    transcript_text = _text(transcript_payload.get("transcript_text"))
-    if not transcript_text:
-        raise HTTPException(status_code=400, detail="speech_transcription_empty")
-    effective_question = _canonical_memorial_contact_opening_question(transcript_text)
-    visible_transcript = _memorial_visible_transcript_text(
-        transcript_text=transcript_text,
-        effective_question=effective_question,
-    )
-    selected_model = _resolve_memorial_voice_chat_model(payload, private_profile, effective_question)
-    llm_started = time.perf_counter()
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{slug}")
-    future = executor.submit(
-        _memorial_chat_answer,
-        payload,
-        effective_question,
-        private_profile,
-        selected_model,
-        slug=slug,
-        memory_runtime=memory_runtime,
-        personal_memory_context=personal_memory_context,
-        difficult_memory_mode=difficult_memory_mode,
-    )
-    try:
-        answer_payload = future.result(timeout=_MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS)
-    except concurrent.futures.TimeoutError:
-        future.cancel()
-        answer_payload = _memorial_chat_fallback_answer(
-            payload,
-            effective_question,
-            private_profile,
+    return build_public_memorial_turn(
+        shared=sys.modules[__name__],
+        request=MemorialTurnRequest(
             slug=slug,
-            memory_runtime=memory_runtime,
-            personal_memory_context=personal_memory_context,
-            llm_model=selected_model,
-            fallback_reason="conversation_turn_llm_timeout",
+            audio_payload=audio_payload,
+            content_type=content_type,
+            prefer_fast_tts=prefer_fast_tts,
+            personal_memory_context=dict(personal_memory_context or {}),
+            voice_ab_variant=voice_ab_variant,
             difficult_memory_mode=difficult_memory_mode,
-        )
-        answer_payload["llm_model"] = selected_model
-        answer_payload["llm_provider"] = "memorial_guardrail"
-        answer_payload["llm_request_model"] = selected_model
-        answer_payload["llm_fallback_used"] = True
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-    llm_ms = (time.perf_counter() - llm_started) * 1000.0
-    base_config = _load_voice_config(slug)
-    merged_config = dict(base_config)
-    merged_config["lang"] = _memorial_fixed_conversation_language()
-    if voice_ab_variant in {"a", "b"}:
-        merged_config.update(_voice_ab_variant_choice(slug=slug, variant_id=voice_ab_variant, context=personal_memory_context))
-    merged_config = _apply_memorial_spoken_tts_clarity_policy(merged_config)
-    tts_options = _tts_plugin_options(
-        payload=merged_config,
-        voice_profile_ready=bool(base_config.get("voice_profile_ready")),
-    )
-    selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
-    visible_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
-    answer_payload["answer"] = visible_answer
-    answer_audio_text = _normalize_tts_text(answer_payload.get("answer_audio_text") or visible_answer)
-    answer_text = answer_audio_text
-    if not answer_text:
-        raise HTTPException(status_code=502, detail="memorial_answer_missing")
-    if not bool(selected_option.get("tts_plugin_enabled")):
-        raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
-    direct_contact_opening = _text(answer_payload.get("fallback_reason")) == "direct_contact_opening"
-    if direct_contact_opening:
-        lead_in_ms = _MEMORIAL_CONTACT_TTS_LEAD_IN_MS
-        tail_silence_ms = _MEMORIAL_CONTACT_TTS_TAIL_SILENCE_MS
-    else:
-        lead_in_ms = _MEMORIAL_FAST_TTS_LEAD_IN_MS if selected_plugin == PIPER_FAST_TTS_PLUGIN_ID else _MEMORIAL_TTS_LEAD_IN_MS
-        tail_silence_ms = _MEMORIAL_TTS_TAIL_SILENCE_MS
-    tts_started = time.perf_counter()
-    audio, audio_content_type = _render_memorial_tts_audio(
-        slug=slug,
-        text=answer_text,
-        merged_config=merged_config,
-        base_config=base_config,
-        selected_plugin=selected_plugin,
-        selected_option=selected_option,
-        lead_in_ms=0,
-        tail_silence_ms=0,
-    )
-    tts_ms = (time.perf_counter() - tts_started) * 1000.0
-    pad_started = time.perf_counter()
-    audio, audio_content_type = _pad_speech_audio_lead_in(
-        payload=audio,
-        content_type=audio_content_type,
-        silence_ms=lead_in_ms,
-        tail_silence_ms=tail_silence_ms,
-        extra_filters="",
-    )
-    pad_ms = (time.perf_counter() - pad_started) * 1000.0
-    response_payload = dict(answer_payload)
-    response_payload["transcript_text"] = effective_question
-    response_payload["transcript_effective_text"] = effective_question
-    response_payload["transcript_original_text"] = visible_transcript
-    response_payload["audio_content_type"] = audio_content_type
-    response_payload["audio_base64"] = base64.b64encode(audio).decode("ascii")
-    actual_fast_path = bool(prefer_fast_tts and selected_plugin == PIPER_FAST_TTS_PLUGIN_ID)
-    response_payload["tts_plugin"] = selected_plugin
-    response_payload["tts_fast_path"] = actual_fast_path
-    _register_memorial_known_audio_transcript(
-        payload=audio,
-        transcript_text=answer_text,
-        transcriber="memorial_tts_provenance_cache",
-        primary_transcript_text=visible_answer,
-    )
-    _remember_personal_conversation_turn(
-        slug=slug,
-        context=personal_memory_context or {},
-        question=effective_question,
-        answer=_text(answer_payload.get("answer"), ""),
-    )
-    _log_memorial_timing(
-        "conversation_turn",
-        slug=slug,
-        content_type=content_type,
-        transcript_chars=len(visible_transcript),
-        answer_chars=len(answer_text),
-        requested_model=selected_model,
-        effective_model=_text(answer_payload.get("llm_model")),
-        fallback_used=bool(answer_payload.get("llm_fallback_used")),
-        tts_plugin=selected_plugin,
-        tts_fast_path=actual_fast_path,
-        stt_ms=stt_ms,
-        llm_ms=llm_ms,
-        tts_ms=tts_ms,
-        pad_ms=pad_ms,
-        total_ms=(time.perf_counter() - total_started) * 1000.0,
-    )
-    return response_payload
+        ),
+        memory_runtime=memory_runtime,
+    ).as_public_payload()
 
 
 def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dict[str, object]:

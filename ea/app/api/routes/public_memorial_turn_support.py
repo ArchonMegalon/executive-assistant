@@ -9,6 +9,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.api.routes import public_memorials as shared
+from app.domain.memorial.turns import MemorialTurnRequest
+from app.services.memorial_turn_service import build_public_memorial_turn, transcribe_public_memorial_audio
 
 
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
@@ -19,23 +21,14 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
         raise HTTPException(status_code=413, detail="audio_too_large")
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
-    result = dict(shared._memorial_transcribe_audio_blob(payload=payload, content_type=content_type))
-    transcript_text = shared._text(result.get("transcript_text"))
-    effective_question = shared._canonical_memorial_contact_opening_question(transcript_text)
-    visible_transcript = shared._memorial_visible_transcript_text(
-        transcript_text=transcript_text,
-        effective_question=effective_question,
-    )
-    if transcript_text:
-        result["transcript_text"] = effective_question
-        result["transcript_effective_text"] = effective_question
-        result["transcript_original_text"] = visible_transcript
+    result = transcribe_public_memorial_audio(shared=shared, payload=payload, content_type=content_type).as_public_payload()
+    transcript_text = shared._text(result.get("transcript_original_text") or result.get("transcript_text"))
     shared._log_memorial_timing(
         "speech_transcribe",
         slug=slug,
         content_type=content_type,
         audio_bytes=len(payload),
-        transcript_chars=len(visible_transcript if transcript_text else shared._text(result.get("transcript_text"))),
+        transcript_chars=len(transcript_text if transcript_text else shared._text(result.get("transcript_text"))),
         status=shared._text(result.get("transcription_status")),
         transcriber=shared._text(result.get("transcriber")),
     )
@@ -137,16 +130,19 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
         shared._enforce_public_memorial_rate_limit("conversation_turn", request=request, context=personal_memory_context)
         voice_ab_variant = shared._voice_ab_variant_from_request(request=request)
         prefer_fast_tts, _ = shared._prefer_fast_tts_for_conversation_turn(slug)
-        response_payload = shared._build_memorial_conversation_turn_payload(
-            slug=slug,
-            audio_payload=audio_payload,
-            content_type=content_type,
-            prefer_fast_tts=prefer_fast_tts,
+        response_payload = build_public_memorial_turn(
+            shared=shared,
+            request=MemorialTurnRequest(
+                slug=slug,
+                audio_payload=audio_payload,
+                content_type=content_type,
+                prefer_fast_tts=prefer_fast_tts,
+                personal_memory_context=personal_memory_context,
+                voice_ab_variant=voice_ab_variant,
+                difficult_memory_mode=difficult_memory_mode,
+            ),
             memory_runtime=memory_runtime,
-            personal_memory_context=personal_memory_context,
-            voice_ab_variant=voice_ab_variant,
-            difficult_memory_mode=difficult_memory_mode,
-        )
+        ).as_public_payload()
         response_payload["personal_memory"] = shared._personal_memory_public_status(
             slug=slug,
             context=personal_memory_context,

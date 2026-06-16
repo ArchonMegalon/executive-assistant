@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from app.api.routes.workspace_settings_section import build_settings_section
+from app.domain.office.surfaces import OfficeSurfacePayload
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, HandoffNote, PersonProfile, ProductSnapshot, RuleItem, ThreadItem
 from app.product.projections.common import due_bonus, parse_when, priority_weight, status_open
 from app.product.projections.handoffs import handoff_action_options, handoff_action_plan
@@ -1239,4 +1240,4 @@ def workspace_section_payload(
             google_settings_action_row_builder=lambda sync: _google_settings_action_row(sync, return_to="/app/settings/google"),
         ),
     }
-    return {"stats": stats, **mapping[section]}
+    return OfficeSurfacePayload.from_mapping({"stats": stats, **mapping[section]}).as_template_payload()

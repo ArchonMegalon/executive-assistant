@@ -150,13 +150,7 @@ tasks-archive-dry-run:
 	bash scripts/archive_tasks.sh --dry-run
 
 materialize-release-assets:
-	$(PYTHON_BIN) scripts/materialize_ea_browser_workflow_proof.py
-	$(PYTHON_BIN) scripts/materialize_ea_flagship_release_gate.py
-	$(PYTHON_BIN) scripts/materialize_weekly_product_pulse.py
-	$(PYTHON_BIN) scripts/materialize_project_mode_manifests.py
-	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_whole_project_gold_map.py
-	$(PYTHON_BIN) scripts/materialize_memorial_phrase_bank.py
-	$(PYTHON_BIN) scripts/materialize_memorial_operator_status.py
+	PYTHONPATH=ea $(PYTHON_BIN) scripts/materialize_release_bundle.py --python-bin $(PYTHON_BIN)
 
 verify-generated-release-artifacts-clean:
 	$(MAKE) materialize-release-assets
