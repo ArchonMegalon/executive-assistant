@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-16T03:11:46Z",
+  "generated_at": "2026-06-16T05:00:19Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "0e3b2b8ad0f799dfabb57c0cb93cb15e71cc7efd",
+  "source_git_head": "7bc4fdb283cc5c1ca05d5128fe2332b8bd9988a7",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",

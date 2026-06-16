@@ -1,10 +1,10 @@
 {
   "contract_name": "ea.memorial_room_audio_public_origin",
-  "generated_at": "2026-06-15T21:25:53Z",
+  "generated_at": "2026-06-16T05:00:07Z",
   "generated_by": "scripts/materialize_memorial_room_audio_receipt.py",
-  "source_git_head": "af1d685db053e28c5a7cfa87aa89b41e6dc30890",
+  "source_git_head": "7bc4fdb283cc5c1ca05d5128fe2332b8bd9988a7",
   "head_semantics": "source_state",
-  "source_tree_fingerprint": "435e3396d43fc4912e361e44aa541d95bafc8316ae3f0038e77f719d190f323c",
+  "source_tree_fingerprint": "228248fd7e92cfff0e770db0193298de297c8ae5258e2f1b6480554bf12b733d",
   "dirty_worktree": false,
   "status": "pass",
   "base_url": "https://myexternalbrain.com",
