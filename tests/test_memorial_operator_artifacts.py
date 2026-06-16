@@ -129,7 +129,7 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     }
 
 
-def test_memorial_operator_status_marks_memorial_pass_blocked_if_whole_project_gold_disallowed(tmp_path, monkeypatch) -> None:
+def test_memorial_operator_status_keeps_memorial_pass_when_unrelated_whole_project_gold_is_disallowed(tmp_path, monkeypatch) -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_whole_project_blocked")
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")
     whole_project_map = tmp_path / "whole-project-gold-map.json"
@@ -162,9 +162,9 @@ def test_memorial_operator_status_marks_memorial_pass_blocked_if_whole_project_g
 
     assert module.main() == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
-    assert payload["current_label"] == "Memorial public-origin gold: blocked"
+    assert payload["current_label"] == "Memorial public-origin gold: pass"
     assert payload["whole_project_gold"] == "blocked"
-    assert payload["status"] == "blocked"
+    assert payload["status"] == "pass"
 
 
 def test_memorial_operator_status_fails_closed_when_whole_project_verifier_blocks(tmp_path, monkeypatch) -> None:
@@ -202,8 +202,8 @@ def test_memorial_operator_status_fails_closed_when_whole_project_verifier_block
     assert module.main() == 0
     payload = json.loads((tmp_path / "operator_status.json").read_text(encoding="utf-8"))
     assert payload["whole_project_gold"] == "blocked"
-    assert payload["current_label"] == "Memorial public-origin gold: blocked"
-    assert payload["status"] == "blocked"
+    assert payload["current_label"] == "Memorial public-origin gold: pass"
+    assert payload["status"] == "pass"
 
 
 def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command() -> None:

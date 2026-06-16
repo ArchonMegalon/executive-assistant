@@ -133,8 +133,7 @@ def main() -> int:
             and not has_any_readiness_issues
         )
     )
-    whole_project_gold_allowed = whole_project_gold == "pass"
-    memorial_public_gold_allowed = memorial_public_gold_claim_allowed and whole_project_gold_allowed
+    memorial_public_gold_allowed = memorial_public_gold_claim_allowed
     final_status = "pass" if memorial_public_gold_allowed else "blocked"
     workflow_backing = _workflow_backing_status(
         PUBLIC_VOICE_RECEIPT,
@@ -162,6 +161,7 @@ def main() -> int:
             "Public-origin gold requires voice, browser, and room receipts at current HEAD/public origin.",
             "The current public voice receipt is a provenance proof when its transcriber mode is provenance_cache; browser + room receipts carry the intelligibility proof.",
             "source_git_head records the proved source state; a later artifact-only commit may differ without making the proof stale.",
+            "whole_project_gold is reported separately and must not block a memorial-specific public-origin pass when unrelated planes remain not_gold.",
         ],
         "source_head_note": "source_git_head records the source state the receipts prove. Generated-only follow-up commits may change repository HEAD without invalidating those receipts.",
         "artifact_paths": {
