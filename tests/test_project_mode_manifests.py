@@ -4,6 +4,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from scripts.materialize_project_mode_manifests import _fresh_enough, _recorded_source_head
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
 from scripts.materialize_project_mode_manifests import project_modes, show_surface_manifest
@@ -87,3 +89,13 @@ def test_show_surface_manifest_keeps_ea_core_demo_from_lab_and_memorial_surfaces
 def test_materialized_project_mode_manifests_verify() -> None:
     assert materialize_project_modes() == 0
     assert verify_project_modes() == 0
+
+
+def test_project_modes_source_head_skips_generated_only_head_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.materialize_project_mode_manifests as module
+
+    monkeypatch.setattr(module, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
+
+    payload = module.project_modes()
+
+    assert payload["source_git_head"] == "SOURCE_HEAD"

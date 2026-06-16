@@ -7,6 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_MODES_OUTPUT = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
@@ -37,19 +42,7 @@ def _utc_now() -> str:
 
 
 def _git_head() -> str:
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(ROOT),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=10,
-        )
-    except Exception:
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    return resolve_source_state_head(ROOT)
 
 
 def _recorded_source_head(payload: dict[str, Any]) -> str:

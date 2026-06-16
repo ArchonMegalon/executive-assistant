@@ -181,3 +181,13 @@ def test_whole_project_gold_map_verifier_rejects_tmp_evidence_paths(tmp_path: Pa
 
     issues = verify(path)
     assert any("memorial public-origin evidence paths must be repo-relative" in issue for issue in issues)
+
+
+def test_whole_project_gold_map_source_head_skips_generated_only_head_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scripts.materialize_whole_project_gold_map as module
+
+    monkeypatch.setattr(module, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
+
+    receipt = module.build_gold_map(generated_at="2026-06-12T00:00:00Z")
+
+    assert receipt["source_git_head"] == "SOURCE_HEAD"

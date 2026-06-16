@@ -6,6 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / ".codex-design" / "product" / "MEMORIAL_OPERATOR_STATUS.generated.json"
 WHOLE_PROJECT_GOLD_MAP = ROOT / ".codex-design" / "product" / "WHOLE_PROJECT_GOLD_MAP.generated.json"
@@ -97,15 +102,7 @@ def _public_voice_receipt_semantics() -> dict[str, object]:
 
 
 def main() -> int:
-    source_head = str(
-        subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout.strip()
-    )
+    source_head = resolve_source_state_head(ROOT)
     readiness = _run_json("scripts/verify_memorial_gold_readiness.py")
     whole_project = _run_json("scripts/verify_whole_project_gold_map.py")
     whole_project_map = _load_json(WHOLE_PROJECT_GOLD_MAP)
