@@ -68,6 +68,7 @@ from app.services.public_clickrank import clickrank_head_snippet, request_hostna
 from app.services.responses_upstream import ResponsesUpstreamError, generate_text
 from app.domain.memorial.turns import MemorialTurnRequest
 from app.services.memorial_turn_service import build_public_memorial_turn
+from app.services.memorial_turn_runtime import runtime_from_shared
 from app.services.memorial_memory import (
     format_memorial_memory_context,
     memorial_has_imported_mail,
@@ -7011,8 +7012,9 @@ def _build_memorial_conversation_turn_payload(
     voice_ab_variant: str = "",
     difficult_memory_mode: bool = False,
 ) -> dict[str, object]:
+    runtime = runtime_from_shared(sys.modules[__name__])
     return build_public_memorial_turn(
-        shared=sys.modules[__name__],
+        runtime=runtime,
         request=MemorialTurnRequest(
             slug=slug,
             audio_payload=audio_payload,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.api.routes.workspace_sections import (
+from app.services.office_surface_rows import (
     _brief_rows,
     _calendar_pressure_rows,
     _candidate_rows,

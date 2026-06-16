@@ -35,6 +35,25 @@ class MemorialTurnRequest:
 
 
 @dataclass(frozen=True)
+class MemorialAnswerPlan:
+    answer_payload: dict[str, Any]
+    selected_model: str
+    llm_ms: float
+    direct_contact_opening: bool
+
+
+@dataclass(frozen=True)
+class MemorialRenderedAudio:
+    payload: bytes
+    content_type: str
+    answer_audio_text: str
+    tts_plugin: str
+    tts_fast_path: bool
+    tts_ms: float
+    pad_ms: float
+
+
+@dataclass(frozen=True)
 class MemorialTurnResult:
     response_payload: dict[str, Any]
 
