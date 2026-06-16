@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from app.api.routes import landing_console, workspace_view_models
 from app.domain.office.surfaces import OfficeSurfacePayload
 from app.services import release_materialization_service
 from app.services.memorial_turn_service import transcribe_public_memorial_audio
+from app.services.office_surface_service import build_workspace_section_payload
 
 
 def test_office_surface_payload_roundtrip_preserves_core_contracts() -> None:
@@ -47,6 +49,19 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert calls[0] == ("/tmp/python", ("scripts/materialize_ea_browser_workflow_proof.py",), None)
     assert calls[-1] == ("/tmp/python", ("scripts/materialize_memorial_operator_status.py",), None)
     assert any(command == ("scripts/materialize_whole_project_gold_map.py",) and env == {"PYTHONPATH": "ea"} for _, command, env in calls)
+
+
+def test_workspace_view_models_resolve_office_sections_from_service_layer() -> None:
+    assert workspace_view_models.workspace_section_payload is build_workspace_section_payload
+
+
+def test_landing_console_routes_use_console_support_module() -> None:
+    assert landing_console.app_shell.__module__ == "app.api.routes.landing_console"
+    globals_map = getattr(landing_console.app_shell, "__globals__", {})
+    support = globals_map.get("support")
+    assert support is not None
+    assert getattr(support, "__name__", "") == "app.api.routes.landing_console_support"
+    assert "shared" not in globals_map
 
 
 def test_transcribe_public_memorial_audio_preserves_visible_transcript() -> None:

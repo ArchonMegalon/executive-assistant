@@ -1507,6 +1507,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/test_chummer_governor_packet_pack.py",
         "tests/test_design_mirror_bundle_contracts.py",
     }
+    memorial_scope_fix_commit = "7bc4fdb"
+    memorial_scope_fix_subject = "Fix memorial proof scoping and refresh parity packs"
+    memorial_scope_fix_paths = {
+        ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+        "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.md",
+        "docs/chummer5a_parity_lab/NEXT90_M141_ROUTE_LOCAL_SCREENSHOT_PACKS.generated.yaml",
+        "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.md",
+        "docs/chummer5a_parity_lab/NEXT90_M142_FAMILY_LOCAL_SCREENSHOT_AND_INTERACTION_PACKS.generated.yaml",
+        "feedback/2026-05-06-next90-m142-ea-family-local-screenshot-and-interaction-packs.md",
+        "scripts/materialize_memorial_operator_status.py",
+        "tests/test_memorial_operator_artifacts.py",
+    }
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
@@ -1755,6 +1767,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == mirror_bundle_hardening_commit:
             assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_scope_fix_commit:
+            assert subject == memorial_scope_fix_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_scope_fix_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
@@ -2217,6 +2233,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
             continue
+        if commit == memorial_scope_fix_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_scope_fix_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_scope_fix_paths, (commit, sorted(paths))
+            continue
         if commit == flagship_runtime_gate_hardening_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2602,6 +2629,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == mirror_bundle_hardening_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_scope_fix_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_scope_fix_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_scope_fix_paths, (commit, sorted(paths))
             continue
         if commit == parity_lab_post_receipt_refresh_commit:
             subject = subprocess.run(
