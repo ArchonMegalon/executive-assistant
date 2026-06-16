@@ -10513,6 +10513,16 @@ def _memorial_html(
           linear-gradient(180deg, rgba(255,249,240,.96), rgba(244,236,223,.88));
         border-color: rgba(132,104,74,.18);
         box-shadow: 0 20px 44px rgba(56,45,36,.08);
+        position: relative;
+        overflow: hidden;
+      }}
+      .chat::before {{
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 86px;
+        background: linear-gradient(180deg, rgba(255,255,255,.54), rgba(255,255,255,0));
+        pointer-events: none;
       }}
       .chat .section-intro {{
         margin-bottom: 14px;
@@ -10558,10 +10568,10 @@ def _memorial_html(
       }}
       .speech-status-bar {{
         margin-top: 12px;
-        padding: 12px 14px;
+        padding: 14px 16px;
         border: 1px solid rgba(132,104,74,.14);
-        border-radius: 16px;
-        background: rgba(255,252,247,.78);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(255,252,247,.92), rgba(248,241,230,.72));
         color: var(--muted);
         font: 600 14px/1.45 ui-sans-serif, system-ui, sans-serif;
         box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
@@ -10799,10 +10809,11 @@ def _memorial_html(
       .speech-transcript-live {{
         display: grid;
         gap: 6px;
-        padding: 12px 14px;
+        padding: 14px 16px;
         border: 1px solid rgba(72,103,126,.16);
-        border-radius: 16px;
-        background: rgba(246,248,250,.88);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(246,248,250,.96), rgba(238,242,246,.82));
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
       }}
       .speech-transcript-live strong {{
         color: var(--blue);
@@ -10819,9 +10830,13 @@ def _memorial_html(
       }}
       .speech-turn {{
         border: 1px solid rgba(132,104,74,.14);
-        border-radius: 16px;
-        padding: 12px 14px;
-        background: rgba(255,252,247,.8);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: linear-gradient(180deg, rgba(255,252,247,.92), rgba(247,239,228,.76));
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.66),
+          0 12px 26px rgba(56,45,36,.06);
+        transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
       }}
       .speech-turn strong {{
         display: block;
@@ -10833,6 +10848,13 @@ def _memorial_html(
       }}
       .speech-turn.assistant strong {{
         color: var(--blue);
+      }}
+      .speech-turn:hover {{
+        transform: translateY(-1px);
+        border-color: rgba(180,141,81,.24);
+        box-shadow:
+          inset 0 1px 0 rgba(255,255,255,.7),
+          0 18px 30px rgba(56,45,36,.08);
       }}
       .speech-turn p {{
         color: var(--ink);
@@ -11333,6 +11355,10 @@ def _memorial_html(
             <span id="memorial-speech-phase">Bereit</span>
             <span id="memorial-speech-detail"></span>
           </div>
+        </div>
+        <div class="hero-portrait-line" style="margin-top: 14px; max-width: 520px;">
+          <strong>Ein ruhiges Gespräch, nicht nur eine Sprachfunktion.</strong>
+          <span>Transkript, Antwort und Unterbrechung bleiben sichtbar genug, damit das Gespräch auch dann vertrauenswürdig wirkt, wenn Audio nicht perfekt ist.</span>
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
