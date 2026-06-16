@@ -81,6 +81,10 @@ def _stt_error_bundles(root: Path) -> list[Path]:
     return sorted(path.parent for path in root.glob("**/error.json"))
 
 
+def _captured_contact_opening_wav_bytes() -> bytes:
+    return Path("/docker/EA/tests/fixtures/memorial/contact_opening_captured.wav").read_bytes()
+
+
 def _generated_wav_bytes(*, textish_seed: str, duration_seconds: float = 0.35) -> bytes:
     sample_rate = 16_000
     frequency = 260 + (sum(ord(ch) for ch in textish_seed) % 220)
@@ -1520,7 +1524,7 @@ def test_memorial_conversation_turn_accepts_generated_audio_opening_and_returns_
     )
 
     seen_messages: list[list[dict[str, str]]] = []
-    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred, kann ich jetzt mit dir reden?")
+    input_audio = _captured_contact_opening_wav_bytes()
     output_audio = _generated_wav_bytes(textish_seed="Ja, ich bin da.")
     seen_pad_calls: list[dict[str, object]] = []
 
@@ -2266,7 +2270,7 @@ def test_memorial_conversation_turn_contact_opening_bypasses_llm(
             },
         },
     )
-    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred")
+    input_audio = _captured_contact_opening_wav_bytes()
     output_audio = _generated_wav_bytes(textish_seed="Worum geht es")
 
     monkeypatch.setattr(
