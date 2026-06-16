@@ -89,6 +89,12 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "consecutive=$((consecutive + 1))" in smoke
     assert "compose up (api + worker)" in smoke
     assert '"${API_SERVICE}" "${WORKER_SERVICE}"' in smoke
+    assert 'set_env_value "EA_RUNTIME_MODE" "prod"' in smoke
+    assert 'set_env_value "DATABASE_URL" ""' in smoke
+    assert '"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}" >/dev/null' in smoke
+    assert 'API_CONTAINER="$(resolve_service_container "${API_SERVICE}")"' in smoke
+    assert 'could not resolve container for compose API service ${API_SERVICE} after prod fail-fast recreate' in smoke
+    assert "forbids EA_ALLOW_LOOPBACK_NO_AUTH=1" in smoke
     assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
     assert "python -m playwright install --with-deps chromium" in workflow
 

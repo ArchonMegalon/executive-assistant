@@ -2081,6 +2081,8 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     assert (
         "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"
         in smoke_postgres
+        or "EA_RUNTIME_MODE=prod (requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)|forbids EA_ALLOW_LOOPBACK_NO_AUTH=1)"
+        in smoke_postgres
     )
     assert "prod fail-fast path ok" in smoke_postgres
 

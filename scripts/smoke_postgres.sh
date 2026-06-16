@@ -461,6 +461,11 @@ set_env_value "EA_STORAGE_BACKEND" "auto"
 set_env_value "EA_API_TOKEN" "smoke-prod-token"
 set_env_value "DATABASE_URL" ""
 "${DC[@]}" up -d --build --force-recreate "${API_SERVICE}" >/dev/null
+API_CONTAINER="$(resolve_service_container "${API_SERVICE}")"
+if [[ -z "${API_CONTAINER}" ]]; then
+  echo "could not resolve container for compose API service ${API_SERVICE} after prod fail-fast recreate" >&2
+  exit 40
+fi
 prod_status=""
 for _ in $(seq 1 10); do
   prod_status="$(docker inspect -f '{{.State.Status}}' "${API_CONTAINER}" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -471,7 +476,7 @@ for _ in $(seq 1 10); do
 done
 prod_log_ok=0
 for _ in $(seq 1 20); do
-  if (docker logs "${API_CONTAINER}" 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"; then
+  if (docker logs "${API_CONTAINER}" 2>&1 || true) | grep -Eq "EA_RUNTIME_MODE=prod (requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)|forbids EA_ALLOW_LOOPBACK_NO_AUTH=1)"; then
     prod_log_ok=1
     break
   fi
