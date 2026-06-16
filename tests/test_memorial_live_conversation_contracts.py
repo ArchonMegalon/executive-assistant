@@ -1082,6 +1082,133 @@ def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
     assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
 
 
+def test_memorial_transcribe_sets_cartesia_cooldown_after_auth_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "cartesia-test-key")
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ())
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    monkeypatch.setenv("EA_MEMORIAL_CARTESIA_ERROR_COOLDOWN_SECONDS", "120")
+    monkeypatch.setattr(
+        public_memorials,
+        "_cartesia_transcribe_audio",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("cartesia_transcribe_http_401:unauthorized")),
+    )
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert "cartesia_transcribe_http_401" in result["detail"]
+    assert public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS["cartesia"] > time.time()
+
+
+def test_memorial_transcribe_sets_onemin_cooldown_after_insufficient_credits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+    monkeypatch.delenv("EA_CARTESIA_API_KEY", raising=False)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1", "key-2"))
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS", "1")
+    monkeypatch.setenv("EA_MEMORIAL_ONEMIN_ERROR_COOLDOWN_SECONDS", "120")
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError('onemin_transcribe_http_406:{"errorCode":"INSUFFICIENT_CREDITS","message":"credits low"}')
+        ),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert "INSUFFICIENT_CREDITS" in result["detail"]
+    assert public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS["onemin"] > time.time()
+
+
+def test_memorial_transcribe_skips_onemin_during_provider_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.delenv("CARTESIA_API_KEY", raising=False)
+    monkeypatch.delenv("EA_CARTESIA_API_KEY", raising=False)
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS["onemin"] = time.time() + 60.0
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "skipped",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(public_memorials, "_convert_audio_to_wav", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("skip_enhanced")))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_asset_upload",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("onemin upload should be skipped during cooldown")),
+    )
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Wie ist das Wetter heute in Wien?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "no_speech"
+    assert "onemin_provider_cooldown_active" in result["detail"]
+    public_memorials._MEMORIAL_STT_PROVIDER_COOLDOWNS.clear()
+
+
 def test_memorial_transcribe_uses_shadow_intent_when_primary_stt_returns_no_speech(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4727,6 +4854,97 @@ def test_memorial_speech_transcribe_logs_stt_failures_to_pcloud_bundle(
     assert metadata["needs_fix"] is True
     assert metadata["stored_wav"] is True
     assert (bundles[0] / "input.wav").read_bytes() == input_audio
+
+
+def test_memorial_speech_transcribe_route_accepts_hostile_captured_contact_clip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": False,
+            "provider": "blipai",
+            "status": "disabled",
+            "transcript_text": "",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _amplify_wav_bytes(_captured_contact_opening_wav_bytes(), gain=1.08),
+    )
+
+    seen_paths: list[str] = []
+
+    def _fake_upload(**kwargs):
+        path = f"path-{len(seen_paths) + 1}-{kwargs['filename']}"
+        return {"asset": {"key": path}, "fileContent": {"path": path}}
+
+    def _fake_stt(**kwargs):
+        audio_path = str(kwargs.get("audio_path") or "")
+        seen_paths.append(audio_path)
+        if len(seen_paths) == 1:
+            return {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": "Untertitel der Amara.org-Community"}}}}
+        return {
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
+                }
+            }
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
+
+    client = _client(principal_id="exec-memorial-speech-transcribe-hostile-captured")
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=_hostile_captured_wav_bytes(_captured_contact_opening_wav_bytes()),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(seen_paths) >= 2
+    assert body["transcript_original_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert body["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
+    assert body["transcriber"] in {"1min.ai/whisper-1", "1min.ai/whisper-1+enhanced_wav"}
+
+
+def test_memorial_speech_transcribe_route_rejects_overcompressed_captured_clip_before_provider_upload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.product import service as product_service
+
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+
+    def _unexpected_upload(**kwargs):
+        raise AssertionError("overcompressed clip should not be uploaded to speech provider")
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _unexpected_upload)
+
+    client = _client(principal_id="exec-memorial-speech-transcribe-overcompressed")
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=_speed_up_wav_bytes(_captured_contact_opening_wav_bytes(), factor=3.2),
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["transcription_status"] == "no_speech"
+    assert body["transcript_text"] == ""
+    assert body["transcriber"] == "local_audio_gate"
 
 
 def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> None:

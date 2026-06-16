@@ -174,6 +174,7 @@ _CARTESIA_STT_MODEL = "ink-whisper"
 _BLIPAI_SUPABASE_URL = "https://hqwmccawtepvundsgnil.supabase.co"
 _BLIPAI_SUPABASE_ANON_KEY = "sb_publishable_TCu8hwzGitgxmzCu2rYHiA_6r3MImeD"
 _MEMORIAL_SHADOW_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
+_MEMORIAL_STT_PROVIDER_COOLDOWNS: dict[str, float] = {}
 _MEMORIAL_BLIPAI_TOKEN_STATE: dict[str, str] = {}
 _MEMORIAL_BLIPAI_TOKEN_LOCK = threading.Lock()
 _MEMORIAL_GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview"
@@ -7097,7 +7098,7 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
         upload_variants = _prioritize_memorial_transcription_variants(upload_variants)
         last_error: Exception | None = None
         transcript_candidates: list[dict[str, object]] = []
-        if cartesia_api_key:
+        if cartesia_api_key and _memorial_stt_provider_cooldown_remaining("cartesia") <= 0.0:
             for variant_payload, variant_content_type, _variant_extension, variant_label in upload_variants:
                 try:
                     transcribed = _cartesia_transcribe_audio(
@@ -7153,10 +7154,19 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     ):
                         break
                 except Exception as exc:
+                    if _memorial_should_cooldown_cartesia(str(exc)):
+                        _memorial_mark_stt_provider_cooldown(
+                            "cartesia",
+                            seconds=max(
+                                60.0,
+                                min(1800.0, float(os.getenv("EA_MEMORIAL_CARTESIA_ERROR_COOLDOWN_SECONDS") or "600")),
+                            ),
+                        )
                     last_error = exc
                     continue
             best_candidate = _select_best_memorial_transcription(transcript_candidates)
             if best_candidate:
+                _memorial_clear_stt_provider_cooldown("cartesia")
                 return {
                     "transcription_status": "transcribed",
                     "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
@@ -7164,7 +7174,11 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
                     "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
                 }
-        for api_key in keys:
+        onemin_cooldown_remaining = _memorial_stt_provider_cooldown_remaining("onemin")
+        sampled_keys = keys[: _memorial_onemin_max_key_attempts()]
+        if onemin_cooldown_remaining > 0.0:
+            last_error = RuntimeError(f"onemin_provider_cooldown_active:{int(round(onemin_cooldown_remaining))}")
+        for api_key in (() if onemin_cooldown_remaining > 0.0 else sampled_keys):
             for variant_payload, variant_content_type, variant_extension, variant_label in upload_variants:
                 try:
                     uploaded = product_service._onemin_asset_upload(
@@ -7244,10 +7258,19 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                     ):
                         break
                 except Exception as exc:
+                    if _memorial_should_cooldown_onemin(str(exc)):
+                        _memorial_mark_stt_provider_cooldown(
+                            "onemin",
+                            seconds=max(
+                                120.0,
+                                min(3600.0, float(os.getenv("EA_MEMORIAL_ONEMIN_ERROR_COOLDOWN_SECONDS") or "1800")),
+                            ),
+                        )
                     last_error = exc
                     continue
             best_candidate = _select_best_memorial_transcription(transcript_candidates)
             if best_candidate:
+                _memorial_clear_stt_provider_cooldown("onemin")
                 return {
                     "transcription_status": "transcribed",
                     "transcript_text": _repair_memorial_transcript_text(best_candidate.get("transcript_text")),
@@ -7395,6 +7418,59 @@ def _memorial_shadow_stt_result(
             "reason": str(exc)[:120],
             "may_override_primary": False,
         }
+
+
+def _memorial_stt_provider_cooldown_remaining(provider: str) -> float:
+    until = float(_MEMORIAL_STT_PROVIDER_COOLDOWNS.get(str(provider or "").strip().lower()) or 0.0)
+    remaining = until - time.time()
+    return remaining if remaining > 0 else 0.0
+
+
+def _memorial_mark_stt_provider_cooldown(provider: str, *, seconds: float) -> None:
+    normalized = str(provider or "").strip().lower()
+    if not normalized:
+        return
+    cooldown_until = time.time() + max(1.0, float(seconds or 0.0))
+    previous = float(_MEMORIAL_STT_PROVIDER_COOLDOWNS.get(normalized) or 0.0)
+    _MEMORIAL_STT_PROVIDER_COOLDOWNS[normalized] = max(previous, cooldown_until)
+
+
+def _memorial_clear_stt_provider_cooldown(provider: str) -> None:
+    _MEMORIAL_STT_PROVIDER_COOLDOWNS.pop(str(provider or "").strip().lower(), None)
+
+
+def _memorial_onemin_max_key_attempts() -> int:
+    raw = _text(os.getenv("EA_MEMORIAL_ONEMIN_MAX_KEY_ATTEMPTS"), "3").strip()
+    try:
+        return max(1, min(12, int(raw or "3")))
+    except ValueError:
+        return 3
+
+
+def _memorial_should_cooldown_onemin(error_text: str) -> bool:
+    lowered = _text(error_text, "").lower()
+    return bool(
+        lowered
+        and (
+            "insufficient_credits" in lowered
+            or "http_406" in lowered
+            or "quota" in lowered
+            or "rate limit" in lowered
+            or "http_429" in lowered
+        )
+    )
+
+
+def _memorial_should_cooldown_cartesia(error_text: str) -> bool:
+    lowered = _text(error_text, "").lower()
+    return bool(
+        lowered
+        and (
+            "cartesia_transcribe_http_401" in lowered
+            or "cartesia_transcribe_http_403" in lowered
+            or "cartesia_transcribe_http_429" in lowered
+        )
+    )
 
 
 def _memorial_shadow_stt_api_key(*, provider: str) -> str:
