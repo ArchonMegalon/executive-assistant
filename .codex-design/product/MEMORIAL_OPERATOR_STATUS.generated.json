@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "8c8044ab9674eee43f9f54ede141a634ffef38bc",
+  "source_git_head": "ed8624729c64d973ac8356c4428bc5373309553c",
   "head_semantics": "source_state",
   "slug": "manfred",
   "status": "pass",
@@ -29,7 +29,7 @@
   },
   "readiness": {
     "status": "pass",
-    "current_head": "8c8044ab9674eee43f9f54ede141a634ffef38bc",
+    "current_head": "ed8624729c64d973ac8356c4428bc5373309553c",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
@@ -61,11 +61,11 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "8c8044ab9674eee43f9f54ede141a634ffef38bc",
-    "public_voice_receipt": "8c8044ab9674eee43f9f54ede141a634ffef38bc",
-    "public_browser_receipt": "8c8044ab9674eee43f9f54ede141a634ffef38bc",
-    "public_meaningful_browser_receipt": "20f40e424784ace3d7b88679336266b04b16d8e8",
-    "room_audio_receipt": "8c8044ab9674eee43f9f54ede141a634ffef38bc"
+    "whole_project_map": "ed8624729c64d973ac8356c4428bc5373309553c",
+    "public_voice_receipt": "ed8624729c64d973ac8356c4428bc5373309553c",
+    "public_browser_receipt": "ed8624729c64d973ac8356c4428bc5373309553c",
+    "public_meaningful_browser_receipt": "ed8624729c64d973ac8356c4428bc5373309553c",
+    "room_audio_receipt": "ed8624729c64d973ac8356c4428bc5373309553c"
   },
   "workflow_backing": {
     "status": "no",
