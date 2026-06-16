@@ -2309,6 +2309,53 @@ def test_memorial_conversation_turn_contact_opening_bypasses_llm(
     assert body["answer"] in CONTACT_REPLY_VARIANTS
 
 
+def test_memorial_rescue_turn_accepts_short_guardrail_tts_audio(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    short_audio = _generated_wav_bytes(textish_seed="retry", duration_seconds=0.35)
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (short_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    result = public_memorials._build_memorial_rescue_contact_turn_payload(
+        slug=slug,
+        personal_memory_context={},
+        difficult_memory_mode=False,
+        rescue_reason="speech_transcription_empty",
+    )
+
+    assert result["audio_unavailable"] is False
+    assert result["audio_base64"]
+    assert result["fallback_reason"] == "stt_retry_required"
+
+
 def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

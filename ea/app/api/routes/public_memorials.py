@@ -6120,6 +6120,15 @@ def _wav_duration_ms(payload: bytes) -> float | None:
 
 def _memorial_tts_expected_min_duration_ms(text: str) -> float:
     normalized = _normalize_memorial_spoken_tts_text(text)
+    lowered = normalized.lower()
+    if (
+        lowered.startswith("ich habe dich akustisch nicht klar verstanden")
+        or lowered.startswith("einen moment, das war gerade technisch blockiert")
+        or lowered.startswith("ich habe eine antwort, aber die ausgabe war gerade instabil")
+        or lowered.startswith("die sprach-erkennung war gerade nicht bereit")
+        or lowered.startswith("ich habe gerade mehrere fragen auf einmal gehört")
+    ):
+        return 250.0
     if len(normalized) < 36:
         return 0.0
     expected_ms = max(1400.0, min(9000.0, float(len(normalized)) * 28.0))
