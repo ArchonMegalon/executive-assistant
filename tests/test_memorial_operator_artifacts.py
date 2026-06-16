@@ -262,6 +262,7 @@ def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command(
     module = _load_module("/docker/EA/scripts/materialize_memorial_room_audio_receipt_clean.py", "materialize_memorial_room_audio_receipt_clean")
 
     class _Args:
+        python_bin = "python3"
         base_url = "https://example.com"
         slug = "manfred"
         reviewer = "reviewer"
@@ -294,3 +295,83 @@ def test_memorial_room_audio_clean_materializer_copies_expected_artifacts(tmp_pa
     assert set(copied) == {path.as_posix() for path in module.SYNC_ARTIFACTS}
     for relpath in module.SYNC_ARTIFACTS:
         assert (dest_root / relpath).read_text(encoding="utf-8") == "{}"
+
+
+def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_public_gold_clean.py", "materialize_memorial_public_gold_clean")
+
+    class _Args:
+        python_bin = "python3"
+        base_url = "https://example.com"
+        slug = "manfred"
+        reviewer = "reviewer"
+        device_label = "laptop"
+        speaker_label = "speaker"
+        room_label = "office"
+        notes = "ok"
+        direct_min_f1 = 0.92
+        conversation_min_f1 = 0.90
+        browser_first_answer_ms = 4500.0
+        meaningful_browser_first_answer_ms = 8000.0
+        meaningful_prompt = "Was war dir bei Gerechtigkeit wichtig?"
+
+    local_voice = module.build_local_voice_receipt_command(_Args())
+    voice = module.build_voice_receipt_command(_Args())
+    browser = module.build_browser_receipt_command(_Args())
+    meaningful = module.build_meaningful_browser_receipt_command(_Args())
+    room = module.build_room_receipt_command(_Args())
+
+    assert local_voice[:2] == ["python3", "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"]
+    assert ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json" in local_voice
+    assert voice[:2] == ["python3", "scripts/materialize_memorial_voice_roundtrip_exit_gate.py"]
+    assert "--gold-mode" in voice
+    assert "--require-public-origin" in voice
+    assert "https://example.com" in voice
+    assert browser[:2] == ["python3", "scripts/measure_memorial_live_browser.py"]
+    assert "--real-stt" in browser
+    assert "--max-first-answer-ms" in browser
+    assert meaningful[:2] == ["python3", "scripts/measure_memorial_live_browser.py"]
+    assert "--text-prompt" in meaningful
+    assert "Was war dir bei Gerechtigkeit wichtig?" in meaningful
+    assert room[:2] == ["python3", "scripts/materialize_memorial_room_audio_receipt.py"]
+    assert "--reviewer" in room
+    assert "reviewer" in room
+
+
+def test_memorial_public_gold_clean_materializer_copies_expected_artifacts(tmp_path) -> None:
+    module = _load_module("/docker/EA/scripts/materialize_memorial_public_gold_clean.py", "materialize_memorial_public_gold_clean_copy")
+    clean_root = tmp_path / "clean"
+    dest_root = tmp_path / "dest"
+    for relpath in module.SYNC_ARTIFACTS:
+        path = clean_root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+    copied = module._copy_artifacts_from_clean_clone(clean_root, dest_root)
+
+    assert set(copied) == {path.as_posix() for path in module.SYNC_ARTIFACTS}
+    for relpath in module.SYNC_ARTIFACTS:
+        assert (dest_root / relpath).read_text(encoding="utf-8") == "{}"
+
+
+def test_memorial_receipt_materializers_use_source_state_head(monkeypatch) -> None:
+    voice = _load_module(
+        "/docker/EA/scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
+        "materialize_memorial_voice_roundtrip_exit_gate_source_head",
+    )
+    browser = _load_module(
+        "/docker/EA/scripts/measure_memorial_live_browser.py",
+        "measure_memorial_live_browser_source_head",
+    )
+    room = _load_module(
+        "/docker/EA/scripts/materialize_memorial_room_audio_receipt.py",
+        "materialize_memorial_room_audio_receipt_source_head",
+    )
+
+    monkeypatch.setattr(voice, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
+    monkeypatch.setattr(browser, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
+    monkeypatch.setattr(room, "resolve_source_state_head", lambda root: "SOURCE_HEAD")
+
+    assert voice._git_head() == "SOURCE_HEAD"
+    assert browser._git_head() == "SOURCE_HEAD"
+    assert room._git_head() == "SOURCE_HEAD"

@@ -8,6 +8,11 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
@@ -18,17 +23,7 @@ def _utc_now() -> str:
 
 
 def _git_head() -> str:
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    return resolve_source_state_head(ROOT)
 
 
 def _git_dirty() -> bool:

@@ -259,10 +259,20 @@ materialize-memorial-room-audio-gold-clean:
 		--notes "$${MEMORIAL_ROOM_NOTES:-}"
 
 materialize-memorial-public-gold:
-	$(MAKE) materialize-memorial-public-voice-gold
-	$(MAKE) materialize-memorial-public-browser-gold
-	$(MAKE) materialize-memorial-public-browser-meaningful-gold
-	$(MAKE) materialize-memorial-room-audio-gold-clean
+	$(PYTHON_BIN) scripts/materialize_memorial_public_gold_clean.py \
+		--python-bin "$(PYTHON_BIN)" \
+		--base-url "$${MEMORIAL_PUBLIC_ORIGIN:?Set MEMORIAL_PUBLIC_ORIGIN to the deployed memorial origin}" \
+		--slug "$${MEMORIAL_PUBLIC_SLUG:-manfred}" \
+		--reviewer "$${MEMORIAL_ROOM_REVIEWER:?Set MEMORIAL_ROOM_REVIEWER to the listener/operator name}" \
+		--device-label "$${MEMORIAL_ROOM_DEVICE_LABEL:-}" \
+		--speaker-label "$${MEMORIAL_ROOM_SPEAKER_LABEL:-}" \
+		--room-label "$${MEMORIAL_ROOM_LABEL:-}" \
+		--notes "$${MEMORIAL_ROOM_NOTES:-}" \
+		--direct-min-f1 "$${MEMORIAL_GOLD_DIRECT_TTS_F1_MIN:-0.92}" \
+		--conversation-min-f1 "$${MEMORIAL_GOLD_CONVERSATION_AUDIO_F1_MIN:-0.90}" \
+		--browser-first-answer-ms "$${MEMORIAL_GOLD_MAX_BROWSER_FIRST_ANSWER_MS:-4500}" \
+		--meaningful-browser-first-answer-ms "$${MEMORIAL_GOLD_MAX_MEANINGFUL_BROWSER_FIRST_ANSWER_MS:-8000}" \
+		--meaningful-prompt "$${MEMORIAL_MEANINGFUL_BROWSER_PROMPT:-Was war dir bei Gerechtigkeit wichtig?}"
 	MEMORIAL_REQUIRE_MEANINGFUL_BROWSER_RECEIPT=1 $(MAKE) verify-memorial-gold-readiness
 
 materialize-memorial-phrase-bank:

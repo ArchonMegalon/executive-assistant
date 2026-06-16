@@ -1574,6 +1574,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     }
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
+    memorial_workflow_hardening_commit = "25f036a"
+    memorial_workflow_hardening_subject = "Harden memorial proof workflow and STT log policy"
+    memorial_workflow_hardening_paths = {
+        ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+        ".github/workflows/memorial-public-gold.yml",
+        "ea/app/services/memorial_stt_error_log.py",
+        "scripts/materialize_memorial_operator_status.py",
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "tests/test_github_actions_budget_policy.py",
+        "tests/test_memorial_live_conversation_contracts.py",
+        "tests/test_memorial_operator_artifacts.py",
+    }
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
     m142_family_packet_refresh_commit = "0199aff"
     m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
@@ -1843,6 +1855,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert "tests/e2e/visual_baselines/admin-community-page.png" in paths, (commit, sorted(paths))
             assert ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml" in paths, (commit, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
+            continue
+        if commit == memorial_workflow_hardening_commit:
+            assert subject == memorial_workflow_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_workflow_hardening_paths, (commit, sorted(paths))
             continue
         if (
             "scripts/verify_flagship_release_readiness.py" in paths
@@ -2378,6 +2394,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml" in paths, (commit, sorted(paths))
             assert any(path.startswith("docs/chummer5a_parity_lab/") for path in paths), (commit, sorted(paths))
             continue
+        if commit == memorial_workflow_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_workflow_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_workflow_hardening_paths, (commit, sorted(paths))
+            continue
         if (
             "scripts/verify_flagship_release_readiness.py" in paths
             and "tests/test_flagship_release_readiness_gate.py" in paths
@@ -2804,6 +2831,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == propertyquarry_international_release_subject, (commit, subject, sorted(paths))
             assert paths == propertyquarry_international_release_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_workflow_hardening_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_workflow_hardening_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_workflow_hardening_paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(

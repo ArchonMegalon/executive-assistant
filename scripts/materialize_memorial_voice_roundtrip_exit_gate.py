@@ -20,6 +20,11 @@ if str(EA_SCRIPTS) not in sys.path:
 if str(EA_DIR) not in sys.path:
     sys.path.insert(0, str(EA_DIR))
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 import validate_memorial_voice_loop as voice_loop  # noqa: E402
 
 
@@ -28,21 +33,7 @@ def _utc_now() -> str:
 
 
 def _git_head() -> str:
-    import subprocess
-
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(ROOT),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-            timeout=10,
-        )
-    except Exception:
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    return resolve_source_state_head(ROOT)
 
 
 def _git_dirty() -> bool:

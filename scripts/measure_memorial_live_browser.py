@@ -19,6 +19,11 @@ import wave
 from datetime import UTC, datetime
 from pathlib import Path
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 
 LIVE_PROMPT_TEXT = "Hallo Manfred, kannst du jetzt mit mir sprechen?"
 MEANINGFUL_PROMPT_TEXT = "Was war dir bei Gerechtigkeit wichtig?"
@@ -131,18 +136,7 @@ def _utc_now() -> str:
 
 
 def _git_head() -> str:
-    root = Path(__file__).resolve().parents[1]
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        return ""
-    return proc.stdout.strip() if proc.returncode == 0 else ""
+    return resolve_source_state_head(Path(__file__).resolve().parents[1])
 
 
 def _git_dirty() -> bool:
