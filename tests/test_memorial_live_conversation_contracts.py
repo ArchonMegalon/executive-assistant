@@ -93,6 +93,67 @@ def _captured_technical_retry_wav_bytes() -> bytes:
     return Path("/docker/EA/tests/fixtures/memorial/rescue_technical_retry_captured.wav").read_bytes()
 
 
+def _wav_pcm16_samples(payload: bytes) -> tuple[int, list[int]]:
+    with wave.open(io.BytesIO(payload), "rb") as wav_file:
+        assert wav_file.getnchannels() == 1
+        assert wav_file.getsampwidth() == 2
+        sample_rate = int(wav_file.getframerate() or 16_000)
+        raw = wav_file.readframes(int(wav_file.getnframes() or 0))
+    samples = [sample for (sample,) in struct.iter_unpack("<h", raw[: len(raw) - (len(raw) % 2)])]
+    return sample_rate, samples
+
+
+def _wav_from_samples(samples: list[int], *, sample_rate: int = 16_000) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(struct.pack("<" + "h" * len(samples), *samples))
+    return buffer.getvalue()
+
+
+def _amplify_wav_bytes(payload: bytes, *, gain: float) -> bytes:
+    sample_rate, samples = _wav_pcm16_samples(payload)
+    amplified = [max(-32768, min(32767, int(sample * gain))) for sample in samples]
+    return _wav_from_samples(amplified, sample_rate=sample_rate)
+
+
+def _echo_wav_bytes(payload: bytes, *, delay_ms: int = 70, decay: float = 0.24) -> bytes:
+    sample_rate, samples = _wav_pcm16_samples(payload)
+    delay_samples = max(1, int(sample_rate * (delay_ms / 1000.0)))
+    echoed = list(samples)
+    for index, sample in enumerate(samples):
+        delayed_index = index + delay_samples
+        if delayed_index < len(echoed):
+            echoed[delayed_index] = max(-32768, min(32767, echoed[delayed_index] + int(sample * decay)))
+    return _wav_from_samples(echoed, sample_rate=sample_rate)
+
+
+def _speed_up_wav_bytes(payload: bytes, *, factor: float = 1.35) -> bytes:
+    sample_rate, samples = _wav_pcm16_samples(payload)
+    target_len = max(1, int(len(samples) / max(1.01, factor)))
+    sped = [samples[min(len(samples) - 1, int(index * factor))] for index in range(target_len)]
+    return _wav_from_samples(sped, sample_rate=sample_rate)
+
+
+def _mix_wav_with_noise(payload: bytes, *, noise_sample: int = 120) -> bytes:
+    sample_rate, samples = _wav_pcm16_samples(payload)
+    noise = [noise_sample, -noise_sample, noise_sample // 2, -(noise_sample // 2)]
+    mixed = [
+        max(-32768, min(32767, sample + noise[index % len(noise)]))
+        for index, sample in enumerate(samples)
+    ]
+    return _wav_from_samples(mixed, sample_rate=sample_rate)
+
+
+def _hostile_captured_wav_bytes(payload: bytes) -> bytes:
+    hardened = _amplify_wav_bytes(payload, gain=1.18)
+    hardened = _echo_wav_bytes(hardened, delay_ms=76, decay=0.22)
+    hardened = _mix_wav_with_noise(hardened, noise_sample=132)
+    return _speed_up_wav_bytes(hardened, factor=1.35)
+
+
 def _generated_wav_bytes(*, textish_seed: str, duration_seconds: float = 0.35) -> bytes:
     sample_rate = 16_000
     frequency = 260 + (sum(ord(ch) for ch in textish_seed) % 220)
@@ -201,6 +262,30 @@ def test_memorial_audio_energy_gate_rejects_silent_or_tiny_wav() -> None:
     assert not public_memorials._wav_payload_has_speech_energy(_silent_wav_bytes(duration_seconds=1.0))
     assert not public_memorials._wav_payload_has_speech_energy(b"RIFF")
     assert not public_memorials._wav_payload_has_speech_energy(_wav_from_pcm16_bytes(_pcm16_impulse_burst_bytes()))
+
+
+@pytest.mark.parametrize(
+    "payload_factory",
+    (
+        _captured_contact_opening_wav_bytes,
+        _captured_stt_retry_wav_bytes,
+        _captured_technical_retry_wav_bytes,
+    ),
+)
+def test_memorial_audio_energy_gate_accepts_hostile_captured_speech_variants(payload_factory) -> None:
+    from app.api.routes import public_memorials
+
+    hostile = _hostile_captured_wav_bytes(payload_factory())
+
+    assert public_memorials._wav_payload_has_speech_energy(hostile)
+
+
+def test_memorial_audio_energy_gate_still_rejects_overcompressed_captured_clip() -> None:
+    from app.api.routes import public_memorials
+
+    too_fast = _speed_up_wav_bytes(_captured_contact_opening_wav_bytes(), factor=3.2)
+
+    assert not public_memorials._wav_payload_has_speech_energy(too_fast)
 
 
 def test_memorial_speech_transcribe_rejects_silent_wav_before_provider_upload(
@@ -1222,6 +1307,52 @@ def test_memorial_transcribe_prefers_enhanced_wav_before_original_for_strong_res
     assert seen_paths == ["path-1-memorial-speech.wav"]
     assert result["transcript_text"] == "Wie ist das Wetter heute in Wien?"
     assert result["primary_transcript_text"] == "Wie ist das Wetter heute in Wien?"
+    assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
+
+
+def test_memorial_transcribe_prefers_enhanced_wav_for_hostile_captured_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    payload = _hostile_captured_wav_bytes(_captured_contact_opening_wav_bytes())
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+    monkeypatch.setattr(
+        public_memorials,
+        "_convert_audio_to_wav",
+        lambda **kwargs: _amplify_wav_bytes(_captured_contact_opening_wav_bytes(), gain=1.08),
+    )
+
+    seen_paths: list[str] = []
+
+    def _fake_upload(**kwargs):
+        path = f"path-{len(seen_paths) + 1}-{kwargs['filename']}"
+        return {"asset": {"key": path}, "fileContent": {"path": path}}
+
+    def _fake_stt(**kwargs):
+        audio_path = str(kwargs.get("audio_path") or "")
+        seen_paths.append(audio_path)
+        return {
+            "aiRecord": {
+                "aiRecordDetail": {
+                    "responseObject": {"text": "Hallo Manfred, kannst du jetzt mit mir sprechen?"}
+                }
+            }
+        }
+
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", _fake_upload)
+    monkeypatch.setattr(product_service, "_onemin_speech_to_text", _fake_stt)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=payload,
+        content_type="audio/wav",
+    )
+
+    assert seen_paths
+    assert seen_paths[0].endswith("memorial-speech.wav")
+    assert result["transcript_text"] == "Hallo Manfred, kannst du jetzt mit mir sprechen?"
     assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
 
 

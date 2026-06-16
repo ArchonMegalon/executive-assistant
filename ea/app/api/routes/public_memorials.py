@@ -7646,7 +7646,7 @@ def _wav_payload_has_speech_energy(payload: bytes) -> bool:
             sample_width = int(wav_file.getsampwidth() or 0)
             frame_rate = max(1, int(wav_file.getframerate() or 1))
             frame_count = int(wav_file.getnframes() or 0)
-            if sample_width != 2 or frame_count < int(frame_rate * 0.35):
+            if sample_width != 2 or frame_count < int(frame_rate * 0.24):
                 return False
             raw = wav_file.readframes(frame_count)
     except Exception:
