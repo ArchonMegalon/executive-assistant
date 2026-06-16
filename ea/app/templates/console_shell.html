@@ -79,6 +79,14 @@
     grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
     align-items: start;
   }
+  .console-stage.today-stage .console-panel {
+    border-color: rgba(189, 139, 47, 0.24);
+    box-shadow: 0 24px 58px rgba(38, 32, 22, 0.16);
+  }
+  .console-stage.today-stage .console-panel::before {
+    height: 74px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.8), rgba(255,255,255,0));
+  }
   .console-today-main {
     display: grid;
     gap: 14px;
@@ -99,6 +107,7 @@
     border: 1px solid rgba(185, 173, 154, 0.52);
     background: linear-gradient(180deg, rgba(255,255,255,0.54), rgba(255,255,255,0.08));
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 220ms ease;
   }
   .console-brief-metric span {
     display: block;
@@ -112,10 +121,17 @@
     font-size: 15px;
     color: var(--text);
   }
+  .console-brief-metric:hover {
+    transform: translateY(-1px);
+    border-color: rgba(189, 139, 47, 0.3);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.76), 0 14px 28px rgba(38, 32, 22, 0.08);
+  }
   .console-focus {
     display: grid;
     gap: 14px;
     align-content: start;
+    border-color: rgba(185, 173, 154, 0.72);
+    background: linear-gradient(180deg, rgba(255,253,248,0.98), rgba(247,241,232,0.92));
   }
   .console-focus-stack {
     display: grid;
@@ -127,6 +143,7 @@
     border-radius: 14px;
     background: linear-gradient(180deg, rgba(255,255,255,0.52), rgba(255,255,255,0.08));
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 220ms ease;
   }
   .console-focus-card > * {
     position: relative;
@@ -141,6 +158,11 @@
     margin: 0;
     color: var(--text-soft);
     font-size: 13px;
+  }
+  .console-focus-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(189, 139, 47, 0.26);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.78), 0 16px 32px rgba(38, 32, 22, 0.08);
   }
   .console-metric-grid {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -164,7 +186,7 @@
   .console-metric strong {
     display: block;
     color: var(--text);
-    font-size: 1.35rem;
+    font-size: 1.42rem;
     font-weight: 620;
     letter-spacing: -0.02em;
   }
@@ -174,12 +196,19 @@
     font-size: 12px;
     margin-top: 4px;
   }
+  .console-stage.today-stage .console-metric span:last-child {
+    color: var(--text-soft);
+  }
   .console-row {
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    padding: 0 0 12px;
+    padding: 0 0 14px;
     border-bottom: 1px solid var(--line);
+    transition: transform 180ms ease;
+  }
+  .console-row:hover {
+    transform: translateX(2px);
   }
   .console-row:last-child {
     border-bottom: 0;
@@ -247,6 +276,9 @@
   .console-stage,
   .console-section-grid {
     animation: console-rise 420ms ease both;
+  }
+  .console-callout {
+    background: linear-gradient(180deg, rgba(255,255,255,0.46), rgba(244,236,223,0.7));
   }
   @keyframes console-rise {
     from { opacity: 0; transform: translateY(8px); }
@@ -854,7 +886,7 @@
         <div class="console-metric">
           <span class="label">{{ stat.label }}</span>
           <strong>{{ stat.value }}</strong>
-          <span>Visible in the current workspace view.</span>
+          <span>Visible without leaving the office loop.</span>
         </div>
         {% endfor %}
       </div>
@@ -883,7 +915,7 @@
     {% if c1 and c1['items'] %}
       {{ rows(c1['items'], 'Review', 'Prepared as an explicit next step rather than another hidden reminder.') }}
     {% endif %}
-    <div class="console-callout">{{ console_summary }}</div>
+    <div class="console-callout">Keep the office legible: what changed, what needs review, and what cannot quietly slip.</div>
   </aside>
 </section>
 {% elif current_nav == 'queue' %}

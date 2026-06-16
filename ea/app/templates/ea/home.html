@@ -3,7 +3,7 @@
 <style>
   .ea-shell {
     display: grid;
-    gap: 28px;
+    gap: 24px;
   }
   .ea-home-grid,
   .ea-proof-grid,
@@ -26,6 +26,7 @@
     padding: 20px;
     position: relative;
     overflow: hidden;
+    animation: ea-surface-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   .ea-hero::before,
   .ea-proof::before,
@@ -64,6 +65,9 @@
     gap: 12px;
     margin-bottom: 14px;
   }
+  .ea-proof:nth-child(2) { animation-delay: 40ms; }
+  .ea-proof:nth-child(3) { animation-delay: 80ms; }
+  .ea-trust:nth-child(2) { animation-delay: 40ms; }
   .ea-status-badge,
   .ea-mini-badge {
     display: inline-flex;
@@ -102,6 +106,7 @@
     border: 1px solid var(--line);
     background: linear-gradient(180deg, rgba(255,255,255,0.52), rgba(255,255,255,0.08));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 220ms ease;
   }
   .ea-kpi span {
     display: block;
@@ -112,6 +117,11 @@
   .ea-kpi strong {
     margin: 0;
     font-size: 15px;
+  }
+  .ea-kpi:hover {
+    transform: translateY(-1px);
+    border-color: rgba(189, 139, 47, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.76), 0 14px 28px rgba(38, 32, 22, 0.08);
   }
   .ea-pane-group + .ea-pane-group {
     margin-top: 16px;
@@ -163,6 +173,10 @@
     height: 1px;
     background: linear-gradient(90deg, var(--accent), transparent);
   }
+  @keyframes ea-surface-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   @media (max-width: 1080px) {
     .ea-home-grid,
     .ea-proof-grid,
@@ -171,6 +185,16 @@
     }
     .ea-kpi-row {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ea-hero,
+    .ea-proof,
+    .ea-trust,
+    .ea-pane,
+    .ea-kpi {
+      animation: none !important;
+      transition: none !important;
     }
   }
 </style>

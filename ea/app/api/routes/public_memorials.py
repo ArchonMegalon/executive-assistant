@@ -10575,6 +10575,7 @@ def _memorial_html(
         color: var(--muted);
         font: 600 14px/1.45 ui-sans-serif, system-ui, sans-serif;
         box-shadow: inset 0 1px 0 rgba(255,255,255,.5);
+        transition: border-color .18s ease, background .18s ease, box-shadow .22s ease, transform .18s ease;
       }}
       .speech-status-bar.is-listening {{
         border-color: rgba(83,104,91,.28);
@@ -10593,7 +10594,7 @@ def _memorial_html(
       }}
       .chat.quiet-shell .speech-status-bar {{
         margin-top: 0;
-        padding: 0;
+        padding: 4px 0 0;
         border: 0;
         border-radius: 0;
         background: transparent;
@@ -10618,6 +10619,7 @@ def _memorial_html(
         margin-top: 12px;
         padding-top: 10px;
         border-top: 1px solid rgba(132,104,74,.12);
+        transition: opacity .18s ease, transform .18s ease;
       }}
       .speech-live-monitor.is-idle {{
         display: none;
@@ -10795,6 +10797,7 @@ def _memorial_html(
         margin-top: 8px;
         font-size: 12px;
         opacity: .9;
+        justify-content: center;
       }}
       .speech-transcript {{
         display: grid;
@@ -10809,11 +10812,12 @@ def _memorial_html(
       .speech-transcript-live {{
         display: grid;
         gap: 6px;
-        padding: 14px 16px;
+        padding: 15px 16px;
         border: 1px solid rgba(72,103,126,.16);
         border-radius: 18px;
         background: linear-gradient(180deg, rgba(246,248,250,.96), rgba(238,242,246,.82));
         box-shadow: inset 0 1px 0 rgba(255,255,255,.62);
+        transition: transform .18s ease, border-color .18s ease, box-shadow .22s ease;
       }}
       .speech-transcript-live strong {{
         color: var(--blue);
@@ -10824,19 +10828,31 @@ def _memorial_html(
       .speech-transcript-live p {{
         margin: 0;
         color: var(--ink);
+        line-height: 1.55;
       }}
       .speech-transcript-live .status-note {{
         color: var(--ink-soft);
       }}
       .speech-turn {{
+        position: relative;
         border: 1px solid rgba(132,104,74,.14);
-        border-radius: 18px;
-        padding: 14px 16px;
+        border-radius: 20px;
+        padding: 15px 16px;
         background: linear-gradient(180deg, rgba(255,252,247,.92), rgba(247,239,228,.76));
         box-shadow:
           inset 0 1px 0 rgba(255,255,255,.66),
           0 12px 26px rgba(56,45,36,.06);
         transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+        animation: memorial-turn-rise .24s ease both;
+      }}
+      .speech-turn::before {{
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 40px;
+        border-radius: inherit;
+        background: linear-gradient(180deg, rgba(255,255,255,.28), rgba(255,255,255,0));
+        pointer-events: none;
       }}
       .speech-turn strong {{
         display: block;
@@ -10849,6 +10865,13 @@ def _memorial_html(
       .speech-turn.assistant strong {{
         color: var(--blue);
       }}
+      .speech-turn.user {{
+        background: linear-gradient(180deg, rgba(253,248,241,.94), rgba(246,238,228,.8));
+      }}
+      .speech-turn.assistant {{
+        border-color: rgba(72,103,126,.16);
+        background: linear-gradient(180deg, rgba(247,250,252,.96), rgba(237,243,247,.82));
+      }}
       .speech-turn:hover {{
         transform: translateY(-1px);
         border-color: rgba(180,141,81,.24);
@@ -10858,6 +10881,29 @@ def _memorial_html(
       }}
       .speech-turn p {{
         color: var(--ink);
+        line-height: 1.6;
+      }}
+      .hero-portrait-line {{
+        margin-top: 14px;
+        max-width: 520px;
+        display: grid;
+        gap: 5px;
+        padding-top: 12px;
+        border-top: 1px solid rgba(132,104,74,.12);
+      }}
+      .hero-portrait-line strong {{
+        color: var(--ink);
+        font: 700 13px/1.2 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: .02em;
+      }}
+      .hero-portrait-line span {{
+        color: var(--ink-soft);
+        font-size: 13px;
+        line-height: 1.5;
+      }}
+      @keyframes memorial-turn-rise {{
+        from {{ opacity: 0; transform: translateY(6px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
       }}
       .video-call-preview {{
         width: min(720px, 100%);

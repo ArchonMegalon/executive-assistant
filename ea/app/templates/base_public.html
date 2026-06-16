@@ -44,7 +44,10 @@
       --radius: 14px;
       --radius-sm: 10px;
       --max: 1180px;
+      --ease-fast: 140ms ease;
       --ease: 180ms ease;
+      --ease-slow: 220ms ease;
+      --ease-emphasis: 220ms cubic-bezier(0.22, 1, 0.36, 1);
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -59,6 +62,16 @@
       text-rendering: optimizeLegibility;
     }
     a { color: inherit; text-decoration: none; }
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 3px rgba(255, 253, 248, 0.92),
+        0 0 0 5px rgba(189, 139, 47, 0.34);
+    }
     .wrap { width: min(var(--max), calc(100vw - 40px)); margin: 0 auto; }
     .topbar {
       position: sticky;
@@ -89,7 +102,7 @@
       gap: 12px;
       font-weight: 650;
       color: var(--text);
-      transition: transform var(--ease), opacity var(--ease);
+      transition: transform var(--ease-emphasis), opacity var(--ease);
     }
     .brand-mark {
       width: 32px;
@@ -156,9 +169,9 @@
       font-weight: 600;
       box-shadow: var(--shadow-soft);
       transition:
-        transform var(--ease),
+        transform var(--ease-emphasis),
         border-color var(--ease),
-        box-shadow var(--ease),
+        box-shadow var(--ease-slow),
         background var(--ease),
         color var(--ease),
         filter var(--ease);
@@ -174,8 +187,13 @@
     }
     .btn:hover {
       border-color: var(--accent);
-      transform: translateY(-1px);
-      box-shadow: 0 16px 32px rgba(38, 32, 22, 0.12);
+      transform: translateY(-2px);
+      box-shadow: 0 18px 36px rgba(38, 32, 22, 0.14);
+    }
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: 0 8px 18px rgba(38, 32, 22, 0.1);
+      filter: saturate(0.98);
     }
     .btn.primary:hover { filter: brightness(1.03); }
     .btn.ghost:hover { color: var(--text); }
@@ -716,6 +734,25 @@
       background: rgba(255,255,255,0.02);
       font-size: 14px;
     }
+    .panel,
+    .summary,
+    .preview-top,
+    .nav-card,
+    .preview-main > section {
+      animation: public-surface-rise 340ms var(--ease-emphasis) both;
+    }
+    .summary:nth-child(2),
+    .preview-main > section:nth-child(2) {
+      animation-delay: 40ms;
+    }
+    .summary:nth-child(3),
+    .preview-main > section:nth-child(3) {
+      animation-delay: 80ms;
+    }
+    @keyframes public-surface-rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
 
     @media (max-width: 1080px) {
       .hero,
@@ -744,6 +781,15 @@
         align-items: flex-start;
       }
       main, .console-main { padding-top: 24px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition-duration: 0ms !important;
+        scroll-behavior: auto !important;
+      }
     }
 </style>
 </head>
