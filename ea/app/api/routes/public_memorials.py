@@ -15117,6 +15117,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                         _register_turn_task(turn_id, task)
                         return
                     if _memorial_gemini_live_answer_requires_turn_fallback(transcript_text, answer_text) and normalized_transcript:
+                        fallback_audio = bytes(current_audio) if current_audio else b""
+                        fallback_content_type = current_content_type
+                        if fallback_audio and current_content_type.startswith("audio/pcm"):
+                            fallback_audio = _pcm16_payload_to_wav(fallback_audio, content_type=current_content_type)
+                            fallback_content_type = "audio/wav"
                         _log_memorial_timing(
                             "gemini_live_transcript_answer_fallback",
                             slug=slug,
@@ -15125,7 +15130,16 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             answer_chars=len(_normalize_memorial_transcript_text(answer_text)),
                         )
                         await _safe_send_json({"type": "phase", "turn_id": turn_id, "phase": "thinking", "detail": "Ich prüfe nochmal genau, was du gesagt hast"})
-                        task = asyncio.create_task(_process_transcript_turn(turn_id, transcript_text))
+                        task = asyncio.create_task(
+                            _process_transcript_turn(
+                                turn_id,
+                                transcript_text,
+                                audio_payload=fallback_audio,
+                                audio_content_type=fallback_content_type,
+                                transcription_status="transcribed",
+                                transcriber="gemini_live_input_transcription",
+                            )
+                        )
                         _register_turn_task(turn_id, task)
                         return
                     guarded_live_answer = _memorial_live_guardrail_answer_body(
@@ -15417,13 +15431,34 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                 answer=_text(answer_payload.get("answer"), ""),
             )
             compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
-            answer_payload["answer"] = compact_answer
+            original_compact_answer = compact_answer
+            original_fallback_reason = _text(answer_payload.get("fallback_reason"))
             issue_reason = classify_memorial_stt_issue(
                 transcription_status=transcription_status,
                 transcript_text=visible_transcript or effective_question,
                 answer_text=compact_answer,
-                fallback_reason=_text(answer_payload.get("fallback_reason")),
+                fallback_reason=original_fallback_reason,
             )
+            if issue_reason == "generic_fallback_answer":
+                normalized_original_reason = original_fallback_reason.strip().lower()
+                if normalized_original_reason.startswith("upstream_unavailable:") or normalized_original_reason in {
+                    "realtime_llm_timeout",
+                    "conversation_turn_llm_timeout",
+                }:
+                    compact_answer = (
+                        "Meine Antwort war gerade technisch nicht sauber. "
+                        "Sag es bitte noch einmal."
+                    )
+                    answer_payload["fallback_reason"] = "technical_retry_required"
+                else:
+                    compact_answer = (
+                        "Ich habe dich nicht klar genug verstanden. "
+                        "Sag es bitte noch einmal in einem kurzen Satz."
+                    )
+                    answer_payload["fallback_reason"] = "stt_retry_required"
+                answer_payload["llm_provider"] = "memorial_guardrail"
+                answer_payload["llm_fallback_used"] = True
+            answer_payload["answer"] = compact_answer
             if issue_reason and audio_payload:
                 try:
                     log_memorial_stt_issue(
@@ -15440,7 +15475,11 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
                             "transcriber": transcriber,
                         },
                         answer_payload=answer_payload,
-                        extra={"turn_id": turn_id},
+                        extra={
+                            "turn_id": turn_id,
+                            "pre_guardrail_answer": original_compact_answer,
+                            "pre_guardrail_fallback_reason": original_fallback_reason,
+                        },
                     )
                 except Exception:
                     pass

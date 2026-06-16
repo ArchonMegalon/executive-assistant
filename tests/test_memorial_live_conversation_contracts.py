@@ -3672,6 +3672,88 @@ def test_memorial_realtime_cancel_during_streaming_audio_allows_clean_follow_up(
     assert any(message.get("type") == "turn_complete" and message.get("turn_id") == "turn_stream_new" for message in messages)
 
 
+def test_memorial_realtime_text_turn_rewrites_generic_fallback_answer_to_retry_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+
+    output_audio = _generated_wav_bytes(textish_seed="Bitte sag es noch einmal.")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
+            "answer": (
+                "Sag mir den konkreten Punkt noch etwas enger. "
+                "Dann antworte ich dir direkt darauf und nicht allgemein drum herum."
+            ),
+            "sources": [],
+            "llm_model": "ea-gemini-flash",
+            "llm_provider": "gemini_vortex",
+            "llm_request_model": "ea-gemini-flash",
+            "llm_fallback_used": False,
+            "fallback_reason": "upstream_unavailable:test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-live-realtime-generic-retry")
+
+    with client.websocket_connect(f"/memorials/{slug}/realtime") as websocket:
+        ready = websocket.receive_json()
+        assert ready["type"] == "ready"
+        websocket.send_json(
+            {
+                "type": "user_text_turn",
+                "turn_id": "turn_retry_guardrail",
+                "text": "Bis zum nächsten Mal.",
+                "personal_memory_enabled": False,
+            }
+        )
+        messages = []
+        for _ in range(20):
+            message = websocket.receive_json()
+            messages.append(message)
+            if message.get("type") in {"turn_complete", "error"} and message.get("turn_id") == "turn_retry_guardrail":
+                break
+
+    answer_message = next(
+        message
+        for message in messages
+        if message.get("type") == "answer" and message.get("turn_id") == "turn_retry_guardrail"
+    )
+
+    assert answer_message["text"] == "Meine Antwort war gerade technisch nicht sauber. Sag es bitte noch einmal."
+    assert "konkreten Punkt" not in answer_message["text"]
+
+
 def test_memorial_voice_chat_model_prefers_gemini_for_live_interaction() -> None:
     from app.api.routes import public_memorials
 
