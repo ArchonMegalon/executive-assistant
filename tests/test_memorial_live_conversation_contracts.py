@@ -9,6 +9,7 @@ import math
 import os
 import re
 import struct
+import subprocess
 import time
 import wave
 from pathlib import Path
@@ -2187,6 +2188,42 @@ def test_memorial_conversation_turn_logs_generic_fallback_answers_to_pcloud_bund
     assert (bundles[0] / "input.wav").read_bytes() == input_audio
 
 
+def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    log_root = tmp_path / "pcloud"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    converted_wav = _generated_wav_bytes(textish_seed="webm bundle")
+
+    def _run(*args, **kwargs):
+        assert "-f" in args[0]
+        assert "webm" in args[0]
+        assert kwargs["input"] == b"fake-webm-audio"
+        return subprocess.CompletedProcess(args[0], 0, stdout=converted_wav, stderr=b"")
+
+    monkeypatch.setattr(memorial_stt_error_log.subprocess, "run", _run)
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="realtime_audio_turn",
+        reason="generic_fallback_answer",
+        audio_payload=b"fake-webm-audio",
+        content_type="audio/webm;codecs=opus",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    bundle_dir = Path(result["directory"])
+    metadata = json.loads((bundle_dir / "error.json").read_text(encoding="utf-8"))
+
+    assert metadata["stored_wav"] is True
+    assert metadata["content_type"] == "audio/webm;codecs=opus"
+    assert (bundle_dir / "input.wav").read_bytes() == converted_wav
+
+
 def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -3880,6 +3917,35 @@ def test_memorial_generic_fallback_answer_does_not_default_to_schach_und_familie
     assert "belegt ist hier vor allem" not in lowered
     assert "schach" not in lowered
     assert "familie" not in lowered
+
+
+def test_memorial_multi_question_transcript_gets_single_question_retry_guardrail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    payload = public_memorials._load_memorial(slug)
+    private_profile = public_memorials._load_private_profile(slug)
+
+    answer = public_memorials._memorial_chat_answer(
+        payload,
+        "Ich möchte fragen, wie das Wetter bei dir ist, dort wo du jetzt bist. "
+        "Kommt da noch was oder bist du jetzt stumm? Vielleicht eine andere Frage. "
+        "Wie stehst du zur Covid-Impfung? Okay, wie ist das Wetter dort, wo du gerade bist?",
+        private_profile,
+        "ea-gemini-flash",
+        slug=slug,
+        memory_runtime=None,
+        personal_memory_context=None,
+        difficult_memory_mode=False,
+    )
+
+    assert answer["fallback_reason"] == "multi_question_retry_required"
+    assert answer["llm_provider"] == "memorial_guardrail"
+    assert "mehrere Fragen" in answer["answer"]
+    assert "letzte Frage" in answer["answer"]
 
 
 def test_memorial_values_question_replaces_vague_model_answer_with_values_guardrail(

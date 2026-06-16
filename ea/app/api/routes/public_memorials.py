@@ -3437,6 +3437,67 @@ def _memorial_current_speculation_visible_text(question: str) -> str:
     )
 
 
+def _memorial_transcript_needs_single_question_retry(question: str) -> bool:
+    normalized = _repair_memorial_transcript_text(question)
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    tokens = re.findall(r"[a-z0-9äöüß]+", lowered)
+    if len(tokens) < 10:
+        return False
+    topic_hits = 0
+    if _is_memorial_weather_question(normalized):
+        topic_hits += 1
+    if _is_memorial_current_speculation_question(normalized):
+        topic_hits += 1
+    if _is_memorial_contact_question(normalized) or _is_memorial_live_interaction_question(normalized):
+        topic_hits += 1
+    if _looks_like_memorial_theme_question(normalized):
+        topic_hits += 1
+    if topic_hits < 2:
+        return False
+    question_word_count = sum(
+        1
+        for token in tokens
+        if token
+        in {
+            "wie",
+            "was",
+            "wer",
+            "wo",
+            "wann",
+            "warum",
+            "wieso",
+            "weshalb",
+            "kommt",
+            "kannst",
+            "kann",
+            "frage",
+            "fragen",
+            "covid",
+            "impfung",
+            "impfen",
+            "wetter",
+        }
+    )
+    multi_question_markers = (
+        "andere frage",
+        "andere fragen",
+        "vielleicht eine andere frage",
+        "kommt da noch was",
+        "wenn du jetzt gar nichts mehr redest",
+        "wo du auch immer bist",
+    )
+    if any(marker in lowered for marker in multi_question_markers):
+        return True
+    return question_word_count >= 3 or len(tokens) >= 18
+
+
+def _memorial_multi_question_retry_answer_body(question: str = "") -> str:
+    del question
+    return "Ich habe gerade mehrere Fragen auf einmal gehört. Sag bitte nur die letzte Frage noch einmal in einem kurzen Satz."
+
+
 def _memorial_should_include_mail_memory(question: str) -> bool:
     lowered = _text(question, "").lower()
     if not lowered:
@@ -5286,6 +5347,24 @@ def _memorial_chat_answer(
         if personal_memory_lines and "Nutzer bevorzugt knappe, direkte und paraphrasierende Antworten statt wortwoertlicher oder ausladender Wiedergabe." in _text(fallback.get("answer"), ""):
             fallback["answer"] = "Ich halte es kuenftig knapp, direkt und ohne unnoetige Wiederholungen."
         return fallback
+    if _memorial_transcript_needs_single_question_retry(normalized_question):
+        return {
+            "person_name": person_name,
+            "mode": "memorial_first_person_memory_chat",
+            "question": normalized_question,
+            "answer": _memorial_multi_question_retry_answer_body(normalized_question),
+            "answer_audio_text": _memorial_multi_question_retry_answer_body(normalized_question),
+            "sources": [],
+            "private_context_used": False,
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": requested_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "multi_question_retry_required",
+        }
     if _is_memorial_current_speculation_question(normalized_question):
         return {
             "person_name": person_name,
