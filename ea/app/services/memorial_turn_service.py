@@ -44,7 +44,11 @@ def build_public_memorial_turn(*, shared, request: MemorialTurnRequest, memory_r
     )
     transcript_text = transcription.transcript_effective_text
     if not transcript_text:
-        raise HTTPException(status_code=400, detail="speech_transcription_empty")
+        detail = shared._text(
+            transcription.extra.get("detail") or transcription.transcription_status or "speech_transcription_empty",
+            "speech_transcription_empty",
+        )
+        raise HTTPException(status_code=400, detail=f"speech_transcription_empty:{detail}")
     selected_model = shared._resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
     llm_started = time.perf_counter()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{request.slug}")

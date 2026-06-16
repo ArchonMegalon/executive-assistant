@@ -2319,7 +2319,7 @@ def test_memorial_conversation_turn_keeps_configured_voice_even_while_warmup_is_
     assert scheduled == []
 
 
-def test_memorial_conversation_turn_rescues_transcription_failure_with_ooda_reply(
+def test_memorial_conversation_turn_rescues_transcription_failure_with_stt_retry_reply(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2371,15 +2371,15 @@ def test_memorial_conversation_turn_rescues_transcription_failure_with_ooda_repl
 
     assert response.status_code == 200
     body = response.json()
-    assert "ort" in body["answer"].lower()
-    assert "zeit" in body["answer"].lower()
-    assert body["fallback_reason"] == "rescue_ooda_loop"
+    assert "akustisch" in body["answer"].lower()
+    assert "noch einmal" in body["answer"].lower()
+    assert body["fallback_reason"] == "stt_retry_required"
     assert body["turn_rescue_reason"] == "speech_transcription_empty"
     assert body["tts_plugin"] == public_memorials.UNMIXR_TTS_PLUGIN_ID
     assert seen_unmixr_calls
 
 
-def test_memorial_conversation_turn_rescues_throttled_transcription_with_ooda_reply(
+def test_memorial_conversation_turn_rescues_throttled_transcription_with_technical_retry_reply(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -2433,9 +2433,9 @@ def test_memorial_conversation_turn_rescues_throttled_transcription_with_ooda_re
 
     assert response.status_code == 200
     body = response.json()
-    assert "ort" in body["answer"].lower()
-    assert "zeit" in body["answer"].lower()
-    assert body["fallback_reason"] == "rescue_ooda_loop"
+    assert "technisch blockiert" in body["answer"].lower()
+    assert "noch einmal" in body["answer"].lower()
+    assert body["fallback_reason"] == "technical_retry_required"
     assert "Request was throttled" in body["turn_rescue_reason"]
     assert body["tts_plugin"] == public_memorials.OPENVOICE_TTS_PLUGIN_ID
     assert seen_openvoice_calls
@@ -2484,10 +2484,10 @@ def test_memorial_conversation_turn_rescue_survives_tts_failure_without_audio(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["fallback_reason"] == "rescue_ooda_loop"
+    assert body["fallback_reason"] == "stt_retry_required"
     assert body["audio_unavailable"] is True
     assert body["audio_base64"] == ""
-    assert "ort" in body["answer"].lower()
+    assert "akustisch" in body["answer"].lower()
 
 
 def test_memorial_conversation_turn_supports_voicewave_clone(

@@ -6778,7 +6778,7 @@ def _memorial_should_rescue_failed_voice_turn(detail: object) -> bool:
     text = _text(detail, "").strip().lower()
     if not text:
         return False
-    if text == "speech_transcription_empty":
+    if text == "speech_transcription_empty" or text.startswith("speech_transcription_empty:"):
         return True
     return any(
         token in text
@@ -6809,10 +6809,36 @@ def _build_memorial_rescue_contact_turn_payload(
     selected_plugin, selected_option = _resolve_server_tts_plugin(payload=merged_config, options=tts_options)
     if not bool(selected_option.get("tts_plugin_enabled")):
         raise HTTPException(status_code=409, detail="tts_plugin_not_ready")
+    normalized_rescue_reason = _text(rescue_reason, "").strip().lower()
     answer_text = (
-        "Das habe ich nicht sicher verstanden. "
-        "Nenn mir bitte kurz Ort, Zeit und worum es geht."
+        "Das habe ich akustisch nicht klar verstanden. "
+        "Sprich bitte denselben Satz noch einmal, gern etwas näher am Mikrofon."
     )
+    fallback_reason = "stt_retry_required"
+    if "request was throttled" in normalized_rescue_reason:
+        answer_text = (
+            "Einen Moment, das war gerade technisch blockiert. "
+            "Sag es bitte gleich noch einmal."
+        )
+        fallback_reason = "technical_retry_required"
+    elif "speech_transcriber_unavailable" in normalized_rescue_reason:
+        answer_text = (
+            "Die Sprach-Erkennung war gerade nicht bereit. "
+            "Sag es bitte noch einmal in einem kurzen Satz."
+        )
+        fallback_reason = "technical_retry_required"
+    elif "tts_audio_too_short" in normalized_rescue_reason:
+        answer_text = (
+            "Ich habe eine Antwort, aber die Ausgabe war gerade instabil. "
+            "Frag mich bitte noch einmal direkt."
+        )
+        fallback_reason = "technical_retry_required"
+    elif "audio_silence" in normalized_rescue_reason or normalized_rescue_reason.startswith("speech_transcription_empty"):
+        answer_text = (
+            "Ich habe dich akustisch nicht klar verstanden. "
+            "Sprich bitte denselben Satz noch einmal, gern etwas näher am Mikrofon."
+        )
+        fallback_reason = "stt_retry_required"
     result = {
         "person_name": _text(payload.get("person_name"), "Manfred"),
         "mode": "memorial_first_person_memory_chat",
@@ -6827,7 +6853,7 @@ def _build_memorial_rescue_contact_turn_payload(
         "llm_provider": "memorial_guardrail",
         "llm_request_model": GEMINI_VORTEX_PUBLIC_MODEL,
         "llm_fallback_used": False,
-        "fallback_reason": "rescue_ooda_loop",
+        "fallback_reason": fallback_reason,
         "turn_rescue_reason": rescue_reason,
         "transcript_text": "",
         "audio_content_type": "",
