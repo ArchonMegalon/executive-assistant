@@ -279,10 +279,12 @@ def test_hard_exit_gate_targets_and_runtime_gate_scripts_are_wired() -> None:
 def test_deploy_ea_prod_falls_back_when_onedrive_mount_is_unavailable() -> None:
     makefile = (ROOT / "Makefile").read_text()
     compose = (ROOT / "docker-compose.yml").read_text()
+    prod_compose = (ROOT / "docker-compose.prod.yml").read_text()
 
     deploy_target = _make_target_body(makefile, "deploy-ea-prod")
 
     assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments' in compose
+    assert 'EA_ALLOW_LOOPBACK_NO_AUTH: "0"' in prod_compose
     assert 'primary_path="$${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-/mnt/onedrive/Attachments}"' in deploy_target
     assert 'fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-/mnt/pcloud/EA/onedrive_attachments_fallback}"' in deploy_target
     assert 'if ! ls "$$primary_path" >/dev/null 2>&1; then' in deploy_target
