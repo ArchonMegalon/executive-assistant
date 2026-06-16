@@ -27,11 +27,11 @@
       "ttl_seconds": 600
     },
     "ready": true,
-    "elapsed_ms": 207.5
+    "elapsed_ms": 143.9
   },
-  "page_load_ms": 1275.4,
-  "cta_ready_ms": 16.2,
-  "first_answer_ms": 40.4,
+  "page_load_ms": 5492.4,
+  "cta_ready_ms": 16.0,
+  "first_answer_ms": 32.9,
   "speech_transcribe_mode": "live",
   "warmup_status_before": {
     "slug": "manfred",
@@ -98,11 +98,11 @@
   "ui_audio_play_ended": 1,
   "ui_audio_play_error": "",
   "contract_name": "ea.memorial_realtime_browser_exit_gate",
-  "generated_at": "2026-06-16T13:31:54Z",
+  "generated_at": "2026-06-16T13:38:37Z",
   "generated_by": "scripts/measure_memorial_live_browser.py",
-  "source_git_head": "10a98f4dc963520cfa2d3b428bbcc1fc05422f05",
+  "source_git_head": "6f71339dafea09b0380eff71dc693bba34f5336c",
   "head_semantics": "source_state",
-  "source_tree_fingerprint": "c51738fec60f6ff63f77b7bd8aef1defe18f1ed619346bf6b1d515133b131320",
+  "source_tree_fingerprint": "ad152ff4fb8cc69c7360ccf11610cca25a3354e2a41ecbd43843d10f5185f227",
   "dirty_worktree": false,
   "status": "pass",
   "exit_gate": true,

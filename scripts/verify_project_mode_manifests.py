@@ -5,6 +5,11 @@ import json
 import subprocess
 from pathlib import Path
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_MODES = ROOT / ".codex-design/product/PROJECT_MODES.generated.json"
@@ -34,16 +39,7 @@ def _load(path: Path) -> dict:
 
 
 def _git_head() -> str:
-    try:
-        return subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout.strip()
-    except Exception:
-        return ""
+    return resolve_source_state_head(ROOT)
 
 
 def _recorded_source_head(payload: dict) -> str:

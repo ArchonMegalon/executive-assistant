@@ -3,14 +3,12 @@
   "slug": "manfred",
   "prompt_text": "Was war dir bei Gerechtigkeit wichtig?",
   "warmup_preflight": {
-    "request_status": 429,
+    "request_status": 202,
     "request_payload": {
-      "error": {
-        "code": "memorial_rate_limited",
-        "message": "memorial_rate_limited",
-        "details": "memorial_rate_limited",
-        "correlation_id": "36df0fc9-3b92-40ec-9aa7-16fca5b16b42"
-      }
+      "slug": "manfred",
+      "status": "warm_recent",
+      "scheduled": false,
+      "ttl_seconds": 600
     },
     "status_code": 200,
     "payload": {
@@ -29,11 +27,11 @@
       "ttl_seconds": 600
     },
     "ready": true,
-    "elapsed_ms": 113.9
+    "elapsed_ms": 200.4
   },
-  "page_load_ms": 1254.8,
-  "cta_ready_ms": 17.2,
-  "first_answer_ms": 36.0,
+  "page_load_ms": 1320.7,
+  "cta_ready_ms": 18.3,
+  "first_answer_ms": 41.4,
   "speech_transcribe_mode": "text_prompt",
   "warmup_status_before": {
     "slug": "manfred",
@@ -118,11 +116,11 @@
   "ui_audio_play_ended": 1,
   "ui_audio_play_error": "",
   "contract_name": "ea.memorial_realtime_browser_exit_gate",
-  "generated_at": "2026-06-16T13:31:58Z",
+  "generated_at": "2026-06-16T13:38:41Z",
   "generated_by": "scripts/measure_memorial_live_browser.py",
-  "source_git_head": "10a98f4dc963520cfa2d3b428bbcc1fc05422f05",
+  "source_git_head": "6f71339dafea09b0380eff71dc693bba34f5336c",
   "head_semantics": "source_state",
-  "source_tree_fingerprint": "c51738fec60f6ff63f77b7bd8aef1defe18f1ed619346bf6b1d515133b131320",
+  "source_tree_fingerprint": "ad152ff4fb8cc69c7360ccf11610cca25a3354e2a41ecbd43843d10f5185f227",
   "dirty_worktree": false,
   "status": "pass",
   "exit_gate": true,

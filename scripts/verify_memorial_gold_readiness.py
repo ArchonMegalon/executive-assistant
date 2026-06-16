@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"
@@ -58,16 +63,7 @@ def _json(path: Path) -> dict[str, Any]:
 
 
 def _git_head() -> str:
-    try:
-        return subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout.strip()
-    except Exception:
-        return ""
+    return resolve_source_state_head(ROOT)
 
 
 def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:

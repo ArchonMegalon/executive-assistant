@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RECEIPT = ROOT / ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
@@ -75,16 +80,7 @@ def _json(path: Path) -> dict[str, Any]:
 
 
 def _git_head(path: Path = ROOT) -> str:
-    try:
-        return subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        ).stdout.strip()
-    except Exception:
-        return ""
+    return resolve_source_state_head(path)
 
 
 def _recorded_source_head(payload: dict[str, Any]) -> str:
