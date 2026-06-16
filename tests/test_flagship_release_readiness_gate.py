@@ -4,14 +4,26 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify_flagship_release_readiness.py"
+REAL_SCOPE = ROOT / ".codex-design" / "repo" / "IMPLEMENTATION_SCOPE.md"
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _preserve_real_implementation_scope() -> None:
+    original = REAL_SCOPE.read_text(encoding="utf-8")
+    try:
+        yield
+    finally:
+        REAL_SCOPE.write_text(original, encoding="utf-8")
 
 
 def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_path: Path) -> None:

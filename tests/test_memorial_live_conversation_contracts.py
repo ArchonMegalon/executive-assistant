@@ -4852,6 +4852,7 @@ def test_memorial_speech_transcribe_logs_stt_failures_to_pcloud_bundle(
     from app.api.routes import public_memorials
 
     log_root = tmp_path / "pcloud-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
     monkeypatch.setattr(
         public_memorials,
