@@ -85,6 +85,14 @@ def _captured_contact_opening_wav_bytes() -> bytes:
     return Path("/docker/EA/tests/fixtures/memorial/contact_opening_captured.wav").read_bytes()
 
 
+def _captured_stt_retry_wav_bytes() -> bytes:
+    return Path("/docker/EA/tests/fixtures/memorial/rescue_stt_retry_captured.wav").read_bytes()
+
+
+def _captured_technical_retry_wav_bytes() -> bytes:
+    return Path("/docker/EA/tests/fixtures/memorial/rescue_technical_retry_captured.wav").read_bytes()
+
+
 def _generated_wav_bytes(*, textish_seed: str, duration_seconds: float = 0.35) -> bytes:
     sample_rate = 16_000
     frequency = 260 + (sum(ord(ch) for ch in textish_seed) % 220)
@@ -2336,7 +2344,7 @@ def test_memorial_rescue_turn_accepts_short_guardrail_tts_audio(
         },
     )
 
-    short_audio = _generated_wav_bytes(textish_seed="retry", duration_seconds=0.35)
+    short_audio = _captured_stt_retry_wav_bytes()
     monkeypatch.setattr(
         public_memorials,
         "piper_fast_synthesize_request",
@@ -2576,7 +2584,7 @@ def test_memorial_conversation_turn_rescues_transcription_failure_with_stt_retry
     client = _client(principal_id="exec-memorial-live-rescue-turn")
     response = client.post(
         f"/memorials/{slug}/conversation-turn",
-        content=_generated_wav_bytes(textish_seed="Hallo?"),
+        content=_captured_stt_retry_wav_bytes(),
         headers={"content-type": "audio/wav"},
     )
 
@@ -2638,7 +2646,7 @@ def test_memorial_conversation_turn_rescues_throttled_transcription_with_technic
     client = _client(principal_id="exec-memorial-live-rescue-throttle")
     response = client.post(
         f"/memorials/{slug}/conversation-turn",
-        content=_generated_wav_bytes(textish_seed="Hallo?"),
+        content=_captured_technical_retry_wav_bytes(),
         headers={"content-type": "audio/wav"},
     )
 
@@ -2689,7 +2697,7 @@ def test_memorial_conversation_turn_rescue_survives_tts_failure_without_audio(
     client = _client(principal_id="exec-memorial-live-rescue-no-audio")
     response = client.post(
         f"/memorials/{slug}/conversation-turn",
-        content=_generated_wav_bytes(textish_seed="Hallo?"),
+        content=_captured_stt_retry_wav_bytes(),
         headers={"content-type": "audio/wav"},
     )
 
