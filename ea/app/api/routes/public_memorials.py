@@ -84,6 +84,7 @@ from app.services.memorial_video_meeting import (
     sanitize_provider_callback,
 )
 from app.services.memorial_voice_profile import build_memorial_voice_profile, load_memorial_voice_profile
+from app.services.memorial_stt_error_log import classify_memorial_stt_issue, log_memorial_stt_issue
 from app.services.memorial_paths import (
     MEMORIAL_PRESENT_WORLD_CACHE_ROOT as _MEMORIAL_PRESENT_WORLD_CACHE_ROOT,
     MEMORIAL_TTS_RENDER_CACHE_ROOT as _MEMORIAL_TTS_RENDER_CACHE_ROOT,
@@ -15275,7 +15276,15 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             return {"realtime_input": {"activityStart": {}}}
         return None
 
-    async def _process_transcript_turn(turn_id: str, transcript_text: str) -> None:
+    async def _process_transcript_turn(
+        turn_id: str,
+        transcript_text: str,
+        *,
+        audio_payload: bytes = b"",
+        audio_content_type: str = "",
+        transcription_status: str = "transcribed",
+        transcriber: str = "",
+    ) -> None:
         total_started = time.perf_counter()
         try:
             if not transcript_text:
@@ -15353,6 +15362,32 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             )
             compact_answer = _compact_memorial_realtime_answer(answer_payload.get("answer"))
             answer_payload["answer"] = compact_answer
+            issue_reason = classify_memorial_stt_issue(
+                transcription_status=transcription_status,
+                transcript_text=visible_transcript or effective_question,
+                answer_text=compact_answer,
+                fallback_reason=_text(answer_payload.get("fallback_reason")),
+            )
+            if issue_reason and audio_payload:
+                try:
+                    log_memorial_stt_issue(
+                        slug=slug,
+                        route="realtime_audio_turn",
+                        reason=issue_reason,
+                        audio_payload=audio_payload,
+                        content_type=audio_content_type or "audio/wav",
+                        transcription_payload={
+                            "transcription_status": transcription_status,
+                            "transcript_text": effective_question,
+                            "transcript_effective_text": effective_question,
+                            "transcript_original_text": visible_transcript,
+                            "transcriber": transcriber,
+                        },
+                        answer_payload=answer_payload,
+                        extra={"turn_id": turn_id},
+                    )
+                except Exception:
+                    pass
             if not await _safe_send_json(
                 {
                     "type": "answer",
@@ -15503,7 +15538,31 @@ async def public_memorial_realtime(slug: str, websocket: WebSocket) -> None:
             )
             stt_ms = (time.perf_counter() - stt_started) * 1000.0
             transcript_text = _text(transcript_payload.get("transcript_text"))
-            await _process_transcript_turn(turn_id, transcript_text)
+            issue_reason = classify_memorial_stt_issue(
+                transcription_status=_text(transcript_payload.get("transcription_status")),
+                transcript_text=transcript_text,
+            )
+            if issue_reason:
+                try:
+                    log_memorial_stt_issue(
+                        slug=slug,
+                        route="realtime_audio_turn",
+                        reason=issue_reason,
+                        audio_payload=audio_payload,
+                        content_type=content_type,
+                        transcription_payload=dict(transcript_payload),
+                        extra={"turn_id": turn_id},
+                    )
+                except Exception:
+                    pass
+            await _process_transcript_turn(
+                turn_id,
+                transcript_text,
+                audio_payload=audio_payload,
+                audio_content_type=content_type,
+                transcription_status=_text(transcript_payload.get("transcription_status"), "transcribed"),
+                transcriber=_text(transcript_payload.get("transcriber")),
+            )
             effective_question = _canonical_memorial_contact_opening_question(transcript_text)
             _log_memorial_timing(
                 "realtime_audio_turn",

@@ -75,6 +75,10 @@ def _patch_memorial_runtime_roots(tmp_path: Path) -> None:
     memorial_archive_registry.ARCHIVE_ROOT = tmp_path / "archive"
 
 
+def _stt_error_bundles(root: Path) -> list[Path]:
+    return sorted(path.parent for path in root.glob("**/error.json"))
+
+
 def _generated_wav_bytes(*, textish_seed: str, duration_seconds: float = 0.35) -> bytes:
     sample_rate = 16_000
     frequency = 260 + (sum(ord(ch) for ch in textish_seed) % 220)
@@ -2064,6 +2068,85 @@ def test_memorial_conversation_turn_falls_back_when_llm_times_out(
     assert body["fallback_reason"] == "conversation_turn_llm_timeout"
     assert body["audio_base64"]
     assert "langsame Antwort" not in body["answer"]
+
+
+def test_memorial_conversation_turn_logs_generic_fallback_answers_to_pcloud_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.OPENVOICE_TTS_PLUGIN_ID,
+            "tts_plugin_voice_id": "manfred-openvoice-test",
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    log_root = tmp_path / "pcloud-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    input_audio = _generated_wav_bytes(textish_seed="Erzähl mir etwas")
+    output_audio = _generated_wav_bytes(textish_seed="Fallback")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Erzaehl mir etwas ueber Gerechtigkeit",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
+            "answer": "Sag mir den konkreten Punkt noch etwas enger. Dann antworte ich dir direkt darauf und nicht allgemein drum herum.",
+            "sources": [],
+            "llm_model": "unit-model",
+            "llm_provider": "unit-model",
+            "llm_request_model": "unit-model",
+            "llm_fallback_used": False,
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_render_memorial_tts_audio",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-generic-fallback-bundle")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    bundles = _stt_error_bundles(log_root)
+    assert len(bundles) == 1
+    metadata = json.loads((bundles[0] / "error.json").read_text(encoding="utf-8"))
+    assert metadata["route"] == "conversation_turn"
+    assert metadata["reason"] == "generic_fallback_answer"
+    assert metadata["answer"]["answer"].startswith("Sag mir den konkreten Punkt")
+    assert metadata["transcription"]["transcript_original_text"] == "Erzaehl mir etwas ueber Gerechtigkeit"
+    assert metadata["stored_wav"] is True
+    assert (bundles[0] / "input.wav").read_bytes() == input_audio
 
 
 def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(
@@ -4144,6 +4227,45 @@ def test_memorial_speech_transcribe_route_exposes_original_and_effective_transcr
     assert body["transcript_text"] == "Wie ist das Wetter heute?"
     assert body["transcript_effective_text"] == "Wie ist das Wetter heute?"
     assert body["transcript_original_text"] == "wie ist wetter heute in wien"
+
+
+def test_memorial_speech_transcribe_logs_stt_failures_to_pcloud_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    log_root = tmp_path / "pcloud-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "no_speech",
+            "transcript_text": "",
+            "transcriber": "local_audio_gate",
+            "detail": "audio_silence",
+        },
+    )
+    client = _client(principal_id="exec-memorial-stt-error-bundle")
+    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred")
+
+    response = client.post(
+        f"/memorials/{slug}/speech-transcribe",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    bundles = _stt_error_bundles(log_root)
+    assert len(bundles) == 1
+    metadata = json.loads((bundles[0] / "error.json").read_text(encoding="utf-8"))
+    assert metadata["route"] == "speech_transcribe"
+    assert metadata["reason"] == "stt_no_speech"
+    assert metadata["needs_fix"] is True
+    assert metadata["stored_wav"] is True
+    assert (bundles[0] / "input.wav").read_bytes() == input_audio
 
 
 def test_memorial_warmup_prefers_fast_piper_tts_instead_of_profile_voice() -> None:

@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.domain.memorial.turns import MemorialSpeechTranscription, MemorialTurnRequest, MemorialTurnResult
+from app.services.memorial_stt_error_log import classify_memorial_stt_issue, log_memorial_stt_issue
 
 
 def transcribe_public_memorial_audio(*, shared, payload: bytes, content_type: str) -> MemorialSpeechTranscription:
@@ -145,6 +146,30 @@ def build_public_memorial_turn(*, shared, request: MemorialTurnRequest, memory_r
     actual_fast_path = bool(request.prefer_fast_tts and selected_plugin == shared.PIPER_FAST_TTS_PLUGIN_ID)
     response_payload["tts_plugin"] = selected_plugin
     response_payload["tts_fast_path"] = actual_fast_path
+    issue_reason = classify_memorial_stt_issue(
+        transcription_status=transcription.transcription_status,
+        transcript_text=transcription.transcript_original_text or transcription.transcript_text,
+        answer_text=shared._text(response_payload.get("answer")),
+        fallback_reason=shared._text(response_payload.get("fallback_reason")),
+    )
+    if issue_reason:
+        try:
+            log_memorial_stt_issue(
+                slug=request.slug,
+                route="conversation_turn",
+                reason=issue_reason,
+                audio_payload=request.audio_payload,
+                content_type=request.content_type,
+                transcription_payload=transcription.as_public_payload(),
+                answer_payload=response_payload,
+                extra={
+                    "voice_ab_variant": request.voice_ab_variant,
+                    "tts_plugin": selected_plugin,
+                    "tts_fast_path": actual_fast_path,
+                },
+            )
+        except Exception:
+            pass
     shared._register_memorial_known_audio_transcript(
         payload=audio,
         transcript_text=answer_audio_text,

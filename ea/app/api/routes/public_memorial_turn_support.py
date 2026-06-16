@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, Response
 from app.api.routes import public_memorials as shared
 from app.domain.memorial.turns import MemorialTurnRequest
 from app.services.memorial_turn_service import build_public_memorial_turn, transcribe_public_memorial_audio
+from app.services.memorial_stt_error_log import classify_memorial_stt_issue, log_memorial_stt_issue
 
 
 async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSONResponse:
@@ -22,6 +23,22 @@ async def public_memorial_speech_transcribe(slug: str, request: Request) -> JSON
     payload = await request.body()
     content_type = str(request.headers.get("content-type") or "application/octet-stream")
     result = transcribe_public_memorial_audio(shared=shared, payload=payload, content_type=content_type).as_public_payload()
+    issue_reason = classify_memorial_stt_issue(
+        transcription_status=shared._text(result.get("transcription_status")),
+        transcript_text=shared._text(result.get("transcript_original_text") or result.get("transcript_text")),
+    )
+    if issue_reason:
+        try:
+            log_memorial_stt_issue(
+                slug=slug,
+                route="speech_transcribe",
+                reason=issue_reason,
+                audio_payload=payload,
+                content_type=content_type,
+                transcription_payload=result,
+            )
+        except Exception:
+            pass
     transcript_text = shared._text(result.get("transcript_original_text") or result.get("transcript_text"))
     shared._log_memorial_timing(
         "speech_transcribe",
@@ -165,6 +182,18 @@ async def public_memorial_conversation_turn(slug: str, request: Request) -> JSON
                 total_ms=(time.perf_counter() - total_started) * 1000.0,
                 tts_plugin=shared._text(response_payload.get("tts_plugin")),
             )
+            try:
+                log_memorial_stt_issue(
+                    slug=slug,
+                    route="conversation_turn",
+                    reason="conversation_turn_rescue",
+                    audio_payload=audio_payload,
+                    content_type=content_type,
+                    answer_payload=response_payload,
+                    extra={"detail": shared._text(exc.detail, "conversation_turn_rescue")},
+                )
+            except Exception:
+                pass
             return JSONResponse(response_payload, headers={"Cache-Control": "no-store"})
         shared._log_memorial_timing(
             "conversation_turn_error",
