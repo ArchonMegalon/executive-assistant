@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from scripts.materialize_project_mode_manifests import _fresh_enough, _recorded_source_head
+from scripts import source_state_head
+from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _recorded_source_head
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
 from scripts.materialize_project_mode_manifests import project_modes, show_surface_manifest
 from scripts.verify_project_mode_manifests import main as verify_project_modes
@@ -14,25 +16,13 @@ from scripts.verify_project_mode_manifests import main as verify_project_modes
 
 ROOT = Path(__file__).resolve().parents[1]
 
-
-def _git_head() -> str:
-    proc = subprocess.run(
-        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    return proc.stdout.strip() if proc.returncode == 0 else ""
-
-
 def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     payload = project_modes()
     modes = {item["key"]: item for item in payload["modes"]}
     memorial_receipt = json.loads(
         (ROOT / ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json").read_text(encoding="utf-8")
     )
-    current_head = _git_head()
+    current_head = _source_state_head()
     expected_memorial_status = (
         "shipping_memorial"
         if memorial_receipt.get("status") == "pass"
@@ -99,3 +89,26 @@ def test_project_modes_source_head_skips_generated_only_head_commit(monkeypatch:
     payload = module.project_modes()
 
     assert payload["source_git_head"] == "SOURCE_HEAD"
+
+
+def test_source_state_head_skips_verifier_and_generated_only_commits(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = {
+        ("rev-parse", "HEAD"): "VERIFY_HEAD\n",
+        ("rev-list", "--max-count=128", "HEAD"): "VERIFY_HEAD\nSOURCE_HEAD\n",
+        ("rev-list", "--parents", "-n", "1", "VERIFY_HEAD"): "VERIFY_HEAD SOURCE_HEAD\n",
+        (
+            "diff",
+            "--name-only",
+            "SOURCE_HEAD..VERIFY_HEAD",
+        ): "scripts/verify_project_mode_manifests.py\n.codex-design/product/PROJECT_MODES.generated.json\n",
+        ("rev-list", "--parents", "-n", "1", "SOURCE_HEAD"): "SOURCE_HEAD BASE_HEAD\n",
+        ("diff", "--name-only", "BASE_HEAD..SOURCE_HEAD"): "scripts/materialize_project_mode_manifests.py\n",
+    }
+
+    def _fake_run(args, **kwargs):
+        key = tuple(args[3:])
+        return SimpleNamespace(stdout=responses.get(key, ""), returncode=0)
+
+    monkeypatch.setattr(source_state_head.subprocess, "run", _fake_run)
+
+    assert source_state_head.resolve_source_state_head(ROOT) == "SOURCE_HEAD"

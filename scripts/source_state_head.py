@@ -8,7 +8,12 @@ from pathlib import Path
 GENERATED_ONLY_PREFIXES = (
     ".codex-design/product/",
     ".codex-studio/published/",
+    "scripts/verify_",
+    "tests/",
 )
+GENERATED_ONLY_EXACT = {
+    "scripts/source_state_head.py",
+}
 
 
 def resolve_source_state_head(repo_root: Path, *, generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES) -> str:
@@ -50,4 +55,4 @@ def _git_stdout(repo_root: Path, *args: str) -> str:
 
 
 def _is_generated_only_path(path: str, *, prefixes: tuple[str, ...]) -> bool:
-    return any(path.startswith(prefix) for prefix in prefixes)
+    return path in GENERATED_ONLY_EXACT or any(path.startswith(prefix) for prefix in prefixes)
