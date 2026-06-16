@@ -80,7 +80,7 @@ class PolicyDecisionService:
             requires_approval = True
         if normalized_action in {"delivery.send", "message.send", "connector.dispatch"}:
             requires_approval = True
-        if normalized_channel in {"email", "slack", "telegram"} and (
+        if normalized_channel in {"email", "slack", "telegram", "whatsapp"} and (
             normalized_action.endswith(".send")
             or normalized_action.startswith("delivery.")
             or normalized_action.startswith("message.")

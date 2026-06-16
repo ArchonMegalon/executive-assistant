@@ -1586,6 +1586,50 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/test_memorial_live_conversation_contracts.py",
         "tests/test_memorial_operator_artifacts.py",
     }
+    memorial_gold_clean_materialization_commit = "176a463"
+    memorial_gold_clean_materialization_subject = "Stabilize memorial gold clean materialization"
+    memorial_gold_clean_materialization_paths = {
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+        ".codex-design/product/PROJECT_MODES.generated.json",
+        ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "Makefile",
+        "scripts/materialize_memorial_public_gold_clean.py",
+        "scripts/materialize_memorial_room_audio_receipt.py",
+        "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
+        "scripts/measure_memorial_live_browser.py",
+        "tests/e2e/visual_baselines/admin-audit-page.png",
+        "tests/e2e/visual_baselines/admin-audit-trail-page.png",
+        "tests/e2e/visual_baselines/admin-community-page.png",
+        "tests/e2e/visual_baselines/briefing-page.png",
+        "tests/e2e/visual_baselines/followups-page.png",
+        "tests/e2e/visual_baselines/get-started-page.png",
+        "tests/e2e/visual_baselines/inbox-page.png",
+        "tests/e2e/visual_baselines/landing-page.png",
+        "tests/e2e/visual_baselines/today-page.png",
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "tests/test_memorial_operator_artifacts.py",
+    }
+    memorial_source_state_receipt_refresh_commit = "87be23c"
+    memorial_source_state_receipt_refresh_subject = "Refresh memorial source-state release artifacts"
+    memorial_source_state_receipt_refresh_paths = {
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+        ".codex-design/product/PROJECT_MODES.generated.json",
+        ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+    }
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
     m142_family_packet_refresh_commit = "0199aff"
     m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
@@ -1859,6 +1903,14 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == memorial_workflow_hardening_commit:
             assert subject == memorial_workflow_hardening_subject, (commit, subject, sorted(paths))
             assert paths == memorial_workflow_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_gold_clean_materialization_commit:
+            assert subject == memorial_gold_clean_materialization_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_gold_clean_materialization_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_source_state_receipt_refresh_commit:
+            assert subject == memorial_source_state_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if (
             "scripts/verify_flagship_release_readiness.py" in paths
@@ -2405,6 +2457,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == memorial_workflow_hardening_subject, (commit, subject, sorted(paths))
             assert paths == memorial_workflow_hardening_paths, (commit, sorted(paths))
             continue
+        if commit == memorial_gold_clean_materialization_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_gold_clean_materialization_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_gold_clean_materialization_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_source_state_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_source_state_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
+            continue
         if (
             "scripts/verify_flagship_release_readiness.py" in paths
             and "tests/test_flagship_release_readiness_gate.py" in paths
@@ -2842,6 +2916,28 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == memorial_workflow_hardening_subject, (commit, subject, sorted(paths))
             assert paths == memorial_workflow_hardening_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_gold_clean_materialization_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_gold_clean_materialization_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_gold_clean_materialization_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_source_state_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_source_state_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject = subprocess.run(

@@ -31,10 +31,11 @@ from urllib.error import HTTPError, URLError
 import urllib.parse
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 import requests
+from app.api.dependencies import RequestContext, get_request_context
 from app.api.routes import public_memorial_turn_support as turn_support
 
 try:
@@ -14546,6 +14547,21 @@ async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     from app.api.routes import public_memorial_conversation_support as conversation_support
 
     return await conversation_support.public_memorial_chat(slug, request)
+
+
+@router.post("/memorials/{slug}/whatsapp-draft")
+async def public_memorial_whatsapp_draft(
+    slug: str,
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    from app.api.routes import public_memorial_conversation_support as conversation_support
+
+    return await conversation_support.public_memorial_whatsapp_draft(
+        slug,
+        request,
+        principal_id=context.principal_id,
+    )
 
 
 @router.post("/memorials/{slug}/speech-transcribe")

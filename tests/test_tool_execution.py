@@ -948,6 +948,58 @@ def test_tool_execution_service_executes_builtin_connector_dispatch_handler() ->
     assert any(row.delivery_id == result.target_ref for row in pending)
 
 
+def test_tool_execution_service_executes_builtin_connector_dispatch_handler_for_whatsapp() -> None:
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    channel_runtime = ChannelRuntimeService(
+        observations=InMemoryObservationEventRepository(),
+        outbox=InMemoryDeliveryOutboxRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        channel_runtime=channel_runtime,
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="whatsapp_business",
+        external_account_ref="+436601234567",
+        scope_json={"scopes": ["whatsapp.send"]},
+        auth_metadata_json={"provider": "meta"},
+        status="enabled",
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-whatsapp-1",
+            step_id="step-whatsapp-1",
+            tool_name="connector.dispatch",
+            action_kind="delivery.send",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "channel": "whatsapp",
+                "recipient": "+436641112223",
+                "content": "queued memorial draft",
+                "metadata": {"source": "tool"},
+                "idempotency_key": "tool-dispatch-whatsapp-test",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    assert result.tool_name == "connector.dispatch"
+    assert result.output_json["status"] == "queued"
+    assert result.output_json["channel"] == "whatsapp"
+    pending = channel_runtime.list_pending_delivery(limit=10)
+    assert any(
+        row.delivery_id == result.target_ref and row.channel == "whatsapp" and row.recipient == "+436641112223"
+        for row in pending
+    )
+
+
 def test_connector_dispatch_builtin_schema_matches_executor_contract() -> None:
     tool_runtime = ToolRuntimeService(
         tool_registry=InMemoryToolRegistryRepository(),
@@ -1170,7 +1222,7 @@ def test_connector_dispatch_executor_falls_back_to_builtin_allowed_channels_if_t
 
     with pytest.raises(
         ToolExecutionError,
-        match="connector_dispatch_channel_not_allowed:sms:email,slack,telegram",
+        match="connector_dispatch_channel_not_allowed:sms:email,slack,telegram,whatsapp",
     ):
         service.execute_invocation(
             ToolInvocationRequest(
@@ -1298,7 +1350,7 @@ def test_connector_dispatch_executor_rejects_disallowed_channel() -> None:
 
     with pytest.raises(
         ToolExecutionError,
-        match="connector_dispatch_channel_not_allowed:sms:email,slack,telegram",
+        match="connector_dispatch_channel_not_allowed:sms:email,slack,telegram,whatsapp",
     ):
         service.execute_invocation(
             ToolInvocationRequest(

@@ -187,6 +187,61 @@ def resolve_telegram_message_payload(*, payload: dict[str, object], bot_token: s
                 text_parts.append("Details: " + "; ".join(notable_details[:3]))
             resolved["text"] = "\n".join(part for part in text_parts if part).strip() or resolved.get("text") or "Photo"
         return resolved
+    if kind == "video":
+        file_id = str(metadata.get("file_id") or "").strip()
+        caption = str(metadata.get("caption") or resolved.get("text") or "").strip()
+        try:
+            duration_seconds = int(float(str(metadata.get("duration") or "0").strip() or "0"))
+        except Exception:
+            duration_seconds = 0
+        video_url = ""
+        if file_id and str(bot_token or "").strip():
+            try:
+                video_url = _telegram_file_download_url(bot_token=bot_token, file_id=file_id)
+                resolved["message_metadata"] = {**metadata, "download_url": video_url}
+            except Exception as exc:
+                raw_error = str(exc or "").strip()
+                error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "video_resolve_failed"
+                resolved["video_resolve_status"] = "failed"
+                resolved["video_resolve_error_code"] = error_code[:80]
+                return resolved
+        if duration_seconds and duration_seconds > _telegram_max_audio_duration_seconds():
+            resolved["transcription_status"] = "skipped"
+            resolved["transcription_error_code"] = "duration_limit"
+            return resolved
+        if not file_id or not video_url or not product_service._pocket_audio_fallback_available():
+            return resolved
+        try:
+            transcription = product_service._pocket_retranscribe_from_audio_url(
+                recording_id=str(resolved.get("message_id") or file_id or "telegram-video").strip(),
+                title="Telegram video message",
+                language="de",
+                audio_download_url=video_url,
+            )
+        except Exception as exc:
+            raw_error = str(exc or "").strip()
+            error_code = raw_error.split(":", 1)[0].strip().lower().replace(" ", "_") or "transcription_failed"
+            resolved["transcription_status"] = "failed"
+            resolved["transcription_error_code"] = error_code[:80]
+            return resolved
+        transcript_text = str(dict(transcription or {}).get("transcript_text") or "").strip()
+        if not transcript_text:
+            resolved["transcription_status"] = "empty"
+            return resolved
+        max_chars = _telegram_max_transcript_chars()
+        if len(transcript_text) > max_chars:
+            transcript_text = transcript_text[:max_chars].rstrip()
+            if " " in transcript_text:
+                transcript_text = transcript_text.rsplit(" ", 1)[0].rstrip()
+            transcript_text = transcript_text.rstrip(" ,;:.") + "..."
+        transcript_metadata = dict(dict(transcription or {}).get("transcript_metadata") or {})
+        transcript_metadata["telegram_file_id"] = file_id
+        resolved["transcription_status"] = "ok"
+        resolved["transcript_metadata"] = transcript_metadata
+        resolved["video_transcript_text"] = transcript_text
+        if caption:
+            resolved["text"] = caption
+        return resolved
     if kind not in {"voice", "audio"}:
         return resolved
     file_id = str(metadata.get("file_id") or "").strip()

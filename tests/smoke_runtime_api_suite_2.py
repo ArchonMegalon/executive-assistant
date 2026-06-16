@@ -1158,7 +1158,7 @@ def test_tool_registry_and_connector_bindings_flow() -> None:
     assert execute_bad_channel.status_code == 409
     assert (
         execute_bad_channel.json()["error"]["code"]
-        == "connector_dispatch_channel_not_allowed:sms:email,slack,telegram"
+        == "connector_dispatch_channel_not_allowed:sms:email,slack,telegram,whatsapp"
     )
 
     readonly_binding = client.post(

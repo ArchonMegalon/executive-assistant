@@ -168,6 +168,8 @@ class ConnectorDispatchToolAdapter:
                 normalized.update(("slack", "chat.write"))
             if value == "telegram.send":
                 normalized.add("telegram")
+            if value == "whatsapp.send":
+                normalized.add("whatsapp")
             if value.endswith(".send"):
                 normalized.add(value.rsplit(".", 1)[0])
         return tuple(sorted(normalized))

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.api.dependencies import RequestContext, get_request_context
 from app.api.routes import public_memorial_conversation_support as support
 
 router = APIRouter(tags=["public-memorial-conversation"])
@@ -26,6 +27,19 @@ async def public_memorial_personal_memory_forget(slug: str, request: Request) ->
 @router.post("/memorials/{slug}/chat")
 async def public_memorial_chat(slug: str, request: Request) -> JSONResponse:
     return await support.public_memorial_chat(slug=slug, request=request)
+
+
+@router.post("/memorials/{slug}/whatsapp-draft")
+async def public_memorial_whatsapp_draft(
+    slug: str,
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    return await support.public_memorial_whatsapp_draft(
+        slug=slug,
+        request=request,
+        principal_id=context.principal_id,
+    )
 
 
 @router.post("/memorials/{slug}/speech-transcribe")

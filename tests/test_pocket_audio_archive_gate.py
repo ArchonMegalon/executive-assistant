@@ -135,3 +135,30 @@ def test_pocket_audio_archive_gate_keeps_latest_full_backfill_when_newer_increme
     assert receipt["status"] == "pass"
     assert receipt["latest_backfill"]["created_at"] == "2026-06-01 08:37:55+02"
     assert receipt["latest_backfill"]["archived_total"] == "1"
+
+
+def test_pocket_audio_archive_gate_can_infer_clean_archive_without_local_events(tmp_path: Path) -> None:
+    archive = tmp_path / "recording.mp3"
+    archive.write_bytes(b"audio")
+    archive.with_suffix(".json").write_text(
+        """
+        {
+          "recording_id": "done-1",
+          "archive_path": "%s",
+          "archived_at": "2026-06-02T17:18:45.781034+00:00"
+        }
+        """
+        % archive.as_posix(),
+        encoding="utf-8",
+    )
+
+    receipt = build_receipt(
+        archive_root=tmp_path,
+        index_rows=[],
+        completion_rows=[],
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["evidence_mode"] == "filesystem_archive_scan"
+    assert receipt["latest_backfill"]["event_type"] == "filesystem_archive_scan_completed"
+    assert receipt["latest_backfill"]["teable_index_status"] == "filesystem_only"

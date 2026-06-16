@@ -166,12 +166,27 @@ Forbidden posture:
 
 1. `chummer6-core` produces runtime-bundle outputs and fingerprints.
 2. `chummer6-ui` produces installer-ready desktop bundles for Windows `.exe`, macOS `.dmg`, and Linux `.deb`, plus any machine update payloads needed by the updater lane.
-3. When a self-hosted downloads target is configured, the successful desktop build automatically replaces the previous public downloads bundle and prunes superseded desktop artifacts so `/downloads` stays latest-only.
+3. When a self-hosted downloads target is configured, the successful mainline desktop build automatically replaces the previous public downloads bundle and prunes superseded desktop artifacts so `/downloads` stays latest-only.
 4. `fleet` expands the release matrix, runs verify/promotion/signoff/signing/notarization orchestration, and prepares a registry publication payload.
 5. `chummer6-hub-registry` becomes the source of truth for promoted channels, installer/download records, desktop release heads, update-feed metadata, compatibility, and runtime-bundle heads.
 6. `chummer6-hub` reads registry truth, serves `/downloads`, mints optional download receipts and install-claim tickets, and renders account-aware install UX without changing the underlying artifact.
 7. Desktop clients poll registry-backed channel/feed truth and apply updates through UI-owned helpers.
 8. `Chummer6` and other downstream guide surfaces read registry-backed release projections; they do not become build authorities.
+
+## Rolling release rule
+
+For the current public shelf, every successful mainline Windows `win-x64` and Linux `linux-x64` build is a release.
+
+Required posture:
+
+* the mainline desktop workflow resolves those builds to `public_stable` automatically
+* the newest successful bundle replaces the older public shelf automatically
+* public downloads must always point at the latest promoted Windows/Linux bundle
+* stale older builds left on `chummer.run` after a newer successful mainline bundle are a release-pipeline failure
+
+Bounded exception:
+
+* macOS may continue to build and publish as a bounded lane, but it must not block the Windows/Linux rolling shelf while macOS promotion remains outside the current public promotion scope
 
 ## Canonical release-manifest rule
 

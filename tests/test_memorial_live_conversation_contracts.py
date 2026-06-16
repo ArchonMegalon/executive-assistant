@@ -1609,6 +1609,64 @@ def test_memorial_chat_contact_opening_short_circuits_to_direct_answer(
     assert body["answer"] in CONTACT_REPLY_VARIANTS
 
 
+def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    client = _client(principal_id="exec-memorial-whatsapp-draft")
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-memorial-whatsapp-draft",
+        connector_name="whatsapp_export",
+        external_account_ref="the.girscheles@gmail.com",
+        scope_json={"selected_chat_labels": ["Memorial"], "scopes": ["whatsapp.send"]},
+        auth_metadata_json={"status": "export_planned"},
+        status="planned",
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
+            "answer": "Ich denke an dich und hoffe, dass dir dieser Gruss gut tut.",
+            "sources": ["[Archiv] Familiennotiz"],
+            "route": "memory_response",
+            "llm_provider": "unit-test-model",
+        },
+    )
+
+    response = client.post(
+        f"/memorials/{slug}/whatsapp-draft",
+        json={
+            "recipient": "+436641112223",
+            "question": "Schreib Tibor eine kurze liebe Nachricht.",
+            "idempotency_key": "memorial-whatsapp-draft-test",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["delivery_mode"] == "draft_only"
+    assert body["channel"] == "whatsapp"
+    assert body["principal_id"] == "exec-memorial-whatsapp-draft"
+    assert body["binding"]["connector_name"] == "whatsapp_export"
+    assert body["binding"]["status"] == "planned"
+    assert body["answer"] == "Ich denke an dich und hoffe, dass dir dieser Gruss gut tut."
+    pending = client.app.state.container.channel_runtime.list_pending_delivery(
+        limit=10,
+        principal_id="exec-memorial-whatsapp-draft",
+    )
+    assert any(
+        row.channel == "whatsapp"
+        and row.recipient == "+436641112223"
+        and row.metadata.get("delivery_mode") == "draft_only"
+        and row.metadata.get("memorial_slug") == slug
+        for row in pending
+    )
+
+
 def test_memorial_chat_current_weather_short_circuits_to_present_world_answer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

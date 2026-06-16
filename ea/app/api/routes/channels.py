@@ -1018,6 +1018,202 @@ def _telegram_media_acknowledgement_reply(
     return ""
 
 
+def _telegram_video_placeholder_text(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    return normalized in {"", "video", "video message"}
+
+
+def _telegram_video_instruction_candidate(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized or _telegram_video_placeholder_text(normalized):
+        return False
+    if normalized.startswith("/"):
+        return False
+    if "http://" in normalized or "https://" in normalized:
+        return False
+    if _safe_math_answer(normalized):
+        return False
+    return True
+
+
+def _telegram_recent_video_message_payload(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str = "",
+    current_message_id: str = "",
+) -> dict[str, object]:
+    rows = list(container.channel_runtime.list_recent_observations(limit=30, principal_id=principal_id))
+    rows.sort(key=lambda row: (str(row.created_at or ""), str(row.observation_id or "")), reverse=True)
+    normalized_chat_id = str(chat_id or "").strip()
+    normalized_current_message_id = str(current_message_id or "").strip()
+    for row in rows:
+        if str(row.channel or "").strip() != "telegram":
+            continue
+        if str(row.event_type or "").strip().lower() != "telegram.message":
+            continue
+        if normalized_current_message_id and str(row.external_id or "").strip() == normalized_current_message_id:
+            continue
+        if normalized_chat_id and str(row.source_id or "").strip() not in {f"telegram:{normalized_chat_id}", "telegram"}:
+            continue
+        payload = dict(row.payload or {})
+        if str(payload.get("kind") or "").strip().lower() == "video":
+            return payload
+        break
+    return {}
+
+
+def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str, object]:
+    payload = dict(ctx.payload or {})
+    kind = str(payload.get("kind") or "").strip().lower()
+    if kind == "video":
+        metadata = dict(payload.get("message_metadata") or {})
+        caption = str(metadata.get("caption") or ctx.text or "").strip()
+        if not _telegram_video_instruction_candidate(caption):
+            return {}
+        return {
+            "kind": "instructional_video",
+            "instruction_text": caption,
+            "video_message_id": str(payload.get("message_id") or ctx.current_message_id or "").strip(),
+            "video_file_id": str(metadata.get("file_id") or "").strip(),
+            "video_download_url": str(metadata.get("download_url") or "").strip(),
+            "video_duration_seconds": metadata.get("duration"),
+            "video_caption": caption,
+            "video_transcript_text": str(payload.get("video_transcript_text") or "").strip(),
+            "video_transcription_status": str(payload.get("transcription_status") or "").strip(),
+        }
+    if kind != "text":
+        return {}
+    if not _telegram_video_instruction_candidate(ctx.normalized):
+        return {}
+    recent_video_payload = _telegram_recent_video_message_payload(
+        ctx.container,
+        principal_id=ctx.principal_id,
+        chat_id=ctx.chat_id,
+        current_message_id=ctx.current_message_id,
+    )
+    if not recent_video_payload:
+        return {}
+    recent_metadata = dict(recent_video_payload.get("message_metadata") or {})
+    return {
+        "kind": "instructional_video",
+        "instruction_text": ctx.normalized,
+        "video_message_id": str(recent_video_payload.get("message_id") or "").strip(),
+        "video_file_id": str(recent_metadata.get("file_id") or "").strip(),
+        "video_download_url": str(recent_metadata.get("download_url") or "").strip(),
+        "video_duration_seconds": recent_metadata.get("duration"),
+        "video_caption": str(recent_metadata.get("caption") or "").strip(),
+        "video_transcript_text": str(recent_video_payload.get("video_transcript_text") or "").strip(),
+        "video_transcription_status": str(recent_video_payload.get("transcription_status") or "").strip(),
+    }
+
+
+def _telegram_instructional_video_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
+    video_payload = _telegram_instructional_video_payload(ctx)
+    if not video_payload:
+        return TelegramTurnDecision()
+    instruction_text = str(video_payload.get("instruction_text") or ctx.normalized or ctx.text or "").strip()
+    return TelegramTurnDecision(
+        schedule_async=True,
+        async_text=instruction_text,
+        async_message_id=ctx.current_message_id or str(video_payload.get("video_message_id") or "").strip(),
+        async_payload=video_payload,
+    )
+
+
+def _telegram_instructional_video_prompt(payload: dict[str, object]) -> str:
+    instruction_text = str(payload.get("instruction_text") or "").strip()
+    video_caption = str(payload.get("video_caption") or "").strip()
+    video_transcript_text = str(payload.get("video_transcript_text") or "").strip()
+    video_transcription_status = str(payload.get("video_transcription_status") or "").strip()
+    video_duration_seconds = str(payload.get("video_duration_seconds") or "").strip()
+    lines = [
+        "The user sent a Telegram video and wants EA to help from that video input.",
+        f"User instruction: {instruction_text or 'Help with this video.'}",
+    ]
+    if video_caption:
+        lines.append(f"Video caption: {video_caption}")
+    if video_transcript_text:
+        lines.append(f"Recovered audio transcript from the video: {video_transcript_text}")
+    elif video_transcription_status:
+        lines.append(f"Video transcription status: {video_transcription_status}")
+    if video_duration_seconds:
+        lines.append(f"Video duration seconds: {video_duration_seconds}")
+    if str(payload.get("video_download_url") or "").strip():
+        lines.append("A Telegram video download URL exists in runtime metadata for downstream tools, but do not claim frame-level analysis unless the supplied transcript/caption supports it.")
+    lines.append(
+        "Use every available signal above. Be explicit about what is grounded in the transcript or caption and what still needs a clearer instruction or visual review."
+    )
+    return "\n".join(line for line in lines if line).strip()
+
+
+def _telegram_instructional_video_prefers_rendered_video(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    direct_markers = (
+        "send me a video",
+        "send a video",
+        "reply with a video",
+        "answer with a video",
+        "make a video",
+        "create a video",
+        "render a video",
+        "record a video",
+        "video back",
+        "teaser",
+        "reel",
+        "clip",
+        "movie",
+    )
+    return any(marker in normalized for marker in direct_markers)
+
+
+def _telegram_browseract_binding_available(container: AppContainer, *, principal_id: str) -> bool:
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        return False
+    for binding in container.tool_runtime.list_connector_bindings_for_connector("browseract", limit=100):
+        if str(binding.principal_id or "").strip() != normalized_principal:
+            continue
+        if str(binding.status or "").strip().lower() in {"disabled", "inactive", "archived"}:
+            continue
+        return True
+    return False
+
+
+def _telegram_instructional_video_render_request(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    payload: dict[str, object],
+    script_text: str,
+) -> ToolInvocationRequest:
+    instruction_text = str(payload.get("instruction_text") or "").strip()
+    title = str(payload.get("video_caption") or instruction_text or "Telegram Video Reply").strip() or "Telegram Video Reply"
+    return ToolInvocationRequest(
+        session_id=f"telegram-instructional-video:{uuid.uuid4()}",
+        step_id=f"telegram-instructional-video-step:{uuid.uuid4()}",
+        tool_name="browseract.mootion_movie",
+        action_kind="movie.render",
+        payload_json={
+            "principal_id": principal_id,
+            "script_text": script_text,
+            "title": title[:120],
+            "visual_style": "grounded_executive_briefing",
+            "aspect_ratio": "9:16",
+            "duration_seconds": 30,
+            "voiceover_style": "calm_direct",
+            "caption_mode": "burned_in",
+            "language": "de",
+            "scene_count": 4,
+            "shot_pacing": "concise",
+            "platform_target": "telegram_dm",
+        },
+        context_json={"principal_id": principal_id},
+    )
+
+
 def _telegram_weather_code_label(code: int) -> str:
     mapping = {
         0: "clear",
@@ -5230,6 +5426,108 @@ def _telegram_async_assistant_reply_worker(
     remaining_retries = max(0, int(retry_budget or 0)) + _telegram_property_link_bundle_poll_attempts()
     poll_backoff_seconds = _telegram_property_link_bundle_poll_backoff_seconds()
     payload = dict(async_payload or {})
+    if str(payload.get("kind") or "").strip().lower() == "instructional_video":
+        prompt_text = _telegram_instructional_video_prompt(payload)
+        reply_text = ""
+        used_fallback_only = False
+        try:
+            async_timeout = None
+            try:
+                async_timeout = max(
+                    float(str(os.getenv("EA_TELEGRAM_ASYNC_REAL_REPLY_TIMEOUT_SECONDS") or "18").strip() or "18"),
+                    2.0,
+                )
+            except Exception:
+                async_timeout = 18.0
+            reply_text = _telegram_real_ea_reply_text(
+                container=container,
+                principal_id=principal_id,
+                text=prompt_text,
+                current_message_id=current_message_id,
+                preferred_onemin_labels=tuple(
+                    str(item or "").strip()
+                    for item in list(bot_config.get("preferred_onemin_labels") or ())
+                    if str(item or "").strip()
+                ),
+                timeout_seconds=async_timeout,
+            ).strip()
+        except Exception as exc:
+            _record_telegram_async_failed(
+                container,
+                principal_id=principal_id,
+                chat_id=chat_id,
+                current_message_id=current_message_id,
+                prompt_text=text,
+                stage="instructional_video_real_reply",
+                error=str(exc),
+            )
+        video_render_requested = _telegram_instructional_video_prefers_rendered_video(
+            str(payload.get("instruction_text") or text or "")
+        )
+        video_render_result = None
+        video_render_error = ""
+        if (
+            video_render_requested
+            and reply_text
+            and _telegram_browseract_binding_available(container, principal_id=principal_id)
+        ):
+            render_script_text = (
+                "Create a short Telegram-ready video reply in German. "
+                "Keep it grounded in this answer and do not add unsupported claims.\n\n"
+                f"{reply_text}"
+            ).strip()
+            try:
+                video_render_result = container.tool_execution.execute_invocation(
+                    _telegram_instructional_video_render_request(
+                        container=container,
+                        principal_id=principal_id,
+                        payload=payload,
+                        script_text=render_script_text,
+                    )
+                )
+            except Exception as exc:
+                video_render_error = str(exc or "").strip() or "instructional_video_render_failed"
+            else:
+                delivery_json = dict(dict(video_render_result.output_json or {}).get("telegram_delivery_json") or {})
+                if str(delivery_json.get("status") or "").strip().lower() == "sent":
+                    reply_text = "I rendered and sent a short video reply here."
+                else:
+                    video_render_error = str(delivery_json.get("error") or "").strip() or "instructional_video_render_delivery_failed"
+        if not reply_text:
+            transcript_text = str(payload.get("video_transcript_text") or "").strip()
+            if transcript_text:
+                reply_text = (
+                    "I captured the video instruction and recovered audio from it, but I do not have a strong final answer yet. "
+                    "Send one short follow-up like 'summarize only', 'list action items', or 'what are the risks?'."
+                )
+                used_fallback_only = True
+            else:
+                reply_text = (
+                    "I captured the video, but I still need a clearer instruction or a spoken transcript from it. "
+                    "Send one short follow-up like 'summarize it', 'pull action items', or 'flag risks'."
+                )
+                used_fallback_only = True
+        elif video_render_requested and video_render_error:
+            reply_text = (
+                f"{reply_text}\n\n"
+                "I did not manage to send a rendered video reply from this request yet. "
+                f"Video lane status: {compact_text(video_render_error, fallback='instructional_video_render_failed', limit=160)}."
+            ).strip()
+        _telegram_send_and_record_reply(
+            container=container,
+            principal_id=principal_id,
+            bot_config=bot_config,
+            chat_id=chat_id,
+            dedupe_key="",
+            reply_text=reply_text,
+            source_text=text,
+            async_mode=True,
+            current_message_id=current_message_id,
+            used_fallback_only=used_fallback_only,
+            probe_reply="",
+            last_resort_reply="",
+        )
+        return
     if str(payload.get("kind") or "").strip().lower() == "property_pdf_document":
         try:
             service = build_product_service(container)
@@ -5864,6 +6162,9 @@ def _telegram_session_turn(
         chat_id=chat_id,
         completion_cue_predicate=_telegram_low_signal_followup_cue,
     )
+    instructional_video_decision = _telegram_instructional_video_turn_decision(initial_ctx)
+    if instructional_video_decision.reply_text or instructional_video_decision.schedule_async:
+        return instructional_video_decision
     pdf_decision = _telegram_property_pdf_turn_decision(initial_ctx)
     if pdf_decision.reply_text or pdf_decision.schedule_async:
         return pdf_decision

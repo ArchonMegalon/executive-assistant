@@ -254,6 +254,7 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     from app.api.routes import channels as channels_route
 
     sent: list[dict[str, object]] = []
+    scheduled: list[dict[str, object]] = []
 
     class _FakeResponse:
         def __enter__(self):
@@ -270,6 +271,26 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
         return _FakeResponse()
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(
+        channels_route,
+        "resolve_telegram_message_payload",
+        lambda *, payload, bot_token: {
+            **dict(payload or {}),
+            "message_metadata": {
+                **dict(dict(payload or {}).get("message_metadata") or {}),
+                "download_url": "https://api.telegram.org/file/bot/video-or-doc",
+            },
+            "video_transcript_text": (
+                "Please summarize the meeting and flag action items."
+                if str(dict(payload or {}).get("kind") or "").strip().lower() == "video"
+                else ""
+            ),
+            "transcription_status": (
+                "ok" if str(dict(payload or {}).get("kind") or "").strip().lower() == "video" else ""
+            ),
+        },
+    )
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", lambda **kwargs: scheduled.append(kwargs))
 
     client = _client(principal_id="")
     agent = _TelegramScenarioAgent(client, secret="tg-secret")
@@ -280,10 +301,12 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
 
     agent._message_id += 1
     video_with_caption = agent.send_message_payload(
-        {"video": {"file_id": "video-file-caption"}, "caption": "this one is about meeting notes"}
+        {"video": {"file_id": "video-file-caption"}, "caption": "summarize this video into action items"}
     )
-    assert video_with_caption["reply_sent"] is True
-    assert "Got the video" in str(video_with_caption["reply_text"])
+    assert video_with_caption["reply_sent"] is False
+    assert video_with_caption["reply_text"] == ""
+    assert scheduled and dict(scheduled[-1]["async_payload"] or {})["kind"] == "instructional_video"
+    assert dict(scheduled[-1]["async_payload"] or {})["instruction_text"] == "summarize this video into action items"
 
     agent._message_id += 1
     document = agent.send_message_payload({"document": {"file_id": "doc-file", "file_name": "travel-plan.pdf"}})
@@ -297,7 +320,19 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     assert document_with_caption["reply_sent"] is True
     assert "Got the document" in str(document_with_caption["reply_text"])
 
-    assert len(sent) == 4
+    agent._message_id += 1
+    plain_video = agent.send_message_payload({"video": {"file_id": "video-followup-file"}})
+    assert plain_video["reply_sent"] is True
+    assert "Got the video" in str(plain_video["reply_text"])
+
+    followup = agent.ask("pull the key points and any risks from that video")
+    assert followup["reply_sent"] is False
+    assert followup["reply_text"] == ""
+    assert dict(scheduled[-1]["async_payload"] or {})["kind"] == "instructional_video"
+    assert dict(scheduled[-1]["async_payload"] or {})["instruction_text"] == "pull the key points and any risks from that video"
+    assert dict(scheduled[-1]["async_payload"] or {})["video_file_id"] == "video-followup-file"
+
+    assert len(sent) == 6
 
 
 def test_telegram_bot_workflow_persists_async_admin_followup_memory(monkeypatch: pytest.MonkeyPatch) -> None:
