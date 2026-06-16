@@ -1,16 +1,16 @@
 {
   "contract_name": "ea.memorial_operator_status",
   "generated_by": "scripts/materialize_memorial_operator_status.py",
-  "source_git_head": "c1b58fbf46bb9548c3573bc7f898050f6fe1e7f9",
+  "source_git_head": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
   "head_semantics": "source_state",
   "slug": "manfred",
-  "status": "blocked",
-  "current_label": "Memorial public-origin gold: blocked",
-  "local_release_candidate": "blocked",
+  "status": "pass",
+  "current_label": "Memorial public-origin gold: pass",
+  "local_release_candidate": "pass",
   "public_voice_receipt": "pass",
-  "public_browser_receipt": "missing_or_blocked",
+  "public_browser_receipt": "pass",
   "public_browser_meaningful_receipt": "pass",
-  "room_audio_receipt": "missing_or_blocked",
+  "room_audio_receipt": "pass",
   "whole_project_gold": "blocked",
   "operator_notes": [
     "Use labels only: Memorial local release candidate / Memorial public-origin gold: blocked|pass.",
@@ -28,32 +28,23 @@
     "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
   },
   "readiness": {
-    "status": "blocked",
-    "current_head": "c1b58fbf46bb9548c3573bc7f898050f6fe1e7f9",
+    "status": "pass",
+    "current_head": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
     "claim_labels": {
       "ea_receipt_set": "EA receipt-set gold",
       "memorial_local": "Memorial local release candidate",
       "memorial_public": "Memorial public-origin gold"
     },
     "local_release_receipt": ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
-    "local_release_issues": [
-      "receipt_stale_relative_to_current_head",
-      "receipt_generated_from_dirty_worktree"
-    ],
+    "local_release_issues": [],
     "public_gold_receipt": ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     "public_gold_issues": [],
     "public_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
-    "public_browser_gold_issues": [
-      "browser_receipt_status_not_pass",
-      "browser_gold_claim_not_allowed_by_receipt",
-      "browser_failed_codes_present"
-    ],
+    "public_browser_gold_issues": [],
     "public_meaningful_browser_gold_receipt": ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     "public_meaningful_browser_gold_issues": [],
     "room_audio_receipt": ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
-    "room_audio_issues": [
-      "room_receipt_stale_relative_to_current_head"
-    ],
+    "room_audio_issues": [],
     "gold_thresholds": {
       "direct_tts_f1_min": 0.92,
       "conversation_turn_audio_f1_min": 0.9,
@@ -61,7 +52,7 @@
       "speech_transcribe_ms_max": 2500.0,
       "browser_first_answer_ms_max": 4500.0
     },
-    "memorial_voice_gold_claim_allowed": false,
+    "memorial_voice_gold_claim_allowed": true,
     "labels": {
       "local_receipt": "Memorial voice release-candidate proof",
       "public_receipt": "Memorial public voice provenance proof",
@@ -70,11 +61,11 @@
     }
   },
   "evidence_heads": {
-    "whole_project_map": "c1b58fbf46bb9548c3573bc7f898050f6fe1e7f9",
-    "public_voice_receipt": "c1b58fbf46bb9548c3573bc7f898050f6fe1e7f9",
-    "public_browser_receipt": "c1b58fbf46bb9548c3573bc7f898050f6fe1e7f9",
-    "public_meaningful_browser_receipt": "ed8624729c64d973ac8356c4428bc5373309553c",
-    "room_audio_receipt": "ed8624729c64d973ac8356c4428bc5373309553c"
+    "whole_project_map": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
+    "public_voice_receipt": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
+    "public_browser_receipt": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
+    "public_meaningful_browser_receipt": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
+    "room_audio_receipt": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c"
   },
   "workflow_backing": {
     "status": "no",
@@ -88,17 +79,14 @@
     "conversation_turn_transcriber": ""
   },
   "whole_project": {
-    "status": "blocked",
-    "issues": [
-      "memorial voice receipt is stale relative to current HEAD"
-    ]
+    "status": "pass",
+    "message": "whole-project gold map is honest and fail-closed."
   },
   "whole_project_map_summary": {
     "overall_status": "not_gold",
     "gold_claim_allowed": false,
     "blocking_planes": [
-      "chummer_core_rules",
-      "memorial_public_origin_gold"
+      "chummer_core_rules"
     ]
   }
 }

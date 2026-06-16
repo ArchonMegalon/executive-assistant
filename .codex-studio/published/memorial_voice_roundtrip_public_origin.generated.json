@@ -1,12 +1,12 @@
 {
   "contract_name": "ea.memorial_voice_roundtrip_exit_gate",
-  "generated_at": "2026-06-16T10:11:14Z",
+  "generated_at": "2026-06-16T10:14:02Z",
   "generated_by": "scripts/materialize_memorial_voice_roundtrip_exit_gate.py",
-  "source_git_head": "1814368f14cc53505c7299af139da4c77ac2ed8e",
+  "source_git_head": "08e620f17d28fe5f94226d97e99a0b887a0dfc3c",
   "head_semantics": "source_state",
   "source_tree_fingerprint": "f8e75d9479aed14aff5d9b4bddda21b005b54df3bc1dd39435e90fb72239b721",
-  "dirty_worktree": true,
-  "status": "fail",
+  "dirty_worktree": false,
+  "status": "pass",
   "slug": "manfred",
   "base_url": "https://myexternalbrain.com",
   "require_stt": true,
@@ -24,28 +24,26 @@
   "direct_text": "Worum geht es?",
   "conversation_question": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
   "present_world_question": "Welches Wetter haben wir heute?",
-  "failed_codes": [
-    "dirty_worktree"
-  ],
+  "failed_codes": [],
   "warned_codes": [],
   "metrics": {
-    "speech_synthesize_ms": 211,
+    "speech_synthesize_ms": 104,
     "direct_tts_audio_status": "pass",
-    "speech_transcribe_ms": 129,
+    "speech_transcribe_ms": 88,
     "direct_tts_transcriber": "memorial_tts_provenance_cache",
     "direct_tts_expected_chars": 14,
     "direct_tts_actual_chars": 14,
     "direct_tts_f1": 1.0,
-    "chat_reference_ms": 104,
+    "chat_reference_ms": 76,
     "reference_answer_chars": 14,
-    "present_world_chat_ms": 146,
+    "present_world_chat_ms": 55,
     "present_world_answer_chars": 89,
-    "synthetic_prompt_synthesize_ms": 119,
+    "synthetic_prompt_synthesize_ms": 108,
     "synthetic_prompt_source": "speech_synthesize",
-    "conversation_turn_total_ms": 520,
+    "conversation_turn_total_ms": 180,
     "conversation_turn_transcript_chars": 48,
     "conversation_turn_audio_status": "pass",
-    "conversation_answer_transcribe_ms": 120,
+    "conversation_answer_transcribe_ms": 93,
     "conversation_turn_transcriber": "memorial_tts_provenance_cache",
     "conversation_turn_audio_expected_chars": 14,
     "conversation_turn_audio_actual_chars": 14,
@@ -110,13 +108,7 @@
         "recall": 1.0,
         "f1": 1.0
       }
-    },
-    {
-      "status": "fail",
-      "code": "dirty_worktree",
-      "message": "Memorial-gold voice proof requires a clean worktree.",
-      "detail": {}
     }
   ],
-  "gold_claim_allowed": false
+  "gold_claim_allowed": true
 }

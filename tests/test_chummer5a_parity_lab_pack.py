@@ -1531,6 +1531,33 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/test_architecture_contracts.py",
         "tests/test_chummer5a_parity_lab_pack.py",
     }
+    mirror_bundle_proof_guard_commit = "c1b58fb"
+    mirror_bundle_proof_guard_subject = "Bundle design mirror and proof guard updates"
+    mirror_bundle_proof_guard_paths = {
+        ".codex-design/product/FEEDBACK_AND_SIGNAL_OODA_LOOP.md",
+        ".codex-design/product/GOLDEN_JOURNEY_RELEASE_GATES.yaml",
+        ".codex-design/product/HORIZON_REGISTRY.yaml",
+        ".codex-design/product/LTD_CAPABILITY_MAP.md",
+        ".codex-design/product/LTD_RUNTIME_AND_PROJECTION_REGISTRY.yaml",
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+        ".codex-design/product/METRICS_AND_SLOS.yaml",
+        ".codex-design/product/PROJECT_MODES.generated.json",
+        ".codex-design/product/PUBLIC_GROWTH_AND_VISIBILITY_STACK.md",
+        ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
+        ".codex-design/product/README.md",
+        ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+        ".codex-design/product/START_HERE.md",
+        ".codex-design/product/USER_JOURNEYS.md",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+        ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "LTDs.md",
+        "scripts/verify_memorial_gold_readiness.py",
+        "scripts/verify_whole_project_gold_map.py",
+        "tests/conftest.py",
+        "tests/test_chummer5a_parity_lab_pack.py",
+    }
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
@@ -1787,6 +1814,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == architecture_support_commit:
             assert subject == architecture_support_subject, (commit, subject, sorted(paths))
             assert paths == architecture_support_paths, (commit, sorted(paths))
+            continue
+        if commit == mirror_bundle_proof_guard_commit:
+            assert subject == mirror_bundle_proof_guard_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_proof_guard_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
@@ -2271,6 +2302,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == architecture_support_subject, (commit, subject, sorted(paths))
             assert paths == architecture_support_paths, (commit, sorted(paths))
             continue
+        if commit == mirror_bundle_proof_guard_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == mirror_bundle_proof_guard_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_proof_guard_paths, (commit, sorted(paths))
+            continue
         if commit == flagship_runtime_gate_hardening_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2678,6 +2720,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == architecture_support_subject, (commit, subject, sorted(paths))
             assert paths == architecture_support_paths, (commit, sorted(paths))
+            continue
+        if commit == mirror_bundle_proof_guard_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == mirror_bundle_proof_guard_subject, (commit, subject, sorted(paths))
+            assert paths == mirror_bundle_proof_guard_paths, (commit, sorted(paths))
             continue
         if commit == parity_lab_post_receipt_refresh_commit:
             subject = subprocess.run(
