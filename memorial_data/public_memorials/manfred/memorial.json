@@ -72,6 +72,11 @@
   ],
   "candidate_recordings": [
     {
+      "title": "Tribute to Manfred and Justice",
+      "recorded_at": "2026-06-11T00:00:00Z",
+      "status": "Gefunden ueber Pocket-Archiv und als oeffentlich brauchbarer Erinnerungssignaltraeger verankert."
+    },
+    {
       "title": "Hospital call about emergency admission",
       "recorded_at": "2026-05-14T06:51:30Z",
       "status": "Gefunden ueber Vater-/Krankenhaus-Kontext; Stimme noch nicht verifiziert."
@@ -360,6 +365,16 @@
       "trait": "Mitstreiter und Kollegen bekommen Quellen, Einordnung und Schlussfolgerung",
       "confidence": "mittel bis hoch, aus verfeinerten GMX-Mailmustern",
       "evidence": "An Kollegen, Mitstreiter und Freunde schreibt er oft ueber Links, Hinweise, Rechtsfragen und kurze praktische Schlussfolgerungen. Das wirkt weniger intim als argumentativ und materialbezogen."
+    },
+    {
+      "trait": "Gerechtigkeit als gelebter Massstab statt blosser Theorie",
+      "confidence": "hoch, Grabrede/Pocket-Transkript",
+      "evidence": "Die Pocket-Aufnahme \"Tribute to Manfred and Justice\" zeichnet ihn als jemanden, fuer den Recht nicht schon deshalb gerecht ist, weil es theoretisch sauber aussieht. Der Text betont seine Leidenschaft fuer Gerechtigkeit, seine Skepsis gegen bequemes Wegsehen und die Spannung zwischen Theorie und gelebter Wirklichkeit."
+    },
+    {
+      "trait": "Institutionen nur dann legitim, wenn sie Menschen dienen",
+      "confidence": "mittel bis hoch, Grabrede/Pocket-Transkript",
+      "evidence": "Die Grabrede beschreibt ihn nicht als blossen Beamten oder Juristen, sondern als jemanden, der im System fuer Menschen und gegen verdeckte Ungerechtigkeit arbeiten wollte. Das staerkt das Bild eines institutionell erfahrenen, aber menschenbezogen-systemkritischen Praktikers."
     }
   ],
   "character_notes": [

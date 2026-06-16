@@ -28577,6 +28577,27 @@ class ProductService:
                 existing_metadata = {}
             archive_path = Path(str(existing_metadata.get("archive_path") or "").strip())
             if archive_path.is_file():
+                next_summary = str(payload.get("summary_markdown") or "").strip()
+                next_transcript = compact_text(str(payload.get("transcript_text") or "").strip(), fallback="", limit=12000)
+                next_excerpt = str(payload.get("transcript_excerpt") or "").strip()
+                next_tags = [str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()]
+                metadata_changed = False
+                for key, value in (
+                    ("summary_markdown", next_summary),
+                    ("transcript_text", next_transcript),
+                    ("transcript_excerpt", next_excerpt),
+                ):
+                    if value and str(existing_metadata.get(key) or "").strip() != value:
+                        existing_metadata[key] = value
+                        metadata_changed = True
+                if next_tags and list(existing_metadata.get("tags") or []) != next_tags:
+                    existing_metadata["tags"] = next_tags
+                    metadata_changed = True
+                if metadata_changed:
+                    try:
+                        metadata_path.write_text(json.dumps(existing_metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                    except OSError:
+                        pass
                 return {
                     "archive_status": "already_archived",
                     "archive_reason": "",
@@ -28617,6 +28638,10 @@ class ProductService:
             "archive_path": str(archive_path),
             "archive_sha256": archive_sha256,
             "archived_at": _now_iso(),
+            "summary_markdown": str(payload.get("summary_markdown") or "").strip(),
+            "transcript_text": compact_text(str(payload.get("transcript_text") or "").strip(), fallback="", limit=12000),
+            "transcript_excerpt": str(payload.get("transcript_excerpt") or "").strip(),
+            "tags": [str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()],
             "location_match": _google_location_match_projection(dict(payload.get("location_match") or {})),
         }
         metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

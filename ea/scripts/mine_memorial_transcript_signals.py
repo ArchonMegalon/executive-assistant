@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -13,6 +14,23 @@ DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:CHANGE_ME_STRONG@ea-db
 DEFAULT_SLUG = "manfred"
 PROFILE_ROOT = Path("/docker/EA/memorial_data/private_memorial_profiles")
 PUBLIC_ROOT = Path("/docker/EA/memorial_data/public_memorials")
+ENV_PATH = Path("/docker/EA/.env")
+ARCHIVE_ROOT = Path("/mnt/pcloud/EA/pocket-ai-audio")
+APP_ROOT = Path("/docker/EA/ea")
+_MEMORIAL_TERMS = (
+    "manfred",
+    "funeral",
+    "beerdigung",
+    "begraebnis",
+    "begraebnis",
+    "grabredner",
+    "trauer",
+    "justice",
+    "gerechtigkeit",
+)
+
+if str(APP_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_ROOT))
 
 
 @dataclass
@@ -29,6 +47,31 @@ class TranscriptObservation:
         return " ".join(part for part in (self.title, self.summary, self.transcript, self.excerpt) if part).strip()
 
 
+def _load_env_defaults() -> None:
+    if not ENV_PATH.is_file():
+        return
+    wanted = {
+        "DATABASE_URL",
+        "POCKET_API_KEY",
+        "ONEMIN_AI_API_KEY",
+        "ONEMIN_AI_API_KEY_FALLBACK_1",
+        "ONEMIN_AI_API_KEY_FALLBACK_2",
+        "ONEMIN_AI_API_KEY_FALLBACK_3",
+        "ONEMIN_AI_API_KEY_FALLBACK_4",
+        "POCKET_AUDIO_TRANSCRIBE_WEBHOOK_URL",
+        "EA_POCKET_AUDIO_ARCHIVE_ROOT",
+    }
+    for raw_line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if name not in wanted or os.environ.get(name):
+            continue
+        os.environ[name] = value
+
+
 def _load_memorial_titles(slug: str) -> list[str]:
     path = PUBLIC_ROOT / slug / "memorial.json"
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -36,7 +79,7 @@ def _load_memorial_titles(slug: str) -> list[str]:
     return titles
 
 
-def _query_observations(slug: str) -> list[TranscriptObservation]:
+def _query_db_observations(slug: str) -> list[TranscriptObservation]:
     titles = _load_memorial_titles(slug)
     terms = [
         "hospital",
@@ -52,6 +95,16 @@ def _query_observations(slug: str) -> list[TranscriptObservation]:
         "aufnahme",
         "befunde",
         "medicine",
+        "funeral",
+        "beerdigung",
+        "begraebnis",
+        "begraebnis",
+        "grabredner",
+        "trauer",
+        "justice",
+        "gerechtigkeit",
+        "court",
+        "gericht",
     ]
     rows: dict[str, TranscriptObservation] = {}
     with psycopg.connect(DB_URL) as conn:
@@ -116,6 +169,109 @@ def _query_observations(slug: str) -> list[TranscriptObservation]:
     return sorted(rows.values(), key=lambda item: item.created_at, reverse=True)
 
 
+def _memorial_archive_root() -> Path:
+    raw = str(os.environ.get("EA_POCKET_AUDIO_ARCHIVE_ROOT") or "").strip()
+    return Path(raw) if raw else ARCHIVE_ROOT
+
+
+def _archive_metadata_paths() -> list[Path]:
+    root = _memorial_archive_root()
+    if not root.is_dir():
+        return []
+    return sorted(root.glob("*/*/*/*.json"), reverse=True)
+
+
+def _archive_metadata_candidates(slug: str) -> list[dict[str, object]]:
+    titles = {title.lower() for title in _load_memorial_titles(slug)}
+    rows: list[dict[str, object]] = []
+    for path in _archive_metadata_paths():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        title = str(payload.get("title") or "").strip()
+        if not title:
+            continue
+        haystack = " ".join(
+            [
+                title.lower(),
+                str(payload.get("recording_id") or "").strip().lower(),
+            ]
+        )
+        if title.lower() in titles or any(term in haystack for term in _MEMORIAL_TERMS):
+            rows.append(payload)
+    deduped: dict[str, dict[str, object]] = {}
+    for row in rows:
+        recording_id = str(row.get("recording_id") or "").strip()
+        if recording_id:
+            deduped.setdefault(recording_id, row)
+    return list(deduped.values())
+
+
+def _fetch_pocket_observation(*, recording_id: str, created_at: str = "") -> TranscriptObservation | None:
+    from app.container import build_container
+    from app.product.service import build_product_service
+
+    service = build_product_service(build_container())
+    try:
+        detail = service.get_pocket_recording_detail(
+            recording_id=recording_id,
+            include_audio=True,
+            prefer_audio_fallback=True,
+            principal_id="",
+            actor="memorial_transcript_miner",
+        )
+    except Exception:
+        return None
+    title = str(detail.get("title") or "").strip()
+    summary = str(detail.get("summary_markdown") or "").strip()
+    transcript = str(detail.get("transcript_text") or "").strip()
+    excerpt = str(detail.get("transcript_excerpt") or "").strip()
+    if not any((title, summary, transcript, excerpt)):
+        return None
+    return TranscriptObservation(
+        created_at=created_at,
+        source_id=recording_id,
+        title=title,
+        summary=summary,
+        transcript=transcript,
+        excerpt=excerpt,
+    )
+
+
+def _query_archive_observations(slug: str) -> list[TranscriptObservation]:
+    observations: list[TranscriptObservation] = []
+    for row in _archive_metadata_candidates(slug):
+        recording_id = str(row.get("recording_id") or "").strip()
+        if not recording_id:
+            continue
+        obs = _fetch_pocket_observation(
+            recording_id=recording_id,
+            created_at=str(row.get("recording_at") or row.get("created_at") or "").strip(),
+        )
+        if obs is not None:
+            observations.append(obs)
+    return observations
+
+
+def _query_observations(slug: str) -> list[TranscriptObservation]:
+    _load_env_defaults()
+    rows: dict[str, TranscriptObservation] = {}
+    try:
+        for obs in _query_db_observations(slug):
+            rows.setdefault(obs.source_id, obs)
+    except Exception:
+        pass
+    for obs in _query_archive_observations(slug):
+        if obs.source_id and obs.source_id in rows:
+            existing = rows[obs.source_id]
+            if len(obs.combined_text) > len(existing.combined_text):
+                rows[obs.source_id] = obs
+            continue
+        rows[obs.source_id or f"archive:{obs.title}"] = obs
+    return sorted(rows.values(), key=lambda item: item.created_at, reverse=True)
+
+
 def _first_snippet(text: str, markers: Iterable[str], *, fallback_len: int = 260) -> str:
     lowered = text.lower()
     for marker in markers:
@@ -143,6 +299,10 @@ def _hospital_relevance_score(obs: TranscriptObservation) -> int:
         score += 12
     if "go to the hospital again" in text:
         score -= 8
+    if any(token in text for token in ("justice", "gerechtigkeit", "ungerecht", "gericht", "rechtlich", "theorie", "wahrheit")):
+        score += 8
+    if any(token in text for token in ("funeral", "beerdigung", "begraebnis", "begraebnis", "trauer", "kranz", "bestatter")):
+        score += 6
     if len(obs.summary) + len(obs.transcript) >= 1200:
         score += 6
     if len(obs.summary) + len(obs.transcript) < 300:
@@ -243,6 +403,43 @@ def _infer_signals(observations: list[TranscriptObservation]) -> list[dict[str, 
                     "interpretation": "Bindung und Loyalität erscheinen eher als Entschlossenheit und Einsatzbereitschaft denn als weiche Gefühlsbekundung.",
                 }
             )
+        justice_tokens = ("gerechtigkeit", "ungerecht", "justice", "recht nicht immer")
+        justice_combo = all(token in lowered for token in ("theorie", "wahrheit")) and ("recht" in lowered or "jus " in lowered)
+        if any(token in lowered for token in justice_tokens) or justice_combo:
+            signals.append(
+                {
+                    "label": "justice_as_lived_principle_not_theory",
+                    "confidence": "high_transcript_derived",
+                    "source_title": obs.title,
+                    "source_priority": _hospital_relevance_score(obs),
+                    "evidence_snippet": _first_snippet(text, ["Gerechtigkeit", "Theorie", "Wahrheit", "unter dem Tisch"]),
+                    "interpretation": "Gerechtigkeit erscheint nicht als abstraktes Ideal, sondern als gelebter Massstab: Theorie reicht ihm nicht, er will sehen, ob Recht und Wirklichkeit zusammenpassen.",
+                }
+            )
+        institutional_hit = any(token in lowered for token in ("mensch für menschen", "mensch fuer menschen", "zu teuer geworden", "aufdeckte dinge"))
+        institutional_combo = any(token in lowered for token in ("gericht", "court")) and any(token in lowered for token in ("system", "versetzung"))
+        if institutional_hit or institutional_combo:
+            signals.append(
+                {
+                    "label": "institutional_critique_in_service_of_people",
+                    "confidence": "medium_to_high_summary_derived",
+                    "source_title": obs.title,
+                    "source_priority": _hospital_relevance_score(obs),
+                    "evidence_snippet": _first_snippet(text, ["Mensch fuer Menschen", "System", "Gericht", "zu teuer geworden"]),
+                    "interpretation": "Er wirkt wie jemand, der Institutionen ernst nimmt, ihnen aber nur vertraut, wenn sie den Menschen wirklich dienen und Widersprueche nicht zugedeckt werden.",
+                }
+            )
+        if any(token in lowered for token in ("begraebnis", "beerdigung", "friedhof", "bestatter", "kranz", "trauer")):
+            signals.append(
+                {
+                    "label": "grief_managed_through_logistics_and_duty",
+                    "confidence": "medium_transcript_derived",
+                    "source_title": obs.title,
+                    "source_priority": _hospital_relevance_score(obs),
+                    "evidence_snippet": _first_snippet(text, ["Begräbnis", "Friedhof", "Bestatter", "Kranz", "Dienstag", "Donnerstag"]),
+                    "interpretation": "Auch in Trauer wird Belastung zuerst ueber Termine, Zustaendigkeiten, Reiseplaene und konkrete Pflichten bearbeitet statt ueber ausfuehrliche Gefuehlssprache.",
+                }
+            )
     deduped: dict[tuple[str, str], dict[str, object]] = {}
     for signal in signals:
         key = (str(signal.get("label") or ""), str(signal.get("source_title") or ""))
@@ -264,18 +461,22 @@ def _grouped_signals(signals: list[dict[str, object]]) -> dict[str, list[dict[st
             "documentation_and_case_file_mindset",
             "systems_and_repair_frame",
             "severity_framing_over_sentiment",
+            "justice_as_lived_principle_not_theory",
+            "institutional_critique_in_service_of_people",
         }:
             groups["core_persona_signals"].append(signal)
         if label in {
             "guarded_dependence_on_elisabeth",
             "loyalty_expressed_as_resolve",
             "emotion_buffering_under_family_stress",
+            "grief_managed_through_logistics_and_duty",
         }:
             groups["family_relationship_signals"].append(signal)
         if label in {
             "procedural_crisis_orientation",
             "emotion_buffering_under_family_stress",
             "severity_framing_over_sentiment",
+            "grief_managed_through_logistics_and_duty",
         }:
             groups["stress_response_signals"].append(signal)
         if label in {
@@ -358,6 +559,7 @@ def build_report(slug: str = DEFAULT_SLUG) -> dict[str, object]:
         "workflow": {
             "steps": [
                 "Find transcript-like observation events with hospital, family, psychiatry, medication, Elisabeth, and care markers.",
+                "Also pull memorial, funeral, justice, and tribute recordings from the Pocket archive when they are available.",
                 "Prefer substantive summaries and transcripts over trivial short mentions.",
                 "Extract signals into persona, family-relationship, stress-response, and caregiving-style buckets.",
                 "Only then write compact persona notes; do not import raw diagnosis claims as direct persona truth.",
