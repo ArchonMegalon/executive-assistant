@@ -206,17 +206,31 @@ assert "memorial public-origin experience" in gold_map["claim_scope_label"]
 planes = {plane["key"]: plane for plane in gold_map["planes"]}
 assert planes["ea_release_control"]["status"] == "pass"
 assert planes["design_surface"]["status"] == "bounded_pass"
-assert planes["chummer_core_rules"]["status"] == "pass"
-assert planes["chummer_desktop_ui"]["status"] == "pass"
-assert planes["chummer_hub_public_web"]["status"] == "pass"
-assert planes["mobile_and_second_device"]["status"] == "pass"
-assert planes["media_factory_publication"]["status"] == "bounded_pass"
+assert planes["chummer_core_rules"]["status"] in {"pass", "unknown_missing_receipt"}
+assert planes["chummer_desktop_ui"]["status"] in {"pass", "unknown_missing_receipt"}
+assert planes["chummer_hub_public_web"]["status"] in {"pass", "unknown_missing_receipt"}
+assert planes["mobile_and_second_device"]["status"] in {"pass", "unknown_missing_receipt"}
+assert planes["media_factory_publication"]["status"] in {"bounded_pass", "unknown_missing_receipt"}
 assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
 assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
-if planes["memorial_public_origin_gold"]["status"] == "blocked":
+external_unknown = {
+    key
+    for key in (
+        "chummer_core_rules",
+        "chummer_desktop_ui",
+        "chummer_hub_public_web",
+        "mobile_and_second_device",
+        "media_factory_publication",
+    )
+    if planes[key]["status"] == "unknown_missing_receipt"
+}
+if planes["memorial_public_origin_gold"]["status"] == "blocked" or external_unknown:
     assert gold_map["overall_status"] == "not_gold"
+if planes["memorial_public_origin_gold"]["status"] == "blocked":
     assert gold_map["gold_claim_allowed"] is False
     assert "memorial_public_origin_gold" in gold_map["blocking_planes"]
+for key in external_unknown:
+    assert key in gold_map["blocking_planes"]
 assert gold_map["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
 assert "EA flagship readiness does not imply whole Chummer project readiness" in "\n".join(gold_map["rules"])
 assert "Whole-project gold requires every listed plane to pass" in "\n".join(gold_map["rules"])

@@ -1,16 +1,16 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-15T21:20:29Z",
+  "generated_at": "2026-06-16T03:11:46Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "af1d685db053e28c5a7cfa87aa89b41e6dc30890",
+  "source_git_head": "0e3b2b8ad0f799dfabb57c0cb93cb15e71cc7efd",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
-  "overall_status": "gold",
-  "gold_claim_allowed": true,
+  "overall_status": "not_gold",
+  "gold_claim_allowed": false,
   "claim_scope": "whole_project_plane_set",
-  "claim_scope_label": "Whole-project gold is permitted only for the listed plane set, including memorial public-origin experience, proved by the current receipts.",
-  "operator_summary": "Whole-project gold is permitted by the current receipts. Owning repos remain authoritative for their planes.",
+  "claim_scope_label": "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven.",
+  "operator_summary": "EA release control is green, but whole-project gold is blocked by unproven external or public-origin planes.",
   "rules": [
     "EA flagship readiness does not imply whole Chummer project readiness.",
     "Unknown external planes block whole-project gold claims.",
@@ -21,7 +21,9 @@
     "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
     "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
   ],
-  "blocking_planes": [],
+  "blocking_planes": [
+    "chummer_core_rules"
+  ],
   "planes": [
     {
       "key": "ea_release_control",
@@ -68,13 +70,14 @@
       "key": "chummer_core_rules",
       "title": "Chummer Core Rules And Data Correctness",
       "owner_repo": "chummer6-core",
-      "status": "pass",
+      "status": "unknown_missing_receipt",
       "claim": "Chummer core rules/data correctness is accepted only when the external rule-authority gold and completion receipts pass.",
       "evidence": [
-        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json",
-        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json status=blocked"
+      ],
       "design_notes": []
     },
     {
@@ -201,5 +204,9 @@
       "commercial_ops"
     ]
   },
-  "required_next_receipts": []
+  "required_next_receipts": [
+    "memorial_voice_roundtrip_public_origin.generated.json",
+    "memorial_realtime_browser_public_origin.generated.json",
+    "memorial_room_audio_public_origin.generated.json"
+  ]
 }

@@ -23,11 +23,11 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert "memorial public-origin experience" in receipt["claim_scope_label"]
     assert planes["ea_release_control"]["status"] in {"pass", "blocked"}
     assert planes["design_surface"]["status"] == "bounded_pass"
-    assert planes["chummer_core_rules"]["status"] == "pass"
-    assert planes["chummer_desktop_ui"]["status"] == "pass"
-    assert planes["chummer_hub_public_web"]["status"] == "pass"
-    assert planes["mobile_and_second_device"]["status"] == "pass"
-    assert planes["media_factory_publication"]["status"] == "bounded_pass"
+    assert planes["chummer_core_rules"]["status"] in {"pass", "unknown_missing_receipt"}
+    assert planes["chummer_desktop_ui"]["status"] in {"pass", "unknown_missing_receipt"}
+    assert planes["chummer_hub_public_web"]["status"] in {"pass", "unknown_missing_receipt"}
+    assert planes["mobile_and_second_device"]["status"] in {"pass", "unknown_missing_receipt"}
+    assert planes["media_factory_publication"]["status"] in {"bounded_pass", "unknown_missing_receipt"}
     assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
     assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
     if planes["memorial_public_origin_gold"]["status"] == "blocked":
@@ -38,11 +38,38 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
         assert receipt["overall_status"] == "not_gold"
         assert receipt["gold_claim_allowed"] is False
         assert "ea_release_control" in receipt["blocking_planes"]
-    assert planes["chummer_core_rules"]["evidence"]
-    assert planes["chummer_desktop_ui"]["evidence"]
-    assert planes["chummer_hub_public_web"]["evidence"]
-    assert planes["mobile_and_second_device"]["evidence"]
-    assert planes["media_factory_publication"]["evidence"]
+    if planes["chummer_core_rules"]["status"] != "pass":
+        assert receipt["overall_status"] == "not_gold"
+        assert "chummer_core_rules" in receipt["blocking_planes"]
+    if planes["chummer_desktop_ui"]["status"] != "pass":
+        assert receipt["overall_status"] == "not_gold"
+        assert "chummer_desktop_ui" in receipt["blocking_planes"]
+    if planes["chummer_hub_public_web"]["status"] != "pass":
+        assert receipt["overall_status"] == "not_gold"
+        assert "chummer_hub_public_web" in receipt["blocking_planes"]
+    if planes["mobile_and_second_device"]["status"] != "pass":
+        assert receipt["overall_status"] == "not_gold"
+        assert "mobile_and_second_device" in receipt["blocking_planes"]
+    if planes["chummer_core_rules"]["status"] == "pass":
+        assert planes["chummer_core_rules"]["evidence"]
+    else:
+        assert planes["chummer_core_rules"]["missing_evidence"]
+    if planes["chummer_desktop_ui"]["status"] == "pass":
+        assert planes["chummer_desktop_ui"]["evidence"]
+    else:
+        assert planes["chummer_desktop_ui"]["missing_evidence"]
+    if planes["chummer_hub_public_web"]["status"] == "pass":
+        assert planes["chummer_hub_public_web"]["evidence"]
+    else:
+        assert planes["chummer_hub_public_web"]["missing_evidence"]
+    if planes["mobile_and_second_device"]["status"] == "pass":
+        assert planes["mobile_and_second_device"]["evidence"]
+    else:
+        assert planes["mobile_and_second_device"]["missing_evidence"]
+    if planes["media_factory_publication"]["status"] == "bounded_pass":
+        assert planes["media_factory_publication"]["evidence"]
+    else:
+        assert planes["media_factory_publication"]["missing_evidence"]
     rules = "\n".join(receipt["rules"])
     assert "EA flagship readiness does not imply whole Chummer project readiness" in rules
     assert "Unknown external planes block whole-project gold claims" in rules

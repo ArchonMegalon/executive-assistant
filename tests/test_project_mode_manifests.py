@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from scripts.materialize_project_mode_manifests import _fresh_enough, _recorded_source_head
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
 from scripts.materialize_project_mode_manifests import project_modes, show_surface_manifest
 from scripts.verify_project_mode_manifests import main as verify_project_modes
@@ -33,7 +34,7 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     expected_memorial_status = (
         "shipping_memorial"
         if memorial_receipt.get("status") == "pass"
-        and memorial_receipt.get("source_git_head") == current_head
+        and _fresh_enough(_recorded_source_head(memorial_receipt), current_head=current_head)
         else "separate_risk_zone"
     )
 
@@ -56,7 +57,10 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
         "public_origin_gold_pass"
         if all(
             json.loads(path.read_text(encoding="utf-8")).get("status") == "pass"
-            and json.loads(path.read_text(encoding="utf-8")).get("source_git_head") == current_head
+            and _fresh_enough(
+                _recorded_source_head(json.loads(path.read_text(encoding="utf-8"))),
+                current_head=current_head,
+            )
             for path in public_gold_gate_paths
             if path.is_file()
         )
