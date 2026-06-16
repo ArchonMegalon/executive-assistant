@@ -5806,6 +5806,30 @@ def _prioritize_memorial_transcription_variants(
     return [variant for _, variant in indexed]
 
 
+def _memorial_degraded_shadow_stt_candidate(
+    *,
+    fast_shadow_stt: dict[str, object],
+    transcript_candidates: list[dict[str, object]],
+) -> dict[str, object] | None:
+    text = _repair_memorial_transcript_text(fast_shadow_stt.get("transcript_text"))
+    if not text:
+        return None
+    if not _memorial_fast_shadow_stt_has_clear_user_intent(text):
+        return None
+    if _is_known_bad_memorial_subtitle_transcript(text) or _looks_like_memorial_reply_text(text):
+        return None
+    if _select_best_memorial_transcription(transcript_candidates):
+        return None
+    return {
+        "transcription_status": "transcribed",
+        "transcript_text": text,
+        "transcriber": f"shadow:{_text(fast_shadow_stt.get('provider'), 'unknown')}:degraded_accept",
+        "shadow_stt": dict(fast_shadow_stt or {}),
+        "primary_transcript_text": text,
+        "detail": "primary_stt_empty_using_shadow_intent_fallback",
+    }
+
+
 def _memorial_meta_self_reference_answer(question: str) -> str:
     lowered = _text(question, "").lower()
     if any(token in lowered for token in ("stimme", "kling", "sprich", "red")):
@@ -7152,6 +7176,12 @@ def _memorial_transcribe_audio_blob(*, payload: bytes, content_type: str) -> dic
                 "shadow_stt": dict(best_candidate.get("shadow_stt") or {}),
                 "primary_transcript_text": _repair_memorial_transcript_text(best_candidate.get("primary_transcript_text")),
             }
+        degraded_shadow_candidate = _memorial_degraded_shadow_stt_candidate(
+            fast_shadow_stt=fast_shadow_stt,
+            transcript_candidates=transcript_candidates,
+        )
+        if degraded_shadow_candidate:
+            return degraded_shadow_candidate
         detail = str(last_error or "speech_transcription_failed")[:180]
         return {
             "transcription_status": "no_speech",

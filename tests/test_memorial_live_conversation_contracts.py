@@ -983,6 +983,44 @@ def test_memorial_transcribe_falls_back_to_onemin_when_cartesia_fails(
     assert result["transcriber"] == "1min.ai/whisper-1+enhanced_wav"
 
 
+def test_memorial_transcribe_uses_shadow_intent_when_primary_stt_returns_no_speech(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import public_memorials
+    from app.product import service as product_service
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_shadow_stt_result",
+        lambda **kwargs: {
+            "enabled": True,
+            "provider": "blipai",
+            "status": "ok",
+            "transcript_text": "Würdest du dich heute gegen Covid impfen lassen?",
+            "correction": {"should_correct": False},
+        },
+    )
+    monkeypatch.setattr(public_memorials, "_memorial_shadow_stt_is_fast_primary_candidate", lambda text: False)
+    monkeypatch.setattr(product_service, "_pocket_onemin_api_keys", lambda: ("key-1",))
+    monkeypatch.setattr(product_service, "_onemin_asset_upload", lambda **kwargs: {"asset": {"key": "audio"}, "fileContent": {"path": "audio-path"}})
+    monkeypatch.setattr(
+        product_service,
+        "_onemin_speech_to_text",
+        lambda **kwargs: {"aiRecord": {"aiRecordDetail": {"responseObject": {"text": ""}}}},
+    )
+    monkeypatch.setattr(public_memorials, "_wav_payload_has_speech_energy", lambda payload: True)
+
+    result = public_memorials._memorial_transcribe_audio_blob(
+        payload=_generated_wav_bytes(textish_seed="Würdest du dich heute gegen Covid impfen lassen?"),
+        content_type="audio/wav",
+    )
+
+    assert result["transcription_status"] == "transcribed"
+    assert result["transcript_text"] == "Würdest du dich heute gegen Covid impfen lassen?"
+    assert result["transcriber"] == "shadow:blipai:degraded_accept"
+    assert result["detail"] == "primary_stt_empty_using_shadow_intent_fallback"
+
+
 def test_memorial_transcribe_uses_known_prompt_fingerprint_before_shadow_or_primary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
