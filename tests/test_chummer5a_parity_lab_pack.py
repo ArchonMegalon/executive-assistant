@@ -1558,6 +1558,20 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "tests/conftest.py",
         "tests/test_chummer5a_parity_lab_pack.py",
     }
+    memorial_gold_receipt_refresh_commit = "0f8bc0d"
+    memorial_gold_receipt_refresh_subject = "Refresh memorial gold receipts after mirror bundle merge"
+    memorial_gold_receipt_refresh_paths = {
+        ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+        ".codex-design/product/PROJECT_MODES.generated.json",
+        ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+        ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
+        ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
+        ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
+        ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
+        "tests/test_chummer5a_parity_lab_pack.py",
+    }
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
@@ -1818,6 +1832,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == mirror_bundle_proof_guard_commit:
             assert subject == mirror_bundle_proof_guard_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_proof_guard_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_gold_receipt_refresh_commit:
+            assert subject == memorial_gold_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_gold_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
@@ -2313,6 +2331,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == mirror_bundle_proof_guard_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_proof_guard_paths, (commit, sorted(paths))
             continue
+        if commit == memorial_gold_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_gold_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_gold_receipt_refresh_paths, (commit, sorted(paths))
+            continue
         if commit == flagship_runtime_gate_hardening_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2731,6 +2760,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == mirror_bundle_proof_guard_subject, (commit, subject, sorted(paths))
             assert paths == mirror_bundle_proof_guard_paths, (commit, sorted(paths))
+            continue
+        if commit == memorial_gold_receipt_refresh_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == memorial_gold_receipt_refresh_subject, (commit, subject, sorted(paths))
+            assert paths == memorial_gold_receipt_refresh_paths, (commit, sorted(paths))
             continue
         if commit == parity_lab_post_receipt_refresh_commit:
             subject = subprocess.run(

@@ -30,4 +30,9 @@ def test_public_origin_gold_workflow_collects_room_audio_receipt() -> None:
     assert "room_reviewer:" in workflow
     assert "MEMORIAL_ROOM_REVIEWER" in workflow
     assert "memorial_room_audio_public_origin.generated.json" in workflow
+    assert "memorial_realtime_browser_meaningful_public_origin.generated.json" in workflow
+    assert "MEMORIAL_OPERATOR_STATUS.generated.json" in workflow
+    assert "WHOLE_PROJECT_GOLD_MAP.generated.json" in workflow
     assert "make materialize-memorial-public-gold" in workflow
+    assert "make materialize-memorial-operator-status" in workflow
+    assert "make verify-whole-project-gold-map" in workflow

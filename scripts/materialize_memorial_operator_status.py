@@ -82,8 +82,11 @@ def _workflow_backing_status(*receipts: Path) -> dict[str, object]:
 
 def _public_voice_receipt_semantics() -> dict[str, object]:
     payload = _load_json(PUBLIC_VOICE_RECEIPT)
-    direct = str(payload.get("direct_tts_transcriber") or "").strip()
-    conversation = str(payload.get("conversation_turn_transcriber") or "").strip()
+    metrics = dict(payload.get("metrics") or {})
+    direct = str(metrics.get("direct_tts_transcriber") or payload.get("direct_tts_transcriber") or "").strip()
+    conversation = str(
+        metrics.get("conversation_turn_transcriber") or payload.get("conversation_turn_transcriber") or ""
+    ).strip()
     provenance_cache = {direct, conversation} == {"memorial_tts_provenance_cache"}
     return {
         "label": "Memorial public voice provenance proof" if provenance_cache else "Memorial public voice gold proof",

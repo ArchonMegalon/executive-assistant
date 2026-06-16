@@ -74,6 +74,8 @@ jobs:
       - name: Materialize public-origin memorial gold receipts
         run: |
           make materialize-memorial-public-gold
+          make materialize-memorial-operator-status
+          make verify-whole-project-gold-map
 
       - name: Upload public-origin receipts
         if: always()
@@ -83,4 +85,7 @@ jobs:
           path: |
             .codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json
             .codex-studio/published/memorial_realtime_browser_public_origin.generated.json
+            .codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json
             .codex-studio/published/memorial_room_audio_public_origin.generated.json
+            .codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json
+            .codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json

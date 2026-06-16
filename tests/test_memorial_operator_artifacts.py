@@ -129,6 +129,32 @@ def test_memorial_operator_status_marks_whole_project_gold_pass_only_when_map_al
     }
 
 
+def test_memorial_operator_status_reads_public_voice_transcriber_mode_from_metrics(tmp_path, monkeypatch) -> None:
+    module = _load_module(
+        "/docker/EA/scripts/materialize_memorial_operator_status.py",
+        "materialize_memorial_operator_status_metrics_semantics",
+    )
+    receipt = tmp_path / "public-voice.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "metrics": {
+                    "direct_tts_transcriber": "memorial_tts_provenance_cache",
+                    "conversation_turn_transcriber": "memorial_tts_provenance_cache",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "PUBLIC_VOICE_RECEIPT", receipt)
+
+    payload = module._public_voice_receipt_semantics()
+    assert payload["label"] == "Memorial public voice provenance proof"
+    assert payload["transcriber_mode"] == "provenance_cache"
+    assert payload["direct_tts_transcriber"] == "memorial_tts_provenance_cache"
+    assert payload["conversation_turn_transcriber"] == "memorial_tts_provenance_cache"
+
+
 def test_memorial_operator_status_keeps_memorial_pass_when_unrelated_whole_project_gold_is_disallowed(tmp_path, monkeypatch) -> None:
     module = _load_module("/docker/EA/scripts/materialize_memorial_operator_status.py", "materialize_memorial_operator_status_whole_project_blocked")
     monkeypatch.setattr(module, "OUTPUT", tmp_path / "operator_status.json")

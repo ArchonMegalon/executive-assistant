@@ -2420,6 +2420,7 @@ def test_memorial_conversation_turn_logs_generic_fallback_answers_to_pcloud_bund
         },
     )
     log_root = tmp_path / "pcloud-errors"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
     input_audio = _generated_wav_bytes(textish_seed="Erzähl mir etwas")
     output_audio = _generated_wav_bytes(textish_seed="Fallback")
@@ -2482,6 +2483,7 @@ def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
     from app.services import memorial_stt_error_log
 
     log_root = tmp_path / "pcloud"
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", "1")
     monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(log_root))
     converted_wav = _generated_wav_bytes(textish_seed="webm bundle")
 
@@ -2508,10 +2510,35 @@ def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
 
     assert metadata["stored_wav"] is True
     assert metadata["content_type"] == "audio/webm;codecs=opus"
+    assert metadata["consent_mode"] == "explicit_operator_opt_in"
+    assert metadata["retention_days"] >= 1
     with contextlib.closing(wave.open(str(bundle_dir / "input.wav"), "rb")) as wav_file:
         assert wav_file.getframerate() == 16000
         assert wav_file.getnchannels() == 1
         assert 0 < wav_file.getnframes() < 16000
+
+
+def test_memorial_stt_error_bundle_is_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.services import memorial_stt_error_log
+
+    monkeypatch.delenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED", raising=False)
+    monkeypatch.setenv("EA_MEMORIAL_STT_ERROR_LOG_DIR", str(tmp_path / "pcloud"))
+
+    result = memorial_stt_error_log.log_memorial_stt_issue(
+        slug="manfred",
+        route="conversation_turn",
+        reason="generic_fallback_answer",
+        audio_payload=b"fake-audio",
+        content_type="audio/wav",
+        transcription_payload={"transcription_status": "transcribed", "transcript_text": "Covid-Impfung"},
+        answer_payload={"answer": "Sag mir den konkreten Punkt noch etwas enger."},
+    )
+
+    assert result == {"status": "disabled", "reason": "logging_disabled"}
+    assert not (tmp_path / "pcloud").exists()
 
 
 def test_memorial_conversation_turn_contact_opening_bypasses_llm(

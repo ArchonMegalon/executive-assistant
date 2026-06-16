@@ -13,6 +13,7 @@ from typing import Any
 
 
 _DEFAULT_STT_ERROR_ROOT = Path("/mnt/pcloud/EA/memorial_stt_errors")
+_DEFAULT_STT_ERROR_RETENTION_DAYS = 14
 _GENERIC_FALLBACK_MARKERS = (
     "sag mir den konkreten punkt",
     "dann antworte ich dir direkt darauf",
@@ -41,9 +42,23 @@ _SUSPICIOUS_FALLBACK_REASONS = {
 }
 
 
+def memorial_stt_error_logging_enabled() -> bool:
+    raw = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_ENABLED") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def memorial_stt_error_log_root() -> Path:
     configured = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_DIR") or "").strip()
     return Path(configured or str(_DEFAULT_STT_ERROR_ROOT)).expanduser()
+
+
+def memorial_stt_error_retention_days() -> int:
+    raw = str(os.getenv("EA_MEMORIAL_STT_ERROR_LOG_RETENTION_DAYS") or "").strip()
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_STT_ERROR_RETENTION_DAYS
+    return max(1, min(365, parsed))
 
 
 def classify_memorial_stt_issue(
@@ -84,6 +99,9 @@ def log_memorial_stt_issue(
     answer_payload: dict[str, Any] | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, str]:
+    if not memorial_stt_error_logging_enabled():
+        return {"status": "disabled", "reason": "logging_disabled"}
+
     root = memorial_stt_error_log_root()
     timestamp = datetime.now(timezone.utc)
     token = uuid.uuid4().hex[:12]
@@ -112,19 +130,49 @@ def log_memorial_stt_issue(
         "audio_bytes": len(audio_payload or b""),
         "storage_root": str(root),
         "stored_wav": bool(wav_payload is not None),
-        "transcription": dict(transcription_payload or {}),
-        "answer": dict(answer_payload or {}),
-        "extra": dict(extra or {}),
+        "retention_days": memorial_stt_error_retention_days(),
+        "consent_mode": "explicit_operator_opt_in",
+        "transcription": _scrub_payload(dict(transcription_payload or {})),
+        "answer": _scrub_payload(dict(answer_payload or {})),
+        "extra": _scrub_payload(dict(extra or {})),
     }
     _write_text_atomic(
         target_dir / "error.json",
         json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True),
     )
     return {
+        "status": "logged",
         "directory": str(target_dir),
         "metadata_path": str(target_dir / "error.json"),
         "audio_path": str(target_dir / ("input.wav" if wav_payload is not None else f"input{_content_type_suffix(content_type)}")),
     }
+
+
+def _scrub_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    scrubbed: dict[str, Any] = {}
+    for key, value in payload.items():
+        normalized_key = str(key).strip()
+        lowered = normalized_key.lower()
+        if lowered in {"sources", "source_documents", "source_chunks", "raw_response", "messages", "audio_base64", "audio_bytes"}:
+            continue
+        scrubbed[normalized_key] = _scrub_value(value)
+    return scrubbed
+
+
+def _scrub_value(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        normalized = " ".join(value.split()).strip()
+        return normalized[:500]
+    if isinstance(value, list):
+        return [_scrub_value(item) for item in value[:10]]
+    if isinstance(value, dict):
+        nested: dict[str, Any] = {}
+        for key, nested_value in list(value.items())[:20]:
+            nested[str(key)] = _scrub_value(nested_value)
+        return nested
+    return str(value)[:200]
 
 
 def _safe_path_token(value: object, *, fallback: str) -> str:
