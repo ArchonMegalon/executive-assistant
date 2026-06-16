@@ -46,6 +46,17 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-studio/published/memorial_realtime_browser_meaningful_public_origin.generated.json",
     ".codex-studio/published/memorial_room_audio_public_origin.generated.json",
 }
+MEMORIAL_SOURCE_SCOPE_PREFIXES = (
+    "ea/app/api/routes/public_memorial",
+    "ea/app/domain/memorial/",
+    "ea/app/services/memorial",
+    "ea/app/product/service.py",
+    "ea/app/templates/public_memorial",
+    "ea/memorial_data/",
+    "scripts/materialize_memorial",
+    "scripts/measure_memorial",
+    "scripts/verify_memorial",
+)
 
 
 def _is_stable_repo_evidence_path(path_text: str) -> bool:
@@ -99,7 +110,11 @@ def _fresh_enough(recorded_head: str, *, current_head: str) -> bool:
     if proc.returncode != 0:
         return False
     changed = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
-    return bool(changed) and changed <= GENERATED_RECEIPT_PATHS
+    if not changed:
+        return False
+    if changed <= GENERATED_RECEIPT_PATHS:
+        return True
+    return not any(path.startswith(MEMORIAL_SOURCE_SCOPE_PREFIXES) for path in changed)
 
 
 def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:

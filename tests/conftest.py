@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -14,6 +15,33 @@ for _candidate in (str(_ROOT), str(_EA_ROOT)):
         sys.path.insert(0, _candidate)
 
 os.environ.setdefault("EA_INLINE_SYNC_HANDLERS", "1")
+
+_REPO_ASSET_RESTORE_PATHS = (
+    ".codex-design/product/COMPANION_TRIGGER_REGISTRY.yaml",
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+    ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json",
+    ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json",
+    ".codex-design/product/PROJECT_MODES.generated.json",
+    ".codex-design/product/PUBLIC_GUIDE_IMAGE_CURATION.yaml",
+    ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+    ".codex-design/product/TELEGRAM_FLAGSHIP_RUNTIME_DESIGN.md",
+    ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
+)
+
+
+def _restore_missing_repo_assets() -> None:
+    missing = [path for path in _REPO_ASSET_RESTORE_PATHS if not (_ROOT / path).exists()]
+    if not missing:
+        return
+    try:
+        subprocess.run(
+            ["git", "-C", str(_ROOT), "restore", "--", *missing],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
 
 
 def _reset_shared_runtime_state() -> None:
@@ -57,6 +85,7 @@ def _reset_shared_runtime_state() -> None:
 @pytest.fixture(autouse=True)
 def _restore_environment_and_shared_runtime_state() -> None:
     snapshot = dict(os.environ)
+    _restore_missing_repo_assets()
     _reset_shared_runtime_state()
     yield
     current_keys = set(os.environ.keys())
@@ -65,4 +94,5 @@ def _restore_environment_and_shared_runtime_state() -> None:
         os.environ.pop(key, None)
     for key in original_keys:
         os.environ[key] = snapshot[key]
+    _restore_missing_repo_assets()
     _reset_shared_runtime_state()

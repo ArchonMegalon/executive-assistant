@@ -18,6 +18,7 @@ It does not imply that every owned tool must be integrated.
 * `BrowserAct` - no-API automation fallback, account verification, capture, and ops bridge
 * `ApproveThis` - approval inbox bridge
 * `ClickRank` - public site visibility, crawl-health, technical SEO, schema, metadata, and AI-search audit lane
+* `Rybbit` - bounded public analytics, CTA telemetry, and opt-in desktop shell event lane for first-party journeys only
 * `Icanpreneur` - bounded discovery interview and validation lane
 * `Katteb` - public-guide and public-content optimization lane downstream of approved source packets
 * `MetaSurvey` - structured feedback and future-signal collection, not crash telemetry or ticket truth
@@ -39,6 +40,8 @@ It does not imply that every owned tool must be integrated.
 * `Mootion` - bounded video generation lane
 * `Documentation.AI` - docs/help projection surface downstream of canon, not first-line crash capture
 * `Internxt Cloud Storage` - archive and retention support
+* `Rafter` - auxiliary security, live-site, accessibility, performance, SEO, and remediation QA lane
+* `Pixefy` - auxiliary responsive screenshot and visual QA lane
 
 ## Bounded
 
@@ -48,6 +51,7 @@ It does not imply that every owned tool must be integrated.
 * `Browserly` - bounded browser capture and reference-pack helper
 * `FacePop` - bounded public trust / concierge widget and moderated testimonial capture lane
 * `hedy.ai` - bounded post-session transcript structure, highlight digest, and GM debrief helper for `TABLE PULSE AFTERMATH`
+* `NeuronWriter` - bounded source-packet SEO optimization lane downstream of Chummer-owned copy and approval
 * `Nonverbia` - post-session coaching and social-dynamics analysis lane for `TABLE PULSE AFTERMATH`
 * `Unmixr AI` - candidate voice lane until proven
 
@@ -134,7 +138,8 @@ Working rule:
 
 The owned LTD stack should be evaluated as governed product loops, not isolated vendor notes.
 
-* Public Growth System - `ClickRank`, `Katteb`, `ProductLift`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` route public discovery into first-party pages, changelog proof, and closeout.
+* Public Growth System - `ClickRank`, `NeuronWriter`, `Rybbit`, `Katteb`, `ProductLift`, `Signitic`, `Emailit`, `Taja`, and `vidBoard` route public discovery into first-party pages, measurable CTA journeys, changelog proof, and closeout.
+* Public Experience QA System - `Rafter`, `Pixefy`, and Fleet provide auxiliary live-site, security, screenshot, responsiveness, and visual QA evidence without becoming truth owners.
 * Discovery System - `ProductLift`, `Deftform`, `Icanpreneur`, `MetaSurvey`, `Lunacal`, `Teable`, and Product Governor convert public demand into Chummer-owned packets and decisions.
 * Artifact Factory - `vidBoard`, `MarkupGo`, `PeekShot`, `Taja`, `Soundmadeseen`, `Unmixr AI`, and `First Book ai` render approved source packets into repeatable media, document, and share artifacts.
 * BLACK LEDGER Ops - Hub, `Teable`, `NextStep`, `ApproveThis`, `Signitic`, `Emailit`, and first-party map infrastructure run world ticks, faction operations, open-run closeout, and operator review.

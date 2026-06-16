@@ -58,13 +58,16 @@ capability_slots:
   journey_proof:
     primary:
       - first_party_hub_events
+      - Rybbit
       - PostHog_candidate
       - Sentry_candidate
-    boundary: analytics_and_observability_not_user_truth
+    boundary: analytics_and_observability_not_user_truth; desktop shells stay opt-in and bounded to non-character metadata
 product_systems:
   public_growth_system:
     tools:
       - ClickRank
+      - NeuronWriter
+      - Rybbit
       - Katteb
       - ProductLift
       - Signitic
@@ -72,6 +75,12 @@ product_systems:
       - Taja
       - vidBoard
     contract: PUBLIC_GROWTH_AND_VISIBILITY_STACK.md
+  public_experience_qa_system:
+    tools:
+      - Fleet
+      - Rafter
+      - Pixefy
+    contract: RAFTER_PIXEFY_RELEASE_QA_BOUNDARY.md
   discovery_system:
     tools:
       - ProductLift

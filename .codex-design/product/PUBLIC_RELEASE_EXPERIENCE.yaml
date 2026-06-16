@@ -13,12 +13,17 @@ flagship_grade_summary: A public release is only truly ready when downloads, ins
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_platform_matrix_source: DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml
 desktop_gold_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+known_issue_status_language_source: KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md
+onboarding_and_empty_state_source: ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+long_running_action_safety_source: LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+campaign_operability_rubric_source: CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml
 release_label_resolver_rules:
   - Public labels must resolve from registry-backed release truth before any shelf, help, status, or packet copy is generated.
   - The strongest allowed public label is bounded by the weakest proof-bearing surface in the same route family.
   - A fallback, preview, account-gated, or setup-script lane must keep that weaker label even when adjacent proof artifacts look more complete.
   - Gold or flagship wording is forbidden unless the current platform route, support posture, and desktop-head proof all satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml.
   - If platform bytes, startup-smoke proof, support posture, and release-copy posture disagree, the resolver must fail closed to preview wording.
+  - Known-issue and fix words must resolve from KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md before public help, status, or support copy is emitted.
 desktop_flagship_head: Chummer.Avalonia
 desktop_fallback_head: Chummer.Blazor.Desktop
 desktop_cut_summary: The current desktop wave treats Avalonia as the primary desktop preview head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and reserves flagship wording for lanes that independently satisfy flagship acceptance.
@@ -46,6 +51,7 @@ flagship_release_rules:
   - Public proof shelf wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
   - Any public concierge widget on release, downloads, or help-entry surfaces must stay in preview-overlay posture and must not become release authority.
   - Fixed route, fallback route, and recovery route language must remain distinct on public surfaces; warm concierge copy may not blur them.
+  - First-run, no-data, and recovery copy on public release-adjacent surfaces must stay aligned with ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md.
   - The flagship release path starts with a guided Chummer product installer path first and opens the real workbench or restore continuation flow on first launch.
   - The happy path must not send the user to a browser to copy or paste a claim code by hand.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.

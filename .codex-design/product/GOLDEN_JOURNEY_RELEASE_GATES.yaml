@@ -3,8 +3,22 @@ surface: release_control
 version: 1
 last_reviewed: 2026-04-16
 purpose: Canonical six-journey release gate layer for proving the campaign OS as a lived system instead of only a coherent repo graph.
+supporting_contracts:
+  - FAILURE_MODE_JOURNEY_SCRIPTS.md
+  - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+  - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+  - CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md
 
 queued_follow_on_gates:
+  - id: first_run_complete_without_confusion
+    docs:
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+  - id: no_data_recovery_exposes_next_safe_action
+    docs:
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+  - id: long_running_actions_expose_retry_cancel_or_safe_fallback
+    docs:
+      - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
   - id: player_completes_sr6_combat_round_with_action_budget
     docs:
       - LIVE_ACTION_ECONOMY_AND_TURN_ASSIST.md
@@ -41,6 +55,14 @@ journey_gates:
       - journeys/install-and-update.md
       - journeys/claim-install-and-close-a-support-case.md
       - journeys/continue-on-a-second-claimed-device.md
+    supporting_contracts:
+      - FAILURE_MODE_JOURNEY_SCRIPTS.md
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+      - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+    required_blockers:
+      - first_run_complete
+      - no_data_recovery
+      - retry_cancel_or_safe_fallback
     owner_repos:
       - chummer6-ui
       - chummer6-hub
@@ -220,6 +242,14 @@ journey_gates:
     canonical_journeys:
       - journeys/build-and-inspect-a-character.md
       - journeys/publish-a-grounded-artifact.md
+    supporting_contracts:
+      - FAILURE_MODE_JOURNEY_SCRIPTS.md
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+      - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+    required_blockers:
+      - first_run_complete
+      - no_data_recovery
+      - retry_cancel_or_safe_fallback
     owner_repos:
       - chummer6-core
       - chummer6-ui
@@ -479,6 +509,14 @@ journey_gates:
     canonical_journeys:
       - journeys/run-a-campaign-and-return.md
       - journeys/rejoin-after-disconnect.md
+    supporting_contracts:
+      - FAILURE_MODE_JOURNEY_SCRIPTS.md
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+      - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+    required_blockers:
+      - first_run_complete
+      - no_data_recovery
+      - retry_cancel_or_safe_fallback
     owner_repos:
       - chummer6-hub
       - chummer6-mobile
@@ -834,6 +872,14 @@ journey_gates:
     user_promise: A user can report pain, follow honest case state, and only receive a fixed notice once the fix actually reaches their channel.
     canonical_journeys:
       - journeys/claim-install-and-close-a-support-case.md
+    supporting_contracts:
+      - FAILURE_MODE_JOURNEY_SCRIPTS.md
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+      - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+    required_blockers:
+      - first_run_complete
+      - no_data_recovery
+      - retry_cancel_or_safe_fallback
       - journeys/install-and-update.md
     owner_repos:
       - chummer6-design
@@ -960,6 +1006,14 @@ journey_gates:
     user_promise: Organizer and community operation stays on the same account, campaign, and closure spine instead of splintering into side spreadsheets and oral tradition.
     canonical_journeys:
       - journeys/organize-a-community-and-close-the-loop.md
+    supporting_contracts:
+      - FAILURE_MODE_JOURNEY_SCRIPTS.md
+      - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+      - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+    required_blockers:
+      - first_run_complete
+      - no_data_recovery
+      - retry_cancel_or_safe_fallback
       - journeys/claim-install-and-close-a-support-case.md
     owner_repos:
       - chummer6-hub

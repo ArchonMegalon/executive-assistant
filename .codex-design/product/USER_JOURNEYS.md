@@ -13,6 +13,10 @@ This file keeps the center of gravity legible as one product story for the expla
 * Publish
 * Improve
 
+The shared failure-mode layer lives in `FAILURE_MODE_JOURNEY_SCRIPTS.md`.
+The shared first-run and no-data layer lives in `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`.
+The shared retry/cancel/rollback/fallback layer lives in `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`.
+
 `FLAGSHIP_PRODUCT_BAR.md` defines the craftsmanship bar for those journeys.
 `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` defines the release-ready proof that the journeys feel flagship grade rather than merely mapped.
 
@@ -46,12 +50,21 @@ Canonical detail:
 * `BUILD_LAB_PRODUCT_MODEL.md`
 * `CAMPAIGN_ADOPTION_WIZARD.md`
 * `RUNNER_RESUME_AND_GOAL_PINS.md`
+* `FAILURE_MODE_JOURNEY_SCRIPTS.md`
+* `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`
+* `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`
 
 Journey handoff:
 
 * Desktop/UI: land in the real builder with the active rule environment visible, then keep compare, explain, and save inside one dense workbench path.
 * Hub/public: account, downloads, and support copy may point users into Build, but they must not invent a second builder truth or contradict the active install path.
 * Mobile/live: quick edits stay bounded; when dense authoring is required, the mobile shell must hand back to the canonical builder without hiding what will change.
+
+First-run and no-data posture:
+
+* first-run owner: desktop install + builder surface owners
+* no-data recovery owner: claimed-restore and import owners
+* next-safe-action: start a new runner, restore a known runner, or open import with the active ruleset visible
 
 ## Explain
 
@@ -70,12 +83,19 @@ Canonical detail:
 * `BUILD_LAB_PRODUCT_MODEL.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * `SOURCE_ANCHOR_AND_LOCAL_RULEBOOK_BINDING.md`
+* `FAILURE_MODE_JOURNEY_SCRIPTS.md`
+* `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`
 
 Journey handoff:
 
 * Desktop/UI: explain opens where the user questions trust, with source anchors, active environment posture, and packet-backed deltas.
 * Hub/public: hosted dossier, support, and publication surfaces may summarize explain truth, but they must point back to the same provenance-bearing packet.
 * Mobile/live: quick explain stays lightweight, but warnings, stale state, and rule-environment drift must remain visible before a player or GM acts on it.
+
+Failure and recovery posture:
+
+* failure script owner: explain packet + rules provenance owners
+* next-safe-action: open the cited source, reopen the active rule environment, or route to support with the same packet
 
 ## Run
 
@@ -109,12 +129,21 @@ Canonical detail:
 * `PREP_PACKET_FACTORY_AND_PROCEDURAL_TABLES.md`
 * `CREW_AND_MISSION_FIT_MODEL.md`
 * `BLACK_LEDGER_MVP_001.md`
+* `FAILURE_MODE_JOURNEY_SCRIPTS.md`
+* `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`
+* `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`
 
 Journey handoff:
 
 * Desktop/UI: campaign prep, GM operations, and ledger-facing actions must preserve the same campaign memory and rule-environment truth that live play consumes.
 * Hub/public: find, join, schedule, account, and campaign surfaces must hand into the active session without losing roster, rule, or entitlement posture.
 * Mobile/live: reconnect, replay, and conflict repair are first-class run paths, not exception copy around a happy path that only works on desktop.
+
+First-run and no-data posture:
+
+* first-run owner: community/run-control and claimed-device owners
+* no-data recovery owner: replay, restore, and sync-conflict owners
+* next-safe-action: join the current table, reopen the campaign workspace, or repair the conflict before live compute continues
 
 ## Publish
 
@@ -132,12 +161,19 @@ Canonical detail:
 * `journeys/publish-a-grounded-artifact.md`
 * `CHARACTER_LIFECYCLE_AND_LIVING_DOSSIER.md`
 * `WORLD_STATE_AND_MISSION_MARKET_MODEL.md`
+* `FAILURE_MODE_JOURNEY_SCRIPTS.md`
+* `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`
 
 Journey handoff:
 
 * Desktop/UI: publish starts from grounded product truth and keeps preview, compatibility, and provenance visible before release.
 * Hub/public: hosted publication, shelf, and follow-up routes must describe the same artifact state, preview posture, and compatibility story.
 * Mobile/live: recap, dossier, and field-share moments can trigger Publish, but they must not bypass preview-first or provenance requirements.
+
+Failure and recovery posture:
+
+* failure script owner: publication + artifact owners
+* next-safe-action: retry preview, keep the draft, or route to support with the publication packet instead of pretending the artifact shipped
 
 ## Join
 
@@ -160,12 +196,19 @@ Canonical detail:
 * `SESSION_ZERO_AND_TABLE_CONTRACT_MODEL.md`
 * `SEATTLE_OPEN_RUN_001_VERTICAL_SLICE.md`
 * `CREW_AND_MISSION_FIT_MODEL.md`
+* `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`
 
 Journey handoff:
 
 * Desktop/UI: full runner prep and preflight remediation stay available when a player needs to resolve fit before the table starts.
 * Hub/public: discovery, community-rule preflight, scheduling, and account posture must flow into the session without hidden moderator-only steps.
 * Mobile/live: accepted players can arrive, confirm expectations, and recover access from the device already at the table.
+
+First-run and no-data posture:
+
+* first-run owner: community-hub and preflight owners
+* no-data recovery owner: application, scheduling, and account handoff owners
+* next-safe-action: inspect the rule environment, start a quickstart runner, or recover the accepted roster state
 
 ## Improve
 
@@ -185,12 +228,21 @@ Canonical detail:
 * `SUPPORT_PACKET_AND_CALCULATION_REPORT_UX.md`
 * `PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md`
 * `SUPPORT_AND_SIGNAL_OODA_LOOP.md`
+* `FAILURE_MODE_JOURNEY_SCRIPTS.md`
+* `ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md`
+* `LONG_RUNNING_ACTION_SAFETY_CONTRACT.md`
 
 Journey handoff:
 
 * Desktop/UI: crash, bug, update, and support entry points must preserve the context needed for closure without forcing users to retell the problem.
 * Hub/public: status, support, known-issue, and fix messaging must describe one release truth and one next safe action.
 * Mobile/live: interruption, reconnect failure, and table-impacting defects must route into support and recovery without losing the active campaign context.
+
+First-run and no-data posture:
+
+* first-run owner: release/help/support owners
+* no-data recovery owner: support packet, claim/relink, and updater owners
+* next-safe-action: open the current download or support route, not an ambient stale status message
 
 ## Rule
 

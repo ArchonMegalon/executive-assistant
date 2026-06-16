@@ -3,6 +3,17 @@ version: 1
 last_reviewed: 2026-04-10
 purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
 golden_journey_source: GOLDEN_JOURNEY_RELEASE_GATES.yaml
+supporting_contracts:
+  - ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml
+  - ACCESSIBILITY_AND_COPY_SAFETY_RELEASE_CHECKLIST.md
+  - CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml
+  - FAILURE_MODE_JOURNEY_SCRIPTS.md
+  - FLAGSHIP_RESPONSIVENESS_BUDGETS.yaml
+  - KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md
+  - ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+  - LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+  - CAMPAIGN_OS_FLAGSHIP_CLOSEOUT.md
+  - HORIZON_PROMOTION_RULES.md
 
 scorecards:
   - id: golden_journey_proof
@@ -142,10 +153,13 @@ scorecards:
     metrics:
       - name: reporter_visible_closure_from_release_truth
         target: 100%
-        measurement: User-facing fixed or resolved notices must be emitted from actual channel or release truth rather than merged-code events.
+        measurement: User-facing fixed or resolved notices must be emitted from actual channel or release truth rather than merged-code events, and must use the status vocabulary from KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md.
       - name: unresolved_known_issue_without_guidance
         target: 0
-        measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
+        measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift, with severity and owner classifiable through ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml.
+      - name: unclassified_critical_regression_gaps
+        target: 0
+        measurement: No critical campaign, media, release, or support regression may remain outside ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml ownership and escalation posture.
 
   - id: public_signal_closeout
     owner_repo: chummer6-hub
@@ -299,6 +313,12 @@ scorecards:
       - name: flagship_acceptance_failures_open
         target: 0
         measurement: Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml may not remain open without a bounded preview explanation, owner, and explicit cross-surface handoff alignment to USER_JOURNEYS.md and JOURNEY_GATES.generated.json.
+      - name: blocked_latency_cases_without_downgrade_posture
+        target: 0
+        measurement: Launch, first-run, critical flow, and recovery latency failures must cite FLAGSHIP_RESPONSIVENESS_BUDGETS.yaml and expose bounded downgrade messaging instead of ambient slowness.
+      - name: campaign_operability_scoreless_promotion_claims
+        target: 0
+        measurement: No release summary, milestone closeout, or gold claim may omit the CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml dimension score and owner.
 
 release_gates:
   - id: public_surface_honesty
@@ -308,6 +328,7 @@ release_gates:
       - ProductLift roadmap and changelog projections only claim planned or shipped status with Chummer-owned evidence.
       - Katteb-assisted public content changes originate from approved source packets and upstream design or public-guide source changes.
       - ClickRank audit findings may improve crawl, metadata, schema, and search visibility only through Chummer-owned source changes or explicit no-change decisions.
+      - Public known-issue and fix notices use KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md and expose one next safe action.
 
   - id: deterministic_truth_gate
     pass_conditions:

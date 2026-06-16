@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-16T06:10:29Z",
+  "generated_at": "2026-06-16T10:11:28Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "ed8624729c64d973ac8356c4428bc5373309553c",
+  "source_git_head": "1814368f14cc53505c7299af139da4c77ac2ed8e",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -22,7 +22,8 @@
     "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt."
   ],
   "blocking_planes": [
-    "chummer_core_rules"
+    "chummer_core_rules",
+    "memorial_public_origin_gold"
   ],
   "planes": [
     {
@@ -148,24 +149,27 @@
       "missing_evidence": [],
       "design_notes": [
         "Public copy must not collapse this into a generic gold claim.",
-        "public_origin_gold_status=pass"
+        "public_origin_gold_status=blocked",
+        "public-origin memorial voice+STT+TTS gold receipt"
       ]
     },
     {
       "key": "memorial_public_origin_gold",
       "title": "Memorial Public-Origin Experience Gold",
       "owner_repo": "memorial runtime",
-      "status": "pass",
+      "status": "blocked",
       "claim": "The public memorial experience is gold only when the deployed public origin proves the voice roundtrip receipt, browser realtime playback with live STT, room/device intelligibility, and latency. Local release receipts do not satisfy this plane.",
       "evidence": [
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
         ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
         ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
       ],
-      "missing_evidence": [],
+      "missing_evidence": [
+        "public-origin memorial voice+STT+TTS gold receipt"
+      ],
       "design_notes": [
-        "Use: Memorial public-origin gold: pass.",
-        "Do not collapse this memorial-specific proof into generic whole-project authority."
+        "Guest-facing copy must never say simply gold while this plane is blocked.",
+        "Use: Memorial public-origin gold: blocked."
       ]
     },
     {

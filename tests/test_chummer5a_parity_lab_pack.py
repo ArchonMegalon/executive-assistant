@@ -1519,6 +1519,18 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         "scripts/materialize_memorial_operator_status.py",
         "tests/test_memorial_operator_artifacts.py",
     }
+    architecture_support_commit = "579a14b"
+    architecture_support_subject = "Extract console and office surface support"
+    architecture_support_paths = {
+        "ea/app/api/routes/landing.py",
+        "ea/app/api/routes/landing_console.py",
+        "ea/app/api/routes/landing_console_support.py",
+        "ea/app/api/routes/landing_property_support.py",
+        "ea/app/api/routes/workspace_view_models.py",
+        "ea/app/services/office_surface_service.py",
+        "tests/test_architecture_contracts.py",
+        "tests/test_chummer5a_parity_lab_pack.py",
+    }
     gold_ci_gate_commit = "c512d3a"
     gold_ci_gate_subject = "ea: restore gold ci gate"
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
@@ -1771,6 +1783,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == memorial_scope_fix_commit:
             assert subject == memorial_scope_fix_subject, (commit, subject, sorted(paths))
             assert paths == memorial_scope_fix_paths, (commit, sorted(paths))
+            continue
+        if commit == architecture_support_commit:
+            assert subject == architecture_support_subject, (commit, subject, sorted(paths))
+            assert paths == architecture_support_paths, (commit, sorted(paths))
             continue
         if commit == gold_ci_gate_commit:
             assert subject == gold_ci_gate_subject, (commit, subject, sorted(paths))
@@ -2244,6 +2260,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == memorial_scope_fix_subject, (commit, subject, sorted(paths))
             assert paths == memorial_scope_fix_paths, (commit, sorted(paths))
             continue
+        if commit == architecture_support_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == architecture_support_subject, (commit, subject, sorted(paths))
+            assert paths == architecture_support_paths, (commit, sorted(paths))
+            continue
         if commit == flagship_runtime_gate_hardening_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
@@ -2640,6 +2667,17 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             ).stdout.strip()
             assert subject == memorial_scope_fix_subject, (commit, subject, sorted(paths))
             assert paths == memorial_scope_fix_paths, (commit, sorted(paths))
+            continue
+        if commit == architecture_support_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == architecture_support_subject, (commit, subject, sorted(paths))
+            assert paths == architecture_support_paths, (commit, sorted(paths))
             continue
         if commit == parity_lab_post_receipt_refresh_commit:
             subject = subprocess.run(

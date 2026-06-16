@@ -13,6 +13,10 @@ The goal is a closed loop:
 * decide the right lane
 * act and close the loop back to the user
 
+`ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml` is the canonical severity, owner, and escalation source for this loop.
+This file defines routing behavior.
+The matrix defines how severe the problem is, who owns it first, and when the route must escalate.
+
 ## Signal classes
 
 The first canonical signal families are:
@@ -77,6 +81,19 @@ A packet should contain:
 * likely owner repos
 * recommended routing lane
 * verification-host and startup-phase facts when the signal is a release smoke-start failure
+
+## Error taxonomy binding
+
+Every packet must classify against `ERROR_TAXONOMY_AND_ESCALATION_MATRIX.yaml` before it can count as release, support, or closure truth.
+
+That means:
+
+* severity comes from the shared matrix rather than repo-local prose
+* campaign orchestration, media/render, release, and support incidents use the same owner and escalation language
+* reporter-visible closure must use the status words from `KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md`
+
+Critical or release-blocking packets are not allowed to remain unclassified.
+If the matrix cannot classify a packet cleanly, the packet escalates to Product Governor review instead of floating as raw support prose.
 
 ## Orient
 
