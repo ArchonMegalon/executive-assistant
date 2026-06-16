@@ -51,39 +51,58 @@ def build_public_memorial_turn(*, shared, request: MemorialTurnRequest, memory_r
         raise HTTPException(status_code=400, detail=f"speech_transcription_empty:{detail}")
     selected_model = shared._resolve_memorial_voice_chat_model(payload, private_profile, transcript_text)
     llm_started = time.perf_counter()
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{request.slug}")
-    future = executor.submit(
-        shared._memorial_chat_answer,
-        payload,
-        transcript_text,
-        private_profile,
-        selected_model,
-        slug=request.slug,
-        memory_runtime=memory_runtime,
-        personal_memory_context=request.personal_memory_context,
-        difficult_memory_mode=request.difficult_memory_mode,
-    )
-    try:
-        answer_payload = future.result(timeout=shared._MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS)
-    except concurrent.futures.TimeoutError:
-        future.cancel()
-        answer_payload = shared._memorial_chat_fallback_answer(
+    if shared._is_memorial_contact_question(transcript_text):
+        answer_payload = {
+            "person_name": shared._text(payload.get("person_name"), request.slug),
+            "mode": "memorial_first_person_memory_chat",
+            "question": transcript_text,
+            "answer": shared._memorial_contact_answer_body(transcript_text),
+            "answer_audio_text": shared._memorial_contact_answer_body(transcript_text),
+            "sources": [],
+            "private_context_used": bool(shared._list_of_dicts(private_profile.get("family_context_notes"))),
+            "personal_memory_used": False,
+            "difficult_memory_mode": bool(request.difficult_memory_mode),
+            "safety_note": "Erinnerungsmodus in Ich-Form: keine Behauptung, dass die verstorbene Person real antwortet; keine synthetische Stimmnachbildung der verstorbenen Person.",
+            "llm_model": "memorial_guardrail",
+            "llm_provider": "memorial_guardrail",
+            "llm_request_model": selected_model,
+            "llm_fallback_used": False,
+            "fallback_reason": "direct_contact_opening",
+        }
+    else:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"memorial-turn-{request.slug}")
+        future = executor.submit(
+            shared._memorial_chat_answer,
             payload,
             transcript_text,
             private_profile,
+            selected_model,
             slug=request.slug,
             memory_runtime=memory_runtime,
             personal_memory_context=request.personal_memory_context,
-            llm_model=selected_model,
-            fallback_reason="conversation_turn_llm_timeout",
             difficult_memory_mode=request.difficult_memory_mode,
         )
-        answer_payload["llm_model"] = selected_model
-        answer_payload["llm_provider"] = "memorial_guardrail"
-        answer_payload["llm_request_model"] = selected_model
-        answer_payload["llm_fallback_used"] = True
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            answer_payload = future.result(timeout=shared._MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            answer_payload = shared._memorial_chat_fallback_answer(
+                payload,
+                transcript_text,
+                private_profile,
+                slug=request.slug,
+                memory_runtime=memory_runtime,
+                personal_memory_context=request.personal_memory_context,
+                llm_model=selected_model,
+                fallback_reason="conversation_turn_llm_timeout",
+                difficult_memory_mode=request.difficult_memory_mode,
+            )
+            answer_payload["llm_model"] = selected_model
+            answer_payload["llm_provider"] = "memorial_guardrail"
+            answer_payload["llm_request_model"] = selected_model
+            answer_payload["llm_fallback_used"] = True
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
     llm_ms = (time.perf_counter() - llm_started) * 1000.0
     base_config = shared._load_voice_config(request.slug)
     merged_config = dict(base_config)

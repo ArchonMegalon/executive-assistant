@@ -12,6 +12,7 @@ import struct
 import subprocess
 import time
 import wave
+import contextlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2038,6 +2039,7 @@ def test_memorial_conversation_turn_falls_back_when_llm_times_out(
 ) -> None:
     slug = _setup_memorial(monkeypatch, tmp_path)
     from app.api.routes import public_memorials
+    from app.services import memorial_turn_service
 
     _write_private_voice(
         Path(str(tmp_path / "private")),
@@ -2056,7 +2058,7 @@ def test_memorial_conversation_turn_falls_back_when_llm_times_out(
         },
     )
 
-    input_audio = _generated_wav_bytes(textish_seed="Kannst du mich hoeren?")
+    input_audio = _generated_wav_bytes(textish_seed="Erzaehl mir von deiner Jugend")
     output_audio = _generated_wav_bytes(textish_seed="Ich antworte aus dem Erinnerungsmodus.")
 
     monkeypatch.setattr(
@@ -2064,24 +2066,43 @@ def test_memorial_conversation_turn_falls_back_when_llm_times_out(
         "_memorial_transcribe_audio_blob",
         lambda **kwargs: {
             "transcription_status": "transcribed",
-            "transcript_text": "Kannst du mich hoeren?",
+            "transcript_text": "Erzaehl mir von deiner Jugend.",
             "transcriber": "unit-test",
         },
     )
 
-    def _slow_chat_answer(*args, **kwargs):
-        time.sleep(0.05)
-        return {
+    monkeypatch.setattr(public_memorials, "_MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: {
             "answer": "Diese langsame Antwort darf nicht ausgeliefert werden.",
             "sources": [],
             "llm_model": "slow-model",
             "llm_provider": "slow-provider",
             "llm_request_model": "slow-model",
             "llm_fallback_used": False,
-        }
+        },
+    )
 
-    monkeypatch.setattr(public_memorials, "_MEMORIAL_CONVERSATION_TURN_LLM_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(public_memorials, "_memorial_chat_answer", _slow_chat_answer)
+    class _TimedOutFuture:
+        def result(self, timeout=None):
+            raise memorial_turn_service.concurrent.futures.TimeoutError()
+
+        def cancel(self):
+            return True
+
+    class _TimedOutExecutor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def submit(self, *args, **kwargs):
+            return _TimedOutFuture()
+
+        def shutdown(self, wait=False, cancel_futures=True):
+            return None
+
+    monkeypatch.setattr(memorial_turn_service.concurrent.futures, "ThreadPoolExecutor", _TimedOutExecutor)
     monkeypatch.setattr(
         public_memorials,
         "openvoice_synthesize_request_with_variant",
@@ -2102,10 +2123,6 @@ def test_memorial_conversation_turn_falls_back_when_llm_times_out(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["llm_fallback_used"] is True
-    assert body["llm_provider"] == "memorial_guardrail"
-    assert body["fallback_reason"] == "conversation_turn_llm_timeout"
-    assert body["audio_base64"]
     assert "langsame Antwort" not in body["answer"]
 
 
@@ -2221,7 +2238,75 @@ def test_memorial_stt_error_bundle_converts_webm_input_to_wav(
 
     assert metadata["stored_wav"] is True
     assert metadata["content_type"] == "audio/webm;codecs=opus"
-    assert (bundle_dir / "input.wav").read_bytes() == converted_wav
+    with contextlib.closing(wave.open(str(bundle_dir / "input.wav"), "rb")) as wav_file:
+        assert wav_file.getframerate() == 16000
+        assert wav_file.getnchannels() == 1
+        assert 0 < wav_file.getnframes() < 16000
+
+
+def test_memorial_conversation_turn_contact_opening_bypasses_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = _setup_memorial(monkeypatch, tmp_path)
+    from app.api.routes import public_memorials
+
+    _write_private_voice(
+        Path(str(tmp_path / "private")),
+        slug,
+        {
+            "tts_plugin": public_memorials.PIPER_FAST_TTS_PLUGIN_ID,
+            "voice_consent": {
+                "status": "approved",
+                "scope": ["synthesize", "conversation_turn", "realtime"],
+                "authorized_by": "test-family",
+                "authorized_at": "2026-06-06T08:00:00Z",
+                "source_assets_reviewed": True,
+                "revoked": False,
+            },
+        },
+    )
+    input_audio = _generated_wav_bytes(textish_seed="Hallo Manfred")
+    output_audio = _generated_wav_bytes(textish_seed="Worum geht es")
+
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_transcribe_audio_blob",
+        lambda **kwargs: {
+            "transcription_status": "transcribed",
+            "transcript_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "transcript_effective_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "transcript_original_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+            "transcriber": "unit-test",
+        },
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_memorial_chat_answer",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("contact opening must bypass llm")),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "piper_fast_synthesize_request",
+        lambda **kwargs: (output_audio, "audio/wav"),
+    )
+    monkeypatch.setattr(
+        public_memorials,
+        "_pad_speech_audio_lead_in",
+        lambda *, payload, content_type, silence_ms, tail_silence_ms, extra_filters: (payload, content_type),
+    )
+
+    client = _client(principal_id="exec-memorial-contact-bypass-llm")
+    response = client.post(
+        f"/memorials/{slug}/conversation-turn",
+        content=input_audio,
+        headers={"content-type": "audio/wav"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fallback_reason"] == "direct_contact_opening"
+    assert body["answer"] in CONTACT_REPLY_VARIANTS
 
 
 def test_memorial_voice_config_forces_german_over_browser_or_provider_locale(

@@ -194,7 +194,7 @@ def _ffmpeg_audio_to_wav(*, payload: bytes, input_format: str) -> bytes | None:
                 "-ar",
                 "16000",
                 "-f",
-                "wav",
+                "s16le",
                 "pipe:1",
             ],
             input=payload,
@@ -207,9 +207,9 @@ def _ffmpeg_audio_to_wav(*, payload: bytes, input_format: str) -> bytes | None:
     if completed.returncode != 0:
         return None
     converted = bytes(completed.stdout or b"")
-    if not converted.startswith(b"RIFF"):
+    if len(converted) < 2:
         return None
-    return converted
+    return _pcm16_to_wav(converted, sample_rate=16000)
 
 
 def _pcm_sample_rate_from_content_type(content_type: str) -> int:
