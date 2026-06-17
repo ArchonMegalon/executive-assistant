@@ -5678,13 +5678,14 @@ def _telegram_async_assistant_reply_worker(
     poll_backoff_seconds = _telegram_property_link_bundle_poll_backoff_seconds()
     payload = dict(async_payload or {})
     if str(payload.get("kind") or "").strip().lower() == "instructional_video":
-        payload = _hydrate_instructional_video_transcript(payload)
-        prompt_text = _telegram_instructional_video_prompt(payload)
-        reply_text = ""
-        used_fallback_only = False
         instruction_text = str(payload.get("instruction_text") or text or "")
         video_render_requested = _telegram_instructional_video_prefers_rendered_video(instruction_text)
         prefers_magicfit = _telegram_instructional_video_prefers_magicfit(instruction_text)
+        if not video_render_requested:
+            payload = _hydrate_instructional_video_transcript(payload)
+        prompt_text = _telegram_instructional_video_prompt(payload)
+        reply_text = ""
+        used_fallback_only = False
         video_render_result = None
         video_render_error = ""
         if not video_render_requested:

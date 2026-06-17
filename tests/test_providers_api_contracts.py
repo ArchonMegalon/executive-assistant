@@ -2122,6 +2122,81 @@ def test_telegram_async_worker_prefers_magicfit_first_when_instruction_names_mag
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
+def test_telegram_async_worker_skips_video_transcript_hydration_for_explicit_render_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+    from app.domain.models import ToolInvocationResult
+
+    sent: list[dict[str, object]] = []
+    hydration_calls: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 31}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+
+    def _fake_hydrate(payload):  # noqa: ANN001
+        hydration_calls.append(dict(payload))
+        return {**dict(payload), "video_transcript_text": "should not be needed"}
+
+    monkeypatch.setattr(channels_route, "_hydrate_instructional_video_transcript", _fake_hydrate)
+    client = _client(principal_id="exec-telegram-video-render-no-hydrate", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-render-no-hydrate",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_execute_invocation(request):  # noqa: ANN001
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="mootion:test",
+            output_json={
+                "asset_url": "https://cdn.example/mootion/reply.mp4",
+                "telegram_delivery_json": {"status": "sent", "message_ids": ["tg-video-8"], "kind": "video"},
+            },
+            receipt_json={},
+        )
+
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
+    wording = "Edit this video and send the result back here"
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-render-no-hydrate",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="10001",
+        text=wording,
+        current_message_id="31",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-11.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert hydration_calls == []
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+
+
 def test_telegram_async_worker_skips_generic_text_reply_for_render_requested_video(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
