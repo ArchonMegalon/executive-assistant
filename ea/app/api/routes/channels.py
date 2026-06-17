@@ -1393,7 +1393,7 @@ def _telegram_magicfit_shared_temp_root() -> Path:
 def _telegram_magicfit_docker_available() -> bool:
     image = _telegram_magicfit_docker_image()
     browser_cache = _telegram_magicfit_playwright_browsers_host_path()
-    return bool(image and browser_cache.exists())
+    return bool(image and str(browser_cache).strip())
 
 
 def _telegram_magicfit_video_fallback_available() -> bool:
