@@ -1167,7 +1167,20 @@ def _telegram_instructional_video_prefers_rendered_video(text: str) -> bool:
         "clip",
         "movie",
     )
-    return any(marker in normalized for marker in direct_markers)
+    if any(marker in normalized for marker in direct_markers):
+        return True
+    result_back_markers = (
+        "send me the result back",
+        "send the result back",
+        "send the result back here",
+        "send it back here",
+        "send me the result here",
+    )
+    if any(marker in normalized for marker in result_back_markers):
+        return True
+    if "edit this video" in normalized and "send" in normalized and "back" in normalized:
+        return True
+    return False
 
 
 def _telegram_browseract_binding_available(container: AppContainer, *, principal_id: str) -> bool:
