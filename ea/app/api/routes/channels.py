@@ -1085,7 +1085,7 @@ def _telegram_recent_video_message_payload(
         payload = dict(row.payload or {})
         if str(payload.get("kind") or "").strip().lower() == "video":
             return payload
-        break
+        continue
     return {}
 
 

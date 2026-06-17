@@ -3719,6 +3719,82 @@ def test_telegram_text_reply_to_forwarded_video_becomes_instructional_video_asyn
     assert async_payload["video_file_id"] == "forwarded-video-file-2850"
 
 
+def test_telegram_plain_text_request_uses_recent_video_even_after_intervening_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-recent-video")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-recent-video")
+    from app.api.routes import channels as channels_route
+
+    scheduled: list[dict[str, object]] = []
+
+    def _fake_schedule_async_assistant_reply(**kwargs):
+        scheduled.append(kwargs)
+
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", _fake_schedule_async_assistant_reply)
+    client = _client(principal_id="", operator=False)
+
+    video_response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2850,
+                "date": 1781685455,
+                "caption": "source video",
+                "video": {
+                    "file_id": "video-file-2850",
+                    "duration": 42,
+                    "file_name": "video_2026-06-17_10-37-03.mp4",
+                    "mime_type": "video/mp4",
+                },
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert video_response.status_code == 200
+
+    text_response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2853,
+                "date": 1781692768,
+                "text": "do it",
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert text_response.status_code == 200
+
+    request_response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2856,
+                "date": 1781693248,
+                "text": "render it photorealisticly and send me the result back here",
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert request_response.status_code == 200
+    assert scheduled
+    async_payload = dict(scheduled[-1]["async_payload"] or {})
+    assert async_payload["kind"] == "instructional_video"
+    assert async_payload["instruction_text"] == "render it photorealisticly and send me the result back here"
+    assert async_payload["video_message_id"] == "2850"
+    assert async_payload["video_file_id"] == "video-file-2850"
+
+
 def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
