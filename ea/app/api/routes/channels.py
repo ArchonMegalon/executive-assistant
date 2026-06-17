@@ -1437,7 +1437,11 @@ def _telegram_render_magicfit_video_reply(
     model_label = _telegram_instructional_video_magicfit_model_label(instruction_text)
     shared_temp_root = _telegram_magicfit_shared_temp_root()
     shared_temp_root.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(Exception):
+        shared_temp_root.chmod(0o777)
     with tempfile.TemporaryDirectory(prefix="telegram-magicfit-video-", dir=str(shared_temp_root)) as tmp_dir:
+        with contextlib.suppress(Exception):
+            Path(tmp_dir).chmod(0o777)
         out_path = (Path(tmp_dir) / "reply.mp4").resolve()
         state_path = (Path(tmp_dir) / "reply.magicfit.json").resolve()
         base_command = [
