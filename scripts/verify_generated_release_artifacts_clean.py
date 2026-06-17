@@ -25,6 +25,7 @@ VOLATILE_KEYS = {
     "as_of",
     "created_at",
     "current_head",
+    "evidence_heads",
     "mtime_utc",
     "size_bytes",
     "sha256",

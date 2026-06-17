@@ -68,6 +68,26 @@ def test_generated_release_artifact_normalizer_ignores_current_head_provenance_f
     assert module._normalize(before) == module._normalize(after)
 
 
+def test_generated_release_artifact_normalizer_ignores_evidence_head_provenance_fields() -> None:
+    module = _load_module()
+    before = {
+        "status": "pass",
+        "evidence_heads": {
+            "whole_project_map": "abc123",
+            "public_voice_receipt": "abc123",
+        },
+    }
+    after = {
+        "status": "pass",
+        "evidence_heads": {
+            "whole_project_map": "def456",
+            "public_voice_receipt": "def456",
+        },
+    }
+
+    assert module._normalize(before) == module._normalize(after)
+
+
 def test_generated_release_artifact_normalizer_preserves_semantic_status_drift() -> None:
     module = _load_module()
 
