@@ -37,6 +37,7 @@ from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key, projected_task_key_for_request
 from app.services.property_billing import property_commercial_snapshot
 from app.services.telegram_video_effects import render_local_source_video_edit
+from app.services.telegram_video_effects import extract_source_video_reference_packet
 from app.services.telegram_video_effects import source_video_edit_enabled
 from app.services.telegram_video_effects import source_video_edit_supported
 from app.services.telegram_video_effects import supported_source_video_edit_summary
@@ -1307,6 +1308,9 @@ def _telegram_instructional_video_render_request(
             "binding_id": binding_id,
             "principal_id": principal_id,
             "script_text": script_text,
+            "source_video_reference_summary": str(payload.get("source_video_reference_summary") or "").strip(),
+            "source_video_reference_board_path": str(payload.get("source_video_reference_board_path") or "").strip(),
+            "source_video_reference_frame_paths": list(payload.get("source_video_reference_frame_paths") or []),
             "title": title[:120],
             "visual_style": "grounded_executive_briefing",
             "aspect_ratio": "9:16",
@@ -1352,10 +1356,32 @@ def _telegram_instructional_video_render_script(
         lines.append(f"Video caption: {caption_text}")
     if transcript_text:
         lines.append(f"Recovered transcript: {transcript_text}")
+    reference_summary = str(payload.get("source_video_reference_summary") or "").strip()
+    reference_board_path = str(payload.get("source_video_reference_board_path") or "").strip()
+    if reference_summary:
+        lines.append(reference_summary)
+    if reference_board_path:
+        lines.append(f"Local operator reference board: {reference_board_path}")
     lines.append(
         "Return a concise, directly useful video reply that follows the requested effect as closely as possible within the available signals."
     )
     return "\n".join(line for line in lines if line).strip()
+
+
+def _telegram_enrich_payload_with_source_video_references(payload: dict[str, object]) -> dict[str, object]:
+    resolved = dict(payload or {})
+    if not str(resolved.get("video_download_url") or "").strip():
+        return resolved
+    if resolved.get("source_video_reference_board_path"):
+        return resolved
+    try:
+        reference = extract_source_video_reference_packet(video_url=str(resolved.get("video_download_url") or "").strip())
+    except Exception:
+        return resolved
+    resolved["source_video_reference_summary"] = str(reference.get("reference_summary") or "").strip()
+    resolved["source_video_reference_board_path"] = str(reference.get("reference_board_path") or "").strip()
+    resolved["source_video_reference_frame_paths"] = list(reference.get("reference_frame_paths") or [])
+    return resolved
 
 
 def _telegram_magicfit_video_fallback_enabled() -> bool:
@@ -5811,6 +5837,8 @@ def _telegram_async_assistant_reply_worker(
         prefers_magicfit = _telegram_instructional_video_prefers_magicfit(instruction_text)
         if not video_render_requested:
             payload = _hydrate_instructional_video_transcript(payload)
+        elif str(payload.get("video_download_url") or "").strip():
+            payload = _telegram_enrich_payload_with_source_video_references(payload)
         prompt_text = _telegram_instructional_video_prompt(payload)
         reply_text = ""
         used_fallback_only = False

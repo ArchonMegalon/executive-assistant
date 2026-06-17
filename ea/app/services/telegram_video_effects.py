@@ -109,6 +109,18 @@ def _download_video(url: str, target: Path) -> Path:
     return target
 
 
+def _storage_root() -> Path:
+    return Path(
+        str(os.getenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT") or "/mnt/pcloud/EA/telegram_video_edits").strip()
+    ).expanduser()
+
+
+def _work_root() -> Path:
+    return Path(
+        str(os.getenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_WORK_ROOT") or "/tmp/ea-telegram-video-work").strip()
+    ).expanduser()
+
+
 def _flame_palette(frame_index: int, step: int) -> tuple[tuple[int, int, int, int], ...]:
     pulse = 0.5 + 0.5 * math.sin(frame_index * 0.33 + step * 0.21)
     outer = (255, int(96 + 80 * pulse), 24, int(78 + 38 * pulse))
@@ -311,6 +323,90 @@ def _compose_edited_video(
         raise RuntimeError(f"source_video_edit_ffmpeg_failed:{detail[:240]}")
 
 
+def extract_source_video_reference_packet(*, video_url: str) -> dict[str, object]:
+    normalized_url = str(video_url or "").strip()
+    if not normalized_url:
+        raise RuntimeError("source_video_url_missing")
+    storage_root = _storage_root()
+    work_root = _work_root()
+    storage_root.mkdir(parents=True, exist_ok=True)
+    work_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="telegram-source-ref-", dir=str(work_root)) as temp_dir_raw:
+        temp_dir = Path(temp_dir_raw)
+        source_path = temp_dir / "source.mp4"
+        frames_dir = temp_dir / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        _download_video(normalized_url, source_path)
+        probe = _probe_video(source_path)
+        width = int(probe["width"])
+        height = int(probe["height"])
+        duration = float(probe["duration"])
+        timestamps = [max(duration * ratio, 0.0) for ratio in (0.12, 0.34, 0.58, 0.82)]
+        frame_paths: list[Path] = []
+        for index, second in enumerate(timestamps, start=1):
+            frame_path = frames_dir / f"frame-{index:02d}.jpg"
+            completed = subprocess.run(
+                [
+                    _ffmpeg_bin(),
+                    "-y",
+                    "-ss",
+                    f"{second:.3f}",
+                    "-i",
+                    str(source_path),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "2",
+                    str(frame_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if completed.returncode == 0 and frame_path.exists() and frame_path.stat().st_size > 0:
+                frame_paths.append(frame_path)
+        if not frame_paths:
+            raise RuntimeError("source_video_reference_frames_missing")
+        thumbs = [Image.open(path).convert("RGB") for path in frame_paths]
+        thumb_width = 360
+        thumb_height = max(int(thumb_width * (height / max(width, 1))), 180)
+        margin = 16
+        label_height = 38
+        board = Image.new(
+            "RGB",
+            (margin + len(thumbs) * (thumb_width + margin), thumb_height + label_height + margin * 2),
+            (18, 18, 22),
+        )
+        draw = ImageDraw.Draw(board)
+        for index, image in enumerate(thumbs, start=1):
+            resized = image.resize((thumb_width, thumb_height))
+            x = margin + (index - 1) * (thumb_width + margin)
+            y = margin
+            board.paste(resized, (x, y))
+            draw.text((x + 8, y + thumb_height + 8), f"T{index}", fill=(235, 235, 240))
+        final_root = storage_root / f"reference-{temp_dir.name}"
+        final_root.mkdir(parents=True, exist_ok=True)
+        board_path = final_root / "reference-board.jpg"
+        board.save(board_path, quality=92)
+        persisted_frames: list[str] = []
+        for index, path in enumerate(frame_paths, start=1):
+            target = final_root / f"frame-{index:02d}.jpg"
+            shutil.copy2(path, target)
+            persisted_frames.append(str(target))
+        return {
+            "source_video_duration_seconds": duration,
+            "source_video_width": width,
+            "source_video_height": height,
+            "reference_frame_paths": persisted_frames,
+            "reference_board_path": str(board_path),
+            "reference_summary": (
+                f"Reference frames extracted from the uploaded source video at 4 points across {duration:.1f}s "
+                f"({width}x{height})."
+            ),
+        }
+
+
 def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> dict[str, object]:
     if not source_video_edit_enabled():
         raise RuntimeError("source_video_edit_disabled")
@@ -320,12 +416,8 @@ def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> 
     normalized_url = str(video_url or "").strip()
     if not normalized_url:
         raise RuntimeError("source_video_url_missing")
-    storage_root = Path(
-        str(os.getenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_ROOT") or "/mnt/pcloud/EA/telegram_video_edits").strip()
-    ).expanduser()
-    work_root = Path(
-        str(os.getenv("EA_TELEGRAM_SOURCE_VIDEO_EDIT_WORK_ROOT") or "/tmp/ea-telegram-video-work").strip()
-    ).expanduser()
+    storage_root = _storage_root()
+    work_root = _work_root()
     storage_root.mkdir(parents=True, exist_ok=True)
     work_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="telegram-source-video-", dir=str(work_root)) as temp_dir_raw:

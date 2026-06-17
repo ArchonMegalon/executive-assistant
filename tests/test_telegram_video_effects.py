@@ -26,3 +26,12 @@ def test_supported_source_video_edit_summary_mentions_current_capabilities() -> 
     assert "flame" in summary
     assert "speed" in summary
     assert "audio" in summary
+
+
+def test_extract_source_video_reference_packet_requires_url() -> None:
+    try:
+        telegram_video_effects.extract_source_video_reference_packet(video_url="")
+    except RuntimeError as exc:
+        assert str(exc) == "source_video_url_missing"
+    else:
+        raise AssertionError("expected source_video_url_missing")

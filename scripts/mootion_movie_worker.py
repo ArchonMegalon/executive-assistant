@@ -564,6 +564,9 @@ def main() -> int:
                 "browser_video_path": str(browser_video_path),
                 "download_path": str(download_path),
                 "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
+                "source_video_reference_summary": str(packet.get("source_video_reference_summary") or "").strip(),
+                "source_video_reference_board_path": str(packet.get("source_video_reference_board_path") or "").strip(),
+                "source_video_reference_frame_paths": list(packet.get("source_video_reference_frame_paths") or []),
                 "render_status": "completed",
             },
         }
@@ -593,6 +596,9 @@ def main() -> int:
                 "image_thumbs": list(browser_output.get("imageThumbs") or []),
                 "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
                 "html_path": str(html_path),
+                "source_video_reference_summary": str(packet.get("source_video_reference_summary") or "").strip(),
+                "source_video_reference_board_path": str(packet.get("source_video_reference_board_path") or "").strip(),
+                "source_video_reference_frame_paths": list(packet.get("source_video_reference_frame_paths") or []),
                 "render_status": "project_ready" if "/project/" in str(browser_output.get("url") or "") else "partial",
             },
         }

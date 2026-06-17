@@ -2363,6 +2363,43 @@ def test_telegram_async_worker_uses_specialized_source_video_fallback_for_unsupp
     assert "flame" in sent[0]["text"].lower()
 
 
+def test_telegram_render_request_carries_source_video_reference_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import channels as channels_route
+
+    client = _client(principal_id="exec-telegram-source-reference", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-source-reference",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+    payload = {
+        "instruction_text": "Replace the background with a futuristic city and send it back here.",
+        "video_caption": "source video",
+        "video_download_url": "https://api.telegram.org/file/bot/video/file-44.mp4",
+        "source_video_reference_summary": "Reference frames extracted from the uploaded source video.",
+        "source_video_reference_board_path": "/mnt/pcloud/EA/telegram_video_edits/reference-board.jpg",
+        "source_video_reference_frame_paths": [
+            "/mnt/pcloud/EA/telegram_video_edits/frame-01.jpg",
+            "/mnt/pcloud/EA/telegram_video_edits/frame-02.jpg",
+        ],
+    }
+
+    request = channels_route._telegram_instructional_video_render_request(
+        container=client.app.state.container,
+        principal_id="exec-telegram-source-reference",
+        payload=payload,
+        script_text="Create a short Telegram-ready video reply.",
+    )
+    assert request.payload_json["source_video_reference_summary"] == payload["source_video_reference_summary"]
+    assert request.payload_json["source_video_reference_board_path"] == payload["source_video_reference_board_path"]
+    assert request.payload_json["source_video_reference_frame_paths"] == payload["source_video_reference_frame_paths"]
+
+
 def test_telegram_async_worker_skips_video_transcript_hydration_for_explicit_render_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
