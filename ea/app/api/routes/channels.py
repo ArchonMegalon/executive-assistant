@@ -36,6 +36,9 @@ from app.services import google_oauth as google_oauth_service
 from app.services.ltd_runtime_catalog import LtdRuntimeCatalogService
 from app.services.ltd_runtime_skill_projection import projected_task_key, projected_task_key_for_request
 from app.services.property_billing import property_commercial_snapshot
+from app.services.telegram_video_effects import render_local_source_video_edit
+from app.services.telegram_video_effects import source_video_edit_enabled
+from app.services.telegram_video_effects import source_video_edit_supported
 from app.services.telegram_session_service import (
     TelegramLocalResolver,
     TelegramReplyMemoryState,
@@ -1431,6 +1434,44 @@ def _telegram_instructional_video_prefers_magicfit(text: str) -> bool:
     if "whatever is best" in normalized or "whatever works best" in normalized or "or whatever is best" in normalized:
         return False
     return "magicfit" in normalized
+
+
+def _telegram_local_source_video_fallback_available(payload: dict[str, object], instruction_text: str) -> bool:
+    return (
+        source_video_edit_enabled()
+        and source_video_edit_supported(instruction_text)
+        and bool(str(payload.get("video_download_url") or "").strip())
+    )
+
+
+def _telegram_render_local_source_video_reply(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    payload: dict[str, object],
+    instruction_text: str,
+) -> dict[str, object]:
+    rendered = render_local_source_video_edit(
+        video_url=str(payload.get("video_download_url") or "").strip(),
+        instruction_text=instruction_text,
+    )
+    video_path = str(rendered.get("video_file_path") or "").strip()
+    if not video_path:
+        raise RuntimeError("source_video_edit_output_missing")
+    caption = str(payload.get("video_caption") or instruction_text or "Telegram video reply").strip()
+    receipt = send_telegram_video_for_principal(
+        container.tool_runtime,
+        principal_id=principal_id,
+        video_ref=video_path,
+        audio_probe_ref=video_path,
+        caption=caption,
+    )
+    return {
+        "status": "sent",
+        "provider": str(rendered.get("provider") or "local_source_video_fx").strip() or "local_source_video_fx",
+        "video_file_path": video_path,
+        "message_ids": list(receipt.message_ids),
+    }
 
 
 def _telegram_render_magicfit_video_reply(
@@ -5767,6 +5808,23 @@ def _telegram_async_assistant_reply_worker(
         used_fallback_only = False
         video_render_result = None
         video_render_error = ""
+        if (
+            video_render_requested
+            and _telegram_local_source_video_fallback_available(payload, instruction_text)
+        ):
+            try:
+                local_delivery = _telegram_render_local_source_video_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    payload=payload,
+                    instruction_text=instruction_text,
+                )
+            except Exception as exc:
+                video_render_error = str(exc or "").strip() or "source_video_edit_failed"
+            else:
+                if str(local_delivery.get("status") or "").strip().lower() == "sent":
+                    reply_text = "I rendered and sent a short video reply here."
+                    video_render_error = ""
         if not video_render_requested:
             try:
                 async_timeout = None
