@@ -1716,6 +1716,7 @@ def test_telegram_async_worker_renders_and_sends_video_reply_when_requested(monk
     assert invoked
     assert invoked[0]["tool_name"] == "browseract.mootion_movie"
     assert invoked[0]["action_kind"] == "movie.render"
+    assert invoked[0]["payload_json"]["binding_id"]
     assert invoked[0]["payload_json"]["platform_target"] == "telegram_dm"
     assert "Here are the key points from the video." in invoked[0]["payload_json"]["script_text"]
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."

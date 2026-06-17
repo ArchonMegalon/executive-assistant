@@ -1249,16 +1249,20 @@ def _telegram_instructional_video_prefers_rendered_video(text: str) -> bool:
 
 
 def _telegram_browseract_binding_available(container: AppContainer, *, principal_id: str) -> bool:
+    return bool(_telegram_browseract_binding_id(container, principal_id=principal_id))
+
+
+def _telegram_browseract_binding_id(container: AppContainer, *, principal_id: str) -> str:
     normalized_principal = str(principal_id or "").strip()
     if not normalized_principal:
-        return False
+        return ""
     for binding in container.tool_runtime.list_connector_bindings_for_connector("browseract", limit=100):
         if str(binding.principal_id or "").strip() != normalized_principal:
             continue
         if str(binding.status or "").strip().lower() in {"disabled", "inactive", "archived"}:
             continue
-        return True
-    return False
+        return str(binding.binding_id or "").strip()
+    return ""
 
 
 def _telegram_instructional_video_render_request(
@@ -1270,12 +1274,14 @@ def _telegram_instructional_video_render_request(
 ) -> ToolInvocationRequest:
     instruction_text = str(payload.get("instruction_text") or "").strip()
     title = str(payload.get("video_caption") or instruction_text or "Telegram Video Reply").strip() or "Telegram Video Reply"
+    binding_id = _telegram_browseract_binding_id(container, principal_id=principal_id)
     return ToolInvocationRequest(
         session_id=f"telegram-instructional-video:{uuid.uuid4()}",
         step_id=f"telegram-instructional-video-step:{uuid.uuid4()}",
         tool_name="browseract.mootion_movie",
         action_kind="movie.render",
         payload_json={
+            "binding_id": binding_id,
             "principal_id": principal_id,
             "script_text": script_text,
             "title": title[:120],
