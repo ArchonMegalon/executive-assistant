@@ -2095,6 +2095,47 @@ class BrowserActToolAdapter:
         return ""
 
     @classmethod
+    def _first_nonempty_text(cls, *values: object) -> str:
+        for value in values:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text or text.lower() == "none":
+                continue
+            return text
+        return ""
+
+    @classmethod
+    def _ui_service_default_login_email(
+        cls,
+        *,
+        binding_metadata: dict[str, object],
+        service: BrowserActUiServiceDefinition,
+    ) -> str:
+        return cls._first_nonempty_text(
+            binding_metadata.get("login_email"),
+            binding_metadata.get("browseract_username"),
+            binding_metadata.get("username"),
+            cls._binding_service_account_email(binding_metadata=binding_metadata, service=service),
+            os.getenv("EA_UI_SERVICE_LOGIN_EMAIL"),
+            os.getenv("BROWSERACT_USERNAME"),
+        )
+
+    @classmethod
+    def _ui_service_default_login_password(
+        cls,
+        *,
+        binding_metadata: dict[str, object],
+    ) -> str:
+        return cls._first_nonempty_text(
+            binding_metadata.get("login_password"),
+            binding_metadata.get("browseract_password"),
+            binding_metadata.get("password"),
+            os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD"),
+            os.getenv("BROWSERACT_PASSWORD"),
+        )
+
+    @classmethod
     def _browseract_ui_service_runtime_credentials(
         cls,
         *,
@@ -2102,23 +2143,19 @@ class BrowserActToolAdapter:
         binding_metadata: dict[str, object],
         service: BrowserActUiServiceDefinition,
     ) -> dict[str, object]:
-        login_email = str(
-            payload.get("login_email")
-            or payload.get("browseract_username")
-            or binding_metadata.get("login_email")
-            or binding_metadata.get("browseract_username")
-            or binding_metadata.get("username")
-            or cls._binding_service_account_email(binding_metadata=binding_metadata, service=service)
-            or os.getenv("EA_UI_SERVICE_LOGIN_EMAIL")
-        ).strip()
-        login_password = str(
-            payload.get("login_password")
-            or payload.get("browseract_password")
-            or binding_metadata.get("login_password")
-            or binding_metadata.get("browseract_password")
-            or binding_metadata.get("password")
-            or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
-        ).strip()
+        login_email = cls._first_nonempty_text(
+            payload.get("login_email"),
+            payload.get("browseract_username"),
+            cls._ui_service_default_login_email(
+                binding_metadata=binding_metadata,
+                service=service,
+            ),
+        )
+        login_password = cls._first_nonempty_text(
+            payload.get("login_password"),
+            payload.get("browseract_password"),
+            cls._ui_service_default_login_password(binding_metadata=binding_metadata),
+        )
         credentials: dict[str, object] = {}
         if login_email:
             credentials["browseract_username"] = login_email
@@ -3250,26 +3287,22 @@ class BrowserActToolAdapter:
         binding_metadata: dict[str, object],
         service: BrowserActUiServiceDefinition,
     ) -> str:
-        return str(
-            payload.get("login_email")
-            or payload.get("browseract_username")
-            or binding_metadata.get("login_email")
-            or binding_metadata.get("browseract_username")
-            or binding_metadata.get("username")
-            or cls._binding_service_account_email(binding_metadata=binding_metadata, service=service)
-            or os.getenv("EA_UI_SERVICE_LOGIN_EMAIL")
-        ).strip()
+        return cls._first_nonempty_text(
+            payload.get("login_email"),
+            payload.get("browseract_username"),
+            cls._ui_service_default_login_email(
+                binding_metadata=binding_metadata,
+                service=service,
+            ),
+        )
 
-    @staticmethod
-    def _ui_service_login_password(payload: dict[str, object], *, binding_metadata: dict[str, object]) -> str:
-        return str(
-            payload.get("login_password")
-            or payload.get("browseract_password")
-            or binding_metadata.get("login_password")
-            or binding_metadata.get("browseract_password")
-            or binding_metadata.get("password")
-            or os.getenv("EA_UI_SERVICE_LOGIN_PASSWORD")
-        ).strip()
+    @classmethod
+    def _ui_service_login_password(cls, payload: dict[str, object], *, binding_metadata: dict[str, object]) -> str:
+        return cls._first_nonempty_text(
+            payload.get("login_password"),
+            payload.get("browseract_password"),
+            cls._ui_service_default_login_password(binding_metadata=binding_metadata),
+        )
 
     @staticmethod
     def _browser_proxy_setting(
@@ -3351,7 +3384,8 @@ class BrowserActToolAdapter:
     ) -> dict[str, object] | None:
         if bool(request_payload.get("force_browseract")) and not allow_force_local:
             return None
-        timeout_seconds = max(120, int(request_payload.get("timeout_seconds") or 360))
+        default_timeout_seconds = 900 if str(service.service_key or "").strip() == "mootion_movie" else 360
+        timeout_seconds = max(120, int(request_payload.get("timeout_seconds") or default_timeout_seconds))
         packet = dict(request_payload)
         packet.update(requested_inputs)
         if isinstance(extra_packet, dict):

@@ -4427,6 +4427,90 @@ def test_tool_execution_service_executes_template_backed_ui_worker_without_workf
     )
 
 
+def test_tool_execution_service_uses_browseract_env_credentials_for_direct_ui_worker_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-1",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={
+            "service_accounts_json": {
+                "Mootion": {
+                    "account_email": "binding-mootion@example.com",
+                }
+            },
+        },
+        status="enabled",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_worker(cls, *, service_key: str, packet: dict[str, object], timeout_seconds: int) -> dict[str, object]:
+        captured["service_key"] = service_key
+        captured["packet"] = dict(packet)
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "service_key": "mootion_movie",
+            "result_title": "Env Credential Smoke",
+            "render_status": "completed",
+            "asset_url": "https://cdn.example/mootion/env-credential-smoke.mp4",
+            "editor_url": "https://storyteller.mootion.com/project/env-credential-smoke",
+            "mime_type": "video/mp4",
+            "structured_output_json": {
+                "result_title": "Env Credential Smoke",
+                "render_status": "completed",
+            },
+        }
+
+    def _fake_publish(cls, row: dict[str, object]) -> str:
+        captured["published_row"] = dict(row)
+        return "https://ea.girschele.com/results/mootion/env-credential-smoke"
+
+    monkeypatch.delenv("EA_UI_SERVICE_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("EA_UI_SERVICE_LOGIN_PASSWORD", raising=False)
+    monkeypatch.setenv("BROWSERACT_USERNAME", "browseract-default@example.com")
+    monkeypatch.setenv("BROWSERACT_PASSWORD", "browseract-default-pass")
+    monkeypatch.setattr(BrowserActToolAdapter, "_run_ui_service_worker", classmethod(_fake_worker))
+    monkeypatch.setattr(BrowserActToolAdapter, "_publish_ui_service_result", classmethod(_fake_publish))
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-browseract-mootion-direct-env-1",
+            step_id="step-browseract-mootion-direct-env-1",
+            tool_name="browseract.mootion_movie",
+            action_kind="movie.render",
+            payload_json={
+                "binding_id": binding.binding_id,
+                "principal_id": "exec-1",
+                "script_text": "Create a photoreal property teaser.",
+                "title": "Env Credential Smoke",
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+
+    packet = dict(captured["packet"])
+    assert captured["service_key"] == "mootion_movie"
+    assert captured["timeout_seconds"] == 900
+    assert packet["login_email"] == "binding-mootion@example.com"
+    assert packet["login_password"] == "browseract-default-pass"
+    assert packet["browseract_username"] == "binding-mootion@example.com"
+    assert packet["browseract_password"] == "browseract-default-pass"
+    assert packet["login_password"] != "None"
+    assert result.output_json["asset_url"] == "https://cdn.example/mootion/env-credential-smoke.mp4"
+    assert result.output_json["public_url"] == "https://ea.girschele.com/results/mootion/env-credential-smoke"
+
+
 def test_browseract_ui_template_spec_waits_for_direct_login_fields() -> None:
     spec = browseract_ui_template_spec("approvethis_queue_reader")
     assert spec["meta"]["authorized_credential_queries"] == ["approvethis.com"]
