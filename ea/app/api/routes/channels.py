@@ -39,6 +39,7 @@ from app.services.property_billing import property_commercial_snapshot
 from app.services.telegram_video_effects import render_local_source_video_edit
 from app.services.telegram_video_effects import source_video_edit_enabled
 from app.services.telegram_video_effects import source_video_edit_supported
+from app.services.telegram_video_effects import supported_source_video_edit_summary
 from app.services.telegram_session_service import (
     TelegramLocalResolver,
     TelegramReplyMemoryState,
@@ -1472,6 +1473,13 @@ def _telegram_render_local_source_video_reply(
         "video_file_path": video_path,
         "message_ids": list(receipt.message_ids),
     }
+
+
+def _telegram_source_video_specialized_fallback_text() -> str:
+    return (
+        "I have the source video, but this local edit lane does not cover that edit yet. "
+        f"Right now it handles {supported_source_video_edit_summary()}."
+    )
 
 
 def _telegram_render_magicfit_video_reply(
@@ -5939,16 +5947,31 @@ def _telegram_async_assistant_reply_worker(
         if not reply_text:
             if video_render_requested:
                 eta_text = "about 2 to 4 minutes" if prefers_magicfit else "about 3 to 8 minutes"
-                status_text = compact_text(
-                    video_render_error,
-                    fallback="render_not_completed",
-                    limit=160,
-                )
-                reply_text = (
-                    "I have the edit request, but the rendered video is not back yet. "
-                    f"Estimated render time for this lane is {eta_text}. "
-                    f"Current video-lane status: {status_text}."
-                )
+                if (
+                    str(payload.get("video_download_url") or "").strip()
+                    and not _telegram_local_source_video_fallback_available(payload, instruction_text)
+                ):
+                    status_text = compact_text(
+                        video_render_error,
+                        fallback="render_not_completed",
+                        limit=160,
+                    )
+                    reply_text = (
+                        f"{_telegram_source_video_specialized_fallback_text()} "
+                        f"Current external render status: {status_text}. "
+                        f"Estimated render time for the external lane is {eta_text}."
+                    )
+                else:
+                    status_text = compact_text(
+                        video_render_error,
+                        fallback="render_not_completed",
+                        limit=160,
+                    )
+                    reply_text = (
+                        "I have the edit request, but the rendered video is not back yet. "
+                        f"Estimated render time for this lane is {eta_text}. "
+                        f"Current video-lane status: {status_text}."
+                    )
                 used_fallback_only = True
             else:
                 transcript_text = str(payload.get("video_transcript_text") or "").strip()

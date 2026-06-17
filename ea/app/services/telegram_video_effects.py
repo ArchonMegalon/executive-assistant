@@ -25,6 +25,32 @@ _SUPPORTED_FIRE_MARKERS = (
     "clothes catch fire",
     "look like fire",
 )
+_SPEED_UP_MARKERS = ("faster", "speed up", "speed it up", "make it faster", "increase speed")
+_SLOW_DOWN_MARKERS = ("slower", "slow down", "slow it down", "make it slower", "decrease speed")
+_LOUDER_MARKERS = ("louder", "turn it up", "turn up the audio", "increase volume", "make it louder")
+_MUTE_MARKERS = ("mute", "remove audio", "without audio", "silent", "no audio")
+
+
+def supported_source_video_edit_summary() -> str:
+    return "realistic flame overlays, brief burn accents, speed changes, louder audio, and mute/remove-audio edits"
+
+
+def parse_source_video_edit_plan(text: str) -> dict[str, object]:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    plan: dict[str, object] = {}
+    if not normalized:
+        return plan
+    if any(marker in normalized for marker in _SUPPORTED_FIRE_MARKERS):
+        plan["fire_overlay"] = True
+    if any(marker in normalized for marker in _SPEED_UP_MARKERS):
+        plan["speed_factor"] = 1.25
+    elif any(marker in normalized for marker in _SLOW_DOWN_MARKERS):
+        plan["speed_factor"] = 0.82
+    if any(marker in normalized for marker in _LOUDER_MARKERS):
+        plan["audio_gain_db"] = 4.0
+    if any(marker in normalized for marker in _MUTE_MARKERS):
+        plan["mute_audio"] = True
+    return plan
 
 
 def source_video_edit_enabled() -> bool:
@@ -33,10 +59,7 @@ def source_video_edit_enabled() -> bool:
 
 
 def source_video_edit_supported(text: str) -> bool:
-    normalized = " ".join(str(text or "").strip().lower().split())
-    if not normalized:
-        return False
-    return any(marker in normalized for marker in _SUPPORTED_FIRE_MARKERS)
+    return bool(parse_source_video_edit_plan(text))
 
 
 def _ffmpeg_bin() -> str:
@@ -211,33 +234,77 @@ def _render_overlay_frames(*, width: int, height: int, duration_seconds: float, 
     return fps, effect_duration
 
 
-def _compose_edited_video(*, source_path: Path, overlay_frames_dir: Path, overlay_fps: int, output_path: Path) -> None:
+def _atempo_chain(speed_factor: float) -> str:
+    factor = max(min(float(speed_factor or 1.0), 2.0), 0.5)
+    stages: list[float] = []
+    while factor > 2.0:
+        stages.append(2.0)
+        factor /= 2.0
+    while factor < 0.5:
+        stages.append(0.5)
+        factor /= 0.5
+    stages.append(factor)
+    return ",".join(f"atempo={stage:.5f}" for stage in stages)
+
+
+def _compose_edited_video(
+    *,
+    source_path: Path,
+    overlay_frames_dir: Path | None,
+    overlay_fps: int,
+    output_path: Path,
+    plan: dict[str, object],
+) -> None:
+    speed_factor = float(plan.get("speed_factor") or 1.0)
+    mute_audio = bool(plan.get("mute_audio"))
+    audio_gain_db = float(plan.get("audio_gain_db") or 0.0)
+    audio_filters: list[str] = []
+    if abs(speed_factor - 1.0) > 0.001:
+        audio_filters.append(_atempo_chain(speed_factor))
+    if audio_gain_db:
+        audio_filters.append(f"volume={audio_gain_db}dB")
+    audio_filter = ",".join(filter(None, audio_filters))
+    input_args = ["-i", str(source_path)]
+    filter_parts: list[str] = []
+    video_input_label = "[0:v]"
+    if overlay_frames_dir is not None:
+        input_args.extend(["-framerate", str(overlay_fps), "-i", str(overlay_frames_dir / "frame-%04d.png")])
+        filter_parts.append("[1:v]format=rgba,colorchannelmixer=aa=0.88[fx]")
+        filter_parts.append(f"{video_input_label}[fx]overlay=0:0:eof_action=pass[v0]")
+        video_input_label = "[v0]"
+    video_filters = []
+    if abs(speed_factor - 1.0) > 0.001:
+        video_filters.append(f"setpts={1.0 / speed_factor:.6f}*PTS")
+    video_filters.append("eq=saturation=1.08:contrast=1.03:brightness=0.02")
+    video_filters.append("format=yuv420p")
+    filter_parts.append(f"{video_input_label}{','.join(video_filters)}[v]")
+    command = [_ffmpeg_bin(), "-y", *input_args]
+    if not mute_audio and audio_filter:
+        filter_parts.append(f"[0:a]{audio_filter}[a]")
+    if filter_parts:
+        command.extend(["-filter_complex", ";".join(filter_parts)])
     command = [
-        _ffmpeg_bin(),
-        "-y",
-        "-i",
-        str(source_path),
-        "-framerate",
-        str(overlay_fps),
-        "-i",
-        str(overlay_frames_dir / "frame-%04d.png"),
-        "-filter_complex",
-        "[1:v]format=rgba,colorchannelmixer=aa=0.88[fx];"
-        "[0:v][fx]overlay=0:0:eof_action=pass,eq=saturation=1.08:contrast=1.03:brightness=0.02,format=yuv420p[v]",
+        *command,
         "-map",
         "[v]",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "18",
-        "-c:a",
-        "copy",
-        str(output_path),
     ]
+    if mute_audio:
+        command.append("-an")
+    elif audio_filter:
+        command.extend(["-map", "[a]", "-c:a", "aac", "-b:a", "192k"])
+    else:
+        command.extend(["-map", "0:a?", "-c:a", "copy"])
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            str(output_path),
+        ]
+    )
     completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=600)
     if completed.returncode != 0 or not output_path.exists():
         detail = str(completed.stderr or completed.stdout or "").strip()
@@ -247,7 +314,8 @@ def _compose_edited_video(*, source_path: Path, overlay_frames_dir: Path, overla
 def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> dict[str, object]:
     if not source_video_edit_enabled():
         raise RuntimeError("source_video_edit_disabled")
-    if not source_video_edit_supported(instruction_text):
+    plan = parse_source_video_edit_plan(instruction_text)
+    if not plan:
         raise RuntimeError("source_video_edit_unsupported")
     normalized_url = str(video_url or "").strip()
     if not normalized_url:
@@ -267,17 +335,23 @@ def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> 
         output_path = temp_dir / "edited.mp4"
         _download_video(normalized_url, source_path)
         probe = _probe_video(source_path)
-        fps, effect_duration = _render_overlay_frames(
-            width=int(probe["width"]),
-            height=int(probe["height"]),
-            duration_seconds=float(probe["duration"]),
-            frames_dir=overlay_dir,
-        )
+        fps = 10
+        effect_duration = 0.0
+        overlay_frames_dir: Path | None = None
+        if bool(plan.get("fire_overlay")):
+            fps, effect_duration = _render_overlay_frames(
+                width=int(probe["width"]),
+                height=int(probe["height"]),
+                duration_seconds=float(probe["duration"]),
+                frames_dir=overlay_dir,
+            )
+            overlay_frames_dir = overlay_dir
         _compose_edited_video(
             source_path=source_path,
-            overlay_frames_dir=overlay_dir,
+            overlay_frames_dir=overlay_frames_dir,
             overlay_fps=fps,
             output_path=output_path,
+            plan=plan,
         )
         final_output = storage_root / f"{temp_dir.name}-edited.mp4"
         shutil.copy2(output_path, final_output)
@@ -287,4 +361,5 @@ def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> 
         "video_file_path": str(final_output),
         "instruction_text": str(instruction_text or "").strip(),
         "effect_duration_seconds": effect_duration,
+        "operations": sorted(str(key) for key, value in plan.items() if value not in {False, None, "", 0}),
     }

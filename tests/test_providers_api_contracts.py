@@ -2310,6 +2310,59 @@ def test_telegram_async_worker_prefers_local_source_video_edit_for_supported_req
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
+def test_telegram_async_worker_uses_specialized_source_video_fallback_for_unsupported_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-source-video-unsupported")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 32}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    monkeypatch.setattr(channels_route, "_telegram_browseract_binding_available", lambda *args, **kwargs: False)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_fallback_available", lambda: False)
+    client = _client(principal_id="exec-telegram-source-video-unsupported", operator=False)
+
+    wording = "Edit this video and replace the background with a futuristic city, then send it back here."
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-source-video-unsupported",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9997",
+        text=wording,
+        current_message_id="32",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-32.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert sent
+    assert "local edit lane does not cover that edit yet" in sent[0]["text"].lower()
+    assert "flame" in sent[0]["text"].lower()
+
+
 def test_telegram_async_worker_skips_video_transcript_hydration_for_explicit_render_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
