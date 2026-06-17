@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl docker.io docker-compose espeak-ng ffmpeg && \
@@ -66,6 +67,10 @@ RUN set -eu; \
     rm -rf /tmp/src
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+RUN python -m playwright install --with-deps chromium && \
+    mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" && \
+    chown -R ea:ea "${PLAYWRIGHT_BROWSERS_PATH}"
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
     find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
