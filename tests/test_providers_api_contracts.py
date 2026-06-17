@@ -1863,10 +1863,7 @@ def test_telegram_async_worker_renders_video_reply_for_render_and_send_result_wo
         )
 
     monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
-    wording = (
-        "I want u to edit this video with magicfit, poppy or whatever is best for this request. "
-        "render it photorealisticly and send me the result back here"
-    )
+    wording = "Edit this video, render it photorealisticly and send me the result back here"
     channels_route._telegram_async_assistant_reply_worker(
         container=client.app.state.container,
         principal_id="exec-telegram-video-render-result",
@@ -2022,10 +2019,7 @@ def test_telegram_async_worker_falls_back_to_magicfit_when_mootion_fails(
 
     monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
     monkeypatch.setattr(channels_route, "_telegram_render_magicfit_video_reply", _fake_magicfit_reply)
-    wording = (
-        "I want u to edit this video with magicfit, poppy or whatever is best for this request. "
-        "render it photorealisticly and send me the result back here"
-    )
+    wording = "Edit this video, render it photorealisticly and send me the result back here"
     channels_route._telegram_async_assistant_reply_worker(
         container=client.app.state.container,
         principal_id="exec-telegram-video-magicfit-fallback",
@@ -2045,6 +2039,86 @@ def test_telegram_async_worker_falls_back_to_magicfit_when_mootion_fails(
     assert invoked[0]["tool_name"] == "browseract.mootion_movie"
     assert fallback_calls
     assert "render it photorealisticly and send me the result back here" in fallback_calls[0]["instruction_text"].lower()
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+
+
+def test_telegram_async_worker_prefers_magicfit_first_when_instruction_names_magicfit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    invoked: list[dict[str, object]] = []
+    fallback_calls: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 30}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_fallback_available", lambda: True)
+    client = _client(principal_id="exec-telegram-video-magicfit-first", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-magicfit-first",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_execute_invocation(request):  # noqa: ANN001
+        invoked.append(
+            {
+                "tool_name": request.tool_name,
+                "action_kind": request.action_kind,
+                "payload_json": dict(request.payload_json or {}),
+            }
+        )
+        raise AssertionError("browseract should not run before magicfit for explicit magicfit requests")
+
+    def _fake_magicfit_reply(**kwargs):  # noqa: ANN001
+        fallback_calls.append(dict(kwargs))
+        return {"status": "sent", "provider": "magicfit", "message_ids": ["tg-video-7"]}
+
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
+    monkeypatch.setattr(channels_route, "_telegram_render_magicfit_video_reply", _fake_magicfit_reply)
+    wording = (
+        "I want u to edit this video with magicfit, poppy or whatever is best for this request. "
+        "render it photorealisticly and send me the result back here"
+    )
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-magicfit-first",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="10000",
+        text=wording,
+        current_message_id="30",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-10.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert fallback_calls
+    assert invoked == []
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 

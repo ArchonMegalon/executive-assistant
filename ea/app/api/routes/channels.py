@@ -1381,6 +1381,11 @@ def _telegram_instructional_video_magicfit_model_label(text: str) -> str:
     return ""
 
 
+def _telegram_instructional_video_prefers_magicfit(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    return "magicfit" in normalized
+
+
 def _telegram_render_magicfit_video_reply(
     *,
     container: AppContainer,
@@ -5677,9 +5682,9 @@ def _telegram_async_assistant_reply_worker(
         prompt_text = _telegram_instructional_video_prompt(payload)
         reply_text = ""
         used_fallback_only = False
-        video_render_requested = _telegram_instructional_video_prefers_rendered_video(
-            str(payload.get("instruction_text") or text or "")
-        )
+        instruction_text = str(payload.get("instruction_text") or text or "")
+        video_render_requested = _telegram_instructional_video_prefers_rendered_video(instruction_text)
+        prefers_magicfit = _telegram_instructional_video_prefers_magicfit(instruction_text)
         video_render_result = None
         video_render_error = ""
         if not video_render_requested:
@@ -5718,11 +5723,35 @@ def _telegram_async_assistant_reply_worker(
                 reply_text = ""
         if (
             video_render_requested
+            and prefers_magicfit
+            and _telegram_magicfit_video_fallback_available()
+        ):
+            try:
+                magicfit_delivery = _telegram_render_magicfit_video_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    prompt_text=_telegram_instructional_video_render_script(
+                        payload=payload,
+                        instruction_text=instruction_text,
+                        reply_text=reply_text,
+                    ),
+                    caption=str(payload.get("video_caption") or payload.get("instruction_text") or "Telegram video reply").strip(),
+                    instruction_text=instruction_text,
+                )
+            except Exception as exc:
+                video_render_error = str(exc or "").strip() or "magicfit_render_failed"
+            else:
+                if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
+                    reply_text = "I rendered and sent a short video reply here."
+                    video_render_error = ""
+        if (
+            video_render_requested
+            and not reply_text
             and _telegram_browseract_binding_available(container, principal_id=principal_id)
         ):
             render_script_text = _telegram_instructional_video_render_script(
                 payload=payload,
-                instruction_text=str(payload.get("instruction_text") or text or ""),
+                instruction_text=instruction_text,
                 reply_text=reply_text,
             )
             try:
@@ -5745,6 +5774,7 @@ def _telegram_async_assistant_reply_worker(
         if (
             video_render_requested
             and video_render_error
+            and not reply_text
             and _telegram_magicfit_video_fallback_available()
         ):
             try:
@@ -5753,11 +5783,11 @@ def _telegram_async_assistant_reply_worker(
                     principal_id=principal_id,
                     prompt_text=_telegram_instructional_video_render_script(
                         payload=payload,
-                        instruction_text=str(payload.get("instruction_text") or text or ""),
+                        instruction_text=instruction_text,
                         reply_text=reply_text,
                     ),
                     caption=str(payload.get("video_caption") or payload.get("instruction_text") or "Telegram video reply").strip(),
-                    instruction_text=str(payload.get("instruction_text") or text or ""),
+                    instruction_text=instruction_text,
                 )
             except Exception as exc:
                 video_render_error = (
