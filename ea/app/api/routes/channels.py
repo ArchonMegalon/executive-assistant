@@ -1064,6 +1064,31 @@ def _telegram_recent_video_message_payload(
     return {}
 
 
+def _telegram_reply_to_video_message_payload(ctx: TelegramTurnContext) -> dict[str, object]:
+    payload = dict(ctx.payload or {})
+    raw = dict(payload.get("raw") or {})
+    message = dict(raw.get("message") or {})
+    reply_to = dict(message.get("reply_to_message") or {})
+    if not reply_to:
+        return {}
+    video = dict(reply_to.get("video") or {})
+    if not video:
+        return {}
+    caption = str(reply_to.get("caption") or "").strip()
+    return {
+        "kind": "video",
+        "message_id": str(reply_to.get("message_id") or "").strip(),
+        "message_metadata": {
+            "file_id": str(video.get("file_id") or "").strip(),
+            "duration": video.get("duration"),
+            "caption": caption,
+            "download_url": "",
+        },
+        "video_transcript_text": "",
+        "transcription_status": "",
+    }
+
+
 def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str, object]:
     payload = dict(ctx.payload or {})
     kind = str(payload.get("kind") or "").strip().lower()
@@ -1087,7 +1112,7 @@ def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str,
         return {}
     if not _telegram_video_instruction_candidate(ctx.normalized):
         return {}
-    recent_video_payload = _telegram_recent_video_message_payload(
+    recent_video_payload = _telegram_reply_to_video_message_payload(ctx) or _telegram_recent_video_message_payload(
         ctx.container,
         principal_id=ctx.principal_id,
         chat_id=ctx.chat_id,

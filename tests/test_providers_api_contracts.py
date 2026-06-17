@@ -3128,7 +3128,7 @@ def test_telegram_ingest_answers_question_mark_probe_immediately(monkeypatch: py
     monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
     client = _client(principal_id="", operator=False)
     response = client.post(
-        "/v1/channels/telegram/ingest",
+        "/v1/channels/telegram/ingest/default",
         json={
             "message": {
                 "message_id": 991002,
@@ -3619,6 +3619,104 @@ def test_telegram_async_worker_hydrates_instructional_video_transcript_when_miss
     assert seen_prompts
     assert "Recovered audio transcript from the video" in seen_prompts[0]
     assert "legal still needs sign-off" in seen_prompts[0]
+
+
+def test_telegram_text_reply_to_video_becomes_instructional_video_async(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-reply-video")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-reply-video")
+    from app.api.routes import channels as channels_route
+
+    scheduled: list[dict[str, object]] = []
+
+    def _fake_schedule_async_assistant_reply(**kwargs):
+        scheduled.append(kwargs)
+
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", _fake_schedule_async_assistant_reply)
+    client = _client(principal_id="", operator=False)
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2853,
+                "date": 1781692768,
+                "text": "do it",
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "reply_to_message": {
+                    "message_id": 2850,
+                    "date": 1781685455,
+                    "caption": "render it photorealisticly and send me the result back here",
+                    "video": {
+                        "file_id": "video-file-2850",
+                        "duration": 42,
+                        "file_name": "video_2026-06-17_10-37-03.mp4",
+                        "mime_type": "video/mp4",
+                    },
+                },
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    assert scheduled
+    async_payload = dict(scheduled[-1]["async_payload"] or {})
+    assert async_payload["kind"] == "instructional_video"
+    assert async_payload["instruction_text"] == "do it"
+    assert async_payload["video_message_id"] == "2850"
+    assert async_payload["video_file_id"] == "video-file-2850"
+
+
+def test_telegram_text_reply_to_forwarded_video_becomes_instructional_video_async(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-reply-forwarded-video")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-reply-forwarded-video")
+    from app.api.routes import channels as channels_route
+
+    scheduled: list[dict[str, object]] = []
+
+    def _fake_schedule_async_assistant_reply(**kwargs):
+        scheduled.append(kwargs)
+
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", _fake_schedule_async_assistant_reply)
+    client = _client(principal_id="", operator=False)
+    response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2855,
+                "date": 1781692800,
+                "text": "do it",
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "reply_to_message": {
+                    "message_id": 2850,
+                    "date": 1781685455,
+                    "forward_origin": {"type": "user", "sender_user": {"id": 777, "first_name": "Forwarded"}},
+                    "video": {
+                        "file_id": "forwarded-video-file-2850",
+                        "duration": 42,
+                        "file_name": "forwarded_video.mp4",
+                        "mime_type": "video/mp4",
+                    },
+                },
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert response.status_code == 200
+    assert scheduled
+    async_payload = dict(scheduled[-1]["async_payload"] or {})
+    assert async_payload["kind"] == "instructional_video"
+    assert async_payload["instruction_text"] == "do it"
+    assert async_payload["video_message_id"] == "2850"
+    assert async_payload["video_file_id"] == "forwarded-video-file-2850"
 
 
 def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch: pytest.MonkeyPatch) -> None:
