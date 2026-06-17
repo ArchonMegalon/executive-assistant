@@ -1369,6 +1369,20 @@ def _telegram_magicfit_video_script_path() -> Path:
     return (Path(product_service_module._repo_root()) / "scripts" / "render_magicfit_property_flythrough.py").resolve()
 
 
+def _telegram_magicfit_docker_repo_root() -> Path:
+    configured = str(
+        os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_REPO_ROOT")
+        or os.getenv("EA_HOST_REPO_ROOT")
+        or ""
+    ).strip()
+    if configured:
+        return Path(configured).expanduser()
+    repo_root = Path(product_service_module._repo_root()).resolve()
+    if str(repo_root).startswith("/app"):
+        return Path("/docker/EA")
+    return repo_root
+
+
 def _telegram_magicfit_docker_image() -> str:
     return str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE") or "ea-runtime:latest").strip() or "ea-runtime:latest"
 
@@ -1442,6 +1456,7 @@ def _telegram_render_magicfit_video_reply(
     shared_temp_root.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(Exception):
         shared_temp_root.chmod(0o777)
+    docker_repo_root = _telegram_magicfit_docker_repo_root()
     with tempfile.TemporaryDirectory(prefix="telegram-magicfit-video-", dir=str(shared_temp_root)) as tmp_dir:
         with contextlib.suppress(Exception):
             Path(tmp_dir).chmod(0o777)
@@ -1467,14 +1482,16 @@ def _telegram_render_magicfit_video_reply(
             base_command.extend(["--model-label", model_label])
         command = list(base_command)
         if _telegram_magicfit_docker_available():
-            repo_root = Path(product_service_module._repo_root()).resolve()
             browser_cache = _telegram_magicfit_playwright_browsers_host_path().resolve()
+            docker_script_path = (docker_repo_root / "scripts" / script_path.name).resolve()
+            docker_command = list(base_command)
+            docker_command[1] = str(docker_script_path)
             command = [
                 "docker",
                 "run",
                 "--rm",
                 "-v",
-                f"{repo_root}:{repo_root}",
+                f"{docker_repo_root.resolve()}:{docker_repo_root.resolve()}",
                 "-v",
                 f"{shared_temp_root.resolve()}:{shared_temp_root.resolve()}",
                 "-v",
@@ -1486,7 +1503,7 @@ def _telegram_render_magicfit_video_reply(
                 "-e",
                 f"CHUMMER_EA_MAGICFIT_PASSWORD={str(os.getenv('CHUMMER_EA_MAGICFIT_PASSWORD') or os.getenv('MAGICFIT_PASSWORD') or '').strip()}",
                 _telegram_magicfit_docker_image(),
-                *base_command,
+                *docker_command,
             ]
         completed = subprocess.run(
             command,

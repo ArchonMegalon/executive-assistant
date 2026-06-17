@@ -2137,6 +2137,7 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     script_dir.mkdir(parents=True)
     script_path = script_dir / "render_magicfit_property_flythrough.py"
     script_path.write_text("print('stub')\n", encoding="utf-8")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_REPO_ROOT", str(repo_root))
     browser_cache = tmp_path / "ms-playwright"
     browser_cache.mkdir()
     shared_root = tmp_path / "shared"
@@ -2183,6 +2184,8 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     assert executed
     assert executed[0][0:2] == ["docker", "run"]
     assert "ea-runtime:latest" in executed[0]
+    assert f"{repo_root}:{repo_root}" in executed[0]
+    assert str(script_path) in executed[0]
 
 
 def test_telegram_render_magicfit_video_reply_surfaces_compacted_failure(
