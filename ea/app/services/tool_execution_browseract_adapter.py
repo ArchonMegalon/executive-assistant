@@ -342,6 +342,29 @@ def _render_chatplayground_workflow_prompt(
 
 
 class BrowserActToolAdapter:
+    @staticmethod
+    def _ui_service_worker_env() -> dict[str, str]:
+        env = os.environ.copy()
+        env.setdefault(
+            "EA_UI_SERVICE_WORKER_OUTPUT_ROOT",
+            str(
+                Path(
+                    os.getenv("EA_UI_SERVICE_WORKER_OUTPUT_ROOT")
+                    or "/mnt/pcloud/EA/browseract_ui_worker_outputs"
+                ).expanduser()
+            ),
+        )
+        env.setdefault(
+            "EA_UI_SERVICE_SHARED_TEMP_ROOT",
+            str(
+                Path(
+                    os.getenv("EA_UI_SERVICE_SHARED_TEMP_ROOT")
+                    or "/mnt/pcloud/EA/browseract_ui_worker_shared"
+                ).expanduser()
+            ),
+        )
+        return env
+
     def __init__(self, *, connector_dispatch: ConnectorDispatchToolAdapter) -> None:
         self._connector_dispatch = connector_dispatch
         self._chatplayground_audit = None
@@ -2816,6 +2839,7 @@ class BrowserActToolAdapter:
                 input=json.dumps(packet, ensure_ascii=False),
                 text=True,
                 capture_output=True,
+                env=cls._ui_service_worker_env(),
                 timeout=max(180, timeout_seconds + 60),
                 check=False,
             )

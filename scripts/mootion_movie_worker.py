@@ -19,8 +19,12 @@ from browseract_ui_media import compose_slideshow_video, transcode_video_webm
 
 
 PLAYWRIGHT_IMAGE = os.environ.get("EA_UI_PLAYWRIGHT_IMAGE", "chummer-playwright:local").strip() or "chummer-playwright:local"
-OUTPUT_ROOT = Path(os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/docker/fleet/state/browseract_ui_worker_outputs")).expanduser()
-SHARED_TEMP_ROOT = Path(os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/docker/fleet/state/browseract_ui_worker_shared")).expanduser()
+OUTPUT_ROOT = Path(
+    os.environ.get("EA_UI_SERVICE_WORKER_OUTPUT_ROOT", "/mnt/pcloud/EA/browseract_ui_worker_outputs")
+).expanduser()
+SHARED_TEMP_ROOT = Path(
+    os.environ.get("EA_UI_SERVICE_SHARED_TEMP_ROOT", "/mnt/pcloud/EA/browseract_ui_worker_shared")
+).expanduser()
 DEFAULT_EMAIL = os.environ.get("EA_UI_SERVICE_LOGIN_EMAIL", "").strip()
 DEFAULT_PASSWORD = os.environ.get("EA_UI_SERVICE_LOGIN_PASSWORD", "").strip()
 

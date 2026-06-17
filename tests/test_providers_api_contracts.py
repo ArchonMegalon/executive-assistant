@@ -1973,6 +1973,7 @@ def test_telegram_async_worker_falls_back_to_magicfit_when_mootion_fails(
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
     from app.api.routes import channels as channels_route
+    from types import SimpleNamespace
 
     sent: list[dict[str, object]] = []
     invoked: list[dict[str, object]] = []
@@ -2044,7 +2045,7 @@ def test_telegram_async_worker_falls_back_to_magicfit_when_mootion_fails(
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
-def test_telegram_async_worker_prefers_magicfit_first_when_instruction_names_magicfit(
+def test_telegram_async_worker_prefers_best_available_renderer_when_request_says_whatever_is_best(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
@@ -2092,7 +2093,7 @@ def test_telegram_async_worker_prefers_magicfit_first_when_instruction_names_mag
                 "payload_json": dict(request.payload_json or {}),
             }
         )
-        raise AssertionError("browseract should not run before magicfit for explicit magicfit requests")
+        return SimpleNamespace(output_json={"telegram_delivery_json": {"status": "sent"}})
 
     def _fake_magicfit_reply(**kwargs):  # noqa: ANN001
         fallback_calls.append(dict(kwargs))
@@ -2119,8 +2120,9 @@ def test_telegram_async_worker_prefers_magicfit_first_when_instruction_names_mag
             "video_duration_seconds": 42,
         },
     )
-    assert fallback_calls
-    assert invoked == []
+    assert invoked
+    assert invoked[0]["tool_name"] == "browseract.mootion_movie"
+    assert fallback_calls == []
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 

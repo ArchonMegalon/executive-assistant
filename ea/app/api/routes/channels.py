@@ -1428,6 +1428,8 @@ def _telegram_instructional_video_magicfit_model_label(text: str) -> str:
 
 def _telegram_instructional_video_prefers_magicfit(text: str) -> bool:
     normalized = " ".join(str(text or "").strip().lower().split())
+    if "whatever is best" in normalized or "whatever works best" in normalized or "or whatever is best" in normalized:
+        return False
     return "magicfit" in normalized
 
 
@@ -1444,7 +1446,7 @@ def _telegram_render_magicfit_video_reply(
         raise RuntimeError("magicfit_render_script_missing")
     timeout_minutes = max(
         1,
-        min(18, int(str(os.getenv("EA_TELEGRAM_MAGICFIT_TIMEOUT_MINUTES") or "8").strip() or "8")),
+        min(18, int(str(os.getenv("EA_TELEGRAM_MAGICFIT_TIMEOUT_MINUTES") or "3").strip() or "3")),
     )
     duration_seconds = max(
         4,
