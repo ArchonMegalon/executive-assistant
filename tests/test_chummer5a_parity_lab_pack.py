@@ -1630,6 +1630,40 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
         ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     }
+    hard_exit_telegram_video_lane_commit = "e147eb3"
+    hard_exit_telegram_video_lane_subject = "Finish hard-exit sweep and Telegram video reply lane"
+    hard_exit_telegram_video_lane_paths = {
+        ".codex-design/product/PROJECT_MODES.generated.json",
+        ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
+        ".codex-design/product/RELEASE_PIPELINE.md",
+        ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json",
+        ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+        "ea/app/api/routes/channels.py",
+        "ea/app/api/routes/public_memorial_conversation.py",
+        "ea/app/api/routes/public_memorial_conversation_support.py",
+        "ea/app/api/routes/public_memorials.py",
+        "ea/app/services/policy.py",
+        "ea/app/services/telegram_session_service.py",
+        "ea/app/services/tool_execution_common.py",
+        "ea/app/services/tool_execution_connector_dispatch_adapter.py",
+        "scripts/smoke_api_tibor.sh",
+        "scripts/verify_pocket_audio_archive.py",
+        "tests/e2e/test_telegram_bot_workflows.py",
+        "tests/smoke_runtime_api_suite_2.py",
+        "tests/test_chummer5a_parity_lab_pack.py",
+        "tests/test_memorial_live_conversation_contracts.py",
+        "tests/test_pocket_audio_archive_gate.py",
+        "tests/test_providers_api_contracts.py",
+        "tests/test_tool_execution.py",
+    }
+    guide_canon_scope_sync_subject = "Align guide canon and flagship scope wording"
+    guide_canon_scope_sync_paths = {
+        ".codex-design/product/PUBLIC_FAQ_REGISTRY.yaml",
+        ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
+        ".codex-design/product/PUBLIC_TRUST_CONTENT.yaml",
+        ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
+        "tests/test_chummer5a_parity_lab_pack.py",
+    }
     flagship_readiness_gate_subject = "ea: add flagship readiness gate"
     m142_family_packet_refresh_commit = "0199aff"
     m142_family_packet_refresh_subject = "Update m142 family packet snapshot after current gate state"
@@ -1911,6 +1945,22 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
         if commit == memorial_source_state_receipt_refresh_commit:
             assert subject == memorial_source_state_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
+            continue
+        if subject == memorial_source_state_receipt_refresh_subject:
+            assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
+            continue
+        if commit == hard_exit_telegram_video_lane_commit:
+            assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
+            assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
+            continue
+        if subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip() == guide_canon_scope_sync_subject:
+            assert paths == guide_canon_scope_sync_paths, (commit, sorted(paths))
             continue
         if (
             "scripts/verify_flagship_release_readiness.py" in paths
@@ -2479,6 +2529,29 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == memorial_source_state_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
             continue
+        if subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip() == memorial_source_state_receipt_refresh_subject:
+            assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
+            continue
+        if commit == hard_exit_telegram_video_lane_commit:
+            subject = subprocess.run(
+                ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ).stdout.strip()
+            assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
+            assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
+            continue
+        if subject == guide_canon_scope_sync_subject:
+            assert paths == guide_canon_scope_sync_paths, (commit, sorted(paths))
+            continue
         if (
             "scripts/verify_flagship_release_readiness.py" in paths
             and "tests/test_flagship_release_readiness_gate.py" in paths
@@ -2939,7 +3012,10 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == memorial_source_state_receipt_refresh_subject, (commit, subject, sorted(paths))
             assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
             continue
-        if README_PATH.relative_to(ROOT).as_posix() in paths:
+        if subject == memorial_source_state_receipt_refresh_subject:
+            assert paths == memorial_source_state_receipt_refresh_paths, (commit, sorted(paths))
+            continue
+        if commit == hard_exit_telegram_video_lane_commit:
             subject = subprocess.run(
                 ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
                 check=True,
@@ -2947,6 +3023,20 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
                 stderr=subprocess.PIPE,
                 text=True,
             ).stdout.strip()
+            assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
+            assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
+            continue
+        subject = subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        if subject == guide_canon_scope_sync_subject:
+            assert paths == guide_canon_scope_sync_paths, (commit, sorted(paths))
+            continue
+        if README_PATH.relative_to(ROOT).as_posix() in paths:
             subject_lower = subject.lower()
             assert (
                 "python3 runtime proof" in subject_lower or "screenshot proof path" in subject_lower

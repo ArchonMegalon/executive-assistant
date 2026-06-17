@@ -20,6 +20,9 @@ sections:
       - question: What should I show a skeptical GM or player first?
         required: true
         answer: Start with [What Chummer6 Is](WHAT_CHUMMER6_IS.md), then [Status](STATUS.md), then [Download](DOWNLOAD.md). If the real argument is about how the math is explained, show them [Core](PARTS/core.md).
+      - question: Do I need an account to download the current preview?
+        required: true
+        answer: No. The current preview download should stay publicly reachable; create an account when you want recovery, support history, or linked handoff continuity.
   - id: participation_and_preview
     title: Helping and feedback
     entries:
