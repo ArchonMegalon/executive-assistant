@@ -68,7 +68,7 @@ RUN set -eu; \
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -m playwright install --with-deps chromium && \
+RUN python -m playwright install chromium && \
     mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" && \
     chown -R ea:ea "${PLAYWRIGHT_BROWSERS_PATH}"
 
