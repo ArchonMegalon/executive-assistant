@@ -47,6 +47,30 @@ curl() {
     "$@"
 }
 
+wait_for_health_stable() {
+  local attempts="${1:-60}"
+  local consecutive_required="${2:-3}"
+  local sleep_seconds="${3:-1}"
+  local consecutive=0
+  local i
+  for i in $(seq 1 "${attempts}"); do
+    if curl -fsS "${BASE}/health" >/dev/null 2>&1 \
+      && curl -fsS "${BASE}/health/live" >/dev/null 2>&1 \
+      && curl -fsS "${BASE}/health/ready" >/dev/null 2>&1 \
+      && curl -fsS "${BASE}/version" >/dev/null 2>&1; then
+      consecutive=$((consecutive + 1))
+      if [[ "${consecutive}" -ge "${consecutive_required}" ]]; then
+        return 0
+      fi
+    else
+      consecutive=0
+    fi
+    sleep "${sleep_seconds}"
+  done
+  echo "timed out waiting for stable health/version responses from ${BASE}" >&2
+  return 1
+}
+
 wait_for_session_status() {
   local session_id="$1"
   local expected_status="$2"
@@ -283,10 +307,7 @@ fi
 MAX_REWRITE_CHARS="${MAX_REWRITE_CHARS:-20000}"
 
 echo "== smoke: health =="
-curl -fsS "${BASE}/health" >/dev/null
-curl -fsS "${BASE}/health/live" >/dev/null
-curl -fsS "${BASE}/health/ready" >/dev/null
-curl -fsS "${BASE}/version" >/dev/null
+wait_for_health_stable
 echo "health/version ok"
 
 echo "== smoke: openapi =="
