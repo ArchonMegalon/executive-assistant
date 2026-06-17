@@ -2122,6 +2122,67 @@ def test_telegram_async_worker_prefers_magicfit_first_when_instruction_names_mag
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
+def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    from app.api.routes import channels as channels_route
+
+    repo_root = tmp_path / "repo"
+    script_dir = repo_root / "scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "render_magicfit_property_flythrough.py"
+    script_path.write_text("print('stub')\n", encoding="utf-8")
+    browser_cache = tmp_path / "ms-playwright"
+    browser_cache.mkdir()
+    shared_root = tmp_path / "shared"
+    shared_root.mkdir()
+    executed: list[list[str]] = []
+
+    class _Completed:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def _fake_run(command, **kwargs):  # noqa: ANN001
+        executed.append(list(command))
+        output_path = Path(command[command.index("--out") + 1])
+        state_path = Path(command[command.index("--state-json") + 1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"video")
+        state_path.write_text(json.dumps({"provider": "MagicFit"}), encoding="utf-8")
+        return _Completed()
+
+    monkeypatch.setattr(channels_route.product_service_module, "_repo_root", lambda: str(repo_root))
+    monkeypatch.setattr(channels_route.subprocess, "run", _fake_run)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_playwright_browsers_host_path", lambda: browser_cache)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_shared_temp_root", lambda: shared_root)
+    monkeypatch.setattr(
+        channels_route,
+        "send_telegram_video_for_principal",
+        lambda tool_runtime, principal_id, video_ref, caption: SimpleNamespace(
+            message_ids=["tg-video-11"],
+            chat_id="10001",
+        ),
+    )
+    client = _client(principal_id="exec-telegram-magicfit-docker", operator=False)
+    delivery = channels_route._telegram_render_magicfit_video_reply(
+        container=client.app.state.container,
+        principal_id="exec-telegram-magicfit-docker",
+        prompt_text="Render a photoreal video reply.",
+        caption="Telegram video reply",
+        instruction_text="render it photorealistically",
+    )
+
+    assert delivery["status"] == "sent"
+    assert delivery["provider"] == "magicfit"
+    assert executed
+    assert executed[0][0:2] == ["docker", "run"]
+    assert "ea-runtime:latest" in executed[0]
+
+
 def test_telegram_async_worker_skips_video_transcript_hydration_for_explicit_render_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

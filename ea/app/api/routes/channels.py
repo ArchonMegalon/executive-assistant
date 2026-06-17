@@ -1366,6 +1366,34 @@ def _telegram_magicfit_video_script_path() -> Path:
     return (Path(product_service_module._repo_root()) / "scripts" / "render_magicfit_property_flythrough.py").resolve()
 
 
+def _telegram_magicfit_docker_image() -> str:
+    return str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE") or "ea-runtime:latest").strip() or "ea-runtime:latest"
+
+
+def _telegram_magicfit_playwright_browsers_host_path() -> Path:
+    raw = str(
+        os.getenv("EA_TELEGRAM_MAGICFIT_PLAYWRIGHT_BROWSERS_PATH")
+        or os.getenv("PLAYWRIGHT_BROWSERS_HOST_PATH")
+        or "/home/tibor/.cache/ms-playwright"
+    ).strip()
+    return Path(raw).expanduser()
+
+
+def _telegram_magicfit_shared_temp_root() -> Path:
+    candidate = str(
+        os.getenv("EA_TELEGRAM_MAGICFIT_SHARED_TEMP_ROOT")
+        or os.getenv("EA_UI_SERVICE_SHARED_TEMP_ROOT")
+        or (Path(product_service_module._repo_root()) / ".runtime-temp" / "telegram-magicfit")
+    ).strip()
+    return Path(candidate).expanduser()
+
+
+def _telegram_magicfit_docker_available() -> bool:
+    image = _telegram_magicfit_docker_image()
+    browser_cache = _telegram_magicfit_playwright_browsers_host_path()
+    return bool(image and browser_cache.exists())
+
+
 def _telegram_magicfit_video_fallback_available() -> bool:
     return (
         _telegram_magicfit_video_fallback_enabled()
@@ -1407,11 +1435,13 @@ def _telegram_render_magicfit_video_reply(
     )
     aspect_label = str(os.getenv("EA_TELEGRAM_MAGICFIT_ASPECT_LABEL") or "Portrait (9:16)").strip() or "Portrait (9:16)"
     model_label = _telegram_instructional_video_magicfit_model_label(instruction_text)
-    with tempfile.TemporaryDirectory(prefix="telegram-magicfit-video-") as tmp_dir:
+    shared_temp_root = _telegram_magicfit_shared_temp_root()
+    shared_temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="telegram-magicfit-video-", dir=str(shared_temp_root)) as tmp_dir:
         out_path = (Path(tmp_dir) / "reply.mp4").resolve()
         state_path = (Path(tmp_dir) / "reply.magicfit.json").resolve()
-        command = [
-            product_service_module._runtime_python_executable(),
+        base_command = [
+            "python3",
             str(script_path),
             "--prompt",
             str(prompt_text or "").strip(),
@@ -1427,7 +1457,30 @@ def _telegram_render_magicfit_video_reply(
             str(timeout_minutes),
         ]
         if model_label:
-            command.extend(["--model-label", model_label])
+            base_command.extend(["--model-label", model_label])
+        command = list(base_command)
+        if _telegram_magicfit_docker_available():
+            repo_root = Path(product_service_module._repo_root()).resolve()
+            browser_cache = _telegram_magicfit_playwright_browsers_host_path().resolve()
+            command = [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{repo_root}:{repo_root}",
+                "-v",
+                f"{shared_temp_root.resolve()}:{shared_temp_root.resolve()}",
+                "-v",
+                f"{browser_cache}:{browser_cache}",
+                "-e",
+                f"PLAYWRIGHT_BROWSERS_PATH={browser_cache}",
+                "-e",
+                f"CHUMMER_EA_MAGICFIT_EMAIL={str(os.getenv('CHUMMER_EA_MAGICFIT_EMAIL') or os.getenv('MAGICFIT_EMAIL') or '').strip()}",
+                "-e",
+                f"CHUMMER_EA_MAGICFIT_PASSWORD={str(os.getenv('CHUMMER_EA_MAGICFIT_PASSWORD') or os.getenv('MAGICFIT_PASSWORD') or '').strip()}",
+                _telegram_magicfit_docker_image(),
+                *base_command,
+            ]
         completed = subprocess.run(
             command,
             cwd=str(product_service_module._repo_root()),
