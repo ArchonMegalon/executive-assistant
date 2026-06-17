@@ -8,6 +8,8 @@ import hmac
 import json
 import os
 import re
+import subprocess
+import tempfile
 import time
 import threading
 import urllib.error
@@ -15,6 +17,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timedelta
 from importlib import import_module
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Depends, Request
@@ -43,6 +46,7 @@ from app.services.telegram_session_service import (
     run_local_resolvers,
 )
 from app.services.telegram_onboarding_service import TELEGRAM_IDENTITY_CONNECTOR, TELEGRAM_OFFICIAL_BOT_CONNECTOR
+from app.services.telegram_delivery import send_telegram_video_for_principal
 from app.services.telegram_delivery import decode_telegram_feedback_callback_data
 
 router = APIRouter(prefix="/v1/channels", tags=["channels"])
@@ -1333,6 +1337,115 @@ def _telegram_instructional_video_render_script(
         "Return a concise, directly useful video reply that follows the requested effect as closely as possible within the available signals."
     )
     return "\n".join(line for line in lines if line).strip()
+
+
+def _telegram_magicfit_video_fallback_enabled() -> bool:
+    raw = str(os.getenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED") or "1").strip().lower()
+    return raw not in {"", "0", "false", "no", "off"}
+
+
+def _telegram_magicfit_video_credentials_available() -> bool:
+    email = str(os.getenv("CHUMMER_EA_MAGICFIT_EMAIL") or os.getenv("MAGICFIT_EMAIL") or "").strip()
+    password = str(os.getenv("CHUMMER_EA_MAGICFIT_PASSWORD") or os.getenv("MAGICFIT_PASSWORD") or "").strip()
+    return bool(email and password)
+
+
+def _telegram_magicfit_video_script_path() -> Path:
+    return (Path(product_service_module._repo_root()) / "scripts" / "render_magicfit_property_flythrough.py").resolve()
+
+
+def _telegram_magicfit_video_fallback_available() -> bool:
+    return (
+        _telegram_magicfit_video_fallback_enabled()
+        and _telegram_magicfit_video_credentials_available()
+        and _telegram_magicfit_video_script_path().exists()
+    )
+
+
+def _telegram_instructional_video_magicfit_model_label(text: str) -> str:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if "photoreal" in normalized or "realistic" in normalized:
+        return "Realistic"
+    return ""
+
+
+def _telegram_render_magicfit_video_reply(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    prompt_text: str,
+    caption: str,
+    instruction_text: str,
+) -> dict[str, object]:
+    script_path = _telegram_magicfit_video_script_path()
+    if not script_path.exists():
+        raise RuntimeError("magicfit_render_script_missing")
+    timeout_minutes = max(
+        1,
+        min(18, int(str(os.getenv("EA_TELEGRAM_MAGICFIT_TIMEOUT_MINUTES") or "8").strip() or "8")),
+    )
+    duration_seconds = max(
+        4,
+        min(15, int(str(os.getenv("EA_TELEGRAM_MAGICFIT_DURATION_SECONDS") or "10").strip() or "10")),
+    )
+    aspect_label = str(os.getenv("EA_TELEGRAM_MAGICFIT_ASPECT_LABEL") or "Portrait (9:16)").strip() or "Portrait (9:16)"
+    model_label = _telegram_instructional_video_magicfit_model_label(instruction_text)
+    with tempfile.TemporaryDirectory(prefix="telegram-magicfit-video-") as tmp_dir:
+        out_path = (Path(tmp_dir) / "reply.mp4").resolve()
+        state_path = (Path(tmp_dir) / "reply.magicfit.json").resolve()
+        command = [
+            product_service_module._runtime_python_executable(),
+            str(script_path),
+            "--prompt",
+            str(prompt_text or "").strip(),
+            "--out",
+            str(out_path),
+            "--state-json",
+            str(state_path),
+            "--duration",
+            str(duration_seconds),
+            "--aspect-label",
+            aspect_label,
+            "--timeout-minutes",
+            str(timeout_minutes),
+        ]
+        if model_label:
+            command.extend(["--model-label", model_label])
+        completed = subprocess.run(
+            command,
+            cwd=str(product_service_module._repo_root()),
+            capture_output=True,
+            text=True,
+            timeout=(timeout_minutes + 2) * 60,
+            check=False,
+        )
+        if completed.returncode != 0 or not out_path.exists():
+            raise RuntimeError(
+                compact_text(
+                    str(completed.stderr or completed.stdout or "").strip(),
+                    fallback="magicfit_render_failed",
+                    limit=240,
+                )
+            )
+        receipt = send_telegram_video_for_principal(
+            container.tool_runtime,
+            principal_id=principal_id,
+            video_ref=str(out_path),
+            caption=caption,
+        )
+        sidecar: dict[str, object] = {}
+        if state_path.exists():
+            with contextlib.suppress(Exception):
+                loaded = json.loads(state_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    sidecar = loaded
+        return {
+            "status": "sent",
+            "provider": "magicfit",
+            "message_ids": list(receipt.message_ids),
+            "chat_id": receipt.chat_id,
+            "sidecar": sidecar,
+        }
 
 
 def _telegram_weather_code_label(code: int) -> str:
@@ -5614,6 +5727,32 @@ def _telegram_async_assistant_reply_worker(
                     reply_text = "I rendered and sent a short video reply here."
                 else:
                     video_render_error = str(delivery_json.get("error") or "").strip() or "instructional_video_render_delivery_failed"
+        if (
+            video_render_requested
+            and video_render_error
+            and _telegram_magicfit_video_fallback_available()
+        ):
+            try:
+                magicfit_delivery = _telegram_render_magicfit_video_reply(
+                    container=container,
+                    principal_id=principal_id,
+                    prompt_text=_telegram_instructional_video_render_script(
+                        payload=payload,
+                        instruction_text=str(payload.get("instruction_text") or text or ""),
+                        reply_text=reply_text,
+                    ),
+                    caption=str(payload.get("video_caption") or payload.get("instruction_text") or "Telegram video reply").strip(),
+                    instruction_text=str(payload.get("instruction_text") or text or ""),
+                )
+            except Exception as exc:
+                video_render_error = (
+                    f"{video_render_error}; magicfit_fallback:"
+                    f"{str(exc or '').strip() or 'magicfit_render_failed'}"
+                )
+            else:
+                if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
+                    reply_text = "I rendered and sent a short video reply here."
+                    video_render_error = ""
         if not reply_text:
             transcript_text = str(payload.get("video_transcript_text") or "").strip()
             if transcript_text:
