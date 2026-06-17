@@ -89,6 +89,21 @@ if [[ ! -f "${APP_ROOT}/.env" ]]; then
   exit 1
 fi
 
+database_url_line="$(grep -E '^DATABASE_URL=' "${APP_ROOT}/.env" | tail -n1 || true)"
+database_url_value="${database_url_line#DATABASE_URL=}"
+if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then
+  cat >&2 <<'EOF'
+Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.
+
+Fix .env first:
+  DATABASE_URL=postgresql://postgres:...@ea-db:5432/ea
+
+The smoke database `ea_smoke_runtime` is only for scripts/smoke_postgres.sh and
+must never be used for a real deploy.
+EOF
+  exit 3
+fi
+
 if docker compose version >/dev/null 2>&1; then
   DC=(docker compose)
 else
@@ -128,6 +143,23 @@ fi
 
 compose() {
   COMPOSE_IGNORE_ORPHANS=1 "${DC[@]}" "${COMPOSE_ARGS[@]}" "$@"
+}
+
+sync_telegram_webhooks() {
+  local env_public_base
+  local env_bot_registry
+  local env_bot_token
+  env_public_base="$(grep -E '^EA_PUBLIC_APP_BASE_URL=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+  env_bot_registry="$(grep -E '^EA_TELEGRAM_BOT_REGISTRY_JSON=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+  env_bot_token="$(grep -E '^EA_TELEGRAM_BOT_TOKEN=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+  if [[ -z "${env_public_base}" ]]; then
+    return 0
+  fi
+  if [[ -z "${env_bot_registry}" && -z "${env_bot_token}" ]]; then
+    return 0
+  fi
+  echo "Syncing Telegram webhooks to ${env_public_base}"
+  "${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_telegram_bot.py" --env-file "${APP_ROOT}/.env" --all-bots --set-webhook >/dev/null
 }
 
 build_and_recreate_services() {
@@ -242,6 +274,7 @@ for _ in $(seq 1 60); do
     if [[ "${stable_checks}" != "1" ]]; then
       continue
     fi
+    sync_telegram_webhooks
     "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_ea_browser_workflow_proof.py" >/dev/null
     "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_ea_flagship_release_gate.py" >/dev/null
     "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_weekly_product_pulse.py" >/dev/null

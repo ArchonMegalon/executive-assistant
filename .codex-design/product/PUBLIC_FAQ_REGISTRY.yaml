@@ -8,6 +8,9 @@ sections:
       - question: Can I actually use this now?
         required: true
         answer: "Yes. Chummer6 is still preview software, but the preview is real: there are live downloads, current pages, and clear labels for what is still rough."
+      - question: Do I need an account to download the current preview?
+        required: true
+        answer: No. The current preview download should stay publicly reachable, and account linking only becomes necessary when a route explicitly needs recovery, support history, or a signed-in handoff.
       - question: Is it offline-safe?
         required: true
         answer: That is one of the core goals. Chummer6 is being built so bad connectivity does not destroy your flow or your work.
@@ -20,9 +23,6 @@ sections:
       - question: What should I show a skeptical GM or player first?
         required: true
         answer: Start with [What Chummer6 Is](WHAT_CHUMMER6_IS.md), then [Status](STATUS.md), then [Download](DOWNLOAD.md). If the real argument is about how the math is explained, show them [Core](PARTS/core.md).
-      - question: Do I need an account to download the current preview?
-        required: true
-        answer: No. The current preview download should stay publicly reachable; create an account when you want recovery, support history, or linked handoff continuity.
   - id: participation_and_preview
     title: Helping and feedback
     entries:

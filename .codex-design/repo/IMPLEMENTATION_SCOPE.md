@@ -45,8 +45,9 @@ That does not mean:
 
 ## Required inputs
 
+EA product surface canon under `.codex-design/ea/*` must stay a mirrored read path, not assistant-local authority.
+
 * mirrored `.codex-design/product/*`
-* EA product surface canon under `.codex-design/ea/*`
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
 * `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
@@ -59,7 +60,6 @@ That does not mean:
 
 * If mirrored canon is missing a seam, emit a petition packet instead of inventing local truth.
 * EA may summarize support, release, participation, or horizon signals, but Hub, Fleet, and design remain the owning truth planes.
-* EA product surface canon under `.codex-design/ea/*` is a required downstream input for release-facing office surfaces; EA may project it, but must not replace it.
 * Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.
 * Provider adapters and runtime telemetry may live here, but they must not redefine product semantics or repo boundaries.
 * Default provider or model changes must follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`; EA may generate challenger briefs, but it must not self-promote a new default.

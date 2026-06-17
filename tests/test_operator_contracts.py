@@ -364,6 +364,14 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'curl -fsS "http://localhost:${HOST_PORT}/health"' in deploy
     assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)' in deploy
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
+    assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
+    assert 'database_url_line="$(grep -E \'^DATABASE_URL=' in deploy
+    assert 'database_url_value="${database_url_line#DATABASE_URL=}"' in deploy
+    assert 'if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then' in deploy
+    assert 'sync_telegram_webhooks() {' in deploy
+    assert 'grep -E \'^EA_PUBLIC_APP_BASE_URL=' in deploy
+    assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_telegram_bot.py" --env-file "${APP_ROOT}/.env" --all-bots --set-webhook >/dev/null' in deploy
+    assert 'echo "Syncing Telegram webhooks to ${env_public_base}"' in deploy
 
 
 def test_smoke_api_curl_wrapper_retries_transient_runtime_bounces() -> None:

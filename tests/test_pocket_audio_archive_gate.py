@@ -162,3 +162,34 @@ def test_pocket_audio_archive_gate_can_infer_clean_archive_without_local_events(
     assert receipt["evidence_mode"] == "filesystem_archive_scan"
     assert receipt["latest_backfill"]["event_type"] == "filesystem_archive_scan_completed"
     assert receipt["latest_backfill"]["teable_index_status"] == "filesystem_only"
+
+
+def test_pocket_audio_archive_gate_can_infer_clean_backfill_from_sync_completion_and_index_rows(tmp_path: Path) -> None:
+    archive = tmp_path / "recording.mp3"
+    archive.write_bytes(b"audio")
+    archive.with_suffix(".json").write_text('{"recording_id":"done-1"}\n', encoding="utf-8")
+
+    receipt = build_receipt(
+        archive_root=tmp_path,
+        index_rows=[_row("pocket-recording:done-1", status="archived", archive_path=archive.as_posix())],
+        completion_rows=[
+            {
+                "event_type": "pocket_recording_sync_completed",
+                "created_at": "2026-06-03 08:00:00+02",
+                "recording_total": "0",
+                "archived_total": "0",
+                "archive_dismissed_total": "0",
+                "archive_failed_total": "0",
+                "failed_total": "0",
+                "scan_truncated": "false",
+                "teable_index_status": "noop",
+                "teable_index_row_total": "0",
+                "teable_index_sync_attempted": "false",
+            }
+        ],
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["evidence_mode"] == "sync_index_inferred_backfill"
+    assert receipt["latest_backfill"]["event_type"] == "pocket_recording_sync_index_inferred"
+    assert receipt["latest_backfill"]["archived_total"] == "1"

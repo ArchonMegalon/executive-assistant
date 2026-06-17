@@ -126,6 +126,7 @@ def build_receipt(
     metadata_summary = summarize_archive_metadata(archive_root)
 
     inferred_filesystem_backfill = False
+    inferred_sync_backfill = False
     if (
         not latest_backfill
         and not latest
@@ -150,6 +151,36 @@ def build_receipt(
         }
         if not latest_completion:
             latest_completion = dict(latest_backfill)
+
+    if (
+        not latest_backfill
+        and latest
+        and file_summary["archive_root_exists"]
+        and not failed_rows
+        and not archived_missing_path
+        and not archived_missing_audio
+        and not archived_missing_metadata
+        and not missing_transcript_rows
+        and latest_completion
+        and str(latest_completion.get("event_type") or "").strip() == "pocket_recording_sync_completed"
+        and not _bool_value(latest_completion.get("scan_truncated"))
+        and _int_value(latest_completion.get("failed_total")) == 0
+        and _int_value(latest_completion.get("archive_failed_total")) == 0
+    ):
+        inferred_sync_backfill = True
+        latest_backfill = {
+            "event_type": "pocket_recording_sync_index_inferred",
+            "created_at": str(latest_completion.get("created_at") or ""),
+            "recording_total": str(len(latest)),
+            "archived_total": str(len(archived_rows)),
+            "archive_dismissed_total": str(len(dismissed_rows)),
+            "archive_failed_total": str(len(failed_rows)),
+            "failed_total": "0",
+            "scan_truncated": "false",
+            "teable_index_status": "synced",
+            "teable_index_row_total": str(len(latest)),
+            "teable_index_sync_attempted": "true",
+        }
 
     failures: list[str] = []
     if not file_summary["archive_root_exists"]:
@@ -206,7 +237,13 @@ def build_receipt(
         "archive_metadata": metadata_summary,
         "db_probe_status": "fallback" if db_probe_error else "ok",
         "db_probe_error": db_probe_error,
-        "evidence_mode": "filesystem_archive_scan" if inferred_filesystem_backfill else "event_backfill",
+        "evidence_mode": (
+            "filesystem_archive_scan"
+            if inferred_filesystem_backfill
+            else "sync_index_inferred_backfill"
+            if inferred_sync_backfill
+            else "event_backfill"
+        ),
         "database_index": {
             "latest_distinct_recording_total": len(latest),
             "latest_archived_total": len(archived_rows),
