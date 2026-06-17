@@ -1659,7 +1659,6 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
     guide_canon_scope_sync_subject = "Align guide canon and flagship scope wording"
     guide_canon_scope_sync_paths = {
         ".codex-design/product/PUBLIC_FAQ_REGISTRY.yaml",
-        ".codex-design/product/PUBLIC_RELEASE_EXPERIENCE.yaml",
         ".codex-design/product/PUBLIC_TRUST_CONTENT.yaml",
         ".codex-design/repo/IMPLEMENTATION_SCOPE.md",
         "tests/test_chummer5a_parity_lab_pack.py",
@@ -2549,7 +2548,13 @@ def test_post_receipt_json_guard_commits_stay_verification_only_for_closed_ea_sc
             assert subject == hard_exit_telegram_video_lane_subject, (commit, subject, sorted(paths))
             assert paths == hard_exit_telegram_video_lane_paths, (commit, sorted(paths))
             continue
-        if subject == guide_canon_scope_sync_subject:
+        if subprocess.run(
+            ["git", "-C", str(ROOT), "show", "--no-patch", "--format=%s", commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).stdout.strip() == guide_canon_scope_sync_subject:
             assert paths == guide_canon_scope_sync_paths, (commit, sorted(paths))
             continue
         if (
