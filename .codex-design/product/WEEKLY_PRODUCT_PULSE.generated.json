@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-06-16T16:57:39Z",
-  "as_of": "2026-06-16",
+  "generated_at": "2026-06-17T02:08:00Z",
+  "as_of": "2026-06-17",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
@@ -10,10 +10,10 @@
     "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
     "size_bytes": 5892,
-    "mtime_utc": "2026-06-16T12:47:34Z",
+    "mtime_utc": "2026-06-17T01:26:54Z",
     "sha256": "cc82fa429e5844607f39c492ece55130d373ecd9e23d083e5306834cc615f96a",
     "git_repo_root": "/docker/EA",
-    "git_head": "176a463744c71ae9584dba2ec962b8e975705c50",
+    "git_head": "65f80831660870d44a2150960ff5ade4aa4f6455",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -125,13 +125,13 @@
     "provider_route_stewardship": {
       "default_status": "EA routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
-      "review_due": "2026-06-23T16:57:39Z",
+      "review_due": "2026-06-24T02:08:00Z",
       "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "9374a4a11b26dad8b7892da6d8c4ee43cb6438cd",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "176a463744c71ae9584dba2ec962b8e975705c50",
+    "flagship_release_receipt_git_head": "65f80831660870d44a2150960ff5ade4aa4f6455",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
