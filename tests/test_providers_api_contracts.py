@@ -1721,6 +1721,83 @@ def test_telegram_async_worker_renders_and_sends_video_reply_when_requested(monk
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
+def test_telegram_async_worker_renders_video_reply_from_instruction_when_text_answer_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+    from app.domain.models import ToolInvocationResult
+
+    sent: list[dict[str, object]] = []
+    invoked: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 25}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    client = _client(principal_id="exec-telegram-video-render-fallback", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-render-fallback",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_execute_invocation(request):  # noqa: ANN001
+        invoked.append(
+            {
+                "tool_name": request.tool_name,
+                "action_kind": request.action_kind,
+                "payload_json": dict(request.payload_json or {}),
+            }
+        )
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="mootion:test",
+            output_json={
+                "asset_url": "https://cdn.example/mootion/reply.mp4",
+                "telegram_delivery_json": {"status": "sent", "message_ids": ["tg-video-2"], "kind": "video"},
+            },
+            receipt_json={},
+        )
+
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-render-fallback",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9992",
+        text="send me a short video back with the key points",
+        current_message_id="25",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": "send me a short video back with the key points",
+            "video_caption": "edit this and send a short video back",
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-2.mp4",
+            "video_duration_seconds": 19,
+        },
+    )
+    assert invoked
+    assert invoked[0]["tool_name"] == "browseract.mootion_movie"
+    assert "User instruction: send me a short video back with the key points" in invoked[0]["payload_json"]["script_text"]
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+
+
 def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -3364,6 +3441,105 @@ def test_telegram_resolve_message_payload_enriches_video_without_promoting_plain
     assert resolved["video_transcript_text"] == "Please summarize the meeting and flag action items."
 
 
+def test_telegram_resolve_message_payload_defers_video_transcription_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import telegram_session_service
+
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        telegram_session_service,
+        "_telegram_file_download_url",
+        lambda **kwargs: "https://api.telegram.org/file/bot-token/video/file-789.mp4",
+    )
+    monkeypatch.setattr(telegram_session_service.product_service, "_pocket_audio_fallback_available", lambda: True)
+    monkeypatch.setattr(
+        telegram_session_service.product_service,
+        "_pocket_retranscribe_from_audio_url",
+        lambda **kwargs: calls.append(dict(kwargs or {})) or {"transcript_text": "should not run"},
+    )
+
+    resolved = telegram_session_service.resolve_telegram_message_payload(
+        payload={
+            "text": "send me a short video back",
+            "kind": "video",
+            "message_metadata": {"file_id": "video-file-789", "duration": 8, "caption": "send me a short video back"},
+            "message_id": 49,
+        },
+        bot_token="tg-token",
+        allow_video_transcription=False,
+    )
+
+    assert resolved["text"] == "send me a short video back"
+    assert resolved["transcription_status"] == "deferred"
+    assert dict(resolved["message_metadata"] or {})["download_url"].endswith("/video/file-789.mp4")
+    assert not calls
+
+
+def test_telegram_async_worker_hydrates_instructional_video_transcript_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    seen_prompts: list[str] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 24}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    def _fake_real_reply(**kwargs):
+        seen_prompts.append(str(kwargs.get("text") or ""))
+        return "Here is the answer from the recovered video transcript."
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", _fake_real_reply)
+    monkeypatch.setattr(channels_route.product_service_module, "_pocket_audio_fallback_available", lambda: True)
+    monkeypatch.setattr(
+        channels_route.product_service_module,
+        "_pocket_retranscribe_from_audio_url",
+        lambda **kwargs: {
+            "transcript_text": "The patch should ship today and legal still needs sign-off.",
+            "transcript_metadata": {"transcriber": "test-transcriber"},
+        },
+    )
+
+    client = _client(principal_id="exec-telegram-video-hydrate", operator=False)
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-hydrate",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9899",
+        text="summarize that video",
+        current_message_id="24",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": "summarize that video",
+            "video_caption": "",
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-2.mp4",
+            "video_duration_seconds": 19,
+            "video_message_id": "24",
+            "video_file_id": "file-2",
+        },
+    )
+    assert sent and sent[0]["text"] == "Here is the answer from the recovered video transcript."
+    assert seen_prompts
+    assert "Recovered audio transcript from the video" in seen_prompts[0]
+    assert "legal still needs sign-off" in seen_prompts[0]
+
+
 def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -3390,7 +3566,8 @@ def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch
         sent.append(payload)
         return _FakeResponse()
 
-    def _fake_resolve_message_payload(*, payload, bot_token):
+    def _fake_resolve_message_payload(**kwargs):
+        payload = kwargs.get("payload")
         resolve_calls.append(dict(payload or {}))
         return {
             **dict(payload or {}),

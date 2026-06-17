@@ -151,15 +151,15 @@ def test_telegram_bot_workflow_routes_documents_photos_and_ltd_actions(monkeypat
     monkeypatch.setattr(
         channels_route,
         "resolve_telegram_message_payload",
-        lambda *, payload, bot_token: {
-            **dict(payload or {}),
+        lambda **kwargs: {
+            **dict(kwargs.get("payload") or {}),
             "text": (
                 "Can you start the photo picker now?"
-                if str(dict(payload or {}).get("kind") or "").strip().lower() == "voice"
-                else str(dict(payload or {}).get("text") or "")
+                if str(dict(kwargs.get("payload") or {}).get("kind") or "").strip().lower() == "voice"
+                else str(dict(kwargs.get("payload") or {}).get("text") or "")
             ),
             "transcription_status": (
-                "ok" if str(dict(payload or {}).get("kind") or "").strip().lower() == "voice" else ""
+                "ok" if str(dict(kwargs.get("payload") or {}).get("kind") or "").strip().lower() == "voice" else ""
             ),
         },
     )
@@ -274,19 +274,19 @@ def test_telegram_bot_workflow_media_prompts(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(
         channels_route,
         "resolve_telegram_message_payload",
-        lambda *, payload, bot_token: {
-            **dict(payload or {}),
+        lambda **kwargs: {
+            **dict(kwargs.get("payload") or {}),
             "message_metadata": {
-                **dict(dict(payload or {}).get("message_metadata") or {}),
+                **dict(dict(kwargs.get("payload") or {}).get("message_metadata") or {}),
                 "download_url": "https://api.telegram.org/file/bot/video-or-doc",
             },
             "video_transcript_text": (
                 "Please summarize the meeting and flag action items."
-                if str(dict(payload or {}).get("kind") or "").strip().lower() == "video"
+                if str(dict(kwargs.get("payload") or {}).get("kind") or "").strip().lower() == "video"
                 else ""
             ),
             "transcription_status": (
-                "ok" if str(dict(payload or {}).get("kind") or "").strip().lower() == "video" else ""
+                "ok" if str(dict(kwargs.get("payload") or {}).get("kind") or "").strip().lower() == "video" else ""
             ),
         },
     )

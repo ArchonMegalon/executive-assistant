@@ -37,6 +37,7 @@ from app.services.telegram_session_service import (
     TelegramReplyMemoryState,
     TelegramTurnContext,
     TelegramTurnDecision,
+    _hydrate_instructional_video_transcript,
     build_turn_context,
     resolve_telegram_message_payload,
     run_local_resolvers,
@@ -1212,6 +1213,36 @@ def _telegram_instructional_video_render_request(
         },
         context_json={"principal_id": principal_id},
     )
+
+
+def _telegram_instructional_video_render_script(
+    *,
+    payload: dict[str, object],
+    instruction_text: str,
+    reply_text: str,
+) -> str:
+    grounded_instruction = str(instruction_text or "").strip()
+    transcript_text = str(payload.get("video_transcript_text") or "").strip()
+    caption_text = str(payload.get("video_caption") or "").strip()
+    if reply_text:
+        return (
+            "Create a short Telegram-ready video reply in German. "
+            "Keep it grounded in this answer and do not add unsupported claims.\n\n"
+            f"{reply_text.strip()}"
+        ).strip()
+    lines = [
+        "Create a short Telegram-ready German video reply from the user's instruction.",
+        "Do not claim frame-level knowledge beyond the supplied instruction, caption, or recovered transcript.",
+        f"User instruction: {grounded_instruction or 'Create a concise video reply.'}",
+    ]
+    if caption_text and caption_text != grounded_instruction:
+        lines.append(f"Video caption: {caption_text}")
+    if transcript_text:
+        lines.append(f"Recovered transcript: {transcript_text}")
+    lines.append(
+        "Return a concise, directly useful video reply that follows the requested effect as closely as possible within the available signals."
+    )
+    return "\n".join(line for line in lines if line).strip()
 
 
 def _telegram_weather_code_label(code: int) -> str:
@@ -5427,6 +5458,7 @@ def _telegram_async_assistant_reply_worker(
     poll_backoff_seconds = _telegram_property_link_bundle_poll_backoff_seconds()
     payload = dict(async_payload or {})
     if str(payload.get("kind") or "").strip().lower() == "instructional_video":
+        payload = _hydrate_instructional_video_transcript(payload)
         prompt_text = _telegram_instructional_video_prompt(payload)
         reply_text = ""
         used_fallback_only = False
@@ -5468,14 +5500,13 @@ def _telegram_async_assistant_reply_worker(
         video_render_error = ""
         if (
             video_render_requested
-            and reply_text
             and _telegram_browseract_binding_available(container, principal_id=principal_id)
         ):
-            render_script_text = (
-                "Create a short Telegram-ready video reply in German. "
-                "Keep it grounded in this answer and do not add unsupported claims.\n\n"
-                f"{reply_text}"
-            ).strip()
+            render_script_text = _telegram_instructional_video_render_script(
+                payload=payload,
+                instruction_text=str(payload.get("instruction_text") or text or ""),
+                reply_text=reply_text,
+            )
             try:
                 video_render_result = container.tool_execution.execute_invocation(
                     _telegram_instructional_video_render_request(
@@ -6255,6 +6286,7 @@ def ingest_telegram(
         message_payload = resolve_telegram_message_payload(
             payload=dict(fields.get("payload") or {}),
             bot_token=str(bot_config.get("token") or "").strip(),
+            allow_video_transcription=False,
         )
         if message_payload:
             fields["payload"] = message_payload
