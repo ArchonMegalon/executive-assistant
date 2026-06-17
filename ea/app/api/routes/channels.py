@@ -821,6 +821,7 @@ def _record_telegram_async_started(
     current_message_id: str = "",
     bot_key: str = "",
     bot_handle: str = "",
+    async_payload: dict[str, object] | None = None,
 ) -> None:
     marker = _telegram_async_marker_dedupe_key(dedupe_key)
     if not marker:
@@ -836,6 +837,7 @@ def _record_telegram_async_started(
             "current_message_id": str(current_message_id or "").strip(),
             "bot_key": str(bot_key or "").strip(),
             "bot_handle": str(bot_handle or "").strip(),
+            "async_payload": dict(async_payload or {}),
             "turn_state": "queued",
             "delivery_mode": "durable_observation_outbox",
         },
@@ -6342,6 +6344,7 @@ def _telegram_schedule_async_assistant_reply(
         current_message_id=current_message_id,
         bot_key=str(bot_config.get("bot_key") or "").strip(),
         bot_handle=str(bot_config.get("handle") or "").strip(),
+        async_payload=dict(async_payload or {}),
     )
     if _telegram_inline_async_accelerator_enabled():
         if not property_url:

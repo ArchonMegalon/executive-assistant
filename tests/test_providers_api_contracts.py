@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
+import sys
 import threading
 import time
 import urllib.parse
@@ -5036,6 +5038,67 @@ def test_telegram_ingest_schedules_async_codex_reply_for_generic_plain_chat(monk
     assert body["reply_text"] == ""
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=12, principal_id="exec-telegram-real-chat"))
     assert any(str(row.event_type) == "telegram.reply_async_started" for row in observations)
+
+
+def test_scheduler_telegram_async_recovery_preserves_instructional_video_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-recovery")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-recovery")
+    monkeypatch.setitem(sys.modules, "uvicorn", SimpleNamespace(run=lambda *args, **kwargs: None))
+
+    from app.api.routes import channels as channels_route
+    from app import runner as runner_module
+
+    client = _client(principal_id="", operator=False)
+    container = client.app.state.container
+    principal_id = "exec-telegram-recovery"
+    captured: list[dict[str, object]] = []
+
+    channels_route._record_telegram_async_started(
+        container,
+        principal_id=principal_id,
+        chat_id="1354554303",
+        dedupe_key="telegram:1354554303:recovery-video-1",
+        prompt_text="render it photorealisticly and send me the result back here",
+        current_message_id="recovery-video-1",
+        bot_key="default",
+        bot_handle="tibor_concierge_bot",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": "render it photorealisticly and send me the result back here",
+            "video_message_id": "2850",
+            "video_file_id": "video-file-2850",
+        },
+    )
+
+    monkeypatch.setattr(
+        runner_module,
+        "_resolve_telegram_bot_config",
+        lambda bot_key="": {
+            "bot_key": bot_key or "default",
+            "handle": "tibor_concierge_bot",
+            "token": "telegram-token-recovery",
+        },
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "_parse_runner_isoish_datetime",
+        lambda value: datetime.now(timezone.utc) - timedelta(seconds=15),
+    )
+
+    def _fake_worker(**kwargs):
+        captured.append(dict(kwargs))
+
+    monkeypatch.setattr(runner_module, "_telegram_async_assistant_reply_worker", _fake_worker)
+
+    summary = runner_module._run_scheduler_telegram_async_recovery(container, logging.getLogger("test"))
+
+    assert summary["drained"] == 1
+    assert captured
+    assert dict(captured[0]["async_payload"] or {})["kind"] == "instructional_video"
+    assert dict(captured[0]["async_payload"] or {})["video_file_id"] == "video-file-2850"
 
 
 def test_telegram_ingest_updates_property_alert_policy_from_plain_message(monkeypatch: pytest.MonkeyPatch) -> None:

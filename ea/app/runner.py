@@ -1285,6 +1285,7 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
         payload = dict(getattr(row, "payload", {}) or {})
         chat_id = str(payload.get("chat_id") or "").strip()
         prompt_text = str(payload.get("prompt_text") or "").strip()
+        async_payload = dict(payload.get("async_payload") or {})
         dedupe_key = str(payload.get("dedupe_key") or getattr(row, "external_id", "") or "").strip()
         current_message_id = _derive_telegram_async_message_id(
             dedupe_key,
@@ -1323,6 +1324,7 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
                 chat_id=chat_id,
                 text=prompt_text,
                 current_message_id=current_message_id,
+                async_payload=async_payload,
             )
             drained += 1
         except Exception:
