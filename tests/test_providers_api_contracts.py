@@ -1665,7 +1665,13 @@ def test_telegram_async_worker_renders_and_sends_video_reply_when_requested(monk
         return _FakeResponse()
 
     monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
-    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "Here are the key points from the video.")
+    real_reply_calls: list[dict[str, object]] = []
+
+    def _fake_real_reply(**kwargs):  # noqa: ANN001
+        real_reply_calls.append(dict(kwargs))
+        return "Here are the key points from the video."
+
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", _fake_real_reply)
     client = _client(principal_id="exec-telegram-video-render", operator=False)
     client.app.state.container.tool_runtime.upsert_connector_binding(
         principal_id="exec-telegram-video-render",
@@ -1718,7 +1724,9 @@ def test_telegram_async_worker_renders_and_sends_video_reply_when_requested(monk
     assert invoked[0]["action_kind"] == "movie.render"
     assert invoked[0]["payload_json"]["binding_id"]
     assert invoked[0]["payload_json"]["platform_target"] == "telegram_dm"
-    assert "Here are the key points from the video." in invoked[0]["payload_json"]["script_text"]
+    assert "User instruction: send me a short video back with the key points" in invoked[0]["payload_json"]["script_text"]
+    assert "Recovered transcript: Ship the patch today. Legal still needs sign-off." in invoked[0]["payload_json"]["script_text"]
+    assert real_reply_calls == []
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
@@ -2037,6 +2045,91 @@ def test_telegram_async_worker_falls_back_to_magicfit_when_mootion_fails(
     assert invoked[0]["tool_name"] == "browseract.mootion_movie"
     assert fallback_calls
     assert "render it photorealisticly and send me the result back here" in fallback_calls[0]["instruction_text"].lower()
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+
+
+def test_telegram_async_worker_skips_generic_text_reply_for_render_requested_video(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+    from app.domain.models import ToolInvocationResult
+
+    sent: list[dict[str, object]] = []
+    invoked: list[dict[str, object]] = []
+    real_reply_calls: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 29}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    def _fake_real_reply(**kwargs):  # noqa: ANN001
+        real_reply_calls.append(dict(kwargs))
+        return "Mootion is available in EA as browseract_ui_ready (Tier 2). Actions: discover_account, create_movie."
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", _fake_real_reply)
+    client = _client(principal_id="exec-telegram-video-render-no-generic", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-render-no-generic",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_execute_invocation(request):  # noqa: ANN001
+        invoked.append(
+            {
+                "tool_name": request.tool_name,
+                "action_kind": request.action_kind,
+                "payload_json": dict(request.payload_json or {}),
+            }
+        )
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="mootion:test",
+            output_json={
+                "asset_url": "https://cdn.example/mootion/reply.mp4",
+                "telegram_delivery_json": {"status": "sent", "message_ids": ["tg-video-6"], "kind": "video"},
+            },
+            receipt_json={},
+        )
+
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
+    wording = (
+        "I want u to edit this video with magicfit, poppy or whatever is best for this request. "
+        "render it photorealisticly and send me the result back here"
+    )
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-render-no-generic",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9999",
+        text=wording,
+        current_message_id="29",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-9.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert invoked
+    assert real_reply_calls == []
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 

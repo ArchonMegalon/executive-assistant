@@ -1252,6 +1252,18 @@ def _telegram_instructional_video_prefers_rendered_video(text: str) -> bool:
     return False
 
 
+def _telegram_is_generic_render_capability_reply(text: str) -> bool:
+    normalized = " ".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return False
+    return (
+        "mootion is available in ea" in normalized
+        or "browseract_ui_ready" in normalized
+        or "actions: discover_account, create_movie" in normalized
+        or "magicfit is available in ea" in normalized
+    )
+
+
 def _telegram_browseract_binding_available(container: AppContainer, *, principal_id: str) -> bool:
     return bool(_telegram_browseract_binding_id(container, principal_id=principal_id))
 
@@ -5665,42 +5677,45 @@ def _telegram_async_assistant_reply_worker(
         prompt_text = _telegram_instructional_video_prompt(payload)
         reply_text = ""
         used_fallback_only = False
-        try:
-            async_timeout = None
-            try:
-                async_timeout = max(
-                    float(str(os.getenv("EA_TELEGRAM_ASYNC_REAL_REPLY_TIMEOUT_SECONDS") or "18").strip() or "18"),
-                    2.0,
-                )
-            except Exception:
-                async_timeout = 18.0
-            reply_text = _telegram_real_ea_reply_text(
-                container=container,
-                principal_id=principal_id,
-                text=prompt_text,
-                current_message_id=current_message_id,
-                preferred_onemin_labels=tuple(
-                    str(item or "").strip()
-                    for item in list(bot_config.get("preferred_onemin_labels") or ())
-                    if str(item or "").strip()
-                ),
-                timeout_seconds=async_timeout,
-            ).strip()
-        except Exception as exc:
-            _record_telegram_async_failed(
-                container,
-                principal_id=principal_id,
-                chat_id=chat_id,
-                current_message_id=current_message_id,
-                prompt_text=text,
-                stage="instructional_video_real_reply",
-                error=str(exc),
-            )
         video_render_requested = _telegram_instructional_video_prefers_rendered_video(
             str(payload.get("instruction_text") or text or "")
         )
         video_render_result = None
         video_render_error = ""
+        if not video_render_requested:
+            try:
+                async_timeout = None
+                try:
+                    async_timeout = max(
+                        float(str(os.getenv("EA_TELEGRAM_ASYNC_REAL_REPLY_TIMEOUT_SECONDS") or "18").strip() or "18"),
+                        2.0,
+                    )
+                except Exception:
+                    async_timeout = 18.0
+                reply_text = _telegram_real_ea_reply_text(
+                    container=container,
+                    principal_id=principal_id,
+                    text=prompt_text,
+                    current_message_id=current_message_id,
+                    preferred_onemin_labels=tuple(
+                        str(item or "").strip()
+                        for item in list(bot_config.get("preferred_onemin_labels") or ())
+                        if str(item or "").strip()
+                    ),
+                    timeout_seconds=async_timeout,
+                ).strip()
+            except Exception as exc:
+                _record_telegram_async_failed(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    prompt_text=text,
+                    stage="instructional_video_real_reply",
+                    error=str(exc),
+                )
+            if _telegram_is_generic_render_capability_reply(reply_text):
+                reply_text = ""
         if (
             video_render_requested
             and _telegram_browseract_binding_available(container, principal_id=principal_id)
@@ -5754,19 +5769,23 @@ def _telegram_async_assistant_reply_worker(
                     reply_text = "I rendered and sent a short video reply here."
                     video_render_error = ""
         if not reply_text:
-            transcript_text = str(payload.get("video_transcript_text") or "").strip()
-            if transcript_text:
-                reply_text = (
-                    "I captured the video instruction and recovered audio from it, but I do not have a strong final answer yet. "
-                    "Send one short follow-up like 'summarize only', 'list action items', or 'what are the risks?'."
-                )
+            if video_render_requested:
+                reply_text = "I did not manage to send the edited video back yet."
                 used_fallback_only = True
             else:
-                reply_text = (
-                    "I captured the video, but I still need a clearer instruction or a spoken transcript from it. "
-                    "Send one short follow-up like 'summarize it', 'pull action items', or 'flag risks'."
-                )
-                used_fallback_only = True
+                transcript_text = str(payload.get("video_transcript_text") or "").strip()
+                if transcript_text:
+                    reply_text = (
+                        "I captured the video instruction and recovered audio from it, but I do not have a strong final answer yet. "
+                        "Send one short follow-up like 'summarize only', 'list action items', or 'what are the risks?'."
+                    )
+                    used_fallback_only = True
+                else:
+                    reply_text = (
+                        "I captured the video, but I still need a clearer instruction or a spoken transcript from it. "
+                        "Send one short follow-up like 'summarize it', 'pull action items', or 'flag risks'."
+                    )
+                    used_fallback_only = True
         elif video_render_requested and video_render_error:
             reply_text = (
                 f"{reply_text}\n\n"
