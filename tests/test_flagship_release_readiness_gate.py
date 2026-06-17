@@ -11,6 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify_flagship_release_readiness.py"
 REAL_SCOPE = ROOT / ".codex-design" / "repo" / "IMPLEMENTATION_SCOPE.md"
 
+VALID_SCOPE_TEXT = (
+    "mirrored `.codex-design/product/*`\n"
+    "Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.\n"
+)
+
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,7 +52,7 @@ def test_flagship_release_readiness_gate_fails_closed_on_blocked_journey(tmp_pat
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
     _write_json(journey, {"summary": {"overall_state": "blocked", "blocked_count": 1}})
-    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+    scope.write_text(VALID_SCOPE_TEXT, encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -95,7 +100,7 @@ def test_flagship_release_readiness_gate_passes_when_receipts_and_journeys_are_c
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
     _write_json(journey, {"summary": {"overall_state": "ready", "blocked_count": 0}})
-    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+    scope.write_text(VALID_SCOPE_TEXT, encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -152,7 +157,7 @@ def test_flagship_release_readiness_gate_accepts_committed_journey_snapshot_when
     )
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
-    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+    scope.write_text(VALID_SCOPE_TEXT, encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -197,7 +202,7 @@ def test_flagship_release_readiness_gate_fails_when_external_receipt_and_snapsho
     )
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
-    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+    scope.write_text(VALID_SCOPE_TEXT, encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -245,7 +250,7 @@ def test_flagship_release_readiness_gate_rejects_unsourced_journey_snapshot_when
     )
     _write_json(receipt, {"status": "pass"})
     _write_json(browser, {"status": "pass"})
-    scope.write_text("EA product surface canon under `.codex-design/ea/*`\nmirrored `.codex-design/ea/*`\n", encoding="utf-8")
+    scope.write_text(VALID_SCOPE_TEXT, encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -317,4 +322,4 @@ def test_flagship_release_readiness_gate_rejects_chummer_pulse_and_missing_ea_sc
     assert result.returncode == 1
     assert "expected ea.weekly_product_pulse" in result.stdout
     assert "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml" in result.stdout
-    assert "implementation scope no longer requires mirrored .codex-design/ea/* canon" in result.stdout
+    assert "implementation scope no longer requires mirrored design-source compilation" in result.stdout

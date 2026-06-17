@@ -68,8 +68,8 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in truth_plane
     assert ".codex-design/ea/START_HERE.md" in truth_plane
     assert "MILESTONE.json" in truth_plane
-    assert ".codex-design/ea/*" in implementation_scope
-    assert "EA product surface canon under `.codex-design/ea/*`" in implementation_scope
+    assert "mirrored `.codex-design/product/*`" in implementation_scope
+    assert "Guide/help/public projections must compile from mirrored design sources" in implementation_scope
     assert "EA_FLAGSHIP_RELEASE_GATE.json" in release_checklist
     assert "EA_FLAGSHIP_RELEASE_GATE.generated.json" in release_checklist
     assert ".codex-design/ea/START_HERE.md" in release_checklist

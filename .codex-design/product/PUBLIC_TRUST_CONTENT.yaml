@@ -185,7 +185,7 @@ faq_pages:
             answer: "Account creation gives you recovery, support history in Account, and a cleaner return path when linked downloads or account-aware preview features are available."
       - title: "Downloads and installs"
         entries:
-          - question: "Do I need an account to download the current preview?"
+          - question: "Do I need an account to download the current release?"
             answer: "No. The current Linux package is open public. Create an account when you want recovery, tracked support, and a cleaner return path when linked downloads are available."
           - question: "Do I get a personalized download?"
             answer: "No. The published package stays the same for everyone. Any account-aware receipt or handoff is separate from the file itself."

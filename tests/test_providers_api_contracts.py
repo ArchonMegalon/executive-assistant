@@ -1879,6 +1879,84 @@ def test_telegram_async_worker_renders_video_reply_for_render_and_send_result_wo
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 
+def test_telegram_async_worker_renders_video_reply_for_direct_edit_caption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    from app.api.routes import channels as channels_route
+    from app.domain.models import ToolInvocationResult
+
+    sent: list[dict[str, object]] = []
+    invoked: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 27}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "I'm here. Give me a concrete task.")
+    client = _client(principal_id="exec-telegram-video-edit-caption", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-video-edit-caption",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    def _fake_execute_invocation(request):  # noqa: ANN001
+        invoked.append(
+            {
+                "tool_name": request.tool_name,
+                "action_kind": request.action_kind,
+                "payload_json": dict(request.payload_json or {}),
+            }
+        )
+        return ToolInvocationResult(
+            tool_name=request.tool_name,
+            action_kind=request.action_kind,
+            target_ref="mootion:test",
+            output_json={
+                "asset_url": "https://cdn.example/mootion/reply.mp4",
+                "telegram_delivery_json": {"status": "sent", "message_ids": ["tg-video-4"], "kind": "video"},
+            },
+            receipt_json={},
+        )
+
+    monkeypatch.setattr(client.app.state.container.tool_execution, "execute_invocation", _fake_execute_invocation)
+    wording = "exchange the ring with a real firering"
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-video-edit-caption",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9994",
+        text=wording,
+        current_message_id="27",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-4.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert invoked
+    assert invoked[0]["tool_name"] == "browseract.mootion_movie"
+    assert wording in invoked[0]["payload_json"]["script_text"].lower()
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+
+
 def test_telegram_ingest_schedules_async_without_placeholder_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
     monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
@@ -3793,6 +3871,76 @@ def test_telegram_plain_text_request_uses_recent_video_even_after_intervening_te
     assert async_payload["instruction_text"] == "render it photorealisticly and send me the result back here"
     assert async_payload["video_message_id"] == "2850"
     assert async_payload["video_file_id"] == "video-file-2850"
+
+
+def test_telegram_text_reply_to_bot_fallback_reuses_recent_video_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-reply-bot-fallback")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-reply-bot-fallback")
+    from app.api.routes import channels as channels_route
+
+    scheduled: list[dict[str, object]] = []
+
+    def _fake_schedule_async_assistant_reply(**kwargs):
+        scheduled.append(kwargs)
+
+    monkeypatch.setattr(channels_route, "_telegram_schedule_async_assistant_reply", _fake_schedule_async_assistant_reply)
+    client = _client(principal_id="", operator=False)
+
+    video_response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2862,
+                "date": 1781699125,
+                "caption": "source video",
+                "video": {
+                    "file_id": "video-file-2862",
+                    "duration": 42,
+                    "file_name": "video_2026-06-17_10-37-03.mp4",
+                    "mime_type": "video/mp4",
+                },
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert video_response.status_code == 200
+
+    bot_fallback_response = client.post(
+        "/v1/channels/telegram/ingest",
+        json={
+            "message": {
+                "message_id": 2866,
+                "date": 1781700068,
+                "text": (
+                    "I want u to edit this video with magicfit, poppy or whatever is best for this request. "
+                    "i want the ring the kids jump through to look like real flames, one time even a bit of clothes "
+                    "could catch fire before it extingwishes fast. render it photorealisticly and send me the result back here"
+                ),
+                "chat": {"id": 1354554303, "type": "private", "first_name": "Tibor", "last_name": "Girschele"},
+                "from": {"id": 1354554303, "is_bot": False, "first_name": "Tibor", "last_name": "Girschele"},
+                "reply_to_message": {
+                    "message_id": 2865,
+                    "date": 1781699999,
+                    "text": "I captured the video, but I still need a clearer instruction or a spoken transcript from it.",
+                    "from": {"id": 8415291922, "is_bot": True, "username": "tibor_concierge_bot", "first_name": "Tibor's Concierge"},
+                },
+            }
+        },
+        headers={"X-Telegram-Bot-Api-Secret-Token": "tg-secret"},
+    )
+    assert bot_fallback_response.status_code == 200
+    assert scheduled
+    async_payload = dict(scheduled[-1]["async_payload"] or {})
+    assert async_payload["kind"] == "instructional_video"
+    assert async_payload["video_message_id"] == "2862"
+    assert async_payload["video_file_id"] == "video-file-2862"
 
 
 def test_telegram_ingest_deduped_voice_message_skips_retranscription(monkeypatch: pytest.MonkeyPatch) -> None:

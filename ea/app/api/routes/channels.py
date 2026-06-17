@@ -1043,6 +1043,31 @@ _TELEGRAM_RENDERED_VIDEO_RESULT_BACK_MARKERS = (
     "send me the result here",
 )
 
+_TELEGRAM_RENDERED_VIDEO_EDIT_MARKERS = (
+    "edit this video",
+    "edit the video",
+    "replace ",
+    "exchange ",
+    "swap ",
+    "make the ",
+    "turn the ",
+    "look like ",
+    "real flames",
+    "real fire",
+    "photorealistic",
+    "photorealisticly",
+)
+
+_TELEGRAM_NON_RENDER_VIDEO_ANALYSIS_MARKERS = (
+    "summarize",
+    "summary",
+    "action items",
+    "key points",
+    "risks",
+    "flag risks",
+    "transcript",
+)
+
 
 def _telegram_video_placeholder_text(text: str) -> bool:
     normalized = " ".join(str(text or "").strip().lower().split())
@@ -1216,6 +1241,10 @@ def _telegram_instructional_video_prefers_rendered_video(text: str) -> bool:
         return True
     if "edit this video" in normalized and "send" in normalized and "back" in normalized:
         return True
+    if any(marker in normalized for marker in _TELEGRAM_NON_RENDER_VIDEO_ANALYSIS_MARKERS):
+        return False
+    if any(marker in normalized for marker in _TELEGRAM_RENDERED_VIDEO_EDIT_MARKERS):
+        return True
     return False
 
 
@@ -1273,7 +1302,13 @@ def _telegram_instructional_video_render_script(
     grounded_instruction = str(instruction_text or "").strip()
     transcript_text = str(payload.get("video_transcript_text") or "").strip()
     caption_text = str(payload.get("video_caption") or "").strip()
-    if reply_text:
+    normalized_reply = " ".join(str(reply_text or "").strip().split()).lower()
+    generic_reply_markers = {
+        "i'm here. give me a concrete task.",
+        "ask directly.",
+        "i'm here. ask directly.",
+    }
+    if reply_text and normalized_reply not in generic_reply_markers:
         return (
             "Create a short Telegram-ready video reply in German. "
             "Keep it grounded in this answer and do not add unsupported claims.\n\n"

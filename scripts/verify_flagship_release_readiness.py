@@ -162,10 +162,10 @@ def verify(
         issues.append(f"fleet journey gates still report {blocked_count} blocked journey(s)")
     if "hold launch expansion" in launch_readiness.lower():
         issues.append(f"weekly launch_readiness still blocks expansion: {launch_readiness}")
-    if ".codex-design/ea/*" not in implementation_scope:
-        issues.append("implementation scope no longer requires mirrored .codex-design/ea/* canon")
-    if "EA product surface canon under `.codex-design/ea/*`" not in implementation_scope:
-        issues.append("implementation scope no longer owns the EA product surface canon line")
+    if "mirrored `.codex-design/product/*`" not in implementation_scope:
+        issues.append("implementation scope no longer requires mirrored .codex-design/product/* canon")
+    if "Guide/help/public projections must compile from mirrored design sources" not in implementation_scope:
+        issues.append("implementation scope no longer requires mirrored design-source compilation")
 
     return issues
 

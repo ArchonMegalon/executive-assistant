@@ -46,8 +46,6 @@ That does not mean:
 ## Required inputs
 
 * mirrored `.codex-design/product/*`
-* mirrored `.codex-design/ea/*` truth-plane and flagship-boundary docs when present
-* EA product surface canon under `.codex-design/ea/*` when the local flagship truth plane depends on it
 * mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 * mirrored `.codex-design/review/REVIEW_CONTEXT.md`
 * `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
