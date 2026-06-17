@@ -244,12 +244,12 @@ def _telegram_video_has_audio(video_ref: str) -> bool:
 
 
 def _extract_video_ref(*, output_json: dict[str, object]) -> str:
-    for key in ("asset_url", "download_url", "video_url"):
+    for key in ("asset_url", "download_url", "video_url", "asset_path"):
         value = str(output_json.get(key) or "").strip()
         if value and value.lower().split("?", 1)[0].endswith(_VIDEO_SUFFIXES):
             return value
     structured = dict(output_json.get("structured_output_json") or {})
-    for key in ("asset_url", "download_url", "video_url"):
+    for key in ("asset_url", "download_url", "video_url", "asset_path", "browser_video_path"):
         value = str(structured.get(key) or "").strip()
         if value and value.lower().split("?", 1)[0].endswith(_VIDEO_SUFFIXES):
             return value

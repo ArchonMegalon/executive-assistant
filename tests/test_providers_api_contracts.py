@@ -2363,6 +2363,110 @@ def test_telegram_async_worker_uses_specialized_source_video_fallback_for_unsupp
     assert "flame" in sent[0]["text"].lower()
 
 
+def test_telegram_async_worker_reports_no_external_lane_for_unsupported_source_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-source-video-no-external")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 33}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    monkeypatch.setattr(channels_route, "_telegram_browseract_binding_available", lambda *args, **kwargs: False)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_fallback_available", lambda: False)
+    client = _client(principal_id="exec-telegram-source-video-no-external", operator=False)
+
+    wording = "Edit this video and replace the background with a futuristic city."
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-source-video-no-external",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9996",
+        text=wording,
+        current_message_id="33",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-33.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert sent
+    assert "no verified external render lane is available" in sent[0]["text"].lower()
+
+
+def test_telegram_async_worker_reports_no_render_lane_when_no_source_and_no_external_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-render-no-lane")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 34}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    monkeypatch.setattr(channels_route, "_telegram_browseract_binding_available", lambda *args, **kwargs: False)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_fallback_available", lambda: False)
+    client = _client(principal_id="exec-telegram-render-no-lane", operator=False)
+
+    wording = "Make a video reply and send it back here."
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-render-no-lane",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9995",
+        text=wording,
+        current_message_id="34",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert sent
+    assert "no verified render lane is available right now" in sent[0]["text"].lower()
+
+
 def test_telegram_render_request_carries_source_video_reference_packet(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

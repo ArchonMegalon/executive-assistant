@@ -1508,6 +1508,50 @@ def _telegram_source_video_specialized_fallback_text() -> str:
     )
 
 
+def _telegram_render_success_reply_text() -> str:
+    return "I rendered and sent a short video reply here."
+
+
+def _telegram_video_lane_status_reply(
+    *,
+    payload: dict[str, object],
+    instruction_text: str,
+    video_render_error: str,
+    prefers_magicfit: bool,
+    browseract_available: bool,
+    magicfit_available: bool,
+) -> str:
+    eta_text = "about 2 to 4 minutes" if prefers_magicfit else "about 3 to 8 minutes"
+    status_text = compact_text(
+        video_render_error,
+        fallback="render_not_completed",
+        limit=160,
+    )
+    has_source_video = bool(str(payload.get("video_download_url") or "").strip())
+    local_supported = _telegram_local_source_video_fallback_available(payload, instruction_text)
+    if has_source_video and not local_supported and not browseract_available and not magicfit_available:
+        return (
+            f"{_telegram_source_video_specialized_fallback_text()} "
+            "No verified external render lane is available for this request right now."
+        )
+    if has_source_video and not local_supported:
+        return (
+            f"{_telegram_source_video_specialized_fallback_text()} "
+            f"Current external render status: {status_text}. "
+            f"Estimated render time for the external lane is {eta_text}."
+        )
+    if not browseract_available and not magicfit_available:
+        return (
+            "I have the edit request, but no verified render lane is available right now. "
+            f"Current video-lane status: {status_text}."
+        )
+    return (
+        "I have the edit request, but the rendered video is not back yet. "
+        f"Estimated render time for this lane is {eta_text}. "
+        f"Current video-lane status: {status_text}."
+    )
+
+
 def _telegram_render_magicfit_video_reply(
     *,
     container: AppContainer,
@@ -5835,6 +5879,8 @@ def _telegram_async_assistant_reply_worker(
         instruction_text = str(payload.get("instruction_text") or text or "")
         video_render_requested = _telegram_instructional_video_prefers_rendered_video(instruction_text)
         prefers_magicfit = _telegram_instructional_video_prefers_magicfit(instruction_text)
+        browseract_available = _telegram_browseract_binding_available(container, principal_id=principal_id)
+        magicfit_available = _telegram_magicfit_video_fallback_available()
         if not video_render_requested:
             payload = _hydrate_instructional_video_transcript(payload)
         elif str(payload.get("video_download_url") or "").strip():
@@ -5859,7 +5905,7 @@ def _telegram_async_assistant_reply_worker(
                 video_render_error = str(exc or "").strip() or "source_video_edit_failed"
             else:
                 if str(local_delivery.get("status") or "").strip().lower() == "sent":
-                    reply_text = "I rendered and sent a short video reply here."
+                    reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
         if not video_render_requested:
             try:
@@ -5898,7 +5944,7 @@ def _telegram_async_assistant_reply_worker(
         if (
             video_render_requested
             and prefers_magicfit
-            and _telegram_magicfit_video_fallback_available()
+            and magicfit_available
         ):
             try:
                 magicfit_delivery = _telegram_render_magicfit_video_reply(
@@ -5916,12 +5962,12 @@ def _telegram_async_assistant_reply_worker(
                 video_render_error = str(exc or "").strip() or "magicfit_render_failed"
             else:
                 if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
-                    reply_text = "I rendered and sent a short video reply here."
+                    reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
         if (
             video_render_requested
             and not reply_text
-            and _telegram_browseract_binding_available(container, principal_id=principal_id)
+            and browseract_available
         ):
             render_script_text = _telegram_instructional_video_render_script(
                 payload=payload,
@@ -5942,14 +5988,14 @@ def _telegram_async_assistant_reply_worker(
             else:
                 delivery_json = dict(dict(video_render_result.output_json or {}).get("telegram_delivery_json") or {})
                 if str(delivery_json.get("status") or "").strip().lower() == "sent":
-                    reply_text = "I rendered and sent a short video reply here."
+                    reply_text = _telegram_render_success_reply_text()
                 else:
                     video_render_error = str(delivery_json.get("error") or "").strip() or "instructional_video_render_delivery_failed"
         if (
             video_render_requested
             and video_render_error
             and not reply_text
-            and _telegram_magicfit_video_fallback_available()
+            and magicfit_available
         ):
             try:
                 magicfit_delivery = _telegram_render_magicfit_video_reply(
@@ -5970,36 +6016,18 @@ def _telegram_async_assistant_reply_worker(
                 )
             else:
                 if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
-                    reply_text = "I rendered and sent a short video reply here."
+                    reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
         if not reply_text:
             if video_render_requested:
-                eta_text = "about 2 to 4 minutes" if prefers_magicfit else "about 3 to 8 minutes"
-                if (
-                    str(payload.get("video_download_url") or "").strip()
-                    and not _telegram_local_source_video_fallback_available(payload, instruction_text)
-                ):
-                    status_text = compact_text(
-                        video_render_error,
-                        fallback="render_not_completed",
-                        limit=160,
-                    )
-                    reply_text = (
-                        f"{_telegram_source_video_specialized_fallback_text()} "
-                        f"Current external render status: {status_text}. "
-                        f"Estimated render time for the external lane is {eta_text}."
-                    )
-                else:
-                    status_text = compact_text(
-                        video_render_error,
-                        fallback="render_not_completed",
-                        limit=160,
-                    )
-                    reply_text = (
-                        "I have the edit request, but the rendered video is not back yet. "
-                        f"Estimated render time for this lane is {eta_text}. "
-                        f"Current video-lane status: {status_text}."
-                    )
+                reply_text = _telegram_video_lane_status_reply(
+                    payload=payload,
+                    instruction_text=instruction_text,
+                    video_render_error=video_render_error,
+                    prefers_magicfit=prefers_magicfit,
+                    browseract_available=browseract_available,
+                    magicfit_available=magicfit_available,
+                )
                 used_fallback_only = True
             else:
                 transcript_text = str(payload.get("video_transcript_text") or "").strip()

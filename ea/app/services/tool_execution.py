@@ -159,8 +159,11 @@ class ToolExecutionService:
         for value in (
             output_json.get("asset_url"),
             output_json.get("download_url"),
+            output_json.get("asset_path"),
             structured.get("asset_url"),
             structured.get("download_url"),
+            structured.get("asset_path"),
+            structured.get("browser_video_path"),
         ):
             normalized = str(value or "").strip().lower().split("?", 1)[0]
             if normalized.endswith((".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv")):

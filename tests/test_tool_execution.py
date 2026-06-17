@@ -232,6 +232,90 @@ def test_tool_execution_service_blocks_rendered_video_telegram_send_without_audi
     assert result.output_json["telegram_delivery_json"]["error"] == "telegram_video_audio_missing"
 
 
+def test_tool_execution_service_sends_local_worker_video_path_to_telegram(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    artifacts = InMemoryArtifactRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=InMemoryToolRegistryRepository(),
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    tool_runtime.upsert_connector_binding(
+        principal_id="exec-video-local-path",
+        connector_name="telegram_identity",
+        external_account_ref="42",
+        auth_metadata_json={"default_chat_ref": "42", "bot_key": "default", "bot_handle": "tibor_concierge_bot"},
+        scope_json={"assistant_surfaces": ["dm"]},
+        status="enabled",
+    )
+    service = _tool_execution_service(tool_runtime=tool_runtime, artifacts=artifacts)
+    monkeypatch.setenv(
+        "EA_TELEGRAM_BOT_REGISTRY_JSON",
+        json.dumps({"default": {"token": "telegram-token", "handle": "tibor_concierge_bot"}}),
+    )
+    local_video = tmp_path / "render.webm"
+    local_video.write_bytes(b"fake-video-bytes")
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_video_has_audio", lambda value: True)
+    tool_runtime.upsert_tool(
+        tool_name="test.video.local",
+        version="test-v1",
+        input_schema_json={"type": "object"},
+        output_schema_json={"type": "object"},
+        policy_json={},
+        enabled=True,
+    )
+
+    sent_multipart: list[dict[str, object]] = []
+
+    def _fake_send_multipart(*, token, method, fields, file_field, file_path, content_type="application/octet-stream", timeout=120):  # noqa: ANN001
+        sent_multipart.append(
+            {
+                "token": token,
+                "method": method,
+                "fields": dict(fields),
+                "file_field": file_field,
+                "file_path": file_path,
+                "content_type": content_type,
+                "timeout": timeout,
+            }
+        )
+        return {"message_id": 111}
+
+    monkeypatch.setattr("app.services.telegram_delivery._telegram_send_multipart", _fake_send_multipart)
+
+    def _fake_handler(request, definition):
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="mootion:test",
+            output_json={
+                "result_title": "Local video render",
+                "mime_type": "video/webm",
+                "structured_output_json": {
+                    "browser_video_path": str(local_video),
+                    "render_status": "completed",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("test.video.local", _fake_handler)
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-video-local-1",
+            step_id="step-video-local-1",
+            tool_name="test.video.local",
+            action_kind="movie.render",
+            payload_json={},
+            context_json={"principal_id": "exec-video-local-path"},
+        )
+    )
+
+    assert sent_multipart
+    assert sent_multipart[0]["method"] == "sendVideo"
+    assert sent_multipart[0]["file_path"] == str(local_video)
+    assert result.output_json["telegram_delivery_json"]["status"] == "sent"
+    assert result.output_json["telegram_delivery_json"]["media_ref"] == str(local_video)
+
+
 def test_tool_execution_service_auto_sends_audio_outputs_to_telegram(monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts = InMemoryArtifactRepository()
     tool_runtime = ToolRuntimeService(
