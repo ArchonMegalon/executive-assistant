@@ -1019,6 +1019,31 @@ def _telegram_media_acknowledgement_reply(
     return ""
 
 
+_TELEGRAM_RENDERED_VIDEO_DIRECT_MARKERS = (
+    "send me a video",
+    "send a video",
+    "reply with a video",
+    "answer with a video",
+    "make a video",
+    "create a video",
+    "render a video",
+    "record a video",
+    "video back",
+    "teaser",
+    "reel",
+    "clip",
+    "movie",
+)
+
+_TELEGRAM_RENDERED_VIDEO_RESULT_BACK_MARKERS = (
+    "send me the result back",
+    "send the result back",
+    "send the result back here",
+    "send it back here",
+    "send me the result here",
+)
+
+
 def _telegram_video_placeholder_text(text: str) -> bool:
     normalized = " ".join(str(text or "").strip().lower().split())
     return normalized in {"", "video", "video message"}
@@ -1089,6 +1114,26 @@ def _telegram_reply_to_video_message_payload(ctx: TelegramTurnContext) -> dict[s
     }
 
 
+def _telegram_build_instructional_video_payload(
+    *,
+    instruction_text: str,
+    payload: dict[str, object],
+    fallback_message_id: str,
+) -> dict[str, object]:
+    metadata = dict(payload.get("message_metadata") or {})
+    return {
+        "kind": "instructional_video",
+        "instruction_text": str(instruction_text or "").strip(),
+        "video_message_id": str(payload.get("message_id") or fallback_message_id or "").strip(),
+        "video_file_id": str(metadata.get("file_id") or "").strip(),
+        "video_download_url": str(metadata.get("download_url") or "").strip(),
+        "video_duration_seconds": metadata.get("duration"),
+        "video_caption": str(metadata.get("caption") or "").strip(),
+        "video_transcript_text": str(payload.get("video_transcript_text") or "").strip(),
+        "video_transcription_status": str(payload.get("transcription_status") or "").strip(),
+    }
+
+
 def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str, object]:
     payload = dict(ctx.payload or {})
     kind = str(payload.get("kind") or "").strip().lower()
@@ -1097,17 +1142,12 @@ def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str,
         caption = str(metadata.get("caption") or ctx.text or "").strip()
         if not _telegram_video_instruction_candidate(caption):
             return {}
-        return {
-            "kind": "instructional_video",
-            "instruction_text": caption,
-            "video_message_id": str(payload.get("message_id") or ctx.current_message_id or "").strip(),
-            "video_file_id": str(metadata.get("file_id") or "").strip(),
-            "video_download_url": str(metadata.get("download_url") or "").strip(),
-            "video_duration_seconds": metadata.get("duration"),
-            "video_caption": caption,
-            "video_transcript_text": str(payload.get("video_transcript_text") or "").strip(),
-            "video_transcription_status": str(payload.get("transcription_status") or "").strip(),
-        }
+        payload["message_metadata"] = {**metadata, "caption": caption}
+        return _telegram_build_instructional_video_payload(
+            instruction_text=caption,
+            payload=payload,
+            fallback_message_id=ctx.current_message_id,
+        )
     if kind != "text":
         return {}
     if not _telegram_video_instruction_candidate(ctx.normalized):
@@ -1120,18 +1160,11 @@ def _telegram_instructional_video_payload(ctx: TelegramTurnContext) -> dict[str,
     )
     if not recent_video_payload:
         return {}
-    recent_metadata = dict(recent_video_payload.get("message_metadata") or {})
-    return {
-        "kind": "instructional_video",
-        "instruction_text": ctx.normalized,
-        "video_message_id": str(recent_video_payload.get("message_id") or "").strip(),
-        "video_file_id": str(recent_metadata.get("file_id") or "").strip(),
-        "video_download_url": str(recent_metadata.get("download_url") or "").strip(),
-        "video_duration_seconds": recent_metadata.get("duration"),
-        "video_caption": str(recent_metadata.get("caption") or "").strip(),
-        "video_transcript_text": str(recent_video_payload.get("video_transcript_text") or "").strip(),
-        "video_transcription_status": str(recent_video_payload.get("transcription_status") or "").strip(),
-    }
+    return _telegram_build_instructional_video_payload(
+        instruction_text=ctx.normalized,
+        payload=recent_video_payload,
+        fallback_message_id="",
+    )
 
 
 def _telegram_instructional_video_turn_decision(ctx: TelegramTurnContext) -> TelegramTurnDecision:
@@ -1177,31 +1210,9 @@ def _telegram_instructional_video_prefers_rendered_video(text: str) -> bool:
     normalized = " ".join(str(text or "").strip().lower().split())
     if not normalized:
         return False
-    direct_markers = (
-        "send me a video",
-        "send a video",
-        "reply with a video",
-        "answer with a video",
-        "make a video",
-        "create a video",
-        "render a video",
-        "record a video",
-        "video back",
-        "teaser",
-        "reel",
-        "clip",
-        "movie",
-    )
-    if any(marker in normalized for marker in direct_markers):
+    if any(marker in normalized for marker in _TELEGRAM_RENDERED_VIDEO_DIRECT_MARKERS):
         return True
-    result_back_markers = (
-        "send me the result back",
-        "send the result back",
-        "send the result back here",
-        "send it back here",
-        "send me the result here",
-    )
-    if any(marker in normalized for marker in result_back_markers):
+    if any(marker in normalized for marker in _TELEGRAM_RENDERED_VIDEO_RESULT_BACK_MARKERS):
         return True
     if "edit this video" in normalized and "send" in normalized and "back" in normalized:
         return True
