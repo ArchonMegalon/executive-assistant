@@ -5858,7 +5858,17 @@ def _telegram_async_assistant_reply_worker(
                     video_render_error = ""
         if not reply_text:
             if video_render_requested:
-                reply_text = "I did not manage to send the edited video back yet."
+                eta_text = "about 2 to 4 minutes" if prefers_magicfit else "about 3 to 8 minutes"
+                status_text = compact_text(
+                    video_render_error,
+                    fallback="render_not_completed",
+                    limit=160,
+                )
+                reply_text = (
+                    "I have the edit request, but the rendered video is not back yet. "
+                    f"Estimated render time for this lane is {eta_text}. "
+                    f"Current video-lane status: {status_text}."
+                )
                 used_fallback_only = True
             else:
                 transcript_text = str(payload.get("video_transcript_text") or "").strip()
