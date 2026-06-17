@@ -29,6 +29,7 @@ from app.api.dependencies import get_container
 from app.channels.telegram.adapter import TelegramObservationAdapter
 from app.container import AppContainer
 from app.domain.models import ToolInvocationRequest
+from app.product.projections.common import compact_text
 from app.product import service as product_service_module
 from app.product.service import build_product_service
 from app.services import google_oauth as google_oauth_service

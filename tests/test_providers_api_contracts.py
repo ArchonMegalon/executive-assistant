@@ -2185,6 +2185,45 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     assert "ea-runtime:latest" in executed[0]
 
 
+def test_telegram_render_magicfit_video_reply_surfaces_compacted_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    from app.api.routes import channels as channels_route
+
+    repo_root = tmp_path / "repo"
+    script_dir = repo_root / "scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "render_magicfit_property_flythrough.py"
+    script_path.write_text("print('stub')\n", encoding="utf-8")
+    browser_cache = tmp_path / "ms-playwright"
+    browser_cache.mkdir()
+    shared_root = tmp_path / "shared"
+    shared_root.mkdir()
+
+    class _Completed:
+        returncode = 1
+        stdout = ""
+        stderr = "magicfit failed hard because the prompt editor never appeared"
+
+    monkeypatch.setattr(channels_route.product_service_module, "_repo_root", lambda: str(repo_root))
+    monkeypatch.setattr(channels_route.subprocess, "run", lambda *args, **kwargs: _Completed())
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_playwright_browsers_host_path", lambda: browser_cache)
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_shared_temp_root", lambda: shared_root)
+    client = _client(principal_id="exec-telegram-magicfit-docker-error", operator=False)
+
+    with pytest.raises(RuntimeError, match="magicfit failed hard because the prompt editor never appeared"):
+        channels_route._telegram_render_magicfit_video_reply(
+            container=client.app.state.container,
+            principal_id="exec-telegram-magicfit-docker-error",
+            prompt_text="Render a photoreal video reply.",
+            caption="Telegram video reply",
+            instruction_text="render it photorealistically",
+        )
+
+
 def test_telegram_async_worker_skips_video_transcript_hydration_for_explicit_render_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
