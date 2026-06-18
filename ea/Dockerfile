@@ -59,6 +59,7 @@ RUN set -eu; \
       exit 1; \
     fi; \
     cp "$APP_SRC/requirements.txt" /app/requirements.txt; \
+    if [ -f "$APP_SRC/requirements.lock" ]; then cp "$APP_SRC/requirements.lock" /app/requirements.lock; fi; \
     if [ -f "$APP_SRC/requirements-openvoice.txt" ]; then cp "$APP_SRC/requirements-openvoice.txt" /app/requirements-openvoice.txt; fi; \
     cp -r "$APP_SRC/app" /app/; \
     cp "$APP_SRC/docker-entrypoint.sh" /usr/local/bin/docker-entrypoint.sh; \
@@ -94,7 +95,11 @@ RUN set -eu; \
     chown -R ea:ea /app /usr/local/bin/docker-entrypoint.sh; \
     rm -rf /tmp/src
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN if [ -f requirements.lock ]; then \
+      pip install --no-cache-dir -r requirements.txt -c requirements.lock; \
+    else \
+      pip install --no-cache-dir -r requirements.txt; \
+    fi
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
     find /app/scripts -maxdepth 1 -type f -name '*.sh' -exec chmod +x {} \;
