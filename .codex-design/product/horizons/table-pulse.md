@@ -1,5 +1,9 @@
 # TABLE PULSE
 
+## Explanation video
+
+[Watch the TABLE PULSE 90-second deep dive](https://chummer.run/media/horizons/table-pulse-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/table-pulse-90s-deepdive.vtt).
+
 Table Pulse has two rails. The design only works if those rails stay explicit.
 
 **Table Pulse Live** is the GM-controlled heat and reaction rail. During a session or in the
@@ -70,7 +74,7 @@ What is live today is:
 * a Table Pulse packet on the Black Ledger notifications route
 * bounded remote reaction mini-games
 * GM adjudication and leader follow-through
-* Signal Deck and Runner Passport continuity
+* Runner Passport continuity and governed follow-through
 * Living Newsroom watch framing
 * governed aftermath return loops
 

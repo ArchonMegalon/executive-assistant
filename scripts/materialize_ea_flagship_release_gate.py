@@ -3,9 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    from scripts.source_state_head import resolve_source_state_head
+except ModuleNotFoundError:  # pragma: no cover - script execution path
+    from source_state_head import resolve_source_state_head
 
 
 DEFAULT_SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
@@ -63,6 +69,23 @@ def _present(root: Path, rel: Path) -> bool:
 
 def _stringify_path(path: Path) -> str:
     return path.as_posix()
+
+
+def _git_stdout(root: Path, *args: str) -> str:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _source_tree_fingerprint(root: Path) -> str:
+    return _git_stdout(root, "rev-parse", "HEAD^{tree}")
 
 
 def _build_browser_sources(root: Path, seed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -126,6 +149,8 @@ def build_receipt(
     browser_proof_receipt_path: Path | None = DEFAULT_BROWSER_PROOF_RECEIPT,
 ) -> dict[str, Any]:
     seed = _load_json(root / seed_path)
+    source_git_head = resolve_source_state_head(root)
+    source_tree_fingerprint = _source_tree_fingerprint(root)
     truth_plane_present = _present(root, truth_plane_path)
     docs, missing_docs = _build_doc_checks(root)
     browser_sources, missing_browser_sources = _build_browser_sources(root, seed)
@@ -203,6 +228,9 @@ def build_receipt(
         "kind": "release_receipt",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
+        "source_git_head": source_git_head,
+        "source_tree_fingerprint": source_tree_fingerprint,
+        "head_semantics": "source_state",
         "status": status,
         "operator_summary": operator_summary,
         "truth_plane": {

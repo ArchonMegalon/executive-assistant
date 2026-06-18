@@ -13,6 +13,7 @@ import tempfile
 import time
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timedelta
@@ -907,6 +908,74 @@ def _record_telegram_async_failed(
     )
 
 
+def _telegram_video_source_receipt_context(payload: dict[str, object]) -> dict[str, object]:
+    source_url = str(payload.get("video_download_url") or "").strip()
+    parsed = urllib.parse.urlparse(source_url) if source_url else urllib.parse.urlparse("")
+    redacted_path = str(parsed.path or "")
+    redacted_path = re.sub(r"/file/bot[^/]+/", "/file/bot<redacted>/", redacted_path)
+    frame_paths = list(payload.get("source_video_reference_frame_paths") or [])
+    return {
+        "has_source_video": bool(source_url),
+        "source_url_raw_stored": False,
+        "source_url_sha256": hashlib.sha256(source_url.encode("utf-8")).hexdigest() if source_url else "",
+        "source_host": str(parsed.hostname or "").strip().lower(),
+        "source_path_redacted": redacted_path,
+        "source_video_duration_seconds": payload.get("video_duration_seconds"),
+        "source_video_reference_board_present": bool(str(payload.get("source_video_reference_board_path") or "").strip()),
+        "source_video_reference_frame_count": len(frame_paths),
+    }
+
+
+def _record_telegram_video_delivery_receipt(
+    container: AppContainer,
+    *,
+    principal_id: str,
+    chat_id: str,
+    current_message_id: str,
+    provider: str,
+    status: str,
+    payload: dict[str, object],
+    message_ids: list[object] | tuple[object, ...] | None = None,
+    error: str = "",
+    sidecar: dict[str, object] | None = None,
+) -> None:
+    normalized_provider = str(provider or "unknown").strip() or "unknown"
+    normalized_status = str(status or "").strip().lower() or "unknown"
+    normalized_error = compact_text(str(error or "").strip(), fallback="", limit=240)
+    normalized_message_ids = [str(item or "").strip() for item in list(message_ids or []) if str(item or "").strip()]
+    external_id = str(current_message_id or "").strip()
+    dedupe_material = json.dumps(
+        {
+            "source_message_id": external_id,
+            "provider": normalized_provider,
+            "status": normalized_status,
+            "message_ids": normalized_message_ids,
+            "error": normalized_error,
+        },
+        sort_keys=True,
+    )
+    dedupe_suffix = hashlib.sha256(dedupe_material.encode("utf-8")).hexdigest()[:16]
+    container.channel_runtime.ingest_observation(
+        principal_id=principal_id,
+        channel="telegram",
+        event_type="telegram.video_delivery_receipt",
+        payload={
+            "receipt_type": "telegram_video_delivery",
+            "chat_id": str(chat_id or "").strip(),
+            "source_message_id": external_id,
+            "provider": normalized_provider,
+            "status": normalized_status,
+            "message_ids": normalized_message_ids,
+            "error": normalized_error,
+            "source_video": _telegram_video_source_receipt_context(payload),
+            "sidecar": dict(sidecar or {}),
+        },
+        source_id=f"telegram:{chat_id}" if chat_id else "telegram",
+        external_id=external_id,
+        dedupe_key=f"{external_id}:telegram_video_delivery:{dedupe_suffix}" if external_id else "",
+    )
+
+
 def _record_telegram_async_sent(
     container: AppContainer,
     *,
@@ -1063,6 +1132,8 @@ _TELEGRAM_RENDERED_VIDEO_EDIT_MARKERS = (
     "swap ",
     "make the ",
     "turn the ",
+    "make this on fire",
+    "on fire",
     "look like ",
     "real flames",
     "real fire",
@@ -1385,8 +1456,13 @@ def _telegram_enrich_payload_with_source_video_references(payload: dict[str, obj
 
 
 def _telegram_magicfit_video_fallback_enabled() -> bool:
-    raw = str(os.getenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED") or "1").strip().lower()
-    return raw not in {"", "0", "false", "no", "off"}
+    raw = str(os.getenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED") or "0").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _telegram_magicfit_runtime_lane_approved() -> bool:
+    raw = str(os.getenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _telegram_magicfit_video_credentials_available() -> bool:
@@ -1414,7 +1490,15 @@ def _telegram_magicfit_docker_repo_root() -> Path:
 
 
 def _telegram_magicfit_docker_image() -> str:
-    return str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE") or "ea-runtime:latest").strip() or "ea-runtime:latest"
+    return str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE") or "").strip()
+
+
+def _telegram_magicfit_docker_image_pinned(image: str) -> bool:
+    normalized = str(image or "").strip().lower()
+    if "@sha256:" not in normalized:
+        return False
+    digest = normalized.rsplit("@sha256:", 1)[-1]
+    return len(digest) == 64 and all(ch in "0123456789abcdef" for ch in digest)
 
 
 def _telegram_magicfit_playwright_browsers_host_path() -> Path:
@@ -1438,12 +1522,14 @@ def _telegram_magicfit_shared_temp_root() -> Path:
 def _telegram_magicfit_docker_available() -> bool:
     image = _telegram_magicfit_docker_image()
     browser_cache = _telegram_magicfit_playwright_browsers_host_path()
-    return bool(image and str(browser_cache).strip())
+    return bool(image and _telegram_magicfit_docker_image_pinned(image) and str(browser_cache).strip())
 
 
 def _telegram_magicfit_video_fallback_available() -> bool:
     return (
         _telegram_magicfit_video_fallback_enabled()
+        and _telegram_magicfit_runtime_lane_approved()
+        and _telegram_magicfit_docker_available()
         and _telegram_magicfit_video_credentials_available()
         and _telegram_magicfit_video_script_path().exists()
     )
@@ -1560,6 +1646,10 @@ def _telegram_render_magicfit_video_reply(
     caption: str,
     instruction_text: str,
 ) -> dict[str, object]:
+    if not _telegram_magicfit_runtime_lane_approved():
+        raise RuntimeError("magicfit_runtime_lane_not_approved")
+    if not _telegram_magicfit_docker_available():
+        raise RuntimeError("magicfit_docker_runtime_unavailable")
     script_path = _telegram_magicfit_video_script_path()
     if not script_path.exists():
         raise RuntimeError("magicfit_render_script_missing")
@@ -1576,11 +1666,11 @@ def _telegram_render_magicfit_video_reply(
     shared_temp_root = _telegram_magicfit_shared_temp_root()
     shared_temp_root.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(Exception):
-        shared_temp_root.chmod(0o777)
+        shared_temp_root.chmod(0o700)
     docker_repo_root = _telegram_magicfit_docker_repo_root()
     with tempfile.TemporaryDirectory(prefix="telegram-magicfit-video-", dir=str(shared_temp_root)) as tmp_dir:
         with contextlib.suppress(Exception):
-            Path(tmp_dir).chmod(0o777)
+            Path(tmp_dir).chmod(0o700)
         out_path = (Path(tmp_dir) / "reply.mp4").resolve()
         state_path = (Path(tmp_dir) / "reply.magicfit.json").resolve()
         base_command = [
@@ -1607,22 +1697,53 @@ def _telegram_render_magicfit_video_reply(
             docker_script_path = (docker_repo_root / "scripts" / script_path.name).resolve()
             docker_command = list(base_command)
             docker_command[1] = str(docker_script_path)
+            env_file = (Path(tmp_dir) / "magicfit.env").resolve()
+            magicfit_email = str(os.getenv("CHUMMER_EA_MAGICFIT_EMAIL") or os.getenv("MAGICFIT_EMAIL") or "").strip()
+            magicfit_password = str(
+                os.getenv("CHUMMER_EA_MAGICFIT_PASSWORD") or os.getenv("MAGICFIT_PASSWORD") or ""
+            ).strip()
+            if "\n" in magicfit_email or "\r" in magicfit_email or "\n" in magicfit_password or "\r" in magicfit_password:
+                raise RuntimeError("magicfit_credentials_invalid")
+            env_file.write_text(
+                "\n".join(
+                    [
+                        f"PLAYWRIGHT_BROWSERS_PATH={browser_cache}",
+                        f"CHUMMER_EA_MAGICFIT_EMAIL={magicfit_email}",
+                        f"CHUMMER_EA_MAGICFIT_PASSWORD={magicfit_password}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with contextlib.suppress(Exception):
+                env_file.chmod(0o600)
+            uid = os.getuid() if hasattr(os, "getuid") else 1000
+            gid = os.getgid() if hasattr(os, "getgid") else 1000
             command = [
                 "docker",
                 "run",
                 "--rm",
+                "--user",
+                f"{uid}:{gid}",
+                "--cpus",
+                str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_CPUS") or "2"),
+                "--memory",
+                str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_MEMORY") or "3g"),
+                "--pids-limit",
+                str(os.getenv("EA_TELEGRAM_MAGICFIT_DOCKER_PIDS_LIMIT") or "256"),
+                "--security-opt",
+                "no-new-privileges",
+                "--read-only",
+                "--tmpfs",
+                "/tmp:rw,nosuid,nodev,size=512m",
+                "--env-file",
+                str(env_file),
                 "-v",
-                f"{docker_repo_root.resolve()}:{docker_repo_root.resolve()}",
+                f"{docker_repo_root.resolve()}:{docker_repo_root.resolve()}:ro",
                 "-v",
-                f"{shared_temp_root.resolve()}:{shared_temp_root.resolve()}",
+                f"{shared_temp_root.resolve()}:{shared_temp_root.resolve()}:rw",
                 "-v",
-                f"{browser_cache}:{browser_cache}",
-                "-e",
-                f"PLAYWRIGHT_BROWSERS_PATH={browser_cache}",
-                "-e",
-                f"CHUMMER_EA_MAGICFIT_EMAIL={str(os.getenv('CHUMMER_EA_MAGICFIT_EMAIL') or os.getenv('MAGICFIT_EMAIL') or '').strip()}",
-                "-e",
-                f"CHUMMER_EA_MAGICFIT_PASSWORD={str(os.getenv('CHUMMER_EA_MAGICFIT_PASSWORD') or os.getenv('MAGICFIT_PASSWORD') or '').strip()}",
+                f"{browser_cache}:{browser_cache}:ro",
                 _telegram_magicfit_docker_image(),
                 *docker_command,
             ]
@@ -5903,10 +6024,45 @@ def _telegram_async_assistant_reply_worker(
                 )
             except Exception as exc:
                 video_render_error = str(exc or "").strip() or "source_video_edit_failed"
+                _record_telegram_video_delivery_receipt(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    provider="local_source_video_fx",
+                    status="failed",
+                    payload=payload,
+                    error=video_render_error,
+                )
             else:
                 if str(local_delivery.get("status") or "").strip().lower() == "sent":
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(local_delivery.get("provider") or "local_source_video_fx").strip()
+                        or "local_source_video_fx",
+                        status="sent",
+                        payload=payload,
+                        message_ids=list(local_delivery.get("message_ids") or []),
+                    )
+                else:
+                    video_render_error = str(local_delivery.get("error") or "").strip() or "source_video_edit_delivery_failed"
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(local_delivery.get("provider") or "local_source_video_fx").strip()
+                        or "local_source_video_fx",
+                        status="failed",
+                        payload=payload,
+                        message_ids=list(local_delivery.get("message_ids") or []),
+                        error=video_render_error,
+                    )
         if not video_render_requested:
             try:
                 async_timeout = None
@@ -5960,10 +6116,47 @@ def _telegram_async_assistant_reply_worker(
                 )
             except Exception as exc:
                 video_render_error = str(exc or "").strip() or "magicfit_render_failed"
+                _record_telegram_video_delivery_receipt(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    provider="magicfit",
+                    status="failed",
+                    payload=payload,
+                    error=video_render_error,
+                )
             else:
                 if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
+                        status="sent",
+                        payload=payload,
+                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        sidecar=dict(magicfit_delivery.get("sidecar") or {}),
+                    )
+                else:
+                    video_render_error = (
+                        str(magicfit_delivery.get("error") or "").strip() or "magicfit_delivery_failed"
+                    )
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
+                        status="failed",
+                        payload=payload,
+                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        error=video_render_error,
+                        sidecar=dict(magicfit_delivery.get("sidecar") or {}),
+                    )
         if (
             video_render_requested
             and not reply_text
@@ -5985,12 +6178,48 @@ def _telegram_async_assistant_reply_worker(
                 )
             except Exception as exc:
                 video_render_error = str(exc or "").strip() or "instructional_video_render_failed"
+                _record_telegram_video_delivery_receipt(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    provider="browseract.mootion_movie",
+                    status="failed",
+                    payload=payload,
+                    error=video_render_error,
+                )
             else:
                 delivery_json = dict(dict(video_render_result.output_json or {}).get("telegram_delivery_json") or {})
                 if str(delivery_json.get("status") or "").strip().lower() == "sent":
                     reply_text = _telegram_render_success_reply_text()
+                    video_render_error = ""
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(delivery_json.get("provider") or "browseract.mootion_movie").strip()
+                        or "browseract.mootion_movie",
+                        status="sent",
+                        payload=payload,
+                        message_ids=list(delivery_json.get("message_ids") or []),
+                        sidecar=delivery_json,
+                    )
                 else:
                     video_render_error = str(delivery_json.get("error") or "").strip() or "instructional_video_render_delivery_failed"
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(delivery_json.get("provider") or "browseract.mootion_movie").strip()
+                        or "browseract.mootion_movie",
+                        status="failed",
+                        payload=payload,
+                        message_ids=list(delivery_json.get("message_ids") or []),
+                        error=video_render_error,
+                        sidecar=delivery_json,
+                    )
         if (
             video_render_requested
             and video_render_error
@@ -6010,14 +6239,51 @@ def _telegram_async_assistant_reply_worker(
                     instruction_text=instruction_text,
                 )
             except Exception as exc:
+                fallback_error = str(exc or "").strip() or "magicfit_render_failed"
+                _record_telegram_video_delivery_receipt(
+                    container,
+                    principal_id=principal_id,
+                    chat_id=chat_id,
+                    current_message_id=current_message_id,
+                    provider="magicfit",
+                    status="failed",
+                    payload=payload,
+                    error=fallback_error,
+                )
                 video_render_error = (
                     f"{video_render_error}; magicfit_fallback:"
-                    f"{str(exc or '').strip() or 'magicfit_render_failed'}"
+                    f"{fallback_error}"
                 )
             else:
                 if str(magicfit_delivery.get("status") or "").strip().lower() == "sent":
                     reply_text = _telegram_render_success_reply_text()
                     video_render_error = ""
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
+                        status="sent",
+                        payload=payload,
+                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        sidecar=dict(magicfit_delivery.get("sidecar") or {}),
+                    )
+                else:
+                    fallback_error = str(magicfit_delivery.get("error") or "").strip() or "magicfit_delivery_failed"
+                    _record_telegram_video_delivery_receipt(
+                        container,
+                        principal_id=principal_id,
+                        chat_id=chat_id,
+                        current_message_id=current_message_id,
+                        provider=str(magicfit_delivery.get("provider") or "magicfit").strip() or "magicfit",
+                        status="failed",
+                        payload=payload,
+                        message_ids=list(magicfit_delivery.get("message_ids") or []),
+                        error=fallback_error,
+                        sidecar=dict(magicfit_delivery.get("sidecar") or {}),
+                    )
+                    video_render_error = f"{video_render_error}; magicfit_fallback:{fallback_error}"
         if not reply_text:
             if video_render_requested:
                 reply_text = _telegram_video_lane_status_reply(

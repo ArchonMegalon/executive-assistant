@@ -7961,6 +7961,10 @@ def _minimal_public_memorial_html(
         --muted: #6f6255;
         --blue: #48677e;
         --line: rgba(65, 53, 43, 0.12);
+        --line-strong: rgba(65, 53, 43, 0.2);
+        --sage: #5e6f5f;
+        --gold: #b48d51;
+        --paper-soft: #fffaf4;
         --shadow: 0 18px 36px rgba(56, 45, 36, 0.1);
       }}
       * {{ box-sizing: border-box; }}
@@ -8141,6 +8145,217 @@ def _minimal_public_memorial_html(
         main {{ bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }}
         .hero-cta {{ width: 100%; min-width: 0; }}
       }}
+      body {{
+        position: relative;
+      }}
+      body::before {{
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at 12% 10%, rgba(255,255,255,.44), rgba(255,255,255,0) 40%),
+          radial-gradient(circle at 88% 18%, rgba(191, 206, 220, .45), rgba(191, 206, 220, 0) 45%),
+          linear-gradient(180deg, #d7e0e5 0%, #f7f2e8 24%, #f7f2e8 100%);
+        opacity: .96;
+        z-index: 0;
+      }}
+      body::after {{
+        content: "";
+        position: fixed;
+        inset: auto 0 0;
+        height: 170px;
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(247, 242, 232, 0), rgba(247, 242, 232, 0.92) 70%);
+        z-index: 0;
+      }}
+      .hero-actions {{
+        position: relative;
+      }}
+      .hero-actions.is-readying::before {{
+        content: "";
+        position: absolute;
+        inset: -16px;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(201, 153, 90, .14), rgba(201, 153, 90, 0) 60%);
+        opacity: .82;
+        animation: memorial-landing-breathe 1.5s ease-in-out infinite;
+        pointer-events: none;
+        z-index: -1;
+      }}
+      .hero-copy {{
+        position: relative;
+        z-index: 1;
+      }}
+      .hero-cta {{
+        position: relative;
+        overflow: hidden;
+      }}
+      .hero-cta.is-readying::after {{
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: linear-gradient(115deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.34) 50%, rgba(255,255,255,0) 100%);
+        transform: translateX(-130%);
+        pointer-events: none;
+        opacity: .85;
+        animation: memorial-landing-sheen 1.2s ease-in-out infinite;
+      }}
+      .hero-cta {{
+        z-index: 1;
+      }}
+      .hero-cta {{
+        transition:
+          transform .18s ease,
+          opacity .18s ease,
+          box-shadow .2s ease,
+          background-color .18s ease,
+          border-color .18s ease;
+      }}
+      .hero-cta:hover {{ transform: translateY(-1px); }}
+      .hero-portrait-line {{
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+        padding: 12px 14px;
+        max-width: 520px;
+        border-left: 3px solid rgba(180, 141, 81, .52);
+        border-radius: 0 14px 14px 0;
+        background: linear-gradient(90deg, rgba(255, 251, 244, .82), rgba(255, 251, 244, .38));
+        text-align: left;
+        z-index: 1;
+      }}
+      .hero-portrait-line strong {{
+        font-size: 0.98rem;
+        color: var(--ink);
+        line-height: 1.2;
+      }}
+      .hero-portrait-line span {{
+        color: var(--muted);
+        font-size: .93rem;
+        line-height: 1.45;
+      }}
+      .speech-status-bar {{
+        transition: background .2s ease, border-color .2s ease, transform .2s ease;
+      }}
+      .speech-status-bar.is-listening {{
+        border-color: rgba(83, 104, 91, .28);
+        background: rgba(240, 247, 241, .94);
+        color: var(--sage);
+      }}
+      .speech-status-bar.is-working {{
+        border-color: rgba(72, 103, 126, .24);
+        background: rgba(241, 246, 250, .94);
+        color: var(--blue);
+      }}
+      .speech-status-bar.is-error {{
+        border-color: rgba(135, 83, 93, .26);
+        background: rgba(252, 241, 243, .95);
+      }}
+      .speech-live-monitor {{
+        display: grid;
+        gap: 10px;
+        margin: 10px auto 0;
+        width: min(360px, 100%);
+        opacity: 0;
+        transform: translateY(6px);
+        transition: opacity .2s ease, transform .2s ease;
+      }}
+      .speech-live-monitor.is-listening,
+      .speech-live-monitor.is-working,
+      .speech-live-monitor.is-speaking,
+      .speech-live-monitor.is-error {{
+        opacity: 1;
+        transform: translateY(0);
+      }}
+      .speech-meter {{
+        position: relative;
+        overflow: hidden;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(132, 104, 74, .12);
+        box-shadow: inset 0 1px 2px rgba(61, 44, 32, .08);
+      }}
+      .speech-meter-fill {{
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        transform-origin: left center;
+        transform: scaleX(.06);
+        background: linear-gradient(90deg, rgba(104, 133, 117, .68), rgba(72, 103, 126, .92), rgba(201, 153, 90, .9));
+        transition: transform .14s ease, opacity .18s ease;
+        opacity: .52;
+      }}
+      .speech-wave {{
+        display: flex;
+        align-items: end;
+        gap: 5px;
+        height: 24px;
+        justify-content: center;
+      }}
+      .speech-wave-bar {{
+        width: 7px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(72, 103, 126, .25);
+        transform-origin: center bottom;
+        transform: scaleY(.45);
+        transition: transform .14s ease, background-color .14s ease;
+      }}
+      .speech-live-monitor.is-listening .speech-wave-bar,
+      .speech-live-monitor.is-speaking .speech-wave-bar {{
+        animation: memorial-wave 1.1s ease-in-out infinite;
+      }}
+      .speech-live-monitor.is-listening .speech-wave-bar {{
+        background: rgba(104, 133, 117, .6);
+      }}
+      .speech-live-monitor.is-speaking .speech-wave-bar {{
+        background: rgba(72, 103, 126, .62);
+      }}
+      .speech-live-monitor.is-working .speech-wave-bar {{
+        background: rgba(189, 145, 84, .44);
+      }}
+      .speech-wave-bar:nth-child(2) {{ animation-delay: .08s; }}
+      .speech-wave-bar:nth-child(3) {{ animation-delay: .16s; }}
+      .speech-wave-bar:nth-child(4) {{ animation-delay: .24s; }}
+      .speech-wave-bar:nth-child(5) {{ animation-delay: .32s; }}
+      .speech-wave-bar:nth-child(6) {{ animation-delay: .4s; }}
+      .chat-tools, .chat-tool, .hero-cta, .speech-primary {{
+        transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+      }}
+      .chat-tool:hover,
+      .hero-cta:not([disabled]):hover,
+      .speech-primary:hover {{
+        transform: translateY(-1px);
+      }}
+      .chat-tool:focus-visible,
+      .hero-cta:focus-visible,
+      .speech-primary:focus-visible,
+      .install-hint button:focus-visible {{
+        outline: 2px solid rgba(72, 103, 126, .7);
+        outline-offset: 2px;
+      }}
+      @keyframes memorial-landing-breathe {{
+        0%, 100% {{ transform: scale(.985); opacity: .62; }}
+        50% {{ transform: scale(1.02); opacity: 1; }}
+      }}
+      @keyframes memorial-landing-sheen {{
+        0% {{ transform: translateX(-130%); }}
+        100% {{ transform: translateX(130%); }}
+      }}
+      @keyframes memorial-wave {{
+        0%, 100% {{ transform: scaleY(.34); opacity: .55; }}
+        50% {{ transform: scaleY(1); opacity: 1; }}
+      }}
+      @media (prefers-reduced-motion: reduce) {{
+        * {{
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+        }}
+      }}
     </style>
   </head>
   <body>
@@ -8161,10 +8376,25 @@ def _minimal_public_memorial_html(
       <section class="chat quiet-shell">
         <div class="speech-status-bar speech-note is-pristine" id="memorial-speech-note">
           <strong id="memorial-speech-message">Bereit.</strong>
+          <div class="speech-live-monitor is-idle" id="memorial-speech-monitor" aria-hidden="true">
+            <div class="speech-meter"><span class="speech-meter-fill" id="memorial-speech-meter-fill"></span></div>
+            <div class="speech-wave" id="memorial-speech-wave">
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+              <span class="speech-wave-bar"></span>
+            </div>
+          </div>
           <div class="speech-status-meta">
             <span id="memorial-speech-phase">Bereit</span>
             <span id="memorial-speech-detail"></span>
           </div>
+        </div>
+        <div class="hero-portrait-line" style="margin-top: 14px; max-width: 520px;">
+          <strong>Ein ruhiges Gespräch, kein austauschbares Interface.</strong>
+          <span>Transkript, Antwort und Verlauf bleiben klar sichtbar, damit das Gespräch auch dann verlässlich wirkt, wenn Audio nicht perfekt ist.</span>
         </div>
         <button type="button" class="speech-primary" id="memorial-retry-button" hidden>Bitte noch einmal sprechen</button>
         <div class="chat-answer" id="memorial-chat-answer" aria-live="polite" hidden></div>
@@ -8194,6 +8424,8 @@ def _minimal_public_memorial_html(
       const speechAudio = document.getElementById("memorial-speech-audio");
       const speechNote = document.getElementById("memorial-speech-note");
       const speechMessage = document.getElementById("memorial-speech-message");
+      const speechMonitor = document.getElementById("memorial-speech-monitor");
+      const speechMeterFill = document.getElementById("memorial-speech-meter-fill");
       const speechPhase = document.getElementById("memorial-speech-phase");
       const speechDetail = document.getElementById("memorial-speech-detail");
       const answer = document.getElementById("memorial-chat-answer");
@@ -8221,6 +8453,7 @@ def _minimal_public_memorial_html(
       let activeChunks = [];
       let activeRecordStopTimer = null;
       let activeLevelTimer = null;
+      let activeSpeechMeterContext = null;
       let activeFetchController = null;
       let activeRecordingPromise = null;
       let activeRecordingHadSpeech = false;
@@ -8252,6 +8485,7 @@ def _minimal_public_memorial_html(
       let contactAcknowledgementReady = false;
       const contactAcknowledgementText = "Worum geht es?";
       const browserPreferredLanguage = "de-AT";
+      let speechMeterLive = false;
       try {{ document.documentElement.setAttribute("lang", browserPreferredLanguage); }} catch (error) {{}}
 
       function pushMemorialRealtimeFrame(payload) {{
@@ -8279,6 +8513,51 @@ def _minimal_public_memorial_html(
           error: "Bitte noch einmal"
         }})[state] || "Bereit";
         if (speechDetail) speechDetail.textContent = String(detail || "").trim();
+        setSpeechMonitorState(state);
+        if (!speechMeterLive) {{
+          const ambient = {{
+            idle: 0.06,
+            listening: 0.24,
+            working: 0.16,
+            playing: 0.44,
+            error: 0.09,
+          }};
+          setSpeechMeterLevel(ambient[state] || 0.06, state === "error" ? 0.42 : 0.78);
+        }}
+      }}
+
+      function setSpeechMonitorState(state = "idle") {{
+        if (!speechMonitor) return;
+        speechMonitor.classList.remove("is-idle", "is-listening", "is-speaking", "is-working", "is-error");
+        const monitorState = state === "playing" || state === "speaking"
+          ? "is-speaking"
+          : (state === "listening"
+            ? "is-listening"
+            : (state === "error"
+              ? "is-error"
+              : (state === "working"
+                ? "is-working"
+                : "is-idle")));
+        speechMonitor.classList.add(monitorState);
+      }}
+
+      function setSpeechMeterLevel(level = 0.06, opacity = 0.78) {{
+        if (!speechMeterFill) return;
+        const normalized = Math.max(0.06, Math.min(1, Number(level) || 0.06));
+        speechMeterFill.style.transform = "scaleX(" + String(normalized) + ")";
+        speechMeterFill.style.opacity = String(Math.max(0.2, Math.min(1, Number(opacity) || 0.78)));
+      }}
+
+      function stopSpeechMeter() {{
+        if (activeSpeechMeterContext) {{
+          const context = activeSpeechMeterContext;
+          activeSpeechMeterContext = null;
+          try {{
+            context.close();
+          }} catch (error) {{}}
+        }}
+        speechMeterLive = false;
+        setSpeechMeterLevel(0.06, 0.7);
       }}
 
       function showAnswerText(value) {{
@@ -8547,6 +8826,7 @@ def _minimal_public_memorial_html(
       }}
 
       function stopRecorder() {{
+        stopSpeechMeter();
         if (activeRecordStopTimer) {{
           clearTimeout(activeRecordStopTimer);
           activeRecordStopTimer = null;
@@ -8572,6 +8852,7 @@ def _minimal_public_memorial_html(
       }}
 
       function resetCaptureState() {{
+        stopSpeechMeter();
         if (activeRecordStopTimer) {{
           clearTimeout(activeRecordStopTimer);
           activeRecordStopTimer = null;
@@ -9264,12 +9545,18 @@ def _minimal_public_memorial_html(
             const silenceAfterSpeechMs = 1200;
             const speechThreshold = 0.0075;
             activeRecordingSpeechGateReady = true;
+            activeSpeechMeterContext = audioContext;
+            speechMeterLive = true;
             activeLevelTimer = window.setInterval(() => {{
               if (generation !== activeGeneration || !activeRecorder || activeRecorder.state !== "recording") return;
               analyser.getFloatTimeDomainData(samples);
               let sum = 0;
               for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
               const rms = Math.sqrt(sum / samples.length);
+              if (speechMeterLive) {{
+                const normalized = Math.max(0.06, Math.min(1, rms * 34));
+                setSpeechMeterLevel(normalized, rms >= speechThreshold ? 0.96 : 0.68);
+              }}
               const now = Date.now();
               if (rms >= speechThreshold) {{
                 speechSeen = true;
@@ -9278,7 +9565,6 @@ def _minimal_public_memorial_html(
               }}
               if (speechSeen && now - startedAt >= minimumRecordMs && now - lastLoudAt >= silenceAfterSpeechMs) {{
                 stopRecorder();
-                try {{ audioContext.close(); }} catch (error) {{}}
               }}
             }}, 120);
           }}

@@ -46,6 +46,12 @@ def build_room_receipt_command(args: argparse.Namespace) -> list[str]:
         args.room_label,
         "--notes",
         args.notes,
+        "--manual-attestation-id",
+        args.manual_attestation_id,
+        "--manual-attestation-signed-at",
+        args.manual_attestation_signed_at,
+        "--manual-attestation-source",
+        args.manual_attestation_source,
         "--require-public-origin",
         "--actual-device-checked",
         "--actual-speaker-checked",
@@ -81,6 +87,9 @@ def main() -> int:
     parser.add_argument("--speaker-label", default="")
     parser.add_argument("--room-label", default="")
     parser.add_argument("--notes", default="")
+    parser.add_argument("--manual-attestation-id", required=True)
+    parser.add_argument("--manual-attestation-signed-at", required=True)
+    parser.add_argument("--manual-attestation-source", default="operator_room_review")
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory(prefix="memorial-room-audio-gold-") as temp_dir:

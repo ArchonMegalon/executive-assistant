@@ -24,7 +24,7 @@ cards:
     audience: public
     image_family: simulation_bench
     asset_slot: capability_check_rules
-    action_label: Inspect a real proof trail
+    action_label: See a rules explanation
     proof_note: "Proof: modifier trail, source trace, and repeatable output stay visible together."
     pain: Follow receipts, source traces, and modifier trails instead of arguing from vibes.
     payoff: The answer stays inspectable when somebody asks where the number came from.
@@ -62,7 +62,7 @@ cards:
     audience: public
     image_family: archive_stair
     action_label: Open support and feedback
-    proof_note: "Proof: support, feedback, and release truth are meant to close the loop back to users rather than disappear into a private inbox."
+    proof_note: "Support, feedback, and release notes should close the loop for users instead of disappearing into a private inbox."
     pain: Reporting a problem is useless if the product cannot route, close, and explain the outcome honestly.
     payoff: Improvement becomes a visible loop instead of a one-way complaint box.
   - id: deterministic_truth
@@ -136,7 +136,7 @@ cards:
     badge: Live now
     audience: public
     image_family: simulation_bench
-    action_label: Inspect the proof trail
+    action_label: See the explanation
   - id: real_public_guide
     bucket: supporting_reads
     title: Product guide and roadmap
@@ -218,7 +218,7 @@ cards:
     render_mode: external_explainer
     action_label: Open the ALICE compare bench
     detail_primary_href: /now#real-rules-truth
-    detail_primary_label: Compare with the live proof trail
+    detail_primary_label: Compare with the live explanation
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/alice.md
     fallback_label: Read the horizon brief
     external_ok: true
@@ -254,14 +254,14 @@ cards:
     render_mode: first_party_rules_projection
     action_label: Open the rules surface
     detail_primary_href: /now#real-rules-truth
-    detail_primary_label: Inspect the live proof trail
+    detail_primary_label: Inspect the live explanation
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/knowledge-fabric.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: Rules answers are expensive, repetitive, and still easy to hallucinate.
     payoff: Derived projections stay grounded instead of becoming assistant folklore.
-    proof_note: "Proof: KNOWLEDGE FABRIC now anchors to the first-party rules surface and live proof trail instead of only research framing."
-    microproof: Rules surface|Live proof trail|Derived non-authoritative projections
+    proof_note: "KNOWLEDGE FABRIC anchors to the Chummer rules surface and live explanation view instead of only research framing."
+    microproof: Rules surface|Live explanation|Derived non-authoritative projections
   - id: horizon_karma_forge
     bucket: coming_next
     title: KARMA FORGE
@@ -280,7 +280,7 @@ cards:
     external_ok: true
     pain: I want house rules without forking trust.
     payoff: Rule-pack changes carry approvals, compatibility, and rollback posture.
-    proof_note: "Proof: KARMA FORGE now has a first-party public lane instead of only research wording."
+    proof_note: "KARMA FORGE now has a Chummer public route instead of only research wording."
     microproof: Governed rules lane|Compatibility posture|Rollback-safe change path
   - id: horizon_jackpoint
     bucket: coming_next
@@ -400,7 +400,7 @@ cards:
     external_ok: true
     pain: Table onboarding still depends on heroic patience.
     payoff: Grounded primers become first-class artifacts instead of random PDFs.
-    proof_note: "Proof: RUNBOOK PRESS now has a first-party public lane backed by the primer packet and primer-video surfaces instead of only preview framing."
+    proof_note: "RUNBOOK PRESS now has a Chummer public route backed by the primer packet and primer-video surfaces instead of only preview framing."
     microproof: Public lane|Primer packet|Primer-video lane
   - id: horizon_community_hub
     bucket: coming_next
@@ -485,23 +485,23 @@ cards:
   - id: horizon_black_ledger
     bucket: coming_next
     title: BLACK LEDGER
-    summary: Keep city pressure, faction motion, and mission-market drift visible between runs.
+    summary: A living-city lab for pressure, factions, and between-session motion.
     href: /ledger
-    badge: Shipped MVP
+    badge: Lab preview
     audience: public
     image_family: boulevard_of_futures
     detail_route: /ledger
     render_mode: first_party_world_pressure_lane
-    action_label: Open BLACK LEDGER
+    action_label: Preview BLACK LEDGER
     detail_primary_href: /ledger/factions
-    detail_primary_label: Inspect the live faction board
+    detail_primary_label: Preview the faction board
     fallback_route: https://github.com/ArchonMegalon/Chummer6/blob/main/HORIZONS/black-ledger.md
     fallback_label: Read the horizon brief
     external_ok: true
     pain: World pressure vanishes when campaigns cannot project consequences beyond the last scene.
     payoff: Consequence, faction posture, and mission pressure remain inspectable instead of turning into GM-only folklore.
-    proof_note: "Proof: BLACK LEDGER now has a first-party public lane, live faction promo receipts, and world-pressure surfaces instead of only research framing."
-    microproof: Public ledger lane|Faction promo receipts|World-pressure surface
+    proof_note: "Boundary: BLACK LEDGER stays out of primary public navigation until the visual, replay, and newsroom experience clears the release bar."
+    microproof: Hidden lab route|Faction preview|World-pressure prototype
   - id: horizon_ghostwire
     bucket: coming_next
     title: GHOSTWIRE
@@ -557,7 +557,7 @@ cards:
     detail_primary_label: Open downloads
     pain: Early-access products stop feeling real when the current build is vague or hard to verify.
     payoff: One visible build, one truthful channel label, and one clean install path make the release feel dependable instead of improvised.
-    proof_note: "Detail: the current release has a real installer path, explicit release posture, and a first-party download path."
+    proof_note: "Detail: the current release has a real installer path, clear platform status, and a first-party download path."
     microproof: Installer path|Release channel|Account-aware handoff
   - id: artifact_mac_release_pipeline
     bucket: featured_artifacts
@@ -590,7 +590,7 @@ cards:
     detail_route: /artifacts/explanation-receipt-trail
     action_label: Inspect the receipt trail
     detail_primary_href: /now#real-rules-truth
-    detail_primary_label: Inspect the proof trail
+    detail_primary_label: See the explanation
   - id: artifact_runsite_pack
     bucket: featured_artifacts
     title: Runsite pack

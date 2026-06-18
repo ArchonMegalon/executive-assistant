@@ -120,6 +120,7 @@ product_systems:
     tools:
       - hedy.ai
       - Nonverbia
+      - Prompt Architects
       - Unmixr AI
       - Soundmadeseen
       - first_party_consent_model
@@ -130,6 +131,7 @@ product_systems:
       - Sentry_candidate
       - ProductLift
       - Emailit
+      - PayFunnels
       - PostHog_candidate
       - Fleet
       - Product Governor

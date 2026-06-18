@@ -4,6 +4,12 @@ This directory holds the human-readable horizon canon for Project Chummer.
 
 Each file defines a bounded future lane, the table pain it targets, the likely owners, and the architectural reasons it is still parked.
 
+## Video shelf
+
+The public horizon overview reel lives at [Every Wonder Horizon](https://chummer.run/media/promo/every-wonder-horizon-promo.mp4), with captions at [every-wonder-horizon-promo.vtt](https://chummer.run/media/promo/every-wonder-horizon-promo.vtt).
+
+Per-horizon explanation reels that passed the audio probe live under [the horizon video manifest](https://chummer.run/media/horizons/horizon-video-manifest.json). Link only those manifest-backed files from individual horizon docs so the public copy does not point at scratch render folders or silent candidate exports.
+
 Before adding or changing a horizon, read `../HORIZON_DESIGN_INSTRUCTIONS.md`. Horizon docs must keep the human reader first, show the table scene, name the trust boundary, and avoid leaking implementation shorthand into public output.
 
 ## Current canonical horizon set

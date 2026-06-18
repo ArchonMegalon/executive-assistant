@@ -1,5 +1,9 @@
 # JACKPOINT
 
+## Explanation video
+
+[Watch the JACKPOINT 90-second deep dive](https://chummer.run/media/horizons/jackpoint-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/jackpoint-90s-deepdive.vtt).
+
 ## The problem
 
 Players and GMs want dossiers, recaps, primers, and narrated briefings, but most content tools either invent details or strip away where the facts came from.

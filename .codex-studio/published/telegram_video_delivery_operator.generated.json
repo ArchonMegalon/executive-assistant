@@ -1,0 +1,55 @@
+{
+  "contract_name": "ea.telegram_video_delivery_operator_receipt",
+  "generated_at": "2026-06-18T15:33:02Z",
+  "generated_by": "scripts/materialize_telegram_video_delivery_receipt.py",
+  "source_git_head": "38235cbceb683c5bed24bda4e83b689b1b5b91a9",
+  "head_semantics": "source_state",
+  "status": "bounded_pass",
+  "claim": "Telegram video replies have a bounded, governed local source-video lane and durable delivery receipts; live operator Telegram delivery still requires a message-ID receipt.",
+  "bounded_reason": "No live operator Telegram send/message-id proof is embedded in this generated receipt.",
+  "live_operator_delivery_required_for_gold": true,
+  "delivery_observation_event_type": "telegram.video_delivery_receipt",
+  "supported_local_edits": "realistic flame overlays, brief burn accents, speed changes, louder audio, and mute/remove-audio edits",
+  "checks": [
+    {
+      "code": "local_source_fire_edit_supported",
+      "status": "pass"
+    },
+    {
+      "code": "default_download_allowlist_is_telegram_only",
+      "status": "pass",
+      "allowed_hosts": [
+        "api.telegram.org"
+      ]
+    },
+    {
+      "code": "download_byte_cap_configured",
+      "status": "pass",
+      "max_bytes": 83886080
+    },
+    {
+      "code": "magicfit_has_no_default_latest_image",
+      "status": "pass",
+      "default_image": ""
+    },
+    {
+      "code": "magicfit_requires_digest_pinned_image",
+      "status": "pass"
+    },
+    {
+      "code": "delivery_receipt_redacts_source_url",
+      "status": "pass",
+      "source_context": {
+        "has_source_video": true,
+        "source_url_raw_stored": false,
+        "source_url_sha256": "7cfd65136c8bca889b5fa68929ea875e37381c74b2abc2f9874a7d4e206eca45",
+        "source_host": "api.telegram.org",
+        "source_path_redacted": "/file/bot<redacted>/videos/file.mp4",
+        "source_video_duration_seconds": 12,
+        "source_video_reference_board_present": false,
+        "source_video_reference_frame_count": 2
+      }
+    }
+  ],
+  "blocking_checks": []
+}

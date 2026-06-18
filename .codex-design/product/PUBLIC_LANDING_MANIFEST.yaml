@@ -4,8 +4,8 @@ version: 1
 headline: Build Shadowrun characters. Know why the numbers changed.
 subhead: Download Chummer, open or import a character, and keep sessions moving with
   explainable rules math, durable local state, and clear recovery paths.
-proof_line: The current nightly or stable build, install checks, and route evidence
-  are posted so you can verify what works today.
+proof_line: The current nightly and stable builds are posted with plain release notes
+  so you can see what is ready today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
@@ -24,25 +24,23 @@ guest_shell_actions:
   emphasis: primary
 secondary_highlights:
 - Deterministic engine
-- Rules receipts
+- Rules explanations
 - Local-first continuity
-product_proof_eyebrow: Verifiable release trail
-product_proof_intro: Start with the current download, then inspect the release trail
-  when you need to confirm what the posted build, routes, and named flows prove today.
+product_proof_eyebrow: Current build
+product_proof_intro: Start with the current download, then check status only when
+  you need dates, platforms, or known issues.
 product_proof_primary_label: Download Chummer
 product_proof_primary_href: /downloads
-product_proof_secondary_label: Inspect evidence
-product_proof_secondary_href: /now#real-rules-truth
-product_proof_topline_label: Posted release trail
-product_proof_scope_line: Evidence on the public shelf is scoped to the posted files,
-  named flows, and recent checks you can inspect today; downloads remain the primary
-  route for trying Chummer.
-product_flagship_boundary_line: Preview evidence and fallback routes can show real
-  progress, but flagship wording is reserved for surfaces that independently clear
-  the flagship acceptance bar.
+product_proof_secondary_label: See status
+product_proof_secondary_href: /status
+product_proof_topline_label: Current release
+product_proof_scope_line: Public pages focus on the builds, platforms, and workflows
+  a player can actually try today; downloads remain the primary route for trying Chummer.
+product_flagship_boundary_line: Experimental surfaces stay behind lab routes until
+  their visuals, behavior, and tests are ready for normal users.
 product_proof_result_title: Final pool 9
-product_proof_result_summary: Same inputs, same answer, with the trail, posted-shelf
-  posture, and claim boundary still attached.
+product_proof_result_summary: Same inputs, same answer, with a clear explanation
+  attached.
 product_proof_trail:
 - Base 11
 - Weather -1
@@ -70,12 +68,12 @@ public_routes:
 - path: /now
   title: What works today
   audience: public
-  purpose: proof_shelf
+  purpose: current_capabilities
   requires_auth: false
   guest_fallback: /now
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: proof shelf honesty only
+  placeholder_requirements: current capability summary only
 - path: /status
   title: Status
   audience: public
@@ -84,7 +82,7 @@ public_routes:
   guest_fallback: /status
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: weekly pulse, release posture, and current caution only
+  placeholder_requirements: release date, platform status, and known issues only
 - path: /horizons
   title: Roadmap
   audience: public
@@ -120,7 +118,7 @@ public_routes:
   guest_fallback: /downloads
   must_exist: true
   placeholder_allowed: false
-  placeholder_requirements: proof shelf honesty only
+  placeholder_requirements: download choices and install help only
 - path: /docs
   title: Document Portal
   audience: public
@@ -734,6 +732,7 @@ public_routes:
   purpose: public_worlds_entry
   requires_auth: false
   guest_fallback: /ledger
+  required_final_url_prefix: /ledger/map
   must_exist: true
   placeholder_allowed: false
   placeholder_requirements: public aggregate world-state entry only

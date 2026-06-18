@@ -1,5 +1,9 @@
 # ALICE
 
+## Explanation video
+
+[Watch the ALICE 90-second deep dive](https://chummer.run/media/horizons/alice-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/alice-90s-deepdive.vtt).
+
 ## The problem
 
 Players often discover bad builds, illegal interactions, or weak upgrade paths only after the run has already gone sideways.

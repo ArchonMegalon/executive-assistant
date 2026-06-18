@@ -2132,6 +2132,9 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
 ) -> None:
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
+    pinned_image = "ea-runtime@sha256:" + ("0" * 64)
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", pinned_image)
     from app.api.routes import channels as channels_route
 
     repo_root = tmp_path / "repo"
@@ -2185,9 +2188,71 @@ def test_telegram_render_magicfit_video_reply_prefers_dockerized_playwright_runt
     assert delivery["provider"] == "magicfit"
     assert executed
     assert executed[0][0:2] == ["docker", "run"]
-    assert "ea-runtime:latest" in executed[0]
-    assert f"{repo_root}:{repo_root}" in executed[0]
+    assert pinned_image in executed[0]
+    assert f"{repo_root}:{repo_root}:ro" in executed[0]
+    assert "--env-file" in executed[0]
+    assert "--read-only" in executed[0]
+    assert "--security-opt" in executed[0]
+    assert "no-new-privileges" in executed[0]
+    assert all(not item.startswith("CHUMMER_EA_MAGICFIT_PASSWORD=") for item in executed[0])
     assert str(script_path) in executed[0]
+
+
+def test_telegram_magicfit_fallback_requires_runtime_lane_approval(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", "ea-runtime@sha256:" + ("1" * 64))
+    from app.api.routes import channels as channels_route
+
+    script_path = tmp_path / "render_magicfit_property_flythrough.py"
+    script_path.write_text("print('stub')\n", encoding="utf-8")
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_script_path", lambda: script_path)
+
+    monkeypatch.delenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", raising=False)
+    assert channels_route._telegram_magicfit_video_fallback_available() is False
+
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
+    assert channels_route._telegram_magicfit_video_fallback_available() is True
+
+
+def test_telegram_magicfit_fallback_rejects_unpinned_docker_image(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_VIDEO_FALLBACK_ENABLED", "1")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
+    monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", "ea-runtime:latest")
+    from app.api.routes import channels as channels_route
+
+    script_path = tmp_path / "render_magicfit_property_flythrough.py"
+    script_path.write_text("print('stub')\n", encoding="utf-8")
+    monkeypatch.setattr(channels_route, "_telegram_magicfit_video_script_path", lambda: script_path)
+
+    assert channels_route._telegram_magicfit_docker_available() is False
+    assert channels_route._telegram_magicfit_video_fallback_available() is False
+
+
+def test_telegram_video_source_receipt_context_redacts_bot_token() -> None:
+    from app.api.routes import channels as channels_route
+
+    context = channels_route._telegram_video_source_receipt_context(
+        {
+            "video_download_url": "https://api.telegram.org/file/bot123456:secret-token/videos/file.mp4",
+            "source_video_reference_frame_paths": ["/tmp/frame-1.jpg", "/tmp/frame-2.jpg"],
+        }
+    )
+
+    assert context["source_url_raw_stored"] is False
+    assert context["source_host"] == "api.telegram.org"
+    assert context["source_url_sha256"]
+    assert "123456:secret-token" not in str(context["source_path_redacted"])
+    assert context["source_video_reference_frame_count"] == 2
 
 
 def test_telegram_render_magicfit_video_reply_surfaces_compacted_failure(
@@ -2196,6 +2261,8 @@ def test_telegram_render_magicfit_video_reply_surfaces_compacted_failure(
 ) -> None:
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_EMAIL", "the.girscheles@gmail.com")
     monkeypatch.setenv("CHUMMER_EA_MAGICFIT_PASSWORD", "secret-pass")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_RUNTIME_LANE_APPROVED", "1")
+    monkeypatch.setenv("EA_TELEGRAM_MAGICFIT_DOCKER_IMAGE", "ea-runtime@sha256:" + ("2" * 64))
     from app.api.routes import channels as channels_route
 
     repo_root = tmp_path / "repo"
@@ -2307,6 +2374,88 @@ def test_telegram_async_worker_prefers_local_source_video_edit_for_supported_req
     )
     assert local_calls
     assert browseract_calls == []
+    assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
+    observations = list(
+        client.app.state.container.channel_runtime.list_recent_observations(
+            limit=20,
+            principal_id="exec-telegram-local-source-video",
+        )
+    )
+    video_receipts = [row for row in observations if row.event_type == "telegram.video_delivery_receipt"]
+    assert video_receipts
+    receipt_payload = dict(video_receipts[0].payload or {})
+    assert receipt_payload["provider"] == "local_source_video_fx"
+    assert receipt_payload["status"] == "sent"
+    assert receipt_payload["message_ids"] == ["tg-video-local-1"]
+    source_video = dict(receipt_payload["source_video"])
+    assert source_video["source_url_raw_stored"] is False
+    assert source_video["source_host"] == "api.telegram.org"
+    assert source_video["source_url_sha256"]
+
+
+def test_telegram_async_worker_prefers_local_source_video_edit_for_on_fire_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_TELEGRAM_INGEST_SECRET", "tg-secret")
+    monkeypatch.setenv("EA_TELEGRAM_AUTO_BIND_UNKNOWN_CHAT", "1")
+    monkeypatch.setenv("EA_TELEGRAM_DEFAULT_PRINCIPAL_ID", "exec-telegram-local-source-video-on-fire")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_HANDLE", "tibor_concierge_bot")
+    monkeypatch.setenv("EA_TELEGRAM_BOT_TOKEN", "telegram-token-local-source-video-on-fire")
+    from app.api.routes import channels as channels_route
+
+    sent: list[dict[str, object]] = []
+    local_calls: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"ok": True, "result": {"message_id": 41}}).encode("utf-8")
+
+    def _fake_urlopen(request, timeout=30):
+        sent.append(json.loads(request.data.decode("utf-8")))
+        return _FakeResponse()
+
+    def _fake_local_reply(**kwargs):  # noqa: ANN001
+        local_calls.append(dict(kwargs))
+        return {"status": "sent", "provider": "local_source_video_fx", "message_ids": ["tg-video-local-2"]}
+
+    monkeypatch.setattr(channels_route.urllib.request, "urlopen", _fake_urlopen)
+    monkeypatch.setattr(channels_route, "_telegram_real_ea_reply_text", lambda **kwargs: "")
+    client = _client(principal_id="exec-telegram-local-source-video-on-fire", operator=False)
+    client.app.state.container.tool_runtime.upsert_connector_binding(
+        principal_id="exec-telegram-local-source-video-on-fire",
+        connector_name="browseract",
+        external_account_ref="browseract-main",
+        scope_json={},
+        auth_metadata_json={"mootion_movie_workflow_id": "wf-mootion-1"},
+        status="enabled",
+    )
+
+    monkeypatch.setattr(channels_route, "_telegram_render_local_source_video_reply", _fake_local_reply)
+
+    wording = "Could you make this ring look like on fire and send it back here, photorealistic please."
+    channels_route._telegram_async_assistant_reply_worker(
+        container=client.app.state.container,
+        principal_id="exec-telegram-local-source-video-on-fire",
+        bot_config={"token": "telegram-token-video"},
+        chat_id="9998",
+        text=wording,
+        current_message_id="41",
+        async_payload={
+            "kind": "instructional_video",
+            "instruction_text": wording,
+            "video_caption": wording,
+            "video_download_url": "https://api.telegram.org/file/bot/video/file-41.mp4",
+            "video_duration_seconds": 42,
+        },
+    )
+    assert local_calls
+    assert dict(local_calls[0].get("payload") or {})["instruction_text"] == wording
     assert sent and sent[0]["text"] == "I rendered and sent a short video reply here."
 
 

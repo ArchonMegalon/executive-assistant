@@ -18,7 +18,10 @@ from app.api.routes.channels import (
 )
 from app.container import build_container
 from app.logging_utils import configure_logging
+from app.services import whatsapp_delivery
 from app.settings import get_settings
+
+send_whatsapp_text = whatsapp_delivery.send_whatsapp_text
 
 _IDLE_BACKOFF_START_SECONDS = 1.0
 _IDLE_BACKOFF_MAX_SECONDS = 15.0
@@ -30,6 +33,8 @@ _SCHEDULER_POCKET_SIGNAL_SYNC_INTERVAL_SECONDS = 900.0
 _SCHEDULER_MORNING_MEMO_INTERVAL_SECONDS = 300.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS = 5.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
+_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS = 6.0
+_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MIN_AGE_SECONDS = 2.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
@@ -161,6 +166,32 @@ def _scheduler_telegram_async_recovery_min_age_seconds() -> float:
 
 def _scheduler_telegram_async_recovery_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_TELEGRAM_ASYNC_RECOVERY_ENABLED", True)
+
+
+def _scheduler_whatsapp_async_recovery_interval_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS",
+        _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_INTERVAL_SECONDS,
+    )
+
+
+def _scheduler_whatsapp_async_recovery_min_age_seconds() -> float:
+    return _env_float(
+        "EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MIN_AGE_SECONDS",
+        _SCHEDULER_WHATSAPP_ASYNC_RECOVERY_MIN_AGE_SECONDS,
+    )
+
+
+def _scheduler_whatsapp_async_recovery_enabled() -> bool:
+    return _env_bool("EA_SCHEDULER_WHATSAPP_ASYNC_RECOVERY_ENABLED", True)
+
+
+def _whatsapp_queue_max_attempts() -> int:
+    return max(1, _env_int("EA_WHATSAPP_DELIVERY_MAX_QUEUE_ATTEMPTS", 6))
+
+
+def _whatsapp_queue_retry_backoff_seconds() -> float:
+    return _env_float("EA_WHATSAPP_DELIVERY_QUEUE_RETRY_BACKOFF_SECONDS", 2.0)
 
 
 def _scheduler_public_base_url() -> str:
@@ -1344,6 +1375,104 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
     }
 
 
+def _run_scheduler_whatsapp_async_recovery(container, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    drained = 0
+    pending = 0
+    skipped = 0
+    errors = 0
+    dead_lettered = 0
+    observed_at = datetime.now(timezone.utc)
+    min_age_seconds = max(_scheduler_whatsapp_async_recovery_min_age_seconds(), 2.0)
+    max_attempts = _whatsapp_queue_max_attempts()
+    for row in container.channel_runtime.list_pending_delivery(limit=400):
+        if str(getattr(row, "channel", "") or "").strip() != "whatsapp":
+            continue
+        principal_id = str(getattr(row, "principal_id", "") or "").strip()
+        recipient = str(getattr(row, "recipient", "") or "").strip()
+        content = str(getattr(row, "content", "") or "")
+        if not principal_id or not recipient or not content:
+            skipped += 1
+            continue
+        payload = dict(getattr(row, "metadata", {}) or {})
+        binding_id = str(payload.get("binding_id") or "")
+        binding = None
+        if binding_id and hasattr(container, "tool_runtime"):
+            try:
+                binding = container.tool_runtime.get_connector_binding(binding_id)
+            except Exception:
+                binding = None
+        created_at = _parse_runner_isoish_datetime(getattr(row, "created_at", "") or "")
+        if not created_at:
+            skipped += 1
+            continue
+        if max((observed_at - created_at).total_seconds(), 0.0) < min_age_seconds:
+            pending += 1
+            continue
+        attempt_count = max(0, int(getattr(row, "attempt_count", 0) or 0))
+        try:
+            normalized_recipient = whatsapp_delivery._normalize_recipient(recipient)
+            receipt = send_whatsapp_text(
+                tool_runtime=container.tool_runtime,
+                principal_id=principal_id,
+                recipient=normalized_recipient,
+                text=content,
+                binding_id=binding_id,
+                binding=binding,
+            )
+            container.channel_runtime.mark_delivery_sent(
+                str(row.delivery_id),
+                principal_id=principal_id,
+                receipt_json={
+                    "channel": "whatsapp",
+                    "binding_id": receipt.binding_id,
+                    "connector_name": receipt.connector_name,
+                    "external_account_ref": receipt.external_account_ref,
+                    "recipient": receipt.recipient,
+                    "message_ids": list(receipt.message_ids),
+                    "request_url": receipt.request_url,
+                    "binding_status": receipt.binding_status,
+                },
+            )
+            drained += 1
+        except Exception:
+            delay_seconds = _whatsapp_queue_retry_backoff_seconds() * (2.0 ** max(0, attempt_count))
+            is_exhausted = attempt_count + 1 >= max_attempts
+            if is_exhausted:
+                mark_failed = container.channel_runtime.mark_delivery_failed(
+                    str(row.delivery_id),
+                    principal_id=principal_id,
+                    error="whatsapp_delivery_retry_limit_reached",
+                    dead_letter=True,
+                )
+            else:
+                mark_failed = container.channel_runtime.mark_delivery_failed(
+                    str(row.delivery_id),
+                    principal_id=principal_id,
+                    error="whatsapp_send_failed",
+                    next_attempt_at=(observed_at + timedelta(seconds=max(1.0, delay_seconds))).isoformat(),
+                    dead_letter=False,
+                )
+            errors += 1
+            if mark_failed is None:
+                pass
+            elif is_exhausted:
+                dead_lettered += 1
+            log.exception(
+                "scheduler whatsapp async outbox failed principal=%s recipient=%s delivery=%s",
+                principal_id,
+                recipient,
+                getattr(row, "delivery_id", ""),
+            )
+    return {
+        "ran": True,
+        "drained": drained,
+        "pending": pending,
+        "skipped": skipped,
+        "errors": errors,
+        "dead_lettered": dead_lettered,
+    }
+
+
 def _run_api() -> None:
     s = get_settings()
     uvicorn.run(
@@ -1394,6 +1523,7 @@ def _run_execution_worker(role: str) -> None:
     last_pocket_signal_sync_at = 0.0
     last_morning_memo_at = 0.0
     last_telegram_async_recovery_at = 0.0
+    last_whatsapp_async_recovery_at = 0.0
     property_only_scheduler = role == "scheduler" and _scheduler_property_only_profile_enabled()
     property_only_worker = role == "worker" and _worker_property_only_profile_enabled()
     log.info("role=%s started worker loop", role)
@@ -1561,6 +1691,24 @@ def _run_execution_worker(role: str) -> None:
                 except Exception:
                     log.exception("role=%s scheduler telegram async outbox failed", role)
                     last_telegram_async_recovery_at = now
+            if not property_only_scheduler and _scheduler_whatsapp_async_recovery_enabled() and (
+                now - last_whatsapp_async_recovery_at >= _scheduler_whatsapp_async_recovery_interval_seconds()
+            ):
+                try:
+                    recovery_summary = _run_scheduler_whatsapp_async_recovery(container, log)
+                    last_whatsapp_async_recovery_at = now
+                    log.info(
+                        "role=%s scheduler whatsapp async outbox drained=%s pending=%s skipped=%s errors=%s dead_lettered=%s",
+                        role,
+                        recovery_summary.get("drained"),
+                        recovery_summary.get("pending"),
+                        recovery_summary.get("skipped"),
+                        recovery_summary.get("errors"),
+                        recovery_summary.get("dead_lettered"),
+                    )
+                except Exception:
+                    log.exception("role=%s scheduler whatsapp async outbox failed", role)
+                    last_whatsapp_async_recovery_at = now
             if property_only_scheduler:
                 log.debug("role=%s property-only scheduler idle; sleeping %.1fs", role, idle_backoff_seconds)
                 time.sleep(idle_backoff_seconds)

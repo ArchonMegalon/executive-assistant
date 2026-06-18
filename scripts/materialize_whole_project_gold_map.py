@@ -34,6 +34,7 @@ DEFAULT_MEMORIAL_VOICE_ROUNDTRIP_RECEIPT = ROOT / ".codex-studio/published/memor
 DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT = ROOT / ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT = ROOT / ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json"
 DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT = ROOT / ".codex-studio/published/memorial_room_audio_public_origin.generated.json"
+DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT = ROOT / ".codex-studio/published/telegram_video_delivery_operator.generated.json"
 DEFAULT_CORE_RULE_RECEIPTS = (
     Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"),
     Path("/docker/chummercomplete/chummer-core-engine/.codex-studio/published/FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json"),
@@ -59,6 +60,8 @@ BLOCKING_STATUSES = {
     "unknown_missing_receipt",
     "blocked",
     "fail",
+    "bounded_pass",
+    "mixed",
     "draft_operator",
     "candidate_only",
     "separate_risk_zone",
@@ -149,6 +152,64 @@ def _status_from_receipt(path: Path, allowed: set[str]) -> str:
     return "pass" if status in allowed else "unknown_missing_receipt"
 
 
+def _telegram_video_delivery_status(path: Path) -> tuple[str, list[str], list[str]]:
+    payload = _json(path)
+    if not payload:
+        return "unknown_missing_receipt", [], [_display_path(path)]
+    status = str(payload.get("status") or "").strip().lower()
+    evidence = [_display_path(path)]
+    if status == "pass":
+        return "pass", evidence, []
+    if status == "bounded_pass":
+        missing = ["live Telegram video delivery receipt with operator message ID and delivery observation"]
+        return "bounded_pass", evidence, missing
+    blocking = list(payload.get("blocking_checks") or [])
+    missing = [f"{_display_path(path)} status={status or 'missing'}"]
+    missing.extend(str(item) for item in blocking if str(item).strip())
+    return "blocked", evidence, missing
+
+
+def _room_receipt_status(path: Path) -> str:
+    payload = _json(path)
+    status = str(payload.get("status") or "").strip().lower()
+    if status not in {"pass", "passed"}:
+        return "unknown_missing_receipt"
+    attestation = dict(payload.get("manual_attestation") or {})
+    if (
+        str(payload.get("proof_type") or "").strip() != "manual_room_attestation"
+        or not str(attestation.get("attestation_id") or "").strip()
+        or not str(attestation.get("signed_at") or "").strip()
+        or attestation.get("ci_must_not_auto_assert") is not True
+    ):
+        return "blocked"
+    return "pass"
+
+
+def _weekly_pulse_blockers(path: Path) -> list[str]:
+    payload = _json(path)
+    if not payload:
+        return [f"{_display_path(path)} missing_or_invalid"]
+    blockers: list[str] = []
+    release_health = payload.get("release_health")
+    if isinstance(release_health, dict):
+        state = str(release_health.get("state") or "").strip().lower()
+        if state not in {"ready", "clear", "pass"}:
+            reason = str(release_health.get("reason") or "").strip()
+            blockers.append(f"weekly release_health={state or 'missing'}" + (f": {reason}" if reason else ""))
+    flagship_readiness = payload.get("flagship_readiness")
+    if isinstance(flagship_readiness, dict):
+        state = str(flagship_readiness.get("state") or "").strip().lower()
+        if state not in {"ready", "clear", "pass"}:
+            reason = str(flagship_readiness.get("reason") or "").strip()
+            blockers.append(f"weekly flagship_readiness={state or 'missing'}" + (f": {reason}" if reason else ""))
+    supporting = payload.get("supporting_signals")
+    if isinstance(supporting, dict):
+        launch_readiness = str(supporting.get("launch_readiness") or "").strip()
+        if launch_readiness.lower().startswith("hold") or "freeze" in launch_readiness.lower():
+            blockers.append(f"weekly launch_readiness: {launch_readiness}")
+    return list(dict.fromkeys(blockers))
+
+
 def _receipt_group_status(
     paths: tuple[Path, ...], *, allowed: set[str] = {"pass", "passed"}
 ) -> tuple[str, list[str], list[str]]:
@@ -196,6 +257,7 @@ def build_gold_map(
     memorial_public_voice_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_VOICE_RECEIPT,
     memorial_public_browser_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_BROWSER_RECEIPT,
     memorial_public_room_receipt: Path = DEFAULT_MEMORIAL_PUBLIC_ROOM_RECEIPT,
+    telegram_video_delivery_receipt: Path = DEFAULT_TELEGRAM_VIDEO_DELIVERY_RECEIPT,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     source_git_head = _git_head()
@@ -203,6 +265,13 @@ def build_gold_map(
     weekly_status = _status_from_receipt(weekly_pulse_path, {"ready", "clear", "pass"})
     browser_status = _status_from_receipt(browser_proof_path, {"pass"})
     ea_status = "pass" if {flagship_status, weekly_status, browser_status} == {"pass"} else "blocked"
+    ea_missing: list[str] = []
+    if flagship_status != "pass":
+        ea_missing.append(f"{_display_path(flagship_receipt_path)} is not pass")
+    if weekly_status != "pass":
+        ea_missing.extend(_weekly_pulse_blockers(weekly_pulse_path))
+    if browser_status != "pass":
+        ea_missing.append(f"{_display_path(browser_proof_path)} is not pass")
     fleet_status, fleet_evidence, fleet_missing = _fleet_status(fleet_journey_gates_path)
     core_status, core_evidence, core_missing = _receipt_group_status(core_rule_receipts)
     desktop_status, desktop_evidence, desktop_missing = _receipt_group_status(desktop_ui_receipts)
@@ -210,12 +279,15 @@ def build_gold_map(
     mobile_status, mobile_evidence, mobile_missing = _receipt_group_status(mobile_receipts)
     media_status_raw, media_evidence, media_missing = _receipt_group_status(media_receipts)
     media_status = "bounded_pass" if media_status_raw == "pass" else media_status_raw
+    telegram_video_status, telegram_video_evidence, telegram_video_missing = _telegram_video_delivery_status(
+        telegram_video_delivery_receipt
+    )
     memorial_voice_status_raw = _status_from_receipt(memorial_voice_roundtrip_receipt, {"pass"})
     memorial_voice_status = "pass" if memorial_voice_status_raw == "pass" else "separate_risk_zone"
     memorial_voice_evidence = [_display_path(memorial_voice_roundtrip_receipt)] if memorial_voice_roundtrip_receipt.is_file() else []
     memorial_public_voice_status = _status_from_receipt(memorial_public_voice_receipt, {"pass"})
     memorial_public_browser_status = _status_from_receipt(memorial_public_browser_receipt, {"pass"})
-    memorial_public_room_status = _status_from_receipt(memorial_public_room_receipt, {"pass"})
+    memorial_public_room_status = _room_receipt_status(memorial_public_room_receipt)
     memorial_public_gold_status = (
         "pass"
         if memorial_public_voice_status == "pass"
@@ -234,7 +306,7 @@ def build_gold_map(
     if memorial_public_browser_status != "pass":
         memorial_public_missing.append("public-origin browser realtime/audio playback gold receipt")
     if memorial_public_room_status != "pass":
-        memorial_public_missing.append("public-origin room/device audio intelligibility receipt")
+        memorial_public_missing.append("public-origin room/device audio intelligibility receipt with manual attestation")
     memorial_public_design_notes = (
         [
             "Use: Memorial public-origin gold: pass.",
@@ -261,7 +333,7 @@ def build_gold_map(
                 _display_path(weekly_pulse_path),
                 _display_path(browser_proof_path),
             ],
-            missing_evidence=[] if ea_status == "pass" else ["EA flagship receipt, weekly pulse, or browser proof is not pass"],
+            missing_evidence=[] if ea_status == "pass" else ea_missing or ["EA flagship receipt, weekly pulse, or browser proof is not pass"],
         ),
         _plane(
             key="fleet_journey_gates",
@@ -334,6 +406,20 @@ def build_gold_map(
             ],
         ),
         _plane(
+            key="telegram_video_delivery",
+            title="Telegram Video Delivery",
+            owner_repo="EA",
+            status=telegram_video_status,
+            claim="Telegram video replies are accepted only when source-video download safety, governed render lanes, durable delivery receipts, and live operator message-ID proof are present.",
+            evidence=telegram_video_evidence,
+            missing_evidence=telegram_video_missing,
+            design_notes=[
+                "Local source-video edits can be a bounded operator lane.",
+                "MagicFit remains disabled unless the runtime lane is explicitly approved and the Docker image is digest pinned.",
+                "Generated bounded proof is not the same as a live Telegram delivery receipt.",
+            ],
+        ),
+        _plane(
             key="memorial_voice_demo",
             title="Memorial Voice / Realtime Demo",
             owner_repo="memorial runtime",
@@ -393,15 +479,17 @@ def build_gold_map(
         if gold_claim_allowed
         else "Whole-project gold is blocked unless every listed plane, including memorial public-origin experience, is proven."
     )
-    required_next_receipts = (
-        []
-        if gold_claim_allowed
-        else [
-            "memorial_voice_roundtrip_public_origin.generated.json",
-            "memorial_realtime_browser_public_origin.generated.json",
-            "memorial_room_audio_public_origin.generated.json",
-        ]
-    )
+    required_next_receipts: list[str] = []
+    if not gold_claim_allowed:
+        for plane in planes:
+            if str(plane.get("status") or "").strip().lower() not in BLOCKING_STATUSES:
+                continue
+            missing = [str(item) for item in list(plane.get("missing_evidence") or []) if str(item).strip()]
+            if missing:
+                required_next_receipts.extend(missing)
+            else:
+                required_next_receipts.append(f"{plane['key']} requires an owning-plane pass receipt")
+        required_next_receipts = list(dict.fromkeys(required_next_receipts))
 
     return {
         "contract_name": "ea.whole_project_gold_map",
@@ -428,6 +516,7 @@ def build_gold_map(
             "Whole-project gold requires every listed plane to pass; EA receipt-set gold is only a narrower local label.",
             "External Chummer receipts may promote their own plane from unknown to pass when they are present and passing.",
             "Draft/operator LTD lanes cannot be treated as runtime or publication truth.",
+            "Telegram video delivery requires a dedicated live delivery receipt before it can support whole-project gold.",
             "Design mirror parity is bounded; canonical product/UI proof must come from owning repos.",
             "Memorial voice/realtime readiness requires its own browser, STT, TTS, and latency receipts.",
             "Memorial public-origin gold requires the public voice roundtrip receipt, public browser realtime receipt, and public room-audio receipt.",

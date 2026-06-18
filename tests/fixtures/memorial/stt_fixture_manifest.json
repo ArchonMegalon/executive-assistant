@@ -1,0 +1,56 @@
+{
+  "contract_name": "ea.memorial_stt_fixture_manifest",
+  "contract_version": 1,
+  "default_language": "de",
+  "retention_policy": "Repository regression fixtures only; do not republish raw memorial-test audio outside the private EA test context.",
+  "fixtures": [
+    {
+      "sample": "contact_opening",
+      "file": "contact_opening_captured.wav",
+      "origin": "Captured operator memorial test audio from the Manfred realtime conversation lane.",
+      "speaker_consent": "operator_attested_for_private_stt_regression",
+      "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+      "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+      "synthetic": false,
+      "language": "de",
+      "accent": "Austrian German",
+      "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+      "required_tokens": ["hallo", "manfred", "sprechen"],
+      "min_token_f1": 0.65,
+      "max_wer": 0.45,
+      "sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620"
+    },
+    {
+      "sample": "stt_retry",
+      "file": "rescue_stt_retry_captured.wav",
+      "origin": "Captured operator memorial retry-test audio after a weak or missing STT turn.",
+      "speaker_consent": "operator_attested_for_private_stt_regression",
+      "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+      "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+      "synthetic": false,
+      "language": "de",
+      "accent": "Austrian German",
+      "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
+      "required_tokens": ["kommt", "stumm"],
+      "min_token_f1": 0.55,
+      "max_wer": 0.55,
+      "sha256": "341ca9589cc4481628317342f81ef08fc0add2b1aab5414b4da551505f6197c7"
+    },
+    {
+      "sample": "technical_retry",
+      "file": "rescue_technical_retry_captured.wav",
+      "origin": "Captured operator memorial technical-retry fixture; currently byte-identical to rescue_stt_retry_captured.wav.",
+      "speaker_consent": "operator_attested_for_private_stt_regression",
+      "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+      "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+      "synthetic": false,
+      "language": "de",
+      "accent": "Austrian German",
+      "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
+      "required_tokens": ["kommt", "stumm"],
+      "min_token_f1": 0.55,
+      "max_wer": 0.55,
+      "sha256": "341ca9589cc4481628317342f81ef08fc0add2b1aab5414b4da551505f6197c7"
+    }
+  ]
+}

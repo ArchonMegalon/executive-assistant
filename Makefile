@@ -240,6 +240,9 @@ materialize-memorial-room-audio-gold:
 		--speaker-label "$${MEMORIAL_ROOM_SPEAKER_LABEL:-}" \
 		--room-label "$${MEMORIAL_ROOM_LABEL:-}" \
 		--notes "$${MEMORIAL_ROOM_NOTES:-}" \
+		--manual-attestation-id "$${MEMORIAL_ROOM_ATTESTATION_ID:?Set MEMORIAL_ROOM_ATTESTATION_ID from the signed/manual room review}" \
+		--manual-attestation-signed-at "$${MEMORIAL_ROOM_ATTESTATION_SIGNED_AT:?Set MEMORIAL_ROOM_ATTESTATION_SIGNED_AT from the signed/manual room review}" \
+		--manual-attestation-source "$${MEMORIAL_ROOM_ATTESTATION_SOURCE:-operator_room_review}" \
 		--require-public-origin \
 		--actual-device-checked \
 		--actual-speaker-checked \
@@ -256,7 +259,10 @@ materialize-memorial-room-audio-gold-clean:
 		--device-label "$${MEMORIAL_ROOM_DEVICE_LABEL:-}" \
 		--speaker-label "$${MEMORIAL_ROOM_SPEAKER_LABEL:-}" \
 		--room-label "$${MEMORIAL_ROOM_LABEL:-}" \
-		--notes "$${MEMORIAL_ROOM_NOTES:-}"
+		--notes "$${MEMORIAL_ROOM_NOTES:-}" \
+		--manual-attestation-id "$${MEMORIAL_ROOM_ATTESTATION_ID:?Set MEMORIAL_ROOM_ATTESTATION_ID from the signed/manual room review}" \
+		--manual-attestation-signed-at "$${MEMORIAL_ROOM_ATTESTATION_SIGNED_AT:?Set MEMORIAL_ROOM_ATTESTATION_SIGNED_AT from the signed/manual room review}" \
+		--manual-attestation-source "$${MEMORIAL_ROOM_ATTESTATION_SOURCE:-operator_room_review}"
 
 materialize-memorial-public-gold:
 	$(PYTHON_BIN) scripts/materialize_memorial_public_gold_clean.py \
@@ -268,6 +274,9 @@ materialize-memorial-public-gold:
 		--speaker-label "$${MEMORIAL_ROOM_SPEAKER_LABEL:-}" \
 		--room-label "$${MEMORIAL_ROOM_LABEL:-}" \
 		--notes "$${MEMORIAL_ROOM_NOTES:-}" \
+		--manual-attestation-id "$${MEMORIAL_ROOM_ATTESTATION_ID:?Set MEMORIAL_ROOM_ATTESTATION_ID from the signed/manual room review}" \
+		--manual-attestation-signed-at "$${MEMORIAL_ROOM_ATTESTATION_SIGNED_AT:?Set MEMORIAL_ROOM_ATTESTATION_SIGNED_AT from the signed/manual room review}" \
+		--manual-attestation-source "$${MEMORIAL_ROOM_ATTESTATION_SOURCE:-operator_room_review}" \
 		--direct-min-f1 "$${MEMORIAL_GOLD_DIRECT_TTS_F1_MIN:-0.92}" \
 		--conversation-min-f1 "$${MEMORIAL_GOLD_CONVERSATION_AUDIO_F1_MIN:-0.90}" \
 		--browser-first-answer-ms "$${MEMORIAL_GOLD_MAX_BROWSER_FIRST_ANSWER_MS:-4500}" \

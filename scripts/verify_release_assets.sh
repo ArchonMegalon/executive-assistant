@@ -54,6 +54,7 @@ required_files=(
   ".codex-design/product/SHOW_SURFACE_MANIFEST.generated.json"
   ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
   ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"
+  ".codex-studio/published/telegram_video_delivery_operator.generated.json"
   ".codex-design/product/MEMORIAL_PHRASE_BANK.manfred.generated.json"
   ".codex-design/product/MEMORIAL_OPERATOR_STATUS.generated.json"
   "scripts/deploy.sh"
@@ -78,6 +79,7 @@ required_files=(
   "scripts/materialize_ea_flagship_release_gate.py"
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
+  "scripts/materialize_telegram_video_delivery_receipt.py"
   "scripts/materialize_poppy_draft_packet.py"
   "scripts/materialize_memorial_phrase_bank.py"
   "scripts/materialize_memorial_operator_status.py"
@@ -211,6 +213,7 @@ assert planes["chummer_desktop_ui"]["status"] in {"pass", "unknown_missing_recei
 assert planes["chummer_hub_public_web"]["status"] in {"pass", "unknown_missing_receipt"}
 assert planes["mobile_and_second_device"]["status"] in {"pass", "unknown_missing_receipt"}
 assert planes["media_factory_publication"]["status"] in {"bounded_pass", "unknown_missing_receipt"}
+assert planes["telegram_video_delivery"]["status"] in {"pass", "bounded_pass", "blocked", "unknown_missing_receipt"}
 assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
 assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
 external_unknown = {

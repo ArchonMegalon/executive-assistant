@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 import math
 import os
+import contextlib
 import shutil
+import socket
 import subprocess
 import tempfile
+import ipaddress
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -21,6 +25,10 @@ _SUPPORTED_FIRE_MARKERS = (
     "fire ring",
     "catch fire",
     "caught fire",
+    "on fire",
+    "make on fire",
+    "make it on fire",
+    "look like on fire",
     "clothes could catch fire",
     "clothes catch fire",
     "look like fire",
@@ -29,6 +37,8 @@ _SPEED_UP_MARKERS = ("faster", "speed up", "speed it up", "make it faster", "inc
 _SLOW_DOWN_MARKERS = ("slower", "slow down", "slow it down", "make it slower", "decrease speed")
 _LOUDER_MARKERS = ("louder", "turn it up", "turn up the audio", "increase volume", "make it louder")
 _MUTE_MARKERS = ("mute", "remove audio", "without audio", "silent", "no audio")
+_DEFAULT_ALLOWED_VIDEO_HOSTS = ("api.telegram.org",)
+_DEFAULT_MAX_VIDEO_BYTES = 80 * 1024 * 1024
 
 
 def supported_source_video_edit_summary() -> str:
@@ -102,10 +112,116 @@ def _probe_video(path: Path) -> dict[str, float]:
     return {"width": width, "height": height, "duration": duration}
 
 
+def _allowed_video_hosts() -> tuple[str, ...]:
+    raw = str(os.getenv("EA_TELEGRAM_VIDEO_DOWNLOAD_ALLOWED_HOSTS") or "").strip()
+    values = [item.strip().lower() for item in raw.split(",") if item.strip()] if raw else list(_DEFAULT_ALLOWED_VIDEO_HOSTS)
+    return tuple(dict.fromkeys(values))
+
+
+def _max_video_download_bytes() -> int:
+    try:
+        configured = int(str(os.getenv("EA_TELEGRAM_VIDEO_DOWNLOAD_MAX_BYTES") or "").strip() or "0")
+    except ValueError:
+        configured = 0
+    return max(1024 * 1024, configured or _DEFAULT_MAX_VIDEO_BYTES)
+
+
+def _host_allowed(hostname: str) -> bool:
+    host = str(hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    for allowed in _allowed_video_hosts():
+        normalized = allowed.strip().lower().rstrip(".")
+        if not normalized:
+            continue
+        if normalized.startswith(".") and host.endswith(normalized):
+            return True
+        if host == normalized:
+            return True
+    return False
+
+
+def _host_resolves_publicly(hostname: str) -> bool:
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        address = str(info[4][0])
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            return False
+    return True
+
+
+def _validate_video_source_url(url: str) -> str:
+    normalized = str(url or "").strip()
+    if not normalized:
+        raise RuntimeError("source_video_url_missing")
+    parsed = urllib.parse.urlparse(normalized)
+    if parsed.scheme.lower() != "https":
+        raise RuntimeError("source_video_url_scheme_forbidden")
+    hostname = str(parsed.hostname or "").strip()
+    if not _host_allowed(hostname):
+        raise RuntimeError("source_video_url_host_forbidden")
+    if not _host_resolves_publicly(hostname):
+        raise RuntimeError("source_video_url_host_not_public")
+    return urllib.parse.urlunparse(parsed)
+
+
+class _SafeVideoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        _validate_video_source_url(str(newurl or ""))
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _content_type_allowed(value: str) -> bool:
+    content_type = str(value or "").split(";", 1)[0].strip().lower()
+    return content_type.startswith("video/") or content_type in {"application/octet-stream", "binary/octet-stream"}
+
+
+def _video_magic_allowed(path: Path) -> bool:
+    try:
+        header = path.read_bytes()[:64]
+    except OSError:
+        return False
+    if len(header) < 12:
+        return False
+    return header[4:8] == b"ftyp" or header.startswith(b"\x1aE\xdf\xa3")
+
+
 def _download_video(url: str, target: Path) -> Path:
-    request = urllib.request.Request(str(url), headers={"User-Agent": "EA-Telegram-Video-Effects/1.0"})
-    with urllib.request.urlopen(request, timeout=180) as response:
-        target.write_bytes(response.read())
+    normalized_url = _validate_video_source_url(url)
+    request = urllib.request.Request(normalized_url, headers={"User-Agent": "EA-Telegram-Video-Effects/1.0"})
+    opener = urllib.request.build_opener(_SafeVideoRedirectHandler)
+    max_bytes = _max_video_download_bytes()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    total = 0
+    with opener.open(request, timeout=180) as response:
+        if not _content_type_allowed(str(response.headers.get("Content-Type") or "")):
+            raise RuntimeError("source_video_content_type_forbidden")
+        with target.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    with contextlib.suppress(OSError):
+                        target.unlink()
+                    raise RuntimeError("source_video_download_too_large")
+                handle.write(chunk)
+    if total <= 0:
+        raise RuntimeError("source_video_download_empty")
+    if not _video_magic_allowed(target):
+        with contextlib.suppress(OSError):
+            target.unlink()
+        raise RuntimeError("source_video_magic_forbidden")
     return target
 
 

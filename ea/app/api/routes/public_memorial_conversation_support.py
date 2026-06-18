@@ -179,7 +179,7 @@ async def public_memorial_whatsapp_draft(slug: str, request: Request, *, princip
     metadata.update(
         {
             "principal_id": principal_id,
-            "delivery_mode": "draft_only",
+            "delivery_mode": "queued",
             "source": "memorial_whatsapp_draft",
             "memorial_slug": slug,
             "memorial_question": question_text,
@@ -202,7 +202,7 @@ async def public_memorial_whatsapp_draft(slug: str, request: Request, *, princip
     return JSONResponse(
         {
             "status": row.status,
-            "delivery_mode": "draft_only",
+            "delivery_mode": "queued",
             "delivery_id": row.delivery_id,
             "channel": row.channel,
             "recipient": row.recipient,

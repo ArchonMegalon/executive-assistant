@@ -1648,7 +1648,7 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "queued"
-    assert body["delivery_mode"] == "draft_only"
+    assert body["delivery_mode"] == "queued"
     assert body["channel"] == "whatsapp"
     assert body["principal_id"] == "exec-memorial-whatsapp-draft"
     assert body["binding"]["connector_name"] == "whatsapp_export"
@@ -1661,7 +1661,7 @@ def test_memorial_whatsapp_draft_queues_draft_only_delivery_for_principal(
     assert any(
         row.channel == "whatsapp"
         and row.recipient == "+436641112223"
-        and row.metadata.get("delivery_mode") == "draft_only"
+        and row.metadata.get("delivery_mode") == "queued"
         and row.metadata.get("memorial_slug") == slug
         for row in pending
     )

@@ -193,7 +193,7 @@ items:
   - /docker/chummercomplete/chummer6-hub commit 94dd7d42 tightens M102 compressed base32/base85 helper proof guard.
   - python3 scripts/verify_desktop_native_trust_receipts.py
   - python3 -m unittest tests/test_desktop_native_trust_receipts.py
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests"
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "DesktopInstallRailTests|PublicLandingClaimRecoveryFlowTests|InstallLinkingContinuationVerification|InstallLinkingControllerBrowserCallbackTests"
       --no-restore
   allowed_paths:
   - Chummer.Run.Api
@@ -909,7 +909,7 @@ items:
   - python3 -m unittest tests/test_workspace_restore_queue_identity.py
   - python3 -m unittest tests/test_workspace_restore_receipts.py tests/test_workspace_restore_queue_frontier_guard.py tests/test_workspace_restore_commit_resolution.py
       tests/test_workspace_restore_queue_identity.py
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "CampaignSpineRestoreReceiptTests|CampaignWorkspaceServerPlaneServiceTests|CampaignOsLocalProofMaterializerTests"
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "CampaignSpineRestoreReceiptTests|CampaignWorkspaceServerPlaneServiceTests|CampaignOsLocalProofMaterializerTests"
       --no-restore
   allowed_paths:
   - Chummer.Run.Api
@@ -1423,10 +1423,10 @@ items:
       proof rejection.
   - /docker/chummercomplete/chummer6-ui-finish commit a93c0cbf pins M104 explain receipt proof guard so future shards verify
       the latest completed-package guard.
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "DesktopCrashRuntimeTests|Next90M104ExplainReceiptsGuardTests"
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "DesktopCrashRuntimeTests|Next90M104ExplainReceiptsGuardTests"
       --no-restore
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "Next90M104WorkerSafeProofCommandTests" --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "BlazorShellComponentTests|AccessibilitySignoffSmokeTests"
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "Next90M104WorkerSafeProofCommandTests" --no-restore
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "BlazorShellComponentTests|AccessibilitySignoffSmokeTests"
       --no-restore
   allowed_paths:
   - Chummer.Avalonia
@@ -2155,7 +2155,7 @@ items:
       package.
   - python3 scripts/verify_runsite_orientation_requests.py exits 0.
   - python3 -m unittest tests/test_runsite_orientation_requests.py exits 0.
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter RunsiteOrientationRequestComposerServiceTests --no-restore exits
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter RunsiteOrientationRequestComposerServiceTests --no-restore exits
       0.
   allowed_paths:
   - Chummer.Run.Api
@@ -2458,7 +2458,7 @@ items:
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m112-ui-campaign-memory-check.sh and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M112_UI_CAMPAIGN_MEMORY.generated.json fail closed on canonical registry, fleet queue, design queue, verify wiring, startup-route markers, and desktop source-marker drift while preserving generatedAt when the proof is semantically unchanged.
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M112CampaignMemoryGuardTests.cs and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs pin verify wiring, generated proof stability, startup-route reachability, and promoted desktop accessibility markers for the campaign-memory slice.
   - bash scripts/ai/milestones/next90-m112-ui-campaign-memory-check.sh exits 0.
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore exits 0.
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore exits 0.
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -2635,8 +2635,8 @@ items:
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Chummer.Tests.csproj, /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M113GmPrepRosterSurfaceGuardTests.cs, and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs assert the verify command wiring and signature source markers.
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m113-ui-gm-prep-roster-surface-check.sh, /docker/chummercomplete/chummer-presentation/scripts/e2e-portal.sh, and /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M113_UI_GM_PREP_ROSTER_SURFACE.generated.json fail-closed on canonical registry, queue, design queue, and source-marker drift.
   - bash scripts/ai/milestones/next90-m113-ui-gm-prep-roster-surface-check.sh exits 0.
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M113GmPrepRosterSurfaceGuardTests" --no-restore exits 0.
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore exits 0.
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M113GmPrepRosterSurfaceGuardTests" --no-restore exits 0.
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore exits 0.
   owned_surfaces:
   - gm_prep_packets:desktop
   - roster_movement:desktop
@@ -2755,8 +2755,8 @@ items:
   - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh runs the M114 proof in the standard local verification path so the closed package cannot silently drift open.
   - /docker/chummercomplete/chummer-presentation/Chummer.Tests/Compliance/Next90M114RuleEnvironmentStudioGuardTests.cs and /docker/chummercomplete/chummer-presentation/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs pin verify wiring, generated receipt stability, and the top-level desktop accessibility surface.
   - bash scripts/ai/milestones/next90-m114-ui-rule-studio-check.sh exits 0.
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M114RuleEnvironmentStudioGuardTests" --no-restore exits 0.
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore exits 0.
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M114RuleEnvironmentStudioGuardTests" --no-restore exits 0.
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore exits 0.
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3030,8 +3030,8 @@ items:
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M116_UI_CREATOR_PUBLICATION.generated.json
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m116-ui-creator-publication-check.sh
   - bash scripts/ai/milestones/next90-m116-ui-creator-publication-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M116CreatorPublicationGuardTests" --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M116CreatorPublicationGuardTests" --no-restore
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3166,9 +3166,9 @@ items:
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M117_UI_ARTIFACT_SHELF.generated.json
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m117-ui-artifact-shelf-check.sh
   - bash scripts/ai/milestones/next90-m117-ui-artifact-shelf-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M117ArtifactShelfGuardTests|FullyQualifiedName~Next90M116CreatorPublicationGuardTests"
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M117ArtifactShelfGuardTests|FullyQualifiedName~Next90M116CreatorPublicationGuardTests"
       --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests"
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests"
       --no-restore
   allowed_paths:
   - Chummer.Avalonia
@@ -3309,8 +3309,8 @@ items:
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M118_UI_ORGANIZER_OPS.generated.json
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m118-ui-organizer-ops-check.sh
   - bash scripts/ai/milestones/next90-m118-ui-organizer-ops-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M118OrganizerOperationsGuardTests" --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M118OrganizerOperationsGuardTests" --no-restore
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3507,8 +3507,8 @@ items:
   - /docker/chummercomplete/chummer-presentation/scripts/ai/verify.sh
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M119_UI_FIRST_SESSION_FLOW.generated.json
   - bash scripts/ai/milestones/next90-m119-ui-first-session-flow-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M119FirstSessionFlowGuardTests" --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M119FirstSessionFlowGuardTests" --no-restore
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -3753,9 +3753,9 @@ items:
   - /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m121-ui-gm-runboard-route-check.sh
   - bash scripts/ai/milestones/next90-m121-ui-gm-runboard-route-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M121GmRunboardRouteGuardTests"
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M121GmRunboardRouteGuardTests"
       --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests"
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests"
       --no-restore
   allowed_paths:
   - Chummer.Avalonia
@@ -5649,8 +5649,8 @@ items:
   - /docker/chummercomplete/chummer-presentation/scripts/ai/milestones/next90-m135-ui-desktop-surface-coverage-check.sh
   - bash scripts/ai/milestones/veteran-task-time-evidence-gate.sh
   - bash scripts/ai/milestones/next90-m135-ui-desktop-surface-coverage-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M135DesktopSurfaceCoverageGuardTests" --no-restore
-  - dotnet test Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M135DesktopSurfaceCoverageGuardTests" --no-restore
+  - dotnet test --project Chummer.Tests/Presentation/Chummer.Presentation.Signoff.Tests.csproj --filter "FullyQualifiedName~AccessibilitySignoffSmokeTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime
@@ -7019,7 +7019,7 @@ items:
   - /docker/chummercomplete/chummer6-ui/scripts/ai/verify.sh
   - /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
   - bash scripts/ai/milestones/next90-m141-ui-direct-import-route-proof-check.sh
-  - dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M141DirectImportRouteProofGuardTests" --no-restore
+  - dotnet test --project Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~Next90M141DirectImportRouteProofGuardTests" --no-restore
   allowed_paths:
   - Chummer.Avalonia
   - Chummer.Desktop.Runtime

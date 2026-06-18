@@ -5,7 +5,7 @@ guest_readable_channels:
   - stable
   - public_stable
   - preview
-release_notes_summary: The current release keeps one direct download path for Windows and Linux, with the posted build, release date, and verification date aligned across the public shelf.
+release_notes_summary: The current release keeps one direct download path for Windows and Linux, with the posted build, release date, and verification date aligned on the public pages.
 download_authority_summary: chummer.run is the only official client download source. GitHub is source and development evidence only, never a public binary release shelf for installers, archives, update payloads, or preview clients.
 proof_scope_summary: Public proof language is scoped to the files, named flows, and recent checks posted on the current public release page that a person can inspect today; it is not a blanket flagship-grade claim.
 flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, proof cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
@@ -56,7 +56,7 @@ flagship_release_rules:
   - The happy path must not send the user to a browser to copy or paste a claim code by hand.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
   - Help, known issues, claim/recovery guidance, and update posture must agree with the actual released artifacts.
-  - The public shelf must not overclaim platform or feature posture just because internal proof artifacts exist.
+  - Public pages must not overclaim platform or feature readiness just because internal proof artifacts exist.
   - Artifact-factory previews, captions, packet siblings, explainers, and public packet-detail routes can prove inspectable output, but they do not by themselves promote a preview or fallback lane into a flagship claim or override the recommended install shelf.
   - Concierge copy must not imply that a fix is already available, installed, or correct for this user unless the same claim is already true in first-party release or support truth.
   - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup proof.

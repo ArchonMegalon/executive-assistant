@@ -1,5 +1,5 @@
 contract_name: ea.next90_m142_family_local_screenshot_and_interaction_packs
-generated_at: '2026-06-16T04:44:21Z'
+generated_at: '2026-06-18T12:16:22Z'
 package_id: next90-m142-ea-compile-family-local-screenshot-and-interaction-packs-for-these-workflows
 title: Compile family-local screenshot and interaction packs for these workflows without
   collapsing them into broad family prose.
@@ -20,7 +20,7 @@ summary:
   fleet_m142_gate_status: pass
   fleet_m142_route_local_status: pass
   desktop_client_status: missing
-  desktop_client_reason_count: 2
+  desktop_client_reason_count: 1
 source_inputs:
   ea_compare_packs:
     path: /docker/EA/docs/chummer5a_parity_lab/compare_packs.yaml
@@ -68,19 +68,19 @@ source_inputs:
     row_fingerprint: 91e518b8dab7f536272e29b5ce0cd647dc16e04c611e3cabc22c687dbda3db59
   parity_audit:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
-    generated_at: '2026-06-12T18:29:22.714920Z'
+    generated_at: '2026-06-18T12:06:29.958863Z'
   screenshot_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_SCREENSHOT_REVIEW_GATE.generated.json
-    generated_at: '2026-06-14T19:36:19.758700Z'
+    generated_at: '2026-06-18T12:10:01.338337Z'
   visual_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-06-14T19:36:17.602166Z'
+    generated_at: '2026-06-18T12:06:37.234031Z'
   workflow_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-06-14T19:36:31Z'
+    generated_at: '2026-06-18T12:06:36.902897Z'
   classic_dense_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CLASSIC_DENSE_WORKBENCH_POSTURE_GATE.generated.json
-    generated_at: '2026-06-12T14:58:30.409580Z'
+    generated_at: '2026-06-18T10:37:28.401572Z'
   section_host_ruleset_parity:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/SECTION_HOST_RULESET_PARITY.generated.json
     generated_at: '2026-06-09T07:08:23.257165Z'
@@ -89,7 +89,7 @@ source_inputs:
     generated_at: '2026-06-09T07:07:35.813150Z'
   gm_runboard_route:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/NEXT90_M121_UI_GM_RUNBOARD_ROUTE.generated.json
-    generated_at: '2026-06-09T07:18:57Z'
+    generated_at: '2026-06-18T12:15:03Z'
   core_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
     generated_at: '2026-05-22T15:24:31Z'
@@ -101,16 +101,16 @@ source_inputs:
     coverage_key: desktop_client
     status: missing
     summary: Desktop flagship proof is still incomplete.
-    reason_count: 2
+    reason_count: 1
     source_status: missing
     source_summary: Desktop flagship proof is still incomplete.
-    source_reason_count: 2
+    source_reason_count: 1
     row_fingerprint_basis:
     - status
     - summary
     - reasons
     - evidence
-    row_fingerprint: 4b01b43e032facfcb90b4e421f63c4d0ace7bdefea93159e0b8c65224eecbd91
+    row_fingerprint: 2a3774b8d0a486c8730dd97d172eaef50c1daa6c1f26e8f27b82052472e6b6f9
 canonical_monitors:
   guide_markers:
     wave: true
@@ -151,10 +151,10 @@ desktop_client_readiness:
   coverage_key: desktop_client
   status: missing
   summary: Desktop flagship proof is still incomplete.
-  reason_count: 2
+  reason_count: 1
   reasons:
-  - Release channel receipt is stale (89183s old; max 86400s).
-  - Release channel is not simultaneously published, release-proven, and Avalonia-desktop-backed.
+  - Windows desktop exit gate proof is missing, not passed, or lacks embedded payload/sample
+    integrity proof.
 family_local_packs:
 - family_id: dense_builder_and_career_workflows
   label: Dense builder and career workflows

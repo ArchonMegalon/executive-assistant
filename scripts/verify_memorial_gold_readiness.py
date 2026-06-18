@@ -239,6 +239,15 @@ def _check_room_receipt(
         issues.append("room_public_origin_required_not_localhost")
     if receipt.get("require_public_origin") is not True:
         issues.append("room_receipt_must_require_public_origin")
+    if str(receipt.get("proof_type") or "").strip() != "manual_room_attestation":
+        issues.append("room_manual_attestation_proof_type_missing")
+    attestation = dict(receipt.get("manual_attestation") or {})
+    if not str(attestation.get("attestation_id") or "").strip():
+        issues.append("room_manual_attestation_id_missing")
+    if not str(attestation.get("signed_at") or "").strip():
+        issues.append("room_manual_attestation_signed_at_missing")
+    if attestation.get("ci_must_not_auto_assert") is not True:
+        issues.append("room_manual_attestation_ci_guard_missing")
     required = {
         "actual_device_checked",
         "actual_speaker_checked",

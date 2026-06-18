@@ -270,6 +270,9 @@ def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command(
         speaker_label = "speaker"
         room_label = "office"
         notes = "ok"
+        manual_attestation_id = "room-review-001"
+        manual_attestation_signed_at = "2026-06-18T12:00:00Z"
+        manual_attestation_source = "operator_room_review"
 
     cmd = module.build_room_receipt_command(_Args())
     assert cmd[:2] == ["python3", "scripts/materialize_memorial_room_audio_receipt.py"]
@@ -278,6 +281,8 @@ def test_memorial_room_audio_clean_materializer_builds_expected_receipt_command(
     assert "--reviewer" in cmd
     assert "reviewer" in cmd
     assert "--require-public-origin" in cmd
+    assert "--manual-attestation-id" in cmd
+    assert "room-review-001" in cmd
     assert "--first-syllable-not-clipped" in cmd
 
 
@@ -309,6 +314,9 @@ def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> N
         speaker_label = "speaker"
         room_label = "office"
         notes = "ok"
+        manual_attestation_id = "room-review-001"
+        manual_attestation_signed_at = "2026-06-18T12:00:00Z"
+        manual_attestation_source = "operator_room_review"
         direct_min_f1 = 0.92
         conversation_min_f1 = 0.90
         browser_first_answer_ms = 4500.0
@@ -336,6 +344,8 @@ def test_memorial_public_gold_clean_materializer_builds_expected_commands() -> N
     assert room[:2] == ["python3", "scripts/materialize_memorial_room_audio_receipt.py"]
     assert "--reviewer" in room
     assert "reviewer" in room
+    assert "--manual-attestation-id" in room
+    assert "room-review-001" in room
 
 
 def test_memorial_public_gold_clean_materializer_copies_expected_artifacts(tmp_path) -> None:

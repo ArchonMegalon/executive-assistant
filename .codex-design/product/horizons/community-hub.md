@@ -1,5 +1,9 @@
 # COMMUNITY HUB
 
+## Explanation video
+
+[Watch the COMMUNITY HUB 90-second deep dive](https://chummer.run/media/horizons/community-hub-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/community-hub-90s-deepdive.vtt).
+
 ## The problem
 
 Finding a table still means juggling community rules, approvals, chats, calendars, meeting links, roster notes, and after-session follow-up just to get the right people to the table and close the loop afterward.

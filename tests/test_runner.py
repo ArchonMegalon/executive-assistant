@@ -963,6 +963,182 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
     ]
 
 
+def test_scheduler_whatsapp_async_recovery_sends_queued_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    captured: list[dict[str, object]] = []
+    marked_sent: list[tuple[str, str]] = []
+
+    class _FakeChannelRuntime:
+        def __init__(self) -> None:
+            self.rows = [
+                SimpleNamespace(
+                    channel="whatsapp",
+                    principal_id="principal-whatsapp-1",
+                    recipient="+436641112223",
+                    content="Ich denke an dich.",
+                    metadata={"delivery_mode": "queued", "binding_id": "binding-1"},
+                    created_at="2026-01-01T00:00:00Z",
+                    delivery_id="delivery-whatsapp-1",
+                    attempt_count=0,
+                )
+            ]
+
+        def list_pending_delivery(self, limit: int = 50, *, principal_id: str | None = None) -> list[SimpleNamespace]:
+            return list(self.rows)
+
+        def mark_delivery_sent(self, delivery_id: str, *, principal_id: str, receipt_json: dict[str, object] | None = None):
+            marked_sent.append((delivery_id, principal_id))
+            return SimpleNamespace(
+                status="sent",
+                delivery_id=delivery_id,
+                principal_id=principal_id,
+                receipt_json=dict(receipt_json or {}),
+            )
+
+        def mark_delivery_failed(
+            self,
+            delivery_id: str,
+            *,
+            principal_id: str,
+            error: str,
+            next_attempt_at: str | None = None,
+            dead_letter: bool = False,
+        ):
+            raise AssertionError("mark_delivery_failed should not run in happy path")
+
+    class _FakeToolRuntime:
+        def get_connector_binding(self, binding_id: str):
+            raise AssertionError("get_connector_binding should not be called when send helper is mocked")
+
+    row_count = [0]
+
+    def _fake_send(**kwargs) -> object:
+        row_count[0] += 1
+        captured.append(dict(kwargs))
+        from app.services.whatsapp_delivery import WhatsAppDeliveryReceipt
+
+        return WhatsAppDeliveryReceipt(
+            principal_id=kwargs["principal_id"],
+            binding_id="binding-1",
+            connector_name="whatsapp_export",
+            recipient=kwargs["recipient"],
+            message_ids=("wamid.123",),
+            request_url="https://graph.facebook.com/v20.0/phone/messages",
+            binding_status="enabled",
+            external_account_ref="acc-ref",
+        )
+
+    monkeypatch.setattr(runner, "_whatsapp_queue_retry_backoff_seconds", lambda: 0.0)
+    monkeypatch.setattr(runner, "send_whatsapp_text", _fake_send)
+
+    tool_runtime = _FakeToolRuntime()
+    container = SimpleNamespace(
+        channel_runtime=_FakeChannelRuntime(),
+        tool_runtime=tool_runtime,
+    )
+
+    summary = runner._run_scheduler_whatsapp_async_recovery(
+        container,
+        logging.getLogger("test.runner"),
+    )
+
+    assert summary["ran"] is True
+    assert summary["drained"] == 1
+    assert summary["pending"] == 0
+    assert summary["skipped"] == 0
+    assert summary["errors"] == 0
+    assert summary["dead_lettered"] == 0
+    assert row_count[0] == 1
+    assert marked_sent == [("delivery-whatsapp-1", "principal-whatsapp-1")]
+    assert captured[0]["tool_runtime"] is tool_runtime
+    assert captured[0]["principal_id"] == "principal-whatsapp-1"
+    assert captured[0]["recipient"] == "436641112223"
+    assert captured[0]["text"] == "Ich denke an dich."
+    assert captured[0]["binding_id"] == "binding-1"
+    assert captured[0]["binding"] is None
+
+
+def test_scheduler_whatsapp_async_recovery_dead_letters_after_retry_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    failures: list[dict[str, object]] = []
+    marked_failed: list[tuple[str, bool, str | None]] = []
+
+    class _FakeChannelRuntime:
+        def __init__(self) -> None:
+            self.rows = [
+                SimpleNamespace(
+                    channel="whatsapp",
+                    principal_id="principal-whatsapp-2",
+                    recipient="+436640000000",
+                    content="Das ist wichtig.",
+                    metadata={"delivery_mode": "queued", "binding_id": "binding-2"},
+                    created_at="2026-01-01T00:00:00Z",
+                    delivery_id="delivery-whatsapp-2",
+                    attempt_count=0,
+                )
+            ]
+
+        def list_pending_delivery(self, limit: int = 50, *, principal_id: str | None = None) -> list[SimpleNamespace]:
+            return list(self.rows)
+
+        def mark_delivery_sent(self, delivery_id: str, *, principal_id: str, receipt_json: dict[str, object] | None = None):
+            raise AssertionError("mark_delivery_sent should not run when send fails")
+
+        def mark_delivery_failed(
+            self,
+            delivery_id: str,
+            *,
+            principal_id: str,
+            error: str,
+            next_attempt_at: str | None = None,
+            dead_letter: bool = False,
+        ):
+            marked_failed.append((delivery_id, dead_letter, next_attempt_at))
+            return SimpleNamespace(
+                status="dead_lettered",
+                delivery_id=delivery_id,
+                principal_id=principal_id,
+                error=error,
+            )
+
+    class _FakeToolRuntime:
+        def get_connector_binding(self, binding_id: str):
+            raise AssertionError("get_connector_binding should not be called when send helper is mocked")
+
+    def _fake_send(**_kwargs):
+        failures.append(dict(_kwargs))
+        raise RuntimeError("provider_unavailable")
+
+    monkeypatch.setattr(runner, "_whatsapp_queue_max_attempts", lambda: 1)
+    monkeypatch.setattr(runner, "_whatsapp_queue_retry_backoff_seconds", lambda: 0.0)
+    monkeypatch.setattr(runner, "send_whatsapp_text", _fake_send)
+
+    tool_runtime = _FakeToolRuntime()
+    container = SimpleNamespace(
+        channel_runtime=_FakeChannelRuntime(),
+        tool_runtime=tool_runtime,
+    )
+
+    summary = runner._run_scheduler_whatsapp_async_recovery(
+        container,
+        logging.getLogger("test.runner"),
+    )
+
+    assert summary["ran"] is True
+    assert summary["drained"] == 0
+    assert summary["pending"] == 0
+    assert summary["skipped"] == 0
+    assert summary["errors"] == 1
+    assert summary["dead_lettered"] == 1
+    assert failures[0]["tool_runtime"] is tool_runtime
+    assert failures[0]["principal_id"] == "principal-whatsapp-2"
+    assert failures[0]["recipient"] == "436640000000"
+    assert failures[0]["text"] == "Das ist wichtig."
+    assert failures[0]["binding_id"] == "binding-2"
+    assert failures[0]["binding"] is None
+    assert marked_failed == [("delivery-whatsapp-2", True, None)]
+
+
 def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     runner = _load_runner_module(monkeypatch)
     observed: list[int] = []

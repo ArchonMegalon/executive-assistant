@@ -1,5 +1,9 @@
 # RUNBOOK PRESS
 
+## Explanation video
+
+[Watch the RUNBOOK PRESS 90-second deep dive](https://chummer.run/media/horizons/runbook-press-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/runbook-press-90s-deepdive.vtt).
+
 ## The problem
 
 GMs, creators, and publishers need consistent long-form books such as primers, campaign books, district guides, and convention modules, but current workflows are slow and hard to standardize.

@@ -136,6 +136,8 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     assert pulse["supporting_signals"]["flagship_release_receipt_git_head"] == ""
     assert pulse["supporting_signals"]["launch_readiness"].startswith("Hold launch expansion")
     assert pulse["supporting_signals"]["overall_progress_percent"] == 50
+    assert pulse["supporting_signals"]["registry_completion_percent"] == 50
+    assert "registry_completion_percent" in pulse["supporting_signals"]["progress_metric_note"]
     assert pulse["governor_decisions"]
     assert len(pulse["governor_decisions"]) == 2
 
@@ -286,3 +288,43 @@ def test_weekly_product_pulse_claims_ready_when_pass_receipt_and_journey_gate_re
     assert pulse["release_health"]["state"] == "clear"
     assert pulse["journey_gate_health"]["state"] == "ready"
     assert pulse["supporting_signals"]["launch_readiness"] == "Release truth is clear enough to widen claims."
+    assert pulse["supporting_signals"]["overall_progress_percent"] == 100
+    assert pulse["supporting_signals"]["registry_completion_percent"] == 100
+
+
+def test_weekly_product_pulse_does_not_report_100_overall_while_release_is_blocked(tmp_path: Path) -> None:
+    _seed_truth_sources(tmp_path)
+
+    journey = json.loads(Path(JOURNEY_GATES_PATH).read_text(encoding="utf-8"))
+    journey["summary"]["overall_state"] = "ready"
+    journey["summary"]["ready_count"] = 6
+    journey["summary"]["blocked_count"] = 0
+    journey["summary"]["recommended_action"] = "Journey proof is steady on current published evidence."
+    Path(JOURNEY_GATES_PATH).write_text(json.dumps(journey, indent=2) + "\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--scorecard",
+            SCORECARD_PATH.as_posix(),
+            "--journey-gates",
+            str(JOURNEY_GATES_PATH),
+            "--flagship-receipt",
+            FLAGSHIP_RECEIPT_PATH.as_posix(),
+            "--output",
+            PULSE_PATH.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
+
+    assert pulse["release_health"]["state"] == "blocked"
+    assert pulse["supporting_signals"]["registry_completion_percent"] == 100
+    assert pulse["supporting_signals"]["overall_progress_percent"] == 95

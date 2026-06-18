@@ -419,6 +419,8 @@ def build_pulse(
     total_count = int(journey_info["total"])
     readiness_share = int(journey_info["ready_share"])
     release_health_state = "blocked" if journey_state == "blocked" or release_truth_state != "pass" else "clear"
+    registry_completion_percent = readiness_share
+    overall_progress_percent = readiness_share if release_health_state == "clear" else min(readiness_share, 95)
 
     if release_truth_state == "pass" and journey_state == "blocked":
         summary = (
@@ -622,7 +624,12 @@ def build_pulse(
         ),
         "supporting_signals": {
             "current_recommended_wave": "EA flagship receipt closeout",
-            "overall_progress_percent": readiness_share,
+            "overall_progress_percent": overall_progress_percent,
+            "registry_completion_percent": registry_completion_percent,
+            "progress_metric_note": (
+                "overall_progress_percent is capped below 100 while release_health is blocked; "
+                "registry_completion_percent records journey registry completion separately."
+            ),
             "phase_label": "Journey coverage closeout" if release_truth_state == "pass" else "Preview-only flagship closeout",
             "history_snapshot_count": 1,
             "longest_pole": "cross-host journey coverage" if release_truth_state == "pass" else "browser execution proof",

@@ -15,6 +15,7 @@ It does not imply that every owned tool must be integrated.
 * `1min.AI` - low-cost governed reasoning fallback in `chummer6-hub`
 * `AI Magicx` - structured AI provider and visual/media assistance lane
 * `Prompting Systems` - prompt, style, and persona support for guide, horizon, and media workflows
+* `Prompt Architects` - prompt, style, and persona support for guide, horizon, media, and live runtime planning workflows
 * `BrowserAct` - no-API automation fallback, account verification, capture, and ops bridge
 * `ApproveThis` - approval inbox bridge
 * `ClickRank` - public site visibility, crawl-health, technical SEO, schema, metadata, and AI-search audit lane
@@ -39,6 +40,7 @@ It does not imply that every owned tool must be integrated.
 * `PeekShot` - preview/share-card adapter lane
 * `Mootion` - bounded video generation lane
 * `Documentation.AI` - docs/help projection surface downstream of canon, not first-line crash capture
+* `PayFunnels` - bounded test-billing adapter and entitlement-event simulation lane
 * `Internxt Cloud Storage` - archive and retention support
 * `Rafter` - auxiliary security, live-site, accessibility, performance, SEO, and remediation QA lane
 * `Pixefy` - auxiliary responsive screenshot and visual QA lane

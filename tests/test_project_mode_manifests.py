@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import source_state_head
-from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _recorded_source_head
+from scripts.materialize_project_mode_manifests import _fresh_enough, _git_head as _source_state_head, _receipt_passes, _recorded_source_head, _room_receipt_passes
 from scripts.materialize_project_mode_manifests import main as materialize_project_modes
 from scripts.materialize_project_mode_manifests import project_modes, show_surface_manifest
 from scripts.verify_project_mode_manifests import main as verify_project_modes
@@ -45,18 +45,12 @@ def test_project_modes_name_each_repo_plane_and_first_value_gate() -> None:
     assert ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     assert ".codex-studio/published/memorial_room_audio_public_origin.generated.json" in modes["MEMORIAL"]["public_gold_gates"]
     public_gold_gate_paths = [ROOT / path for path in modes["MEMORIAL"]["public_gold_gates"]]
+    public_voice_path, public_browser_path, room_path = public_gold_gate_paths
     expected_public_gold_status = (
         "public_origin_gold_pass"
-        if all(
-            json.loads(path.read_text(encoding="utf-8")).get("status") == "pass"
-            and _fresh_enough(
-                _recorded_source_head(json.loads(path.read_text(encoding="utf-8"))),
-                current_head=current_head,
-            )
-            for path in public_gold_gate_paths
-            if path.is_file()
-        )
-        and all(path.is_file() for path in public_gold_gate_paths)
+        if _receipt_passes(public_voice_path, current_head=current_head)
+        and _receipt_passes(public_browser_path, current_head=current_head)
+        and _room_receipt_passes(room_path, current_head=current_head)
         else "public_origin_gold_blocked"
     )
     assert modes["MEMORIAL"]["public_gold_status"] == expected_public_gold_status

@@ -28,8 +28,13 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
     assert planes["chummer_hub_public_web"]["status"] in {"pass", "unknown_missing_receipt"}
     assert planes["mobile_and_second_device"]["status"] in {"pass", "unknown_missing_receipt"}
     assert planes["media_factory_publication"]["status"] in {"bounded_pass", "unknown_missing_receipt"}
+    assert planes["telegram_video_delivery"]["status"] in {"pass", "bounded_pass", "blocked", "unknown_missing_receipt"}
     assert planes["memorial_voice_demo"]["status"] in {"pass", "separate_risk_zone"}
     assert planes["memorial_public_origin_gold"]["status"] in {"pass", "blocked"}
+    assert "design_surface" in receipt["blocking_planes"]
+    assert "ltd_provider_lanes" in receipt["blocking_planes"]
+    assert receipt["overall_status"] == "not_gold"
+    assert receipt["gold_claim_allowed"] is False
     if planes["memorial_public_origin_gold"]["status"] == "blocked":
         assert receipt["overall_status"] == "not_gold"
         assert receipt["gold_claim_allowed"] is False
@@ -70,17 +75,22 @@ def test_whole_project_gold_map_is_conservative_and_complete() -> None:
         assert planes["media_factory_publication"]["evidence"]
     else:
         assert planes["media_factory_publication"]["missing_evidence"]
+    if planes["telegram_video_delivery"]["status"] == "pass":
+        assert planes["telegram_video_delivery"]["evidence"]
+    else:
+        assert planes["telegram_video_delivery"]["missing_evidence"]
     rules = "\n".join(receipt["rules"])
     assert "EA flagship readiness does not imply whole Chummer project readiness" in rules
     assert "Unknown external planes block whole-project gold claims" in rules
     assert "Whole-project gold requires every listed plane to pass" in rules
+    assert "Telegram video delivery requires a dedicated live delivery receipt" in rules
     assert receipt["ltd_provider_lane_summary"]["poppy_runtime_enabled"] is False
     assert receipt["ltd_provider_lane_summary"]["poppy_lane_state"] == "verified_draft_operator_lane"
-    if receipt["overall_status"] != "gold":
-        assert "memorial_room_audio_public_origin.generated.json" in receipt["required_next_receipts"]
+    if planes["memorial_public_origin_gold"]["status"] == "blocked":
+        assert any("room/device audio intelligibility" in item for item in receipt["required_next_receipts"])
     memorial_public_plane = planes["memorial_public_origin_gold"]
     if memorial_public_plane["status"] == "blocked":
-        assert "public-origin room/device audio intelligibility receipt" in memorial_public_plane["missing_evidence"]
+        assert "public-origin room/device audio intelligibility receipt with manual attestation" in memorial_public_plane["missing_evidence"]
     assert all(not str(path).startswith("/tmp/") for path in planes["memorial_voice_demo"]["evidence"])
     assert all(not str(path).startswith("/tmp/") for path in memorial_public_plane["evidence"])
     assert all(str(path).startswith(".codex-studio/") for path in planes["memorial_voice_demo"]["evidence"])

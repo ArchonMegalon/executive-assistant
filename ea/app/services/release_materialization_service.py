@@ -21,6 +21,7 @@ DEFAULT_RELEASE_MATERIALIZERS: tuple[ReleaseMaterializerStep, ...] = (
     ReleaseMaterializerStep("ea_flagship_release_gate", ("scripts/materialize_ea_flagship_release_gate.py",)),
     ReleaseMaterializerStep("weekly_product_pulse", ("scripts/materialize_weekly_product_pulse.py",)),
     ReleaseMaterializerStep("project_mode_manifests", ("scripts/materialize_project_mode_manifests.py",)),
+    ReleaseMaterializerStep("telegram_video_delivery_receipt", ("scripts/materialize_telegram_video_delivery_receipt.py",), extra_env={"PYTHONPATH": "ea"}),
     ReleaseMaterializerStep("whole_project_gold_map", ("scripts/materialize_whole_project_gold_map.py",), extra_env={"PYTHONPATH": "ea"}),
     ReleaseMaterializerStep("memorial_phrase_bank", ("scripts/materialize_memorial_phrase_bank.py",)),
     ReleaseMaterializerStep("memorial_operator_status", ("scripts/materialize_memorial_operator_status.py",)),

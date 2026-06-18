@@ -96,11 +96,29 @@ def _receipt_passes(path: Path, *, current_head: str) -> bool:
     return _fresh_enough(_recorded_source_head(receipt), current_head=current_head)
 
 
+def _room_receipt_passes(path: Path, *, current_head: str) -> bool:
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if str(receipt.get("status") or "").strip().lower() != "pass":
+        return False
+    attestation = dict(receipt.get("manual_attestation") or {})
+    if (
+        str(receipt.get("proof_type") or "").strip() != "manual_room_attestation"
+        or not str(attestation.get("attestation_id") or "").strip()
+        or not str(attestation.get("signed_at") or "").strip()
+        or attestation.get("ci_must_not_auto_assert") is not True
+    ):
+        return False
+    return _fresh_enough(_recorded_source_head(receipt), current_head=current_head)
+
+
 def _memorial_public_gold_status(*, current_head: str) -> str:
     if (
         _receipt_passes(MEMORIAL_PUBLIC_VOICE_GATE, current_head=current_head)
         and _receipt_passes(MEMORIAL_PUBLIC_BROWSER_GATE, current_head=current_head)
-        and _receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE, current_head=current_head)
+        and _room_receipt_passes(MEMORIAL_PUBLIC_ROOM_GATE, current_head=current_head)
     ):
         return "public_origin_gold_pass"
     return "public_origin_gold_blocked"

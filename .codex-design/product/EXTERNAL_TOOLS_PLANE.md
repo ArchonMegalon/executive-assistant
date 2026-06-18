@@ -40,6 +40,7 @@ Current known external-tool inventory includes:
 
 * 1min.AI
 * Prompting Systems
+* Prompt Architects
 * ChatPlayground AI
 * Soundmadeseen
 * vidBoard
@@ -71,6 +72,7 @@ Current known external-tool inventory includes:
 * NextStep
 * Nonverbia
 * Paperguide
+* PayFunnels
 * PeekShot
 * ProductLift
 * Signitic
@@ -93,6 +95,8 @@ Important current distinctions:
 * Teable - workspace integration Tier 2, vendor license plan Tier 4
 * Emailit - workspace integration Tier 3 until sender-domain, suppression, template, and delivery-receipt gates are complete
 * Paperguide - workspace integration Tier 3, vendor license plan Tier 4
+* Prompt Architects - workspace integration Tier 3, vendor license plan Tier 4
+* PayFunnels - workspace integration Tier 3 until test-billing receipts and entitlement-event simulation gates are complete
 
 Chummer routing, rollout, and architectural ownership should follow workspace integration tier and system-of-record safety rules, not marketing or license-plan tier labels.
 

@@ -20,6 +20,8 @@ BLOCKING_STATUSES = {
     "unknown_missing_receipt",
     "blocked",
     "fail",
+    "bounded_pass",
+    "mixed",
     "draft_operator",
     "candidate_only",
     "separate_risk_zone",
@@ -33,6 +35,7 @@ REQUIRED_PLANES = {
     "chummer_hub_public_web",
     "mobile_and_second_device",
     "media_factory_publication",
+    "telegram_video_delivery",
     "memorial_voice_demo",
     "memorial_public_origin_gold",
     "ltd_provider_lanes",
@@ -45,6 +48,7 @@ GENERATED_RECEIPT_PATHS = {
     ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
     ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+    ".codex-studio/published/telegram_video_delivery_operator.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json",
     ".codex-studio/published/memorial_voice_roundtrip_public_origin.generated.json",
     ".codex-studio/published/memorial_realtime_browser_public_origin.generated.json",
@@ -193,7 +197,6 @@ def verify(path: Path = DEFAULT_RECEIPT) -> list[str]:
         issues.append("missing rule: unknown external planes block whole-project gold claims")
     if "Whole-project gold requires every listed plane to pass" not in rules:
         issues.append("missing rule: whole-project gold must require every listed plane")
-
     return issues
 
 

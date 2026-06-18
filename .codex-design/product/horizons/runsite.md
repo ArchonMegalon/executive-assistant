@@ -1,5 +1,9 @@
 # RUNSITE
 
+## Explanation video
+
+[Watch the RUNSITE 90-second deep dive](https://chummer.run/media/horizons/runsite-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/runsite-90s-deepdive.vtt).
+
 ## The problem
 
 GMs spend too long describing spaces, and players still misread compounds, clubs, hotels, museums, arcologies, and safehouses once the action starts.

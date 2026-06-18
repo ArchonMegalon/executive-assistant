@@ -1,152 +1,280 @@
 {
   "contract_name": "ea.memorial_stt_provider_benchmark",
-  "generated_at": "2026-06-18T06:17:14Z",
-  "generated_by": "scripts/benchmark_memorial_stt_providers.py",
-  "source_git_head": "4b4a3351e512ef51c9799abf73317f2e84da50e6",
-  "head_semantics": "source_state",
-  "status": "pass",
-  "blocking_reason": "",
+  "status": "blocked",
+  "scoring": {
+    "pass_rule": "usable transcript + required tokens present + token_f1 >= sample min + WER <= sample max",
+    "known_bad_non_empty_text_is_not_enough": true
+  },
   "availability": {
     "shadow_provider": "blipai",
-    "cartesia_configured": true,
+    "cartesia_configured": false,
     "onemin_key_count": 0,
     "onemin_max_key_attempts": 3
   },
+  "provider_ranking": [
+    {
+      "provider": "onemin_sample",
+      "passed_samples": 0,
+      "sample_count": 4,
+      "intent_correct_samples": 0,
+      "avg_token_f1": 0.0,
+      "avg_wer": 1.0,
+      "avg_latency_ms": 0.0,
+      "production_eligible": false
+    },
+    {
+      "provider": "full_runtime",
+      "passed_samples": 0,
+      "sample_count": 4,
+      "intent_correct_samples": 0,
+      "avg_token_f1": 0.0,
+      "avg_wer": 1.0,
+      "avg_latency_ms": 13.8,
+      "production_eligible": false
+    },
+    {
+      "provider": "shadow",
+      "passed_samples": 0,
+      "sample_count": 4,
+      "intent_correct_samples": 0,
+      "avg_token_f1": 0.0,
+      "avg_wer": 1.0,
+      "avg_latency_ms": 523.4,
+      "production_eligible": false
+    }
+  ],
   "rows": [
     {
-      "sample": "contact",
+      "sample": "contact_opening",
+      "variant": "captured",
+      "fixture": "contact_opening_captured.wav",
+      "fixture_sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+      "provenance": {
+        "origin": "Captured operator memorial test audio from the Manfred realtime conversation lane.",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+        "synthetic": false,
+        "accent": "Austrian German"
+      },
       "shadow": {
-        "provider": "blipai",
         "status": "error",
         "text": "",
-        "usable": false,
-        "ms": 510.8,
+        "ms": 523.4,
         "reason": "http_401",
-        "enabled": true,
-        "mode": "shadow_only"
+        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "required_tokens": [
+          "hallo",
+          "manfred",
+          "sprechen"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45
       },
       "onemin_sample": {
         "status": "unavailable",
-        "detail": "no_keys",
-        "transcriber": "onemin"
+        "detail": "no_keys"
       },
       "full_runtime": {
-        "status": "transcribed",
-        "text": "Was ist das?",
-        "usable": true,
-        "ms": 562.5,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": ""
+        "status": "http_error",
+        "text": "",
+        "ms": 54.7,
+        "transcriber": "",
+        "detail": "speech_transcriber_unavailable",
+        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "required_tokens": [
+          "hallo",
+          "manfred",
+          "sprechen"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45
       }
     },
     {
-      "sample": "contact_hostile",
+      "sample": "contact_opening_hostile",
+      "variant": "hostile",
+      "fixture": "contact_opening_captured.wav",
+      "fixture_sha256": "4234eede1d86a969f1fe22fcb91248406f95bc0aa0b8aeab107ff6fd4e4ba620",
+      "provenance": {
+        "origin": "Captured operator memorial test audio from the Manfred realtime conversation lane.",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+        "synthetic": false,
+        "accent": "Austrian German"
+      },
       "shadow": {
-        "provider": "blipai",
         "status": null,
         "text": "",
-        "usable": false,
         "ms": 0.0,
         "reason": "provider_cooldown_active",
-        "enabled": false,
-        "mode": "shadow_only"
+        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "required_tokens": [
+          "hallo",
+          "manfred",
+          "sprechen"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45
       },
       "onemin_sample": {
         "status": "unavailable",
-        "detail": "no_keys",
-        "transcriber": "onemin"
+        "detail": "no_keys"
       },
       "full_runtime": {
-        "status": "transcribed",
-        "text": "Was ist das?",
-        "usable": true,
-        "ms": 212.5,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": ""
+        "status": "http_error",
+        "text": "",
+        "ms": 0.1,
+        "transcriber": "",
+        "detail": "speech_transcriber_unavailable",
+        "expected_text": "Hallo Manfred, kannst du jetzt mit mir sprechen?",
+        "required_tokens": [
+          "hallo",
+          "manfred",
+          "sprechen"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.65,
+        "max_wer": 0.45
       }
     },
     {
       "sample": "stt_retry",
+      "variant": "captured",
+      "fixture": "rescue_stt_retry_captured.wav",
+      "fixture_sha256": "341ca9589cc4481628317342f81ef08fc0add2b1aab5414b4da551505f6197c7",
+      "provenance": {
+        "origin": "Captured operator memorial retry-test audio after a weak or missing STT turn.",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+        "synthetic": false,
+        "accent": "Austrian German"
+      },
       "shadow": {
-        "provider": "blipai",
         "status": null,
         "text": "",
-        "usable": false,
         "ms": 0.0,
         "reason": "provider_cooldown_active",
-        "enabled": false,
-        "mode": "shadow_only"
+        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
+        "required_tokens": [
+          "kommt",
+          "stumm"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55
       },
       "onemin_sample": {
         "status": "unavailable",
-        "detail": "no_keys",
-        "transcriber": "onemin"
+        "detail": "no_keys"
       },
       "full_runtime": {
-        "status": "transcribed",
-        "text": "Was ist das?",
-        "usable": true,
-        "ms": 239.9,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": ""
+        "status": "http_error",
+        "text": "",
+        "ms": 0.1,
+        "transcriber": "",
+        "detail": "speech_transcriber_unavailable",
+        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
+        "required_tokens": [
+          "kommt",
+          "stumm"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55
       }
     },
     {
       "sample": "stt_retry_hostile",
+      "variant": "hostile",
+      "fixture": "rescue_stt_retry_captured.wav",
+      "fixture_sha256": "341ca9589cc4481628317342f81ef08fc0add2b1aab5414b4da551505f6197c7",
+      "provenance": {
+        "origin": "Captured operator memorial retry-test audio after a weak or missing STT turn.",
+        "speaker_consent": "operator_attested_for_private_stt_regression",
+        "allowed_purpose": "memorial_stt_regression_and_provider_bakeoff",
+        "retention": "private_repo_fixture_until_replaced_by_synthetic_equivalent",
+        "synthetic": false,
+        "accent": "Austrian German"
+      },
       "shadow": {
-        "provider": "blipai",
         "status": null,
         "text": "",
-        "usable": false,
         "ms": 0.0,
         "reason": "provider_cooldown_active",
-        "enabled": false,
-        "mode": "shadow_only"
+        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
+        "required_tokens": [
+          "kommt",
+          "stumm"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55
       },
       "onemin_sample": {
         "status": "unavailable",
-        "detail": "no_keys",
-        "transcriber": "onemin"
+        "detail": "no_keys"
       },
       "full_runtime": {
-        "status": "transcribed",
-        "text": "Was ist das?",
-        "usable": true,
-        "ms": 183.6,
-        "transcriber": "cartesia/ink-whisper+enhanced_wav",
-        "detail": ""
+        "status": "http_error",
+        "text": "",
+        "ms": 0.1,
+        "transcriber": "",
+        "detail": "speech_transcriber_unavailable",
+        "expected_text": "Kommt da noch was oder bist du jetzt stumm?",
+        "required_tokens": [
+          "kommt",
+          "stumm"
+        ],
+        "actual_text": "",
+        "wer": 1.0,
+        "token_f1": 0.0,
+        "intent_correct": false,
+        "usable": false,
+        "passed": false,
+        "min_token_f1": 0.55,
+        "max_wer": 0.55
       }
     }
-  ],
-  "summary": {
-    "providers": [
-      {
-        "provider": "cartesia/ink-whisper+enhanced_wav",
-        "attempts": 4,
-        "usable": 4,
-        "errors": 0,
-        "usable_ratio": 1.0,
-        "avg_ms": 299.6
-      },
-      {
-        "provider": "blipai",
-        "attempts": 4,
-        "usable": 0,
-        "errors": 1,
-        "usable_ratio": 0.0,
-        "avg_ms": 127.7
-      },
-      {
-        "provider": "onemin",
-        "attempts": 4,
-        "usable": 0,
-        "errors": 4,
-        "usable_ratio": 0.0,
-        "avg_ms": 0.0
-      }
-    ],
-    "sample_count": 4,
-    "provider_count": 3
-  },
-  "best_provider": "cartesia/ink-whisper+enhanced_wav"
+  ]
 }

@@ -100,3 +100,11 @@ def test_mirror_scope_boundary_prevents_full_design_index_overclaim() -> None:
 
 def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -> None:
     assert GENERATED_GATE_PATH.exists()
+
+
+def test_flagship_release_receipt_binds_to_source_state() -> None:
+    receipt = json.loads(GENERATED_GATE_PATH.read_text(encoding="utf-8"))
+
+    assert receipt["source_git_head"]
+    assert receipt["source_tree_fingerprint"]
+    assert receipt["head_semantics"] == "source_state"

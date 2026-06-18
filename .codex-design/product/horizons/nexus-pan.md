@@ -1,5 +1,10 @@
 # NEXUS-PAN
 
+## Explanation videos
+
+* [Watch the NEXUS-PAN 90-second deep dive](https://chummer.run/media/horizons/nexus-pan-90s-deepdive.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/nexus-pan-90s-deepdive.vtt).
+* [Watch the NEXUS-PAN epic reel](https://chummer.run/media/horizons/nexus-pan-epic-90s.mp4) - MP4 with AAC audio. [Captions](https://chummer.run/media/horizons/nexus-pan-epic-90s.vtt).
+
 ## The problem
 
 When phones, tablets, or laptops drift apart during play, the whole table stops trusting what is on screen.

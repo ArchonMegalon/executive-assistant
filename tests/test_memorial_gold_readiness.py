@@ -59,9 +59,16 @@ def _room_receipt(*, base_url: str = "https://memorial.example.test") -> dict[st
         "source_tree_fingerprint": "unit-source-tree",
         "dirty_worktree": False,
         "status": "pass",
+        "proof_type": "manual_room_attestation",
         "base_url": base_url,
         "require_public_origin": True,
         "reviewer": "unit reviewer",
+        "manual_attestation": {
+            "attestation_id": "unit-room-review",
+            "signed_at": "2026-06-18T12:00:00Z",
+            "source": "unit_test",
+            "ci_must_not_auto_assert": True,
+        },
         "checks": {
             "actual_device_checked": True,
             "actual_speaker_checked": True,

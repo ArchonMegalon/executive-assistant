@@ -31,6 +31,38 @@ global_rules:
     - pt-BR
     - zh-CN
 video_families:
+  - id: horizon_explainer_reel
+    audience: public
+    duration_seconds_target: 90
+    duration_seconds_max: 120
+    preferred_lane: MagicFit candidate or media-factory successor lane
+    avatar_posture: faceless
+    sibling_artifacts:
+      - horizon_doc
+      - public_horizon_card
+      - caption_file
+      - media_manifest_entry
+    approval_level: public_horizon_explainer
+    source_modes:
+      - approved_horizon_doc
+      - approved_public_guide_copy
+      - generated_reel_manifest_with_audio_probe
+    forbidden_modes:
+      - future_direction_as_current_shipment
+      - provider_output_as_product_truth
+      - official_sourcebook_art_or_logos
+      - uncaptioned_public_video
+    claim_truth_order:
+      - horizon_doc
+      - public_guide_copy
+      - media_manifest_entry
+      - rendered_video
+    required_receipt_fields:
+      - horizon_id
+      - public_mp4
+      - public_captions
+      - has_video
+      - has_audio
   - id: public_release_explainer
     audience: public
     duration_seconds_target: 60
