@@ -40,6 +40,7 @@ VOLATILE_KEYS = {
     "output_excerpt",
     "python_bin",
     "review_due",
+    "source_tree_fingerprint",
 }
 
 
@@ -47,7 +48,17 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
-            if key in VOLATILE_KEYS or str(key).endswith("_git_head"):
+            key_str = str(key)
+            if (
+                key in VOLATILE_KEYS
+                or key_str in VOLATILE_KEYS
+                or key_str.endswith("_git_head")
+                or key_str.endswith("_ms")
+                or key_str.endswith("_ms_max")
+                or key_str.endswith("_ms_min")
+                or key_str.endswith("_ms_total")
+                or key_str.endswith("_ms_std")
+            ):
                 continue
             normalized[key] = _normalize(item)
         return normalized
