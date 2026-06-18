@@ -18,6 +18,7 @@ GENERATED_ARTIFACTS = (
     Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"),
     Path(".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json"),
     Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"),
+    Path(".codex-studio/published/telegram_video_delivery_operator.generated.json"),
     Path(".codex-studio/published/memorial_voice_roundtrip_exit_gate.generated.json"),
 )
 VOLATILE_KEYS = {
