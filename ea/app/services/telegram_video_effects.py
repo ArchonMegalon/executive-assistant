@@ -17,6 +17,16 @@ from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageFilter
 
+try:  # Optional at import time; present in the EA runtime image.
+    import cv2  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - exercised only in stripped runtimes
+    cv2 = None  # type: ignore[assignment]
+
+try:
+    import numpy as np  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover - exercised only in stripped runtimes
+    np = None  # type: ignore[assignment]
+
 
 _SUPPORTED_FIRE_MARKERS = (
     "real flames",
@@ -245,6 +255,178 @@ def _flame_palette(frame_index: int, step: int) -> tuple[tuple[int, int, int, in
     return outer, mid, core
 
 
+def _fallback_fire_ring_target(width: int, height: int) -> dict[str, float]:
+    return {
+        "cx": width * 0.5,
+        "cy": height * 0.56,
+        "rx": min(width, height) * 0.16,
+        "ry": min(width, height) * 0.11,
+        "score": 0.0,
+    }
+
+
+def _detect_fire_ring_target(frame: Image.Image) -> dict[str, float]:
+    width, height = frame.size
+    fallback = _fallback_fire_ring_target(width, height)
+    if cv2 is None or np is None:
+        return fallback
+    rgb = np.array(frame.convert("RGB"))
+    if rgb.size == 0:
+        return fallback
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    hue = hsv[:, :, 0]
+    saturation = hsv[:, :, 1]
+    value = hsv[:, :, 2]
+    warm_hue = ((hue <= 34) | (hue >= 166)).astype("uint8") * 255
+    saturated = cv2.inRange(saturation, 58, 255)
+    bright = cv2.inRange(value, 72, 255)
+    mask = cv2.bitwise_and(warm_hue, saturated)
+    mask = cv2.bitwise_and(mask, bright)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.dilate(mask, kernel, iterations=1)
+    contours, _hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    min_dim = max(min(width, height), 1)
+    frame_area = float(max(width * height, 1))
+    best: dict[str, float] | None = None
+    best_score = -1.0
+    for contour in contours:
+        if contour is None or len(contour) < 5:
+            continue
+        x, y, w, h = cv2.boundingRect(contour)
+        if w <= 0 or h <= 0:
+            continue
+        box_area = float(w * h)
+        area_ratio = box_area / frame_area
+        if area_ratio < 0.002 or area_ratio > 0.16:
+            continue
+        if w < min_dim * 0.08 or h < min_dim * 0.045:
+            continue
+        aspect = w / float(h)
+        if aspect < 0.55 or aspect > 3.2:
+            continue
+        cy = y + h * 0.5
+        if cy < height * 0.22:
+            continue
+        contour_area = float(cv2.contourArea(contour))
+        fill_ratio = contour_area / box_area if box_area else 0.0
+        if fill_ratio < 0.05 or fill_ratio > 0.9:
+            continue
+        perimeter = float(cv2.arcLength(contour, True) or 0.0)
+        circularity = min((4.0 * math.pi * contour_area / (perimeter * perimeter)) if perimeter else 0.0, 1.0)
+        center_bias = 1.0 - min(abs((x + w * 0.5) - width * 0.5) / max(width * 0.5, 1), 1.0)
+        lower_mid_bias = 1.0 - min(abs(cy - height * 0.58) / max(height * 0.58, 1), 1.0)
+        warm_pixels = float(cv2.countNonZero(mask[y : y + h, x : x + w]))
+        warm_density = min(warm_pixels / box_area if box_area else 0.0, 1.0)
+        score = (
+            0.34 * min(area_ratio / 0.035, 1.0)
+            + 0.22 * circularity
+            + 0.18 * warm_density
+            + 0.16 * lower_mid_bias
+            + 0.10 * center_bias
+        )
+        if score <= best_score:
+            continue
+        best_score = score
+        if len(contour) >= 5:
+            try:
+                ellipse = cv2.fitEllipse(contour)
+                (ecx, ecy), (major, minor), _angle = ellipse
+                rx = max(float(major), float(minor)) * 0.5
+                ry = min(float(major), float(minor)) * 0.5
+                if rx <= 0 or ry <= 0:
+                    raise ValueError
+                best = {"cx": float(ecx), "cy": float(ecy), "rx": rx, "ry": ry, "score": float(score)}
+            except Exception:
+                best = {
+                    "cx": float(x + w * 0.5),
+                    "cy": float(y + h * 0.5),
+                    "rx": float(w * 0.5),
+                    "ry": float(h * 0.5),
+                    "score": float(score),
+                }
+    if not best:
+        return fallback
+    best["rx"] = max(min(best["rx"], min_dim * 0.34), min_dim * 0.05)
+    best["ry"] = max(min(best["ry"], min_dim * 0.22), min_dim * 0.035)
+    best["cx"] = max(min(best["cx"], width - best["rx"] * 0.35), best["rx"] * 0.35)
+    best["cy"] = max(min(best["cy"], height - best["ry"] * 0.25), best["ry"] * 0.25)
+    return best
+
+
+def _smooth_fire_ring_targets(targets: list[dict[str, float]], width: int, height: int) -> list[dict[str, float]]:
+    fallback = _fallback_fire_ring_target(width, height)
+    if not targets:
+        return [fallback]
+    valid = [target for target in targets if float(target.get("score") or 0.0) > 0.08]
+    if not valid:
+        valid = [fallback]
+    seed = {
+        key: float(sorted(target[key] for target in valid)[len(valid) // 2])
+        for key in ("cx", "cy", "rx", "ry")
+    }
+    smoothed: list[dict[str, float]] = []
+    previous = dict(seed)
+    for target in targets:
+        score = float(target.get("score") or 0.0)
+        current = target if score > 0.08 else {**previous, "score": 0.0}
+        alpha = 0.38 if score > 0.08 else 0.12
+        previous = {
+            "cx": previous["cx"] * (1.0 - alpha) + float(current.get("cx") or seed["cx"]) * alpha,
+            "cy": previous["cy"] * (1.0 - alpha) + float(current.get("cy") or seed["cy"]) * alpha,
+            "rx": previous["rx"] * (1.0 - alpha) + float(current.get("rx") or seed["rx"]) * alpha,
+            "ry": previous["ry"] * (1.0 - alpha) + float(current.get("ry") or seed["ry"]) * alpha,
+        }
+        smoothed.append({**previous, "score": score})
+    return smoothed
+
+
+def _estimate_fire_ring_targets(
+    *,
+    source_path: Path,
+    width: int,
+    height: int,
+    effect_duration: float,
+    fps: int,
+    frame_count: int,
+) -> tuple[list[dict[str, float]], dict[str, object]]:
+    fallback = [_fallback_fire_ring_target(width, height) for _ in range(frame_count)]
+    if cv2 is None or np is None:
+        return fallback, {"mode": "fallback_center", "tracked_frames": 0, "mean_score": 0.0}
+    capture = cv2.VideoCapture(str(source_path))
+    if not capture.isOpened():
+        return fallback, {"mode": "fallback_center", "tracked_frames": 0, "mean_score": 0.0}
+    targets: list[dict[str, float]] = []
+    try:
+        for frame_index in range(frame_count):
+            second = min(frame_index / max(float(fps), 1.0), max(effect_duration - 0.01, 0.0))
+            capture.set(cv2.CAP_PROP_POS_MSEC, second * 1000.0)
+            ok, bgr = capture.read()
+            if not ok or bgr is None:
+                targets.append(_fallback_fire_ring_target(width, height))
+                continue
+            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            frame = Image.fromarray(rgb)
+            targets.append(_detect_fire_ring_target(frame))
+    finally:
+        capture.release()
+    smoothed = _smooth_fire_ring_targets(targets, width, height)
+    tracked = [target for target in targets if float(target.get("score") or 0.0) > 0.08]
+    mean_score = sum(float(target.get("score") or 0.0) for target in tracked) / max(len(tracked), 1)
+    return smoothed, {
+        "mode": "source_tracked" if tracked else "fallback_center",
+        "tracked_frames": len(tracked),
+        "frame_count": frame_count,
+        "mean_score": round(mean_score, 4),
+        "first_target": {
+            key: round(float(smoothed[0].get(key) or 0.0), 2)
+            for key in ("cx", "cy", "rx", "ry", "score")
+        }
+        if smoothed
+        else {},
+    }
+
+
 def _draw_flame_ring_frame(
     *,
     width: int,
@@ -252,60 +434,83 @@ def _draw_flame_ring_frame(
     frame_index: int,
     frame_count: int,
     clothes_burn_window: tuple[int, int],
+    ring_target: dict[str, float],
     target: Path,
 ) -> None:
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image, "RGBA")
-    cx = width * 0.5
-    cy = height * 0.5
-    radius = min(width, height) * 0.17
-    ring_band = max(int(radius * 0.12), 10)
-    for step, angle_deg in enumerate(range(0, 360, 12)):
+    cx = float(ring_target.get("cx") or width * 0.5)
+    cy = float(ring_target.get("cy") or height * 0.56)
+    rx = max(float(ring_target.get("rx") or min(width, height) * 0.16), 12.0)
+    ry = max(float(ring_target.get("ry") or min(width, height) * 0.11), 8.0)
+    ring_band = max(int(min(rx, ry) * 0.16), 6)
+    glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow, "RGBA")
+    glow_draw.ellipse(
+        (cx - rx * 1.14, cy - ry * 1.35, cx + rx * 1.14, cy + ry * 1.18),
+        outline=(255, 126, 30, 70),
+        width=max(ring_band * 2, 12),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=max(min(width, height) / 95.0, 5.0)))
+    image.alpha_composite(glow)
+    for step, angle_deg in enumerate(range(0, 360, 9)):
         angle = math.radians(angle_deg)
-        jitter = math.sin(frame_index * 0.5 + step * 0.9) * radius * 0.03
-        flame_height = radius * (0.15 + 0.10 * (0.5 + 0.5 * math.sin(frame_index * 0.31 + step * 1.17)))
-        inner_r = radius - ring_band * 0.55 + jitter
-        outer_r = radius + flame_height + jitter
-        px = cx + math.cos(angle) * inner_r
-        py = cy + math.sin(angle) * inner_r
-        nx = cx + math.cos(angle + 0.08) * outer_r
-        ny = cy + math.sin(angle + 0.08) * outer_r
-        bx = cx + math.cos(angle - 0.08) * outer_r
-        by = cy + math.sin(angle - 0.08) * outer_r
+        perspective = 0.72 + 0.34 * (0.5 + 0.5 * math.sin(angle))
+        jitter_x = math.sin(frame_index * 0.47 + step * 0.91) * rx * 0.012
+        jitter_y = math.cos(frame_index * 0.39 + step * 0.73) * ry * 0.018
+        px = cx + math.cos(angle) * rx + jitter_x
+        py = cy + math.sin(angle) * ry + jitter_y
+        tangent_x = -math.sin(angle)
+        base_half = max(ring_band * (0.42 + 0.24 * perspective), 4.0)
+        flame_height = ry * (0.42 + 0.34 * (0.5 + 0.5 * math.sin(frame_index * 0.31 + step * 1.17)))
+        flame_height *= perspective
+        lean = math.sin(frame_index * 0.19 + step * 0.57) * ring_band * 0.45
+        left = (px - tangent_x * base_half, py + ring_band * 0.18)
+        right = (px + tangent_x * base_half, py + ring_band * 0.18)
+        top = (px + lean, py - flame_height)
+        mid_top = (px + lean * 0.42, py - flame_height * 0.66)
         outer, mid, core = _flame_palette(frame_index, step)
-        draw.polygon([(px, py), (nx, ny), (bx, by)], fill=outer)
+        draw.polygon([left, top, right], fill=outer)
+        draw.polygon(
+            [
+                (left[0] * 0.62 + px * 0.38, left[1] - ring_band * 0.12),
+                mid_top,
+                (right[0] * 0.62 + px * 0.38, right[1] - ring_band * 0.12),
+            ],
+            fill=mid,
+        )
         draw.ellipse(
             (
-                px - ring_band * 0.75,
-                py - ring_band * 0.75,
-                px + ring_band * 0.75,
-                py + ring_band * 0.75,
+                px - ring_band * 0.7,
+                py - ring_band * 0.35,
+                px + ring_band * 0.7,
+                py + ring_band * 0.35,
             ),
             fill=mid,
         )
         draw.ellipse(
             (
-                px - ring_band * 0.42,
-                py - ring_band * 0.42,
-                px + ring_band * 0.42,
-                py + ring_band * 0.42,
+                px - ring_band * 0.34,
+                py - ring_band * 0.22,
+                px + ring_band * 0.34,
+                py + ring_band * 0.22,
             ),
             fill=core,
         )
     draw.ellipse(
         (
-            cx - radius,
-            cy - radius,
-            cx + radius,
-            cy + radius,
+            cx - rx,
+            cy - ry,
+            cx + rx,
+            cy + ry,
         ),
-        outline=(255, 190, 70, 128),
-        width=max(ring_band // 3, 5),
+        outline=(255, 176, 58, 108),
+        width=max(ring_band // 2, 4),
     )
     if clothes_burn_window[0] <= frame_index <= clothes_burn_window[1]:
         phase = 0.5 + 0.5 * math.sin((frame_index - clothes_burn_window[0]) * 0.8)
-        patch_x = int(cx + radius * 0.16)
-        patch_y = int(cy + radius * 0.48)
+        patch_x = int(cx + rx * 0.22)
+        patch_y = int(cy + ry * 0.95)
         patch_w = max(int(width * 0.05), 26)
         patch_h = max(int(height * 0.08), 48)
         for idx in range(6):
@@ -339,17 +544,32 @@ def _draw_flame_ring_frame(
                 ),
                 fill=core,
             )
-    image = image.filter(ImageFilter.GaussianBlur(radius=max(min(width, height) / 240.0, 1.5)))
+    image = image.filter(ImageFilter.GaussianBlur(radius=max(min(width, height) / 340.0, 0.9)))
     target.parent.mkdir(parents=True, exist_ok=True)
     image.save(target)
 
 
-def _render_overlay_frames(*, width: int, height: int, duration_seconds: float, frames_dir: Path) -> tuple[int, float]:
+def _render_overlay_frames(
+    *,
+    source_path: Path,
+    width: int,
+    height: int,
+    duration_seconds: float,
+    frames_dir: Path,
+) -> tuple[int, float, dict[str, object]]:
     fps = 10
     effect_duration = max(4.0, min(duration_seconds, 18.0))
     frame_count = max(int(math.ceil(effect_duration * fps)), fps * 4)
     clothes_start = int(frame_count * 0.42)
     clothes_end = min(frame_count - 1, clothes_start + max(int(fps * 0.9), 5))
+    ring_targets, tracking = _estimate_fire_ring_targets(
+        source_path=source_path,
+        width=width,
+        height=height,
+        effect_duration=effect_duration,
+        fps=fps,
+        frame_count=frame_count,
+    )
     for frame_index in range(frame_count):
         _draw_flame_ring_frame(
             width=width,
@@ -357,9 +577,10 @@ def _render_overlay_frames(*, width: int, height: int, duration_seconds: float, 
             frame_index=frame_index,
             frame_count=frame_count,
             clothes_burn_window=(clothes_start, clothes_end),
+            ring_target=ring_targets[min(frame_index, len(ring_targets) - 1)],
             target=frames_dir / f"frame-{frame_index:04d}.png",
         )
-    return fps, effect_duration
+    return fps, effect_duration, tracking
 
 
 def _atempo_chain(speed_factor: float) -> str:
@@ -545,9 +766,11 @@ def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> 
         probe = _probe_video(source_path)
         fps = 10
         effect_duration = 0.0
+        tracking: dict[str, object] = {"mode": "not_requested"}
         overlay_frames_dir: Path | None = None
         if bool(plan.get("fire_overlay")):
-            fps, effect_duration = _render_overlay_frames(
+            fps, effect_duration, tracking = _render_overlay_frames(
+                source_path=source_path,
                 width=int(probe["width"]),
                 height=int(probe["height"]),
                 duration_seconds=float(probe["duration"]),
@@ -569,5 +792,6 @@ def render_local_source_video_edit(*, video_url: str, instruction_text: str) -> 
         "video_file_path": str(final_output),
         "instruction_text": str(instruction_text or "").strip(),
         "effect_duration_seconds": effect_duration,
+        "target_tracking": tracking,
         "operations": sorted(str(key) for key, value in plan.items() if value not in {False, None, "", 0}),
     }

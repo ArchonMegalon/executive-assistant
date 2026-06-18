@@ -4,6 +4,8 @@ import io
 import socket
 
 import pytest
+from PIL import Image
+from PIL import ImageDraw
 
 from app.services import telegram_video_effects
 
@@ -23,6 +25,44 @@ def test_source_video_edit_supported_for_on_fire_request() -> None:
 def test_parse_source_video_edit_plan_supports_on_fire_request() -> None:
     plan = telegram_video_effects.parse_source_video_edit_plan("Make this ring on fire.")
     assert plan["fire_overlay"] is True
+
+
+def test_detect_fire_ring_target_uses_source_hoop_position() -> None:
+    if telegram_video_effects.cv2 is None or telegram_video_effects.np is None:
+        pytest.skip("cv2/numpy unavailable")
+    frame = Image.new("RGB", (640, 360), (42, 82, 104))
+    draw = ImageDraw.Draw(frame)
+    draw.ellipse((92, 196, 268, 304), outline=(255, 92, 18), width=18)
+    draw.ellipse((110, 211, 250, 289), outline=(255, 214, 42), width=10)
+
+    target = telegram_video_effects._detect_fire_ring_target(frame)
+
+    assert target["score"] > 0.35
+    assert 150 <= target["cx"] <= 210
+    assert 225 <= target["cy"] <= 275
+    assert target["rx"] > target["ry"]
+
+
+def test_draw_flame_ring_frame_anchors_to_detected_target(tmp_path) -> None:
+    target_path = tmp_path / "flame-frame.png"
+    telegram_video_effects._draw_flame_ring_frame(
+        width=640,
+        height=360,
+        frame_index=3,
+        frame_count=40,
+        clothes_burn_window=(100, 110),
+        ring_target={"cx": 180.0, "cy": 250.0, "rx": 94.0, "ry": 58.0, "score": 0.8},
+        target=target_path,
+    )
+
+    alpha = Image.open(target_path).convert("RGBA").getchannel("A")
+    bbox = alpha.getbbox()
+    assert bbox is not None
+    left, top, right, bottom = bbox
+    assert left < 120
+    assert right < 360
+    assert top < 245
+    assert bottom > 285
 
 
 def test_source_video_edit_supported_rejects_plain_summary_request() -> None:
