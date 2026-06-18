@@ -249,6 +249,58 @@ LANES: tuple[ProviderLane, ...] = (
         ),
     ),
     ProviderLane(
+        lane_key="subscribr_chummer_script_factory",
+        title="Subscribr Chummer Script Factory",
+        providers=("Subscribr",),
+        integration_lane="video_script_preproduction",
+        verified_state="verified_draft_operator_lane",
+        missing_state="blocked_pending_proof",
+        off_switch_env=(
+            "EA_SUBSCRIBR_ENABLED",
+            "EA_SUBSCRIBR_API_ENABLED",
+            "EA_SUBSCRIBR_AGENT_MODE_ENABLED",
+            "EA_SUBSCRIBR_INTEL_ENABLED",
+            "EA_SUBSCRIBR_THUMBNAILS_ENABLED",
+            "EA_SUBSCRIBR_WEBHOOKS_ENABLED",
+            "EA_SUBSCRIBR_DIRECT_PUBLISH_ENABLED",
+        ),
+        source_of_truth=(
+            "Chummer rule, release, dossier, and editorial packets own truth; "
+            "Subscribr Tier 7 creates video-production drafts only, and EA approval owns publication truth."
+        ),
+        allowed_inputs=(
+            "approved_public_source_packet",
+            "public_release_receipt",
+            "sanitized_explanation_packet",
+            "approved_editorial_brief",
+            "approved_origin_canon",
+        ),
+        forbidden_inputs=(
+            "rules_truth",
+            "character_legality",
+            "release_truth",
+            "sourcebook_pdf",
+            "copied_rulebook_prose",
+            "private_campaign_data",
+            "gm_only_secret",
+            "account_truth",
+            "entitlement_truth",
+            "publication_approval",
+            "direct_publish",
+        ),
+        normalized_signal_schema=(),
+        required_checks=(
+            LaneCheck("inventory_recorded", "Subscribr Tier 7 is recorded.", "LTD inventory row."),
+            LaneCheck("provider_verification", "Tier/API capability is verified.", "Provider receipt."),
+            LaneCheck("api_token_private", "API token remains outside git.", "Runtime config proof."),
+            LaneCheck("channel_map", "Channel map is recorded.", "Channel-map receipt."),
+            LaneCheck("script_roundtrip", "Idea-to-export roundtrip passes.", "Script receipt."),
+            LaneCheck("source_binding", "Claims bind to approved sources.", "Validation receipt."),
+            LaneCheck("copyright_privacy_boundary", "Input boundaries are enforced.", "Boundary tests."),
+            LaneCheck("human_review", "Publication requires human approval.", "Approval contract."),
+        ),
+    ),
+    ProviderLane(
         lane_key="operator_control_plane",
         title="blipai, Syllabbles, and Teable Operator Control Plane",
         providers=("blipai", "Syllabbles", "Teable"),
@@ -528,6 +580,32 @@ def _check_passed(
         row = discovery.get(_normalize("Prompt Architects"), {})
         ok = "prompt_foundry" in str(row.get("verification_source") or row.get("notes") or "").lower()
         return ok, "prompt_foundry_receipt_recorded" if ok else "prompt_foundry_receipt_missing"
+    if key == "api_token_private":
+        ok = _env_present(env, "SUBSCRIBR_API_TOKEN")
+        return ok, "SUBSCRIBR_API_TOKEN_present_outside_git" if ok else "SUBSCRIBR_API_TOKEN_missing"
+    if key == "channel_map":
+        ok = _passing_json_receipt(
+            root,
+            "ea/_completion/subscribr/SUBSCRIBR_CHANNEL_MAP.generated.json",
+            "_completion/subscribr/SUBSCRIBR_CHANNEL_MAP.generated.json",
+        )
+        return ok, "subscribr_channel_map_receipt_passed" if ok else "subscribr_channel_map_missing"
+    if key == "script_roundtrip":
+        ok = _passing_json_receipt(
+            root,
+            "ea/_completion/subscribr/CHUMMER_SUBSCRIBR_SCRIPT_DRAFT.generated.json",
+            "ea/_completion/subscribr/SUBSCRIBR_SCRIPT_ROUNDTRIP.generated.json",
+            "_completion/subscribr/CHUMMER_SUBSCRIBR_SCRIPT_DRAFT.generated.json",
+            "_completion/subscribr/SUBSCRIBR_SCRIPT_ROUNDTRIP.generated.json",
+        )
+        return ok, "subscribr_script_receipt_passed" if ok else "subscribr_script_roundtrip_missing"
+    if key == "source_binding":
+        ok = _passing_json_receipt(
+            root,
+            "ea/_completion/subscribr/SUBSCRIBR_SOURCE_BINDING.generated.json",
+            "_completion/subscribr/SUBSCRIBR_SOURCE_BINDING.generated.json",
+        )
+        return ok, "subscribr_source_binding_passed" if ok else "subscribr_source_binding_missing"
     if key == "provider_roles_defined":
         ok = all(part in lane.source_of_truth.lower() for part in ("teable", "blipai", "syllabbles"))
         return ok, "roles_defined" if ok else "roles_missing"
@@ -622,6 +700,17 @@ def _hard_contract_failures(lane: ProviderLane) -> list[str]:
         }
         if set(lane.normalized_signal_schema) != required:
             failures.append("public_signal_schema_mismatch")
+    if lane.lane_key == "subscribr_chummer_script_factory":
+        if "direct_publish" not in lane.forbidden_inputs:
+            failures.append("subscribr_direct_publish_not_forbidden")
+        if "publication_approval" not in lane.forbidden_inputs:
+            failures.append("subscribr_publication_approval_not_forbidden")
+        if "release_truth" not in lane.forbidden_inputs or "rules_truth" not in lane.forbidden_inputs:
+            failures.append("subscribr_truth_boundary_incomplete")
+        if "approved_public_source_packet" not in lane.allowed_inputs:
+            failures.append("subscribr_source_packet_missing")
+        if "EA_SUBSCRIBR_DIRECT_PUBLISH_ENABLED" not in lane.off_switch_env:
+            failures.append("subscribr_direct_publish_off_switch_missing")
     return failures
 
 

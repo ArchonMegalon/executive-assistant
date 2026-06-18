@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import subprocess
 import sys
@@ -75,6 +76,28 @@ def _write_ltd(tmp_path: Path) -> Path:
     return path
 
 
+def _minimal_ltds(markdown_row: str, discovery_row: str) -> str:
+    return f"""# LTDs
+
+## Non-AppSumo / Other LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+
+## AppSumo LTDs
+
+| Service | Plan / Tier | Holding | Status | Redeem By | Workspace Integration Tier | Local Integration | Notes |
+|---|---|---|---|---|---|---|---|
+{markdown_row}
+
+## Discovery Tracking
+
+| Service | Account / Email | Discovery Status | Verification Source | Last Verified | Notes |
+|---|---|---|---|---|---|
+{discovery_row}
+"""
+
+
 def test_all_requested_ltd_provider_lanes_are_defined() -> None:
     keys = {lane.lane_key for lane in LANES}
     assert keys >= {
@@ -86,6 +109,7 @@ def test_all_requested_ltd_provider_lanes_are_defined() -> None:
         "public_signal_ingest",
         "docs_draft_factory",
         "prompt_foundry",
+        "subscribr_chummer_script_factory",
         "operator_control_plane",
         "video_provider_bakeoff",
         "commercial_ops",
@@ -122,6 +146,15 @@ def test_lane_boundaries_match_provider_risks() -> None:
     assert video is not None
     assert {"direct_publish", "unconsented_likeness", "product_proof"} <= set(video.forbidden_inputs)
     assert "JoggAI" in set(video.providers)
+
+    subscribr = lane_by_key("subscribr_chummer_script_factory")
+    assert subscribr is not None
+    assert subscribr.providers == ("Subscribr",)
+    assert subscribr.integration_lane == "video_script_preproduction"
+    assert subscribr.verified_state == "verified_draft_operator_lane"
+    assert "EA_SUBSCRIBR_DIRECT_PUBLISH_ENABLED" in subscribr.off_switch_env
+    assert "approved_public_source_packet" in subscribr.allowed_inputs
+    assert {"direct_publish", "publication_approval", "rules_truth", "release_truth"} <= set(subscribr.forbidden_inputs)
 
 
 def test_public_signal_lane_schema_is_single_normalized_object() -> None:
@@ -213,6 +246,61 @@ def test_unmixr_voice_roundtrip_requires_passing_receipt(tmp_path: Path) -> None
     )
     assert "voice_roundtrip_validation" in passed["passed_checks"]
     assert "voice_roundtrip_validation" not in passed["missing_checks"]
+
+
+def test_subscribr_tier7_receipt_blocks_until_provider_proof(tmp_path: Path) -> None:
+    markdown_row = (
+        "| `Subscribr` | `License Tier 7 / Scale 3` | `1 lifetime license` | `Owned / activated` |  | "
+        "`Tier 4` | Usual credentials local; API/channel/export proof pending | "
+        "Governed script-intelligence lane. Must not host sourcebook PDFs, copied rulebook prose, "
+        "private runner sheets, GM-only campaign secrets, or account records. Human review is required. |"
+    )
+    discovery_row = (
+        "| `Subscribr` |  | `manual_seeded` | `user_report_tier7` | 2026-06-18T00:00:00Z | "
+        "License Tier 7 / Scale 3 is recorded; API token, channel map, Markdown export, source binding, "
+        "webhook proof, and human review enforcement are still pending. |"
+    )
+    markdown_path = tmp_path / "LTDs.md"
+    markdown_path.write_text(_minimal_ltds(markdown_row, discovery_row), encoding="utf-8")
+
+    lane = lane_by_key("subscribr_chummer_script_factory")
+    assert lane is not None
+
+    receipt = build_ltd_provider_lane_receipt(
+        lane,
+        markdown_text=markdown_path.read_text(encoding="utf-8"),
+        inventory_rows=load_ltd_inventory_rows(markdown_path),
+        env={"SUBSCRIBR_API_TOKEN": "runtime-only-test-token"},
+        root=tmp_path,
+        generated_at="2026-06-18T00:00:00Z",
+    )
+
+    checks = {str(row["check_key"]): row for row in receipt["required_checks"]}
+    assert receipt["status"] == "pass"
+    assert receipt["lane_state"] == "blocked_pending_proof"
+    assert receipt["runtime_enabled"] is False
+    assert checks["inventory_recorded"]["passed"] is True
+    assert checks["provider_verification"]["passed"] is True
+    assert checks["api_token_private"]["passed"] is True
+    assert checks["copyright_privacy_boundary"]["passed"] is True
+    assert checks["human_review"]["passed"] is True
+    assert checks["channel_map"]["passed"] is False
+    assert checks["script_roundtrip"]["passed"] is False
+    assert checks["source_binding"]["passed"] is False
+
+
+def test_subscribr_direct_publish_regression_is_hard_failure() -> None:
+    from app.services.ltd_provider_governance import _hard_contract_failures
+
+    lane = lane_by_key("subscribr_chummer_script_factory")
+    assert lane is not None
+
+    regressed = replace(
+        lane,
+        forbidden_inputs=tuple(value for value in lane.forbidden_inputs if value != "direct_publish"),
+    )
+
+    assert "subscribr_direct_publish_not_forbidden" in _hard_contract_failures(regressed)
 
 
 def test_fliplink_first_publication_requires_passing_receipt(tmp_path: Path) -> None:
