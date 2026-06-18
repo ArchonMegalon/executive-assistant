@@ -169,6 +169,13 @@ The desktop client must:
 * keep a last-known-good rollback window until first successful launch of the new head
 * honor paused or revoked heads
 
+Current shipped startup behavior for the classic desktop updater is:
+
+* automatic update checks happen on startup when the user enabled automatic updates
+* automatic updates must present visible progress instead of running as invisible background work
+* silent-mode automatic updates must download, install in place, and relaunch without a second approval prompt
+* the updater surface may minimize while idle, but it must come back to the foreground for active download and apply stages
+
 The client must not:
 
 * invent local promoted-channel semantics

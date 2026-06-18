@@ -4,8 +4,8 @@ version: 1
 headline: Build Shadowrun characters. Know why the numbers changed.
 subhead: Download Chummer, open or import a character, and keep sessions moving with
   explainable rules math, durable local state, and clear recovery paths.
-proof_line: Current release builds, install checks, and route evidence are posted
-  so you can verify what works today.
+proof_line: The current nightly or stable build, install checks, and route evidence
+  are posted so you can verify what works today.
 no_provider_names: true
 no_ltd_names: true
 hero_ctas:
@@ -26,14 +26,14 @@ secondary_highlights:
 - Deterministic engine
 - Rules receipts
 - Local-first continuity
-product_proof_eyebrow: Verifiable preview evidence
-product_proof_intro: Start with the current download, then inspect the evidence trail
-  when you need to confirm what the posted builds, routes, and named flows prove today.
+product_proof_eyebrow: Verifiable release trail
+product_proof_intro: Start with the current download, then inspect the release trail
+  when you need to confirm what the posted build, routes, and named flows prove today.
 product_proof_primary_label: Download Chummer
 product_proof_primary_href: /downloads
 product_proof_secondary_label: Inspect evidence
 product_proof_secondary_href: /now#real-rules-truth
-product_proof_topline_label: Posted preview evidence
+product_proof_topline_label: Posted release trail
 product_proof_scope_line: Evidence on the public shelf is scoped to the posted files,
   named flows, and recent checks you can inspect today; downloads remain the primary
   route for trying Chummer.

@@ -21,6 +21,8 @@ Build artifacts, installers, archives, update payloads, and preview clients must
 
 Allowed primary CTA labels include:
 
+* `Nightly`
+* `Stable`
 * `Open account-assisted install`
 * `Open Mac install path`
 * `Install the current preview`
@@ -32,7 +34,6 @@ Forbidden primary labels include:
 
 * `Get the latest drop`
 * `Grab everything`
-* `Nightly`
 * vague internal build terms
 
 ## Shelf rules
@@ -40,6 +41,7 @@ Forbidden primary labels include:
 The public shelf must:
 
 * lead with one recommended build per supported platform
+* show visible `Nightly` and `Stable` lane buttons when both lanes are published
 * serve official client downloads only from `chummer.run` routes backed by registry truth
 * show channel and version clearly
 * separate installer media from advanced fallback assets

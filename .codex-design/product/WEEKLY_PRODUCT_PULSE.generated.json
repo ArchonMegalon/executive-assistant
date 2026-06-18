@@ -1,87 +1,74 @@
 {
-  "contract_name": "ea.weekly_product_pulse",
-  "contract_version": 1,
-  "generated_at": "2026-06-17T13:17:53Z",
-  "as_of": "2026-06-17",
-  "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
-  "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-  "release_truth_provenance": {
-    "source_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "resolved_path": "/docker/EA/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "present": true,
-    "size_bytes": 5892,
-    "mtime_utc": "2026-06-17T12:06:14Z",
-    "sha256": "cc82fa429e5844607f39c492ece55130d373ecd9e23d083e5306834cc615f96a",
-    "git_repo_root": "/docker/EA",
-    "git_head": "b09a9a3f5f715b31d321405014927da7fe93a456",
-    "git_branch": "main",
-    "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
-  },
-  "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-  "journey_gate_provenance": {
-    "source_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-    "resolved_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-    "present": true,
-    "size_bytes": 66067,
-    "mtime_utc": "2026-06-12T15:47:06Z",
-    "sha256": "68879d3fb50d7173cb1bf6c757053514894be32ce538df5372eb4d8d0a5efe26",
-    "git_repo_root": "/docker/fleet",
-    "git_head": "9374a4a11b26dad8b7892da6d8c4ee43cb6438cd",
-    "git_branch": "main",
-    "repo_relative_path": ".codex-studio/published/JOURNEY_GATES.generated.json"
-  },
-  "summary": "Executive Assistant has a green flagship receipt, the fleet journey gate is ready, and no journeys block wider release claims.",
-  "active_wave": "EA flagship receipt closeout",
-  "active_wave_status": "active",
+  "contract_name": "chummer.weekly_product_pulse",
+  "contract_version": 3,
+  "generated_at": "2026-06-18T10:37:32Z",
+  "as_of": "2026-06-18",
+  "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
+  "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
+  "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
+  "summary": "Next 12 Biggest Wins is materially closed as the latest recommended closeout wave; journey proof is ready; flagship replacement readiness is still open; overall progress is 100% in 'Public-fit polish'; the longest pole remains Core Engine; support closure is clear.",
+  "active_wave": "Next 12 Biggest Wins",
+  "active_wave_status": "complete",
   "release_health": {
-    "state": "clear",
-    "reason": "The EA flagship receipt is published and current.",
-    "flagship_receipt_status": "pass"
+    "state": "needs_attention",
+    "reason": "Published flagship readiness proof is not green, so release posture cannot overclaim even when red blockers are clear.",
+    "front_door_wave_closed": true
   },
   "flagship_readiness": {
-    "state": "clear",
-    "reason": "Flagship receipt and browser proof are aligned."
+    "state": "watch",
+    "reason": "Published flagship readiness proof is fail. Coverage gaps remain: desktop_client. Readiness-plane gaps remain: flagship_ready, veteran_deep_workflow_ready, dense_workbench_ready, recovery_trust_ready.",
+    "proof_status": "fail",
+    "coverage_gap_keys": [
+      "desktop_client"
+    ],
+    "readiness_plane_gap_keys": [
+      "flagship_ready",
+      "veteran_deep_workflow_ready",
+      "dense_workbench_ready",
+      "recovery_trust_ready"
+    ]
   },
   "rule_environment_trust": {
-    "state": "monitor",
-    "reason": "Rule-environment trust is governed by the current release receipt."
+    "state": "ready",
+    "reason": "Rule-environment trust follows current journey-gate readiness."
   },
   "edition_authorship_and_import_confidence": {
     "state": "monitor",
-    "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror."
+    "reason": "Edition/import confidence is monitored through ongoing history-backed pulse snapshots."
   },
   "journey_gate_health": {
     "state": "ready",
     "reason": "Journey proof is steady on current published evidence.",
     "blocked_count": 0,
     "warning_count": 0,
-    "recommended_action": "Journey proof is steady on current published evidence."
+    "blocked_external_only_count": 0,
+    "blocked_with_local_count": 0,
+    "blocked_external_only_hosts": [],
+    "blocked_external_only_tuples": []
   },
   "top_support_or_feedback_clusters": [
     {
-      "cluster_id": "ea_flagship_receipt_closeout",
-      "summary": "The weekly pulse now anchors to the EA flagship receipt generated from local truth surfaces, and the browser execution proof is published.",
+      "cluster_id": "next12_trust_publication_launch_scale",
+      "summary": "Next 12 Biggest Wins is the active pressure cluster: finish install-specific trust/support truth, creator publication and shelf posture, pulse-v3 launch governance, and no-step-back utility parity.",
       "source_paths": [
-        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-        "README.md",
-        "RUNBOOK.md"
+        "products/chummer/ROADMAP.md",
+        "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
       ]
     },
     {
-      "cluster_id": "fleet_journey_coverage",
-      "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
+      "cluster_id": "public_release_follow_through",
+      "summary": "Downloads, updates, support closure, and channel-aware trust copy now exist as first-party surfaces and must keep moving in lockstep instead of drifting back into separate promises.",
       "source_paths": [
-        "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-        "scripts/verify_release_assets.sh"
+        "products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml",
+        "products/chummer/FEEDBACK_AND_CRASH_STATUS_MODEL.md"
       ]
     },
     {
-      "cluster_id": "governor_truth_alignment",
-      "summary": "Product governor and support surfaces should keep quoting the same release truth instead of drifting back to a mirrored Chummer pulse.",
+      "cluster_id": "long_pole_visibility",
+      "summary": "The current longest pole is Core Engine, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
       "source_paths": [
-        "PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
-        "PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md",
-        "PRODUCT_HEALTH_SCORECARD.yaml"
+        "products/chummer/PROGRESS_REPORT.generated.json",
+        "products/chummer/RELEASE_EVIDENCE_PACK.md"
       ]
     }
   ],
@@ -90,105 +77,99 @@
   "public_promise_drift_count": 0,
   "governor_decisions": [
     {
-      "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
+      "decision_id": "2026-06-18-focus-next-12-biggest-wins",
       "action": "focus_shift",
-      "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is pass, journey gates are ready, and the ready share is 100%.",
+      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 40 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
       "cited_signals": [
-        "flagship_receipt_status=pass",
-        "journey_gate_state=ready",
-        "journey_gate_blocked_count=0",
-        "journey_gate_ready_count=6",
-        "journey_gate_total_count=6",
-        "ready_share=100"
+        "overall_progress_percent=100",
+        "history_snapshot_count=40",
+        "oldest_blocker_days=0",
+        "phase_label=Public-fit polish",
+        "longest_pole=Core Engine",
+        "active_wave_status=complete"
       ]
     },
     {
-      "decision_id": "2026-04-10-freeze-launch-expansion",
-      "action": "hold_truth_line",
-      "reason": "Launch expansion can proceed because browser proof is published and blocked journey tuples are cleared.",
+      "decision_id": "2026-06-18-launch-governance",
+      "action": "freeze_launch",
+      "reason": "Freeze launch expansion until published flagship readiness proof returns to ready posture.",
       "cited_signals": [
-        "flagship_receipt_status=pass",
-        "browser_execution_receipt_present=True",
+        "journey_gate_state=ready",
         "journey_gate_blocked_count=0",
-        "cross_host_tuple_coverage=ready"
+        "local_release_proof_status=passed",
+        "flagship_readiness_state=watch",
+        "flagship_readiness_proof_status=fail",
+        "provider_canary_status=Canary green on all active lanes",
+        "closure_health_state=clear",
+        "successor_dependency_state=ready",
+        "successor_open_dependency_ids=",
+        "successor_open_dependency_work_task_ids=",
+        "status_plane_final_claim_status=fail"
       ]
     }
   ],
-  "next_checkpoint_question": "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?",
-  "supporting_signals": {
-    "current_recommended_wave": "EA flagship receipt closeout",
-    "overall_progress_percent": 100,
-    "phase_label": "Journey coverage closeout",
-    "history_snapshot_count": 1,
-    "longest_pole": "cross-host journey coverage",
-    "launch_readiness": "Release truth is clear enough to widen claims.",
-    "provider_route_stewardship": {
-      "default_status": "EA routes are governed by local truth surfaces.",
-      "canary_status": "Browser execution proof is published and routes are aligned to local truth surfaces.",
-      "review_due": "2026-06-24T13:17:53Z",
-      "next_decision": "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
-    },
-    "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-    "journey_gate_git_head": "9374a4a11b26dad8b7892da6d8c4ee43cb6438cd",
-    "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "b09a9a3f5f715b31d321405014927da7fe93a456",
-    "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
-    "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
-    "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
-    "control_loop_source": ".codex-design/product/PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md",
-    "release_checklist_source": "RELEASE_CHECKLIST.md",
-    "scorecard_metric_count": 24
-  },
+  "next_checkpoint_question": "What is the smallest cross-repo slice that makes the campaign OS indispensable and turns trust, adoption, and publication depth into a real launch advantage?",
   "snapshot": {
     "release_health": {
-      "state": "clear",
-      "reason": "The EA flagship receipt is published and current.",
-      "flagship_receipt_status": "pass"
+      "state": "needs_attention",
+      "reason": "Published flagship readiness proof is not green, so release posture cannot overclaim even when red blockers are clear.",
+      "front_door_wave_closed": true
     },
     "flagship_readiness": {
-      "state": "clear",
-      "reason": "Flagship receipt and browser proof are aligned."
+      "state": "watch",
+      "reason": "Published flagship readiness proof is fail. Coverage gaps remain: desktop_client. Readiness-plane gaps remain: flagship_ready, veteran_deep_workflow_ready, dense_workbench_ready, recovery_trust_ready.",
+      "proof_status": "fail",
+      "coverage_gap_keys": [
+        "desktop_client"
+      ],
+      "readiness_plane_gap_keys": [
+        "flagship_ready",
+        "veteran_deep_workflow_ready",
+        "dense_workbench_ready",
+        "recovery_trust_ready"
+      ]
     },
     "rule_environment_trust": {
-      "state": "monitor",
-      "reason": "Rule-environment trust is governed by the current release receipt."
+      "state": "ready",
+      "reason": "Rule-environment trust follows current journey-gate readiness."
     },
     "edition_authorship_and_import_confidence": {
       "state": "monitor",
-      "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror."
+      "reason": "Edition/import confidence is monitored through ongoing history-backed pulse snapshots."
     },
     "journey_gate_health": {
       "state": "ready",
       "reason": "Journey proof is steady on current published evidence.",
       "blocked_count": 0,
       "warning_count": 0,
-      "recommended_action": "Journey proof is steady on current published evidence."
+      "blocked_external_only_count": 0,
+      "blocked_with_local_count": 0,
+      "blocked_external_only_hosts": [],
+      "blocked_external_only_tuples": []
     },
     "top_support_or_feedback_clusters": [
       {
-        "cluster_id": "ea_flagship_receipt_closeout",
-        "summary": "The weekly pulse now anchors to the EA flagship receipt generated from local truth surfaces, and the browser execution proof is published.",
+        "cluster_id": "next12_trust_publication_launch_scale",
+        "summary": "Next 12 Biggest Wins is the active pressure cluster: finish install-specific trust/support truth, creator publication and shelf posture, pulse-v3 launch governance, and no-step-back utility parity.",
         "source_paths": [
-          ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-          "README.md",
-          "RUNBOOK.md"
+          "products/chummer/ROADMAP.md",
+          "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml"
         ]
       },
       {
-        "cluster_id": "fleet_journey_coverage",
-        "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
+        "cluster_id": "public_release_follow_through",
+        "summary": "Downloads, updates, support closure, and channel-aware trust copy now exist as first-party surfaces and must keep moving in lockstep instead of drifting back into separate promises.",
         "source_paths": [
-          "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
-          "scripts/verify_release_assets.sh"
+          "products/chummer/PUBLIC_RELEASE_EXPERIENCE.yaml",
+          "products/chummer/FEEDBACK_AND_CRASH_STATUS_MODEL.md"
         ]
       },
       {
-        "cluster_id": "governor_truth_alignment",
-        "summary": "Product governor and support surfaces should keep quoting the same release truth instead of drifting back to a mirrored pulse.",
+        "cluster_id": "long_pole_visibility",
+        "summary": "The current longest pole is Core Engine, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
         "source_paths": [
-          "PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
-          "PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md",
-          "PRODUCT_HEALTH_SCORECARD.yaml"
+          "products/chummer/PROGRESS_REPORT.generated.json",
+          "products/chummer/RELEASE_EVIDENCE_PACK.md"
         ]
       }
     ],
@@ -197,39 +178,142 @@
     "public_promise_drift_count": 0,
     "governor_decisions": [
       {
-        "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
+        "decision_id": "2026-06-18-focus-next-12-biggest-wins",
         "action": "focus_shift",
-        "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is pass, journey gates are ready, and the ready share is 100%.",
+        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 100% overall progress in 'Public-fit polish', history depth has reached 40 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
         "cited_signals": [
-          "flagship_receipt_status=pass",
-          "journey_gate_state=ready",
-          "journey_gate_blocked_count=0",
-          "journey_gate_ready_count=6",
-          "journey_gate_total_count=6",
-          "ready_share=100"
+          "overall_progress_percent=100",
+          "history_snapshot_count=40",
+          "oldest_blocker_days=0",
+          "phase_label=Public-fit polish",
+          "longest_pole=Core Engine",
+          "active_wave_status=complete"
         ]
       },
       {
-        "decision_id": "2026-04-10-freeze-launch-expansion",
-        "action": "hold_truth_line",
-        "reason": "Launch expansion can proceed because browser proof is published and blocked journey tuples are cleared.",
+        "decision_id": "2026-06-18-launch-governance",
+        "action": "freeze_launch",
+        "reason": "Freeze launch expansion until published flagship readiness proof returns to ready posture.",
         "cited_signals": [
-          "flagship_receipt_status=pass",
-          "browser_execution_receipt_present=True",
+          "journey_gate_state=ready",
           "journey_gate_blocked_count=0",
-          "cross_host_tuple_coverage=ready"
+          "local_release_proof_status=passed",
+          "flagship_readiness_state=watch",
+          "flagship_readiness_proof_status=fail",
+          "provider_canary_status=Canary green on all active lanes",
+          "closure_health_state=clear",
+          "successor_dependency_state=ready",
+          "successor_open_dependency_ids=",
+          "successor_open_dependency_work_task_ids=",
+          "status_plane_final_claim_status=fail"
         ]
       }
     ],
-    "next_checkpoint_question": "What is the next meaningful release or journey-truth change that should trigger pulse re-materialization?"
+    "next_checkpoint_question": "What is the smallest cross-repo slice that makes the campaign OS indispensable and turns trust, adoption, and publication depth into a real launch advantage?"
   },
-  "release_wave": {
-    "current_recommended_wave": "EA flagship receipt closeout",
-    "active_wave_registry": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml"
-  },
-  "review_cadence": {
-    "review": "weekly",
-    "snapshot_owner": "product_governor",
-    "publication": "internal_canon_first"
+  "supporting_signals": {
+    "current_recommended_wave": "Next 12 Biggest Wins",
+    "overall_progress_percent": 100,
+    "phase_label": "Public-fit polish",
+    "history_snapshot_count": 40,
+    "longest_pole": "Core Engine",
+    "launch_readiness": "Hold launch expansion until published flagship readiness proof returns to ready posture.",
+    "provider_route_stewardship": {
+      "default_status": "Pilot defaults are governed",
+      "canary_status": "Canary green on all active lanes",
+      "review_due": "2026-07-01",
+      "next_decision": "Promote once canaries stay green and support fallout remains clear through the next route review."
+    },
+    "successor_dependency_posture": {
+      "state": "ready",
+      "milestone_id": 106,
+      "dependency_ids": [
+        101,
+        102,
+        103,
+        104,
+        105
+      ],
+      "open_dependency_ids": [],
+      "open_dependency_work_task_ids": [],
+      "summary": "Successor launch dependencies are closed in the next-90-day registry."
+    },
+    "flagship_product_readiness_source": "/docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json",
+    "flagship_product_readiness_status": "fail",
+    "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+    "post_audit_next20_status": "complete",
+    "active_wave_registry": "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+    "scorecard_metric_count": 24,
+    "automation_alignment": {
+      "state": "aligned",
+      "active_wave_registry": "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+      "active_open_milestone_ids": [],
+      "handoff_frontier_milestone_ids": [],
+      "out_of_program_frontier_milestone_ids": [],
+      "handoff_source": "products/chummer/NEXT_12_BIGGEST_WINS_REGISTRY.yaml",
+      "parsed_handoff_frontier_ids": [],
+      "summary": "Automation frontier aligns with the active program open milestones."
+    },
+    "closure_health": {
+      "state": "clear",
+      "open_case_count": 0,
+      "waiting_closure_count": 0,
+      "pending_human_response_count": 0,
+      "reported_case_count": 0,
+      "materialized_packet_count": 0,
+      "design_impact_count": 0,
+      "summary": "0 waiting closure / 0 pending human response. 0 open support packets across 0 reported cases."
+    },
+    "adoption_health": {
+      "state": "clear",
+      "local_release_proof_status": "passed",
+      "proven_journey_count": 5,
+      "proven_route_count": 10,
+      "history_snapshot_count": 40,
+      "summary": "Current local edge proof passed. 5 journey proofs and 10 trust routes are on record. 40 weekly snapshots are on record for the current public trust posture."
+    },
+    "progress_trend": {
+      "state": "steady",
+      "direction": "flat",
+      "delta_percent": 0,
+      "from_as_of": "2026-06-12",
+      "to_as_of": "2026-06-17",
+      "summary": "Flat trend 0% from 2026-06-12 to 2026-06-17. Trend window: 2026-05-22 100% -> 2026-05-29 100% -> 2026-05-30 100% -> 2026-06-01 100% -> 2026-06-02 100% -> 2026-06-04 100% -> 2026-06-12 100% -> 2026-06-17 100%.",
+      "sample_count": 8,
+      "samples": [
+        {
+          "as_of": "2026-05-22",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-05-29",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-05-30",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-06-01",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-06-02",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-06-04",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-06-12",
+          "overall_progress_percent": 100
+        },
+        {
+          "as_of": "2026-06-17",
+          "overall_progress_percent": 100
+        }
+      ]
+    }
   }
 }

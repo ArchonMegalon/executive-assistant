@@ -80,19 +80,19 @@ waves:
       - 120
   - id: W15
     name: Make live table loops and world memory playable
-    status: not_started
+    status: in_progress
     milestone_ids:
     - 121
     - 122
   - id: W16
     name: Make public run network and companion runtime real
-    status: not_started
+    status: in_progress
     milestone_ids:
     - 123
     - 124
   - id: W17
     name: Turn public signal and horizons into governed implementation lanes
-    status: not_started
+    status: in_progress
     milestone_ids:
     - 125
     - 126
@@ -3388,7 +3388,7 @@ milestones:
     - executive-assistant
     - fleet
     - chummer6-design
-    status: not_started
+    status: in_progress
     dependencies:
     - 103
     - 104
@@ -3449,6 +3449,7 @@ milestones:
     - id: '141.5'
       owner: fleet
       title: Fail closeout when any of the five route or family rows in this milestone remain `no`, blank, stale, or unsupported by direct proof receipts.
+      status: complete
   - id: 142
     title: Direct parity proof for dense workbench, dice utilities, and identity or lifestyle workflows
     wave: W22P
@@ -3459,7 +3460,7 @@ milestones:
     - executive-assistant
     - fleet
     - chummer6-design
-    status: not_started
+    status: in_progress
     dependencies:
     - 103
     - 104
@@ -3518,7 +3519,7 @@ milestones:
     - executive-assistant
     - fleet
     - chummer6-design
-    status: not_started
+    status: in_progress
     dependencies:
     - 103
     - 114
@@ -3548,6 +3549,7 @@ milestones:
     - id: '143.2'
       owner: chummer6-core
       title: Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.
+      status: complete
     - id: '143.3'
       owner: chummer6-hub
       title: Bind exchange and outward-facing output routes to visible receipt or bounded-failure posture instead of silent optimistic claims.
@@ -3561,6 +3563,7 @@ milestones:
     - id: '143.6'
       owner: fleet
       title: Fail closeout when these families remain green only by broad family prose, missing outputs, or stale route-local receipts.
+      status: complete
   - id: 144
     title: Desktop executable release integrity and publishable flagship-route closure
     wave: W22P
@@ -3570,7 +3573,7 @@ milestones:
     - chummer6-ui
     - fleet
     - chummer6-design
-    status: not_started
+    status: in_progress
     dependencies:
     - 101
     - 102
@@ -3599,6 +3602,7 @@ milestones:
     - id: '144.4'
       owner: fleet
       title: Fail closeout when desktop-client readiness is green without matching executable-gate, startup-smoke, and release-channel tuple proof.
+      status: complete
   - id: 145
     title: Explain every visible value with grounded follow-up and bounded presenter mode
     wave: W28
@@ -3610,7 +3614,7 @@ milestones:
     - executive-assistant
     - fleet
     - chummer6-design
-    status: in_progress
+    status: complete
     dependencies:
     - 104
     - 109
@@ -3629,25 +3633,31 @@ milestones:
     - id: '145.1'
       owner: chummer6-core
       title: Emit explanation packets, coverage-registry truth, and bounded counterfactual packets for every visible mechanical result.
+      status: complete
     - id: '145.2'
       owner: chummer6-ui
       title: Wire the desktop explain drawer, source-anchor launch, stale-state handling, and text-first follow-up on promoted workbench routes.
+      status: complete
     - id: '145.3'
       owner: chummer6-mobile
       title: Bring quick explain, source-anchor context, and bounded follow-up to mobile and live-play shells.
+      status: complete
     - id: '145.4'
       owner: executive-assistant
       title: Compile grounded narration and follow-up packs strictly from explanation-packet and counterfactual truth.
+      status: complete
     - id: '145.5'
       owner: chummer6-media-factory
       title: Render optional audio or presenter siblings from approved explanation packets without becoming calculation authority.
+      status: complete
     - id: '145.6'
       owner: fleet
       title: Fail closeout when visible values, warnings, or bounded what-if answers ship without explain coverage and fallback proof.
+      status: complete
     - id: '145.7'
       owner: chummer6-design
       title: Canonize explain-every-value truth order, source-anchor linkage, and bounded follow-up or presenter posture.
-      status: in_progress
+      status: complete
       evidence:
       - /docker/chummercomplete/chummer-design/products/chummer/EXPLAIN_EVERY_VALUE_AND_GROUNDED_FOLLOW_UP.md defines the
         product promise, truth order, packet contract, coverage-registry floor, and release-gated explain-every-value posture.

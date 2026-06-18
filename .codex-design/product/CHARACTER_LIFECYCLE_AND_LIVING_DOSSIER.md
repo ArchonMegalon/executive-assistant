@@ -43,6 +43,7 @@ The dossier may carry:
 * continuity and recovery links
 * immutable snapshot and branch refs
 * recap and publication-safe projections
+* optional origin dossier canon and bounded media bundle refs
 
 ### 4. Session-active dossier
 
@@ -102,8 +103,31 @@ Must not own:
 * A dossier is not only a PDF, card, or export.
 * A build is not the same thing as a living dossier.
 * A recap artifact is downstream of dossier and campaign truth, not a replacement for it.
+* An origin dossier is optional narrative context and may seed later coaching, but it must not overwrite deterministic build truth.
 * Replay-safe recovery must link back to the same dossier story instead of inventing a separate continuity object.
 * Publication-safe projections may simplify or redact, but they must not fork semantic identity.
+
+## Origin dossier bundle
+
+The current desktop dossier lane may generate an optional `Origin Dossier Bundle` for either:
+
+* a new character before the build is finalized, or
+* an existing finished character when the player wants narrative packaging without reopening mechanics
+
+The bundle can include:
+
+* approved origin canon
+* dossier PDF
+* portrait candidate set and one selected portrait
+* scene candidate set and one selected scene
+* a selectable narration posture with a default narration packet and an alternate narration packet
+* video storyboard and vidBoard packet
+* local media-factory render requests and receipts
+
+The origin bundle is downstream of the runner dossier.
+It can inform ALICE suggestions, but it must not become the source of legality, nuyen, ware entitlement, or quality truth.
+GM allowances and requirements may seed the origin bundle, including extra gear, ware, availability exceptions, required magical activity, required addiction hooks, minimum attribute posture, or table-specific starting resources.
+Those inputs are table context until the player or GM commits matching mechanical edits through the normal character workflow.
 
 ## User-safe promise
 
