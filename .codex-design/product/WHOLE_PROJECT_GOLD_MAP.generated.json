@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.whole_project_gold_map",
-  "generated_at": "2026-06-18T15:52:42Z",
+  "generated_at": "2026-06-18T16:01:19Z",
   "generated_by": "scripts/materialize_whole_project_gold_map.py",
-  "source_git_head": "e8ff612bac4230176982152970ad998a3eb2b39d",
+  "source_git_head": "e739be479a4e9e7c2b364259d7a8b15e9d9318e6",
   "head_semantics": "source_state",
   "head_semantics_note": "source_git_head records the proved source state. Generated-only artifact commits may advance repository HEAD without changing the source state that the receipts prove.",
   "output_path": ".codex-design/product/WHOLE_PROJECT_GOLD_MAP.generated.json",
@@ -204,18 +204,18 @@
       ],
       "missing_evidence": [],
       "design_notes": [
-        "lane_count=11",
+        "lane_count=12",
         "runtime_lane_count=3",
-        "draft_or_operator_lane_count=8"
+        "draft_or_operator_lane_count=9"
       ]
     }
   ],
   "ltd_provider_lane_summary": {
     "contract_name": "ea.verify_ltd_provider_lanes",
     "status": "pass",
-    "lane_count": 11,
+    "lane_count": 12,
     "runtime_lane_count": 3,
-    "draft_or_operator_lane_count": 8,
+    "draft_or_operator_lane_count": 9,
     "poppy_runtime_enabled": false,
     "poppy_lane_state": "verified_draft_operator_lane",
     "draft_or_operator_lanes": [
@@ -224,6 +224,7 @@
       "public_signal_ingest",
       "docs_draft_factory",
       "prompt_foundry",
+      "subscribr_chummer_script_factory",
       "operator_control_plane",
       "video_provider_bakeoff",
       "commercial_ops"
