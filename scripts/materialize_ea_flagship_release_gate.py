@@ -10,8 +10,10 @@ from typing import Any
 
 try:
     from scripts.source_state_head import resolve_source_state_head
+    from scripts.source_state_head import resolve_source_tree_fingerprint
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
+    from source_state_head import resolve_source_tree_fingerprint
 
 
 DEFAULT_SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
@@ -85,7 +87,7 @@ def _git_stdout(root: Path, *args: str) -> str:
 
 
 def _source_tree_fingerprint(root: Path) -> str:
-    return _git_stdout(root, "rev-parse", "HEAD^{tree}")
+    return resolve_source_tree_fingerprint(root)
 
 
 def _build_browser_sources(root: Path, seed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:

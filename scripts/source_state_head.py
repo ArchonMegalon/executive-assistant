@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -38,6 +39,33 @@ def resolve_source_state_head(repo_root: Path, *, generated_only_prefixes: tuple
             return commit
 
     return commits[-1]
+
+
+def resolve_source_tree_fingerprint(
+    repo_root: Path,
+    *,
+    generated_only_prefixes: tuple[str, ...] = GENERATED_ONLY_PREFIXES,
+) -> str:
+    source_head = resolve_source_state_head(repo_root, generated_only_prefixes=generated_only_prefixes)
+    if not source_head:
+        return ""
+    relpaths = [
+        line.strip()
+        for line in _git_stdout(repo_root, "ls-tree", "-r", "--name-only", source_head).splitlines()
+        if line.strip()
+    ]
+    digest = hashlib.sha256()
+    for relpath in sorted(relpaths):
+        if _is_generated_only_path(relpath, prefixes=generated_only_prefixes):
+            continue
+        blob_id = _git_stdout(repo_root, "rev-parse", f"{source_head}:{relpath}")
+        if not blob_id:
+            continue
+        digest.update(relpath.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(blob_id.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _git_stdout(repo_root: Path, *args: str) -> str:

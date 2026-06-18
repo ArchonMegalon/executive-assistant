@@ -1,6 +1,6 @@
 {
   "contract_name": "ea.telegram_video_delivery_operator_receipt",
-  "generated_at": "2026-06-18T15:34:31Z",
+  "generated_at": "2026-06-18T15:36:11Z",
   "generated_by": "scripts/materialize_telegram_video_delivery_receipt.py",
   "source_git_head": "4c0f337994643d9d2e8f05a0ea3232e17edf5b4f",
   "head_semantics": "source_state",
