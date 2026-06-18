@@ -1,0 +1,152 @@
+{
+  "contract_name": "ea.memorial_stt_provider_benchmark",
+  "generated_at": "2026-06-18T06:17:14Z",
+  "generated_by": "scripts/benchmark_memorial_stt_providers.py",
+  "source_git_head": "4b4a3351e512ef51c9799abf73317f2e84da50e6",
+  "head_semantics": "source_state",
+  "status": "pass",
+  "blocking_reason": "",
+  "availability": {
+    "shadow_provider": "blipai",
+    "cartesia_configured": true,
+    "onemin_key_count": 0,
+    "onemin_max_key_attempts": 3
+  },
+  "rows": [
+    {
+      "sample": "contact",
+      "shadow": {
+        "provider": "blipai",
+        "status": "error",
+        "text": "",
+        "usable": false,
+        "ms": 510.8,
+        "reason": "http_401",
+        "enabled": true,
+        "mode": "shadow_only"
+      },
+      "onemin_sample": {
+        "status": "unavailable",
+        "detail": "no_keys",
+        "transcriber": "onemin"
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "text": "Was ist das?",
+        "usable": true,
+        "ms": 562.5,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": ""
+      }
+    },
+    {
+      "sample": "contact_hostile",
+      "shadow": {
+        "provider": "blipai",
+        "status": null,
+        "text": "",
+        "usable": false,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "enabled": false,
+        "mode": "shadow_only"
+      },
+      "onemin_sample": {
+        "status": "unavailable",
+        "detail": "no_keys",
+        "transcriber": "onemin"
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "text": "Was ist das?",
+        "usable": true,
+        "ms": 212.5,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": ""
+      }
+    },
+    {
+      "sample": "stt_retry",
+      "shadow": {
+        "provider": "blipai",
+        "status": null,
+        "text": "",
+        "usable": false,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "enabled": false,
+        "mode": "shadow_only"
+      },
+      "onemin_sample": {
+        "status": "unavailable",
+        "detail": "no_keys",
+        "transcriber": "onemin"
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "text": "Was ist das?",
+        "usable": true,
+        "ms": 239.9,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": ""
+      }
+    },
+    {
+      "sample": "stt_retry_hostile",
+      "shadow": {
+        "provider": "blipai",
+        "status": null,
+        "text": "",
+        "usable": false,
+        "ms": 0.0,
+        "reason": "provider_cooldown_active",
+        "enabled": false,
+        "mode": "shadow_only"
+      },
+      "onemin_sample": {
+        "status": "unavailable",
+        "detail": "no_keys",
+        "transcriber": "onemin"
+      },
+      "full_runtime": {
+        "status": "transcribed",
+        "text": "Was ist das?",
+        "usable": true,
+        "ms": 183.6,
+        "transcriber": "cartesia/ink-whisper+enhanced_wav",
+        "detail": ""
+      }
+    }
+  ],
+  "summary": {
+    "providers": [
+      {
+        "provider": "cartesia/ink-whisper+enhanced_wav",
+        "attempts": 4,
+        "usable": 4,
+        "errors": 0,
+        "usable_ratio": 1.0,
+        "avg_ms": 299.6
+      },
+      {
+        "provider": "blipai",
+        "attempts": 4,
+        "usable": 0,
+        "errors": 1,
+        "usable_ratio": 0.0,
+        "avg_ms": 127.7
+      },
+      {
+        "provider": "onemin",
+        "attempts": 4,
+        "usable": 0,
+        "errors": 4,
+        "usable_ratio": 0.0,
+        "avg_ms": 0.0
+      }
+    ],
+    "sample_count": 4,
+    "provider_count": 3
+  },
+  "best_provider": "cartesia/ink-whisper+enhanced_wav"
+}
