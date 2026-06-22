@@ -58,6 +58,22 @@ def test_inventory_markdown_path_resolves_repo_and_container_layouts(tmp_path: P
     assert _inventory_markdown_path(module_path=container_module) == container_inventory
 
 
+def test_inventory_markdown_path_reads_ltd_markdown_env_alias(tmp_path: Path, monkeypatch) -> None:
+    legacy_path = tmp_path / "legacy" / "LTDs.md"
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_path.write_text(_sample_ltd_markdown(), encoding="utf-8")
+    modern_path = tmp_path / "modern" / "LTDs.md"
+    modern_path.parent.mkdir(parents=True, exist_ok=True)
+    modern_path.write_text(_sample_ltd_markdown(), encoding="utf-8")
+
+    monkeypatch.setenv("EA_LTD_MARKDOWN_PATH", str(legacy_path))
+    monkeypatch.delenv("EA_LTDS_MARKDOWN_PATH", raising=False)
+    assert _inventory_markdown_path(module_path=tmp_path / "repo" / "app" / "services" / "ltd_runtime_catalog.py") == legacy_path
+
+    monkeypatch.setenv("EA_LTDS_MARKDOWN_PATH", str(modern_path))
+    assert _inventory_markdown_path(module_path=tmp_path / "repo" / "app" / "services" / "ltd_runtime_catalog.py") == modern_path
+
+
 def test_browseract_ui_service_aliases_resolve_inventory_service_names() -> None:
     documentation = browseract_ui_service_by_alias("Documentation.AI")
     assert documentation is not None

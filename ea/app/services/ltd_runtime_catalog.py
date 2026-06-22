@@ -45,7 +45,10 @@ class LtdInventoryRow:
 
 
 def _inventory_markdown_path(*, module_path: Path | None = None) -> Path:
-    configured = str(os.environ.get("EA_LTDS_MARKDOWN_PATH") or "").strip()
+    configured = (
+        str(os.environ.get("EA_LTDS_MARKDOWN_PATH") or "").strip()
+        or str(os.environ.get("EA_LTD_MARKDOWN_PATH") or "").strip()
+    )
     if configured:
         return Path(configured).expanduser()
 

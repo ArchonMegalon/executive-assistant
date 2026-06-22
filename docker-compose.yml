@@ -16,6 +16,8 @@ services:
       - OPENVOICE_DATA_DIR=/data/openvoice
       - OPENVOICE_CHECKPOINT_ROOT=/models/openvoice
       - OPENVOICE_SOURCE_DIR=/app/third_party/OpenVoice
+      - EA_LTD_MARKDOWN_PATH=/app/LTDs.md
+      - EA_LTDS_MARKDOWN_PATH=/app/LTDs.md
       - PIPER_BIN=/opt/piper/piper
       - PIPER_MODEL_PATH=/models/piper/de_DE-thorsten-high.onnx
       - PIPER_MODEL_PATH_ALT=/models/piper/de_DE-thorsten-medium.onnx
@@ -33,6 +35,7 @@ services:
       - ./ea/third_party/OpenVoice:/app/third_party/OpenVoice:ro
       - ./ea/.models/openvoice:/models/openvoice:ro
       - ./ea/.models/piper:/models/piper:ro
+      - ./LTDs.md:/app/LTDs.md:ro
       - ea_openvoice_data:/data/openvoice
     healthcheck:
       test:
@@ -129,22 +132,9 @@ services:
       - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - HOME=/home/ea
-      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
-      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
-      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
-      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
-      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
-      - EA_ENABLE_PUBLIC_MEMORIALS=${EA_ENABLE_PUBLIC_MEMORIALS:-1}
-      - EA_HEALTHCHECK_MEMORIAL_SLUG=${EA_HEALTHCHECK_MEMORIAL_SLUG:-manfred}
-      - EA_PUBLIC_MEMORIAL_RATE_BACKEND=${EA_PUBLIC_MEMORIAL_RATE_BACKEND:-redis}
-      - EA_PUBLIC_MEMORIAL_REDIS_URL=${EA_PUBLIC_MEMORIAL_REDIS_URL:-redis://ea-redis:6379/0}
-      - EA_PUBLIC_MEMORIAL_DIR=${EA_PUBLIC_MEMORIAL_DIR:-/data/memorial_data/public_memorials}
-      - EA_PRIVATE_MEMORIAL_PROFILE_DIR=${EA_PRIVATE_MEMORIAL_PROFILE_DIR:-/data/memorial_data/private_memorial_profiles}
-      - EA_MEMORIAL_LIVE_TTS_PLUGIN=${EA_MEMORIAL_LIVE_TTS_PLUGIN:-unmixr_clone}
       - OPENVOICE_BASE_URL=${OPENVOICE_BASE_URL:-http://ea-openvoice:8093}
       - EA_UI_SERVICE_SHARED_TEMP_ROOT=${EA_UI_SERVICE_SHARED_TEMP_ROOT:-/data/artifacts/browseract_ui_worker_shared}
       - VOICEWAVE_RUNTIME_TMP_ROOT=${VOICEWAVE_RUNTIME_TMP_ROOT:-/data/artifacts/voicewave_runtime_tmp}
-      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
@@ -160,7 +150,8 @@ services:
       - ./ea/app/services/whatsapp_web_session_delivery.py:/app/app/services/whatsapp_web_session_delivery.py:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
-      - ea_memorial_data:/data/memorial_data:ro
+      - ${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs
+      - ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:-./data/audiobooks/audiobookshelf}:/data/audiobooks/audiobookshelf
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -201,6 +192,8 @@ services:
       - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
+      - ${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs
+      - ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:-./data/audiobooks/audiobookshelf}:/data/audiobooks/audiobookshelf
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -270,12 +263,6 @@ services:
       - EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS=${EA_AUDIOBOOK_ACCESS_EXPIRES_DAYS:-30}
       - EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL=${EA_AUDIOBOOK_PLAYER_ACCESS_BASE_URL:-}
       - HOME=/home/ea
-      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
-      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
-      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
-      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
-      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
-      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
@@ -290,6 +277,8 @@ services:
       - ./ea/app/services/whatsapp_web_session_readiness.py:/app/app/services/whatsapp_web_session_readiness.py:ro
       - ${EA_ONEDRIVE_ATTACHMENTS_HOST_PATH:-./data/onedrive_attachments}:/data/onedrive_attachments
       - ${EA_DURABLE_AUDIOBOOK_HOST_ROOT:-./data/audiobooks}:/data/audiobooks
+      - ${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs
+      - ${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:-./data/audiobooks/audiobookshelf}:/data/audiobooks/audiobookshelf
       - ea_artifacts:/data/artifacts
       - ea_public_tours:/data/public_property_tours
       - ea_provider_ledger:/data/provider-ledger
@@ -359,12 +348,6 @@ services:
       - EA_AUDIOBOOK_RESUME_DUE_LIMIT=${EA_AUDIOBOOK_RESUME_DUE_LIMIT:-2}
       - EA_AUDIOBOOK_RESUME_ATTEMPT_COOLDOWN_SECONDS=${EA_AUDIOBOOK_RESUME_ATTEMPT_COOLDOWN_SECONDS:-900}
       - HOME=/home/ea
-      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
-      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
-      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
-      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
-      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
-      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
       - TEABLE_BASE_URL=${TEABLE_RUNTIME_BASE_URL:-https://app.teable.ai}
       - TEABLE_TABLE_SYNC_CONFIG_JSON=${TEABLE_TABLE_SYNC_CONFIG_JSON:-}
       - TZ=Europe/Vienna
@@ -506,7 +489,6 @@ services:
 
 volumes:
   ea_artifacts: {}
-  ea_memorial_data: {}
   ea_openvoice_data: {}
   ea_pgdata: {}
   ea_proactive_ooda_state: {}
