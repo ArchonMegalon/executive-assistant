@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:c2d8472b831337ab296a8ce652e1ba786e9e3034fc445dc58b50a7f5251f0003
 
 ARG HOST_DOCKER_GID=112
 
@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY ea/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY ea/requirements.lock .
+RUN pip install --no-cache-dir -r requirements.txt -c requirements.lock
 COPY ea/app ./app
 RUN chown -R ea:ea /app
 

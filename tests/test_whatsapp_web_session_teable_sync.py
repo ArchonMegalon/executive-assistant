@@ -33,6 +33,7 @@ def test_teable_route_fields_include_old_lady_persona_and_supported_schema() -> 
     assert "typing_delay_ms" in route_field_names
     assert "typing_delay_ms_per_character" in route_field_names
     assert "typing_status_enabled" in route_field_names
+    assert "auto_reply_enabled" in route_field_names
     assert "heyy_ai_name" in route_field_names
     assert "recipient_registered" in route_field_names
     assert "recipient_resolution_method" in route_field_names
@@ -47,6 +48,7 @@ def test_teable_route_fields_include_old_lady_persona_and_supported_schema() -> 
     assert "selected_button_hash" in message_field_names
     assert "sample_questions" in persona_field_names
     assert "sample_answer_patterns" in persona_field_names
+    assert "auto_reply_enabled" in persona_field_names
     assert "pre_reply_delay_min_seconds" in persona_field_names
     assert "pre_reply_delay_max_seconds" in persona_field_names
     assert "quiet_hours_start_hour" in persona_field_names
@@ -81,6 +83,7 @@ def test_default_route_row_applies_slow_typing_old_lady_behavior() -> None:
     assert row["quiet_hours_start_hour"] == 21
     assert row["quiet_hours_end_hour"] == 6
     assert row["typing_delay_ms_per_character"] == 4000
+    assert row["auto_reply_enabled"] is True
     assert "1-15 minutes" in str(row["pacing_hint"])
     assert "21:00 and 06:00" in str(row["pacing_hint"])
     assert "slow" in str(row["behavior_prompt"]).lower()
@@ -116,6 +119,7 @@ def test_route_rows_from_teable_forward_persona_and_typing_fields(monkeypatch) -
                     "typing_delay_ms": 7000,
                     "typing_delay_ms_per_character": 4000,
                     "typing_status_enabled": True,
+                    "auto_reply_enabled": False,
                     "reply_text": "Na geh...",
                     "enabled": True,
                     "session_ref": "principal-wa-web",
@@ -148,6 +152,7 @@ def test_route_rows_from_teable_forward_persona_and_typing_fields(monkeypatch) -
             "typing_delay_ms": 7000,
             "typing_delay_ms_per_character": 4000,
             "typing_status_enabled": True,
+            "auto_reply_enabled": False,
             "reply_text": "Na geh...",
         }
     ]

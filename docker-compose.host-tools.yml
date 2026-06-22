@@ -1,4 +1,22 @@
 services:
+  ea-docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - VOLUMES=1
+      - POST=1
+      - INFO=1
+      - PING=1
+      - VERSION=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+
   ea-api:
     build:
       context: .
@@ -9,22 +27,9 @@ services:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
       - EA_CREZLO_SHARED_TEMP_ROOT=${EA_CREZLO_SHARED_TEMP_ROOT:-.runtime/browseract_bootstrap/runtime/crezlo_worker_shared}
+      - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
     volumes:
       - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
-
-  ea-responses-proxy:
-    build:
-      context: .
-      dockerfile: ea/Dockerfile.operator
-    image: ea-runtime-operator:latest
-    user: "0:0"
-    environment:
-      - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
-      - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
-    volumes:
-      - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-worker:
     build:
@@ -36,9 +41,9 @@ services:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
       - EA_CREZLO_SHARED_TEMP_ROOT=${EA_CREZLO_SHARED_TEMP_ROOT:-.runtime/browseract_bootstrap/runtime/crezlo_worker_shared}
+      - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
     volumes:
       - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock
 
   ea-scheduler:
     build:
@@ -50,6 +55,6 @@ services:
       - EA_RUN_AS_UID=${EA_GEMINI_UID:-1000}
       - EA_RUN_AS_GID=${EA_GEMINI_GID:-1000}
       - EA_CREZLO_SHARED_TEMP_ROOT=${EA_CREZLO_SHARED_TEMP_ROOT:-.runtime/browseract_bootstrap/runtime/crezlo_worker_shared}
+      - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
     volumes:
       - /docker:/docker
-      - /var/run/docker.sock:/var/run/docker.sock

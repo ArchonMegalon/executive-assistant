@@ -442,6 +442,7 @@ function normalizeHeyyAiRouteMap(loaded) {
       const pacingDefaults = defaultPacingForAiKey(aiKey);
       parsed[key] = {
         ai_key: aiKey,
+        auto_reply_enabled: aiKey === DEFAULT_HEYY_AI_KEY,
         ai_name: aiKey || DEFAULT_HEYY_AI_NAME,
         behavior_prompt: DEFAULT_HEYY_AI_BEHAVIOR_PROMPT,
         memory_notes: DEFAULT_HEYY_AI_MEMORY_NOTES,
@@ -465,6 +466,7 @@ function normalizeHeyyAiRouteMap(loaded) {
     const allowZeroPacing = key !== "*";
     parsed[key] = {
       ai_key: aiKey,
+      auto_reply_enabled: parseBoolean(rawRule.auto_reply_enabled, aiKey === DEFAULT_HEYY_AI_KEY),
       ai_name: String(rawRule.ai_name || rawRule.display_name || rawRule.label || rawRule.name || rawRule.ai_key || DEFAULT_HEYY_AI_NAME).trim() || DEFAULT_HEYY_AI_NAME,
       behavior_prompt: String(rawRule.behavior_prompt || rawRule.prompt || rawRule.system_prompt || DEFAULT_HEYY_AI_BEHAVIOR_PROMPT).trim(),
       memory_notes: String(rawRule.memory_notes || rawRule.memories || rawRule.memory || DEFAULT_HEYY_AI_MEMORY_NOTES).trim(),
@@ -919,6 +921,7 @@ function heyyAiRouteForSenderDigits(senderDigits) {
   const matched = Boolean(normalized && state.heyyAiRouteMap[normalized]);
   return {
     ai_key: aiKey,
+    auto_reply_enabled: parseBoolean(mapped.auto_reply_enabled, aiKey === DEFAULT_HEYY_AI_KEY),
     ai_name: String(mapped.ai_name || mapped.ai_key || DEFAULT_HEYY_AI_NAME).trim() || DEFAULT_HEYY_AI_NAME,
     behavior_prompt: String(mapped.behavior_prompt || DEFAULT_HEYY_AI_BEHAVIOR_PROMPT).trim(),
     memory_notes: String(mapped.memory_notes || DEFAULT_HEYY_AI_MEMORY_NOTES).trim(),
@@ -1029,6 +1032,7 @@ function publicHeyyAiRoutes() {
     const allowZeroPacing = routeKey !== "*";
     return {
       ai_key: aiKey,
+      auto_reply_enabled: parseBoolean(route.auto_reply_enabled, aiKey === DEFAULT_HEYY_AI_KEY),
       ai_name: String(route.ai_name || route.ai_key || DEFAULT_HEYY_AI_NAME).trim() || DEFAULT_HEYY_AI_NAME,
       behavior_prompt_present: Boolean(String(route.behavior_prompt || "").trim()),
       inbound_number_present: routeKey !== "*",
@@ -1511,6 +1515,10 @@ function autoReplySkipReason(message) {
   const senderDigits = senderDigitsFrom(message);
   if (!senderDigits) {
     return "sender_digits_missing";
+  }
+  const route = heyyAiRouteForMessage(message);
+  if (!parseBoolean(route && route.auto_reply_enabled, String(route && route.ai_key || "").trim() === DEFAULT_HEYY_AI_KEY)) {
+    return "route_auto_reply_disabled";
   }
   if (AUTO_REPLY_ALLOWED_RECIPIENTS.size === 0) {
     return "";

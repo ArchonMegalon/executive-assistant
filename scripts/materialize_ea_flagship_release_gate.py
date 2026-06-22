@@ -11,15 +11,19 @@ from typing import Any
 try:
     from scripts.source_state_head import resolve_source_state_head
     from scripts.source_state_head import resolve_source_tree_fingerprint
+    from scripts.verify_release_authority import validate_release_authority
 except ModuleNotFoundError:  # pragma: no cover - script execution path
     from source_state_head import resolve_source_state_head
     from source_state_head import resolve_source_tree_fingerprint
+    from verify_release_authority import validate_release_authority
 
 
 DEFAULT_SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
 DEFAULT_TRUTH_PLANE = Path(".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md")
 DEFAULT_OUTPUT = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
 DEFAULT_BROWSER_PROOF_RECEIPT = Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json")
+DEFAULT_RELEASE_MANIFEST = Path(".codex-studio/published/release_manifest.generated.json")
+DEFAULT_PROJECT_MODES = Path(".codex-design/product/PROJECT_MODES.generated.json")
 REQUIRED_DOCS = (
     Path("README.md"),
     Path("RUNBOOK.md"),
@@ -143,12 +147,34 @@ def _build_product_canon(root: Path, seed: dict[str, Any]) -> tuple[dict[str, An
     }, missing_docs
 
 
+def _build_release_authority(root: Path, manifest_path: Path, project_modes_path: Path) -> dict[str, Any]:
+    manifest_candidate = root / manifest_path
+    project_modes_candidate = root / project_modes_path
+    manifest = _load_json(manifest_candidate) if manifest_candidate.exists() else {}
+    project_modes = _load_json(project_modes_candidate) if project_modes_candidate.exists() else {}
+    issues = (
+        validate_release_authority(release_manifest=manifest, project_modes=project_modes)
+        if manifest and project_modes
+        else ["release_authority_inputs_missing"]
+    )
+    return {
+        "manifest_path": manifest_path.as_posix(),
+        "project_modes_path": project_modes_path.as_posix(),
+        "manifest_present": manifest_candidate.exists(),
+        "project_modes_present": project_modes_candidate.exists(),
+        "state": "clear" if not issues else "blocked",
+        "issues": issues,
+    }
+
+
 def build_receipt(
     root: Path,
     *,
     seed_path: Path = DEFAULT_SEED,
     truth_plane_path: Path = DEFAULT_TRUTH_PLANE,
     browser_proof_receipt_path: Path | None = DEFAULT_BROWSER_PROOF_RECEIPT,
+    release_manifest_path: Path = DEFAULT_RELEASE_MANIFEST,
+    project_modes_path: Path = DEFAULT_PROJECT_MODES,
 ) -> dict[str, Any]:
     seed = _load_json(root / seed_path)
     source_git_head = resolve_source_state_head(root)
@@ -157,6 +183,7 @@ def build_receipt(
     docs, missing_docs = _build_doc_checks(root)
     browser_sources, missing_browser_sources = _build_browser_sources(root, seed)
     product_canon, missing_canon_docs = _build_product_canon(root, seed)
+    release_authority = _build_release_authority(root, release_manifest_path, project_modes_path)
 
     published_browser_receipt = None
     browser_receipt_status = None
@@ -193,6 +220,8 @@ def build_receipt(
         blockers.append("missing release docs: " + ", ".join(missing_docs))
     if missing_browser_sources:
         blockers.append("missing browser proof sources: " + ", ".join(missing_browser_sources))
+    if release_authority["issues"]:
+        blockers.append("release authority: " + ", ".join(str(item) for item in list(release_authority["issues"])))
     if published_browser_receipt is None:
         current_limitations.append("no published browser execution receipt is attached yet")
     else:
@@ -208,7 +237,10 @@ def build_receipt(
     status = "blocked" if blockers else "preview_only"
     if published_browser_receipt is not None:
         if browser_receipt_status in {"pass", "preview_only", "blocked", "fail"}:
-            status = "pass" if browser_receipt_status == "pass" and not blockers else "blocked" if browser_receipt_status == "fail" else browser_receipt_status
+            if blockers:
+                status = "blocked"
+            else:
+                status = "pass" if browser_receipt_status == "pass" else "blocked" if browser_receipt_status == "fail" else browser_receipt_status
         else:
             status = "preview_only" if not blockers else "blocked"
 
@@ -248,8 +280,10 @@ def build_receipt(
             "published_receipt": browser_receipt_path_value,
             "published_receipt_present": published_browser_receipt is not None,
         },
+        "release_authority": release_authority,
         "verification_binding": {
             "primary_verifier": (seed.get("verification_binding") or {}).get("primary_verifier", "scripts/verify_release_assets.sh"),
+            "release_authority_verifier": "scripts/verify_release_authority.py",
             "supporting_test": (seed.get("verification_binding") or {}).get("supporting_test", "tests/test_flagship_truth_plane.py"),
             "materializer": "scripts/materialize_ea_flagship_release_gate.py",
         },
@@ -285,6 +319,8 @@ def main() -> int:
         default=DEFAULT_BROWSER_PROOF_RECEIPT,
         help="Optional browser execution receipt to fold into the current status.",
     )
+    parser.add_argument("--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST, help="Path to the release manifest.")
+    parser.add_argument("--project-modes", type=Path, default=DEFAULT_PROJECT_MODES, help="Path to the project modes manifest.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Path to write the generated receipt.")
     parser.add_argument("--stdout", action="store_true", help="Print the receipt to stdout instead of writing only to disk.")
     args = parser.parse_args()
@@ -294,6 +330,8 @@ def main() -> int:
         seed_path=args.seed,
         truth_plane_path=args.truth_plane,
         browser_proof_receipt_path=args.browser_proof_receipt,
+        release_manifest_path=args.release_manifest,
+        project_modes_path=args.project_modes,
     )
 
     output_path = args.root / args.output

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from verify_release_authority import validate_release_authority
 
 
 DEFAULT_OUTPUT = Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json")
@@ -18,6 +19,8 @@ DEFAULT_SCORECARD = Path(".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml")
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_JOURNEY_GATES = Path(os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or "ea/_completion/fleet/JOURNEY_GATES.generated.json")
 DEFAULT_FLAGSHIP_RECEIPT = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
+DEFAULT_RELEASE_MANIFEST = Path(".codex-studio/published/release_manifest.generated.json")
+DEFAULT_PROJECT_MODES = Path(".codex-design/product/PROJECT_MODES.generated.json")
 DEFAULT_GOVERNOR_LOOP = Path(".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md")
 DEFAULT_CONTROL_LOOP = Path(".codex-design/product/PRODUCT_CONTROL_AND_GOVERNOR_LOOP.md")
 DEFAULT_RELEASE_PIPELINE = Path(".codex-design/product/RELEASE_PIPELINE.md")
@@ -44,6 +47,7 @@ _PROVENANCE_REFRESH_ALLOWED_EXACT = {
     "scripts/materialize_ea_browser_workflow_proof.py",
     "scripts/materialize_whole_project_gold_map.py",
     "scripts/materialize_weekly_product_pulse.py",
+    "scripts/verify_release_authority.py",
     "scripts/operator_summary.sh",
     "scripts/smoke_api.sh",
     "scripts/smoke_postgres.sh",
@@ -58,6 +62,7 @@ _PROVENANCE_REFRESH_ALLOWED_EXACT = {
     "tests/e2e/test_product_workflows.py",
     "tests/test_execution_runtime_services.py",
     "tests/test_flagship_release_readiness_gate.py",
+    "tests/test_deployment_contracts.py",
     "tests/test_migration_contracts.py",
     "tests/test_operator_contracts.py",
     "tests/test_providers_api_contracts.py",
@@ -389,12 +394,33 @@ def _flagship_receipt_source(root: Path, receipt_path: Path) -> dict[str, Any]:
     }
 
 
+def _release_authority_source(root: Path, manifest_path: Path, project_modes_path: Path) -> dict[str, Any]:
+    resolved_manifest = _resolve_for_read(root, manifest_path)
+    resolved_project_modes = _resolve_for_read(root, project_modes_path)
+    manifest = _load_json(resolved_manifest) or {}
+    project_modes = _load_json(resolved_project_modes) or {}
+    issues = (
+        validate_release_authority(release_manifest=manifest, project_modes=project_modes)
+        if manifest and project_modes
+        else ["release_authority_inputs_missing"]
+    )
+    return {
+        "manifest": manifest,
+        "project_modes": project_modes,
+        "state": "clear" if not issues else "blocked",
+        "issues": issues,
+        "provenance": _source_provenance(resolved_manifest),
+    }
+
+
 def build_pulse(
     root: Path,
     *,
     scorecard_path: Path = DEFAULT_SCORECARD,
     journey_gates_path: Path = DEFAULT_JOURNEY_GATES,
     flagship_receipt_path: Path = DEFAULT_FLAGSHIP_RECEIPT,
+    release_manifest_path: Path = DEFAULT_RELEASE_MANIFEST,
+    project_modes_path: Path = DEFAULT_PROJECT_MODES,
     governor_loop_path: Path = DEFAULT_GOVERNOR_LOOP,
     control_loop_path: Path = DEFAULT_CONTROL_LOOP,
     release_pipeline_path: Path = DEFAULT_RELEASE_PIPELINE,
@@ -405,6 +431,7 @@ def build_pulse(
     journey_info = _journey_gate_source(root, journey_gates_path)
     journey_source_path = Path(str(journey_info.get("path") or journey_gates_path.as_posix()))
     receipt_info = _flagship_receipt_source(root, flagship_receipt_path)
+    release_authority_info = _release_authority_source(root, release_manifest_path, project_modes_path)
     now = _utcnow()
     generated_at = _format_utc(now)
     review_due = _format_utc(now + timedelta(days=7))
@@ -417,11 +444,17 @@ def build_pulse(
     ready_count = int(journey_info["ready"])
     total_count = int(journey_info["total"])
     readiness_share = int(journey_info["ready_share"])
-    release_health_state = "blocked" if journey_state == "blocked" or release_truth_state != "pass" else "clear"
+    authority_blocked = bool(release_authority_info["issues"])
+    release_health_state = "blocked" if journey_state == "blocked" or release_truth_state != "pass" or authority_blocked else "clear"
     registry_completion_percent = readiness_share
     overall_progress_percent = readiness_share if release_health_state == "clear" else min(readiness_share, 95)
 
-    if release_truth_state == "pass" and journey_state == "blocked":
+    if release_truth_state == "pass" and journey_state == "ready" and authority_blocked:
+        summary = (
+            "Executive Assistant has a green flagship receipt and ready fleet journey gates, "
+            "but release authority is still blocked, so wider release claims remain constrained."
+        )
+    elif release_truth_state == "pass" and journey_state == "blocked":
         summary = (
             "Executive Assistant has a green flagship receipt, but the fleet journey gate is "
             f"{journey_state}, and {blocked_count} journey(s) still block wider claims."
@@ -445,6 +478,8 @@ def build_pulse(
     launch_readiness = (
         "Hold launch expansion pending browser execution proof and cross-host journey coverage."
         if release_truth_state != "pass"
+        else "Hold launch expansion pending release authority proof from the deployed runtime."
+        if authority_blocked
         else "Hold launch expansion pending cross-host journey coverage."
         if journey_state == "blocked"
         else "Release truth is clear enough to widen claims."
@@ -452,6 +487,8 @@ def build_pulse(
     canary_status = (
         "Browser execution proof is still missing; cross-host journey coverage remains blocked."
         if release_truth_state != "pass"
+        else "Browser execution proof is published, but release authority is still blocked."
+        if authority_blocked
         else "Browser execution proof is published, but cross-host journey coverage remains blocked."
         if journey_state == "blocked"
         else "Browser execution proof is published and routes are aligned to local truth surfaces."
@@ -459,6 +496,8 @@ def build_pulse(
     next_decision = (
         "Publish browser execution proof, then re-materialize the weekly pulse and release receipt."
         if release_truth_state != "pass"
+        else "Materialize a release manifest from a clean deployed runtime with a real public origin and explicit deployment id."
+        if authority_blocked
         else "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
         if journey_state == "blocked"
         else "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
@@ -531,6 +570,8 @@ def build_pulse(
         "scorecard_source": scorecard_path.as_posix(),
         "release_truth_source": flagship_receipt_path.as_posix(),
         "release_truth_provenance": receipt_info["provenance"],
+        "release_authority_source": release_manifest_path.as_posix(),
+        "release_authority_provenance": release_authority_info["provenance"],
         "journey_gate_source": journey_source_path.as_posix(),
         "journey_gate_provenance": journey_info["provenance"],
         "summary": summary,
@@ -540,12 +581,15 @@ def build_pulse(
             "state": release_health_state,
             "reason": (
                 "The EA flagship receipt is published and current."
+                if release_truth_state == "pass" and not authority_blocked
+                else "The EA flagship receipt is published, but release authority is still blocked by deploy truth gaps."
                 if release_truth_state == "pass"
                 else "The EA flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
                 if release_truth_state == "preview_only"
                 else "The EA flagship receipt is blocked by the current browser workflow proof or release evidence."
             ),
             "flagship_receipt_status": release_truth_state,
+            "release_authority_state": release_authority_info["state"],
         },
         "flagship_readiness": {
             "state": "clear" if release_truth_state == "pass" else "watch" if release_truth_state == "preview_only" else "blocked",
@@ -634,6 +678,8 @@ def build_pulse(
             "longest_pole": "cross-host journey coverage" if release_truth_state == "pass" else "browser execution proof",
             "launch_readiness": launch_readiness,
             "provider_route_stewardship": provider_route_stewardship,
+            "release_authority_state": release_authority_info["state"],
+            "release_authority_issues": list(release_authority_info["issues"]),
             "journey_gate_source": journey_source_path.as_posix(),
             "journey_gate_git_head": str(journey_info["provenance"].get("git_head") or "").strip(),
             "flagship_release_receipt_source": flagship_receipt_path.as_posix(),
@@ -759,6 +805,8 @@ def main() -> int:
         default=DEFAULT_FLAGSHIP_RECEIPT,
         help="Path to the EA flagship release receipt.",
     )
+    parser.add_argument("--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST, help="Path to the release manifest.")
+    parser.add_argument("--project-modes", type=Path, default=DEFAULT_PROJECT_MODES, help="Path to the project modes manifest.")
     parser.add_argument(
         "--output",
         type=Path,
@@ -774,6 +822,8 @@ def main() -> int:
         scorecard_path=args.scorecard,
         journey_gates_path=args.journey_gates,
         flagship_receipt_path=args.flagship_receipt,
+        release_manifest_path=args.release_manifest,
+        project_modes_path=args.project_modes,
     )
 
     output_path = root / args.output

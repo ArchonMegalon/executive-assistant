@@ -587,6 +587,7 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
         "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
+        "EA_PUBLIC_APP_BASE_URL": os.environ.get("EA_PUBLIC_APP_BASE_URL"),
     }
 
     class _FakeArtifactRepo:
@@ -598,11 +599,12 @@ def test_prod_mode_rejects_channel_runtime_fallback_during_startup(
 
     try:
         os.environ["EA_RUNTIME_MODE"] = "PROD"
-        os.environ["EA_API_TOKEN"] = "secret-token"
-        os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+        os.environ["EA_API_TOKEN"] = "real-api-token"
+        os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
         os.environ["EA_STORAGE_BACKEND"] = "postgres"
         os.environ["EA_LEDGER_BACKEND"] = ""
         os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+        os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
 
         monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
         monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())
@@ -638,6 +640,7 @@ def test_prod_mode_rejects_memory_runtime_fallback_during_startup(
         "EA_STORAGE_BACKEND": os.environ.get("EA_STORAGE_BACKEND"),
         "EA_LEDGER_BACKEND": os.environ.get("EA_LEDGER_BACKEND"),
         "DATABASE_URL": os.environ.get("DATABASE_URL"),
+        "EA_PUBLIC_APP_BASE_URL": os.environ.get("EA_PUBLIC_APP_BASE_URL"),
     }
 
     class _FakeArtifactRepo:
@@ -652,11 +655,12 @@ def test_prod_mode_rejects_memory_runtime_fallback_during_startup(
 
     try:
         os.environ["EA_RUNTIME_MODE"] = "PROD"
-        os.environ["EA_API_TOKEN"] = "secret-token"
-        os.environ["EA_SIGNING_SECRET"] = "signing-secret"
+        os.environ["EA_API_TOKEN"] = "real-api-token"
+        os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
         os.environ["EA_STORAGE_BACKEND"] = "postgres"
         os.environ["EA_LEDGER_BACKEND"] = ""
         os.environ["DATABASE_URL"] = "postgresql://127.0.0.1:5432/ea"
+        os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
 
         monkeypatch.setattr(app_container, "build_artifact_repo", lambda _settings: _FakeArtifactRepo())
         monkeypatch.setattr(app_container, "build_task_contract_service", lambda **kwargs: _FakeTaskContracts())

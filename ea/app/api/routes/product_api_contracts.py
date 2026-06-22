@@ -350,6 +350,7 @@ class WorkspaceTrustOut(BaseModel):
     evidence_count: int = 0
     rule_count: int = 0
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
+    release_authority: dict[str, object] = Field(default_factory=dict)
     public_help_grounding: GroundingPackOut | None = None
 
 
@@ -372,6 +373,7 @@ class WorkspaceSupportBundleOut(BaseModel):
     assignment_suggestions: list[dict[str, object]]
     pending_delivery: list[dict[str, object]]
     recent_events: list[OfficeEventOut] = Field(default_factory=list)
+    release_authority: dict[str, object] = Field(default_factory=dict)
     support_assistant_grounding: GroundingPackOut | None = None
 
 

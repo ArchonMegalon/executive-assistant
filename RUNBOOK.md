@@ -121,7 +121,7 @@ Auth:
 - `POST /v1/providers/onemin/probe-all` sends one live low-volume request to each selected 1min slot, records `last_probe_result`, and updates deleted/depleted/rate-limited evidence immediately instead of waiting for incidental runtime traffic.
 - `python3 scripts/sync_onemin_owner_ledger.py --write` re-hashes the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries into `config/onemin_slot_owners.json` and carries owner labels/emails forward by slot/account when the runtime key set rotates.
 - The template-backed 1min BrowserAct refresh lane now accepts a generic rotating proxy through `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`; use `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` plus `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` when you want one operator-triggered refresh cycle to sweep the full slot set without the old cadence throttle.
-- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under `vpn/fastestvpn/`, or fetch them with `scripts/bootstrap_fastestvpn_configs.sh`, then deploy with `EA_ENABLE_FASTESTVPN=1 bash scripts/deploy.sh --compose-override docker-compose.fastestvpn.yml`. If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`. Use `scripts/rotate_fastestvpn_proxy.sh` to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh.
+- FastestVPN can back that lane through [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml): place FastestVPN OpenVPN profiles under `vpn/fastestvpn/`, or fetch them with `scripts/bootstrap_fastestvpn_configs.sh`, then deploy with `EA_ENABLE_FASTESTVPN=1 bash scripts/deploy.sh --compose-override docker-compose.fastestvpn.yml`. If you use `scripts/deploy.sh`, keep that overlay explicit with `EA_ENABLE_FASTESTVPN=1`. The overlay uses `ea-docker-socket-proxy` for operator Docker control and mounts only `docker-compose.yml`, `docker-compose.fastestvpn.yml`, and `vpn/fastestvpn/` into the runtime services. Use `scripts/rotate_fastestvpn_proxy.sh` to recreate the proxy on a fresh FastestVPN exit profile before a full 1min BrowserAct refresh; it uses `docker compose up -d --no-build --force-recreate --no-deps` so the refresh does not rebuild the runtime.
 - `EA_RESPONSES_ONEMIN_INCLUDED_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_BONUS_CREDITS_PER_KEY`, `EA_RESPONSES_ONEMIN_DELETED_KEY_QUARANTINE_SECONDS`, `EA_RESPONSES_ONEMIN_OWNER_LEDGER_PATH`, `EA_RESPONSES_ONEMIN_PROBE_MODEL`, and `EA_RESPONSES_ONEMIN_PROBE_TIMEOUT_SECONDS` tune those credit, owner-ledger, and explicit-probe diagnostics.
 - `EA_RESPONSES_MAGICX_HEALTH_CHECK`, `EA_RESPONSES_MAGICX_HEALTH_INTERVAL_SECONDS`, and `EA_RESPONSES_MAGICX_HEALTH_TIMEOUT_SECONDS` enable and tune the live Magicx fallback probe so provider health reflects a real upstream readiness check.
 - After a BrowserAct inventory refresh, `bash scripts/refresh_ltds_from_inventory.sh --input <inventory.json> --write` can rewrite the `## Discovery Tracking` section in [LTDs.md](LTDs.md) from the structured inventory artifact/output instead of editing the markdown table by hand.
@@ -135,6 +135,7 @@ Auth:
 
 Runtime mode:
 - Set `EA_RUNTIME_MODE=prod` for durable environments; the app will fail fast instead of falling back from `EA_STORAGE_BACKEND=auto` or `memory` to in-process storage.
+- In `prod`, workspace-access token binding must resolve from `EA_PUBLIC_APP_BASE_URL`, `EA_GOOGLE_OAUTH_REDIRECT_URI`, or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`; keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` and `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit so session cookies and workspace links stay verifiable across deploys.
 - For the durable runtime profile, run `bash scripts/deploy.sh`.
 
 Memorial shadow STT:
@@ -297,6 +298,7 @@ The local release-check bundle is:
 - `make ci-local`
 - `make test-api`
 - `make verify-release-assets`
+- `make verify-release-authority`
 - `make verify-flagship-release-readiness`
 - `make verify-whole-project-gold-map`
 - `make verify-generated-release-artifacts-clean`
@@ -308,6 +310,7 @@ The local release-check bundle is:
 
 Release-preflight highlights:
 
+  - `make verify-release-authority`
   - `make verify-flagship-release-readiness`
   - `make verify-whole-project-gold-map`
   - `make verify-generated-release-artifacts-clean`
@@ -815,7 +818,7 @@ make docs-verify
 make release-docs
 ```
 
-Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card, and `make materialize-memorial-room-audio-gold-clean` records the final manual room/device receipt from a clean clone so unrelated worktree drift does not poison the proof.
+Use `make release-docs` as a pre-smoke documentation/usage pass before running `make release-preflight`. `make verify-release-authority` is the deploy-truth guard: it fails closed unless the manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim. `make verify-whole-project-gold-map` is the explicit overclaim guard: a green result means the EA-controlled receipt set is coherent, not that EA owns every Chummer, Fleet, Property, media-provider, or design truth plane. `make verify-memorial-voice-stability` is the repeat deployed voice-loop check to run before a public memorial presentation claim. `make materialize-memorial-phrase-bank` refreshes the approved memorial audio/visible-copy phrase bank, `make materialize-memorial-operator-status` refreshes the operator-facing local/public-gold status card, and `make materialize-memorial-room-audio-gold-clean` records the final manual room/device receipt from a clean clone so unrelated worktree drift does not poison the proof.
 
 Combined local readiness check:
 
@@ -823,17 +826,17 @@ Combined local readiness check:
 make all-local
 ```
 
-`make all-local` is a lightweight readiness pass that still checks release assets, flagship release readiness, and generated release artifact cleanliness. Use `make release-preflight` for release-stage smoke and operator checks.
+`make all-local` is a lightweight readiness pass that still checks release assets, flagship release readiness, and generated release artifact cleanliness. It does not require release-claim authority. Use `make release-preflight` for release-stage smoke and operator checks.
 
 Deploys now default to a runtime hard-exit pass after the stack reports healthy. `scripts/deploy.sh` will run `bash scripts/runtime_hard_exit_gates.sh` unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. The runtime bundle is deploy-safe and excludes the deeper `smoke_api_principal.sh` contract lane; that lane remains part of `make hard-exit-gates`.
 
-Release preflight aggregate (asset checks + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
+Release preflight aggregate (asset checks + release-authority verification + flagship release-readiness verification + generated release artifact cleanliness + operator help + release smoke):
 
 ```bash
 make release-preflight
 ```
 
-`RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, and Fleet journey gate.
+`RELEASE_CHECKLIST.md` now includes explicit EA flagship truth-plane, release-authority, and release-readiness preflight lines to validate the browser proof, release gate seed, weekly pulse, Fleet journey gate, and deploy truth.
 
 Standalone-compatible service aliases for shared operator scripts:
 

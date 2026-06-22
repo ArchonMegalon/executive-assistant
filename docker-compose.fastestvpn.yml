@@ -1,4 +1,22 @@
 services:
+  ea-docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - NETWORKS=1
+      - VOLUMES=1
+      - POST=1
+      - INFO=1
+      - PING=1
+      - VERSION=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+
   ea-fastestvpn-proxy:
     build:
       context: .
@@ -93,6 +111,8 @@ services:
 
   ea-api:
     depends_on:
+      ea-docker-socket-proxy:
+        condition: service_started
       ea-fastestvpn-proxy:
         condition: service_healthy
       ea-fastestvpn-proxy-ie:
@@ -106,12 +126,16 @@ services:
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
+      - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
     volumes:
-      - .:/app:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro
+      - ./vpn/fastestvpn:/app/vpn/fastestvpn:ro
 
   ea-worker:
     depends_on:
+      ea-docker-socket-proxy:
+        condition: service_started
       ea-fastestvpn-proxy:
         condition: service_healthy
       ea-fastestvpn-proxy-ie:
@@ -125,12 +149,16 @@ services:
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
+      - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
     volumes:
-      - .:/app:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro
+      - ./vpn/fastestvpn:/app/vpn/fastestvpn:ro
 
   ea-scheduler:
     depends_on:
+      ea-docker-socket-proxy:
+        condition: service_started
       ea-fastestvpn-proxy:
         condition: service_healthy
       ea-fastestvpn-proxy-ie:
@@ -144,9 +172,11 @@ services:
       - EA_UI_SERVICE_DOCKER_NETWORK=ea_default
       - ONEMIN_DIRECT_API_PROXY_SERVER=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128}
       - ONEMIN_DIRECT_API_PROXY_POOL=http://ea-fastestvpn-proxy:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-ie:${FASTESTVPN_PROXY_PORT:-3128},http://ea-fastestvpn-proxy-nl:${FASTESTVPN_PROXY_PORT:-3128}
+      - DOCKER_HOST=tcp://ea-docker-socket-proxy:2375
     volumes:
-      - .:/app:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./docker-compose.fastestvpn.yml:/app/docker-compose.fastestvpn.yml:ro
+      - ./vpn/fastestvpn:/app/vpn/fastestvpn:ro
 
 volumes:
   ea_fastestvpn_state: {}

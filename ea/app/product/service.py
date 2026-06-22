@@ -10131,6 +10131,20 @@ def _default_public_guide_manifest_path() -> Path:
     )
 
 
+def _release_manifest_path() -> Path:
+    return _resolve_repo_path(
+        str(os.getenv("EA_RELEASE_MANIFEST_PATH") or "").strip(),
+        default=_repo_root() / ".codex-studio/published/release_manifest.generated.json",
+    )
+
+
+def _project_modes_manifest_path() -> Path:
+    return _resolve_repo_path(
+        str(os.getenv("EA_PROJECT_MODES_MANIFEST_PATH") or "").strip(),
+        default=_repo_root() / ".codex-design/product/PROJECT_MODES.generated.json",
+    )
+
+
 def _is_willhaben_property_url(value: object) -> bool:
     normalized = str(value or "").strip()
     if not normalized:
@@ -25682,6 +25696,7 @@ class ProductService:
         reliability = dict(analytics.get("reliability") or {})
         providers = dict(diagnostics.get("providers") or {})
         readiness = dict(diagnostics.get("readiness") or {})
+        release_authority = self.release_authority_summary()
         evidence_items = self.list_evidence(principal_id=principal_id, limit=50)
         rules = self.list_rules(principal_id=principal_id)
         recent_events = [
@@ -25719,9 +25734,201 @@ class ProductService:
             "evidence_count": len(evidence_items),
             "rule_count": len(rules),
             "recent_events": recent_events[:8],
+            "release_authority": release_authority,
             "public_help_grounding": self._public_help_grounding_pack(
                 product_control=dict(diagnostics.get("product_control") or {}),
             ),
+        }
+
+    def release_authority_summary(self) -> dict[str, object]:
+        manifest_path = _release_manifest_path()
+        project_modes_path = _project_modes_manifest_path()
+        manifest = _load_json_dict(manifest_path)
+        project_modes = _load_json_dict(project_modes_path)
+        issues: list[str] = []
+
+        if not manifest:
+            return {
+                "state": "missing",
+                "summary": "Release manifest not materialized for this runtime.",
+                "manifest_path": str(manifest_path),
+                "project_modes_path": str(project_modes_path),
+                "issues": ["release_manifest_missing"],
+                "authority_posture": "missing_manifest",
+                "next_action": "Materialize the release manifest from the running deploy before trusting release claims.",
+                "authority_basis": "No runtime release manifest is available.",
+                "repository": "",
+                "branch": "",
+                "tracking_branch": "",
+                "commit_sha": "",
+                "dirty_worktree": False,
+                "deployment_id": "",
+                "deployment_id_source": "",
+                "public_origin": "",
+                "public_origin_source": "",
+                "git_remote_origin": "",
+                "release_label": "",
+                "project_mode": "",
+                "artifact_count": 0,
+                "enabled_project_modes": [],
+                "compose_files": [],
+                "compose_overrides": [],
+                "declared_project_modes": [],
+                "generated_at": "",
+            }
+
+        if str(manifest.get("contract_name") or "").strip() != "ea.release_manifest.v1":
+            issues.append("release_manifest_contract_invalid")
+
+        repository = str(manifest.get("repository") or "").strip()
+        branch = str(manifest.get("branch") or "").strip()
+        tracking_branch = str(manifest.get("tracking_branch") or "").strip()
+        commit_sha = str(manifest.get("commit_sha") or "").strip()
+        dirty_worktree = bool(manifest.get("dirty_worktree"))
+        deployment_id = str(manifest.get("deployment_id") or "").strip()
+        deployment_id_source = str(manifest.get("deployment_id_source") or "").strip()
+        public_origin = str(manifest.get("public_origin") or "").strip()
+        public_origin_source = str(manifest.get("public_origin_source") or "").strip()
+        git_remote_origin = str(manifest.get("git_remote_origin") or "").strip()
+        release_label = str(manifest.get("release_label") or "").strip()
+        project_mode = str(manifest.get("project_mode") or "").strip()
+        enabled_project_modes = [
+            str(item).strip()
+            for item in list(manifest.get("enabled_project_modes") or [])
+            if str(item).strip()
+        ]
+        compose_files = [
+            str(item).strip()
+            for item in list(manifest.get("compose_files") or [])
+            if str(item).strip()
+        ]
+        compose_overrides = [
+            str(item).strip()
+            for item in list(manifest.get("compose_overrides") or [])
+            if str(item).strip()
+        ]
+        artifact_set = [
+            str(item).strip()
+            for item in list(manifest.get("artifact_set") or [])
+            if str(item).strip()
+        ]
+        declared_modes = {
+            str(dict(item).get("key") or "").strip()
+            for item in list(project_modes.get("modes") or [])
+            if isinstance(item, dict) and str(dict(item).get("key") or "").strip()
+        }
+
+        required_fields = {
+            "repository": repository,
+            "branch": branch,
+            "commit_sha": commit_sha,
+            "deployment_id": deployment_id,
+            "release_label": release_label,
+            "project_mode": project_mode,
+        }
+        for key, value in required_fields.items():
+            if not value:
+                issues.append(f"missing_{key}")
+        if not enabled_project_modes:
+            issues.append("enabled_project_modes_empty")
+        if not artifact_set:
+            issues.append("artifact_set_empty")
+        if not public_origin:
+            issues.append("public_origin_missing")
+        if public_origin_source in {"missing", ""}:
+            issues.append("public_origin_source_missing")
+        if public_origin_source == "missing" and git_remote_origin:
+            issues.append("public_origin_not_runtime_origin")
+        if project_mode and declared_modes and project_mode not in declared_modes:
+            issues.append("project_mode_not_declared")
+        undeclared_modes = [mode for mode in enabled_project_modes if declared_modes and mode not in declared_modes]
+        if undeclared_modes:
+            issues.append("enabled_project_modes_not_declared")
+        if not tracking_branch:
+            issues.append("tracking_branch_missing")
+        if dirty_worktree:
+            issues.append("dirty_worktree")
+        if not compose_files:
+            issues.append("compose_files_missing")
+
+        state = "clear"
+        if issues:
+            state = "watch"
+        if deployment_id_source == "local_fallback" or deployment_id.startswith("local-"):
+            if "deployment_id_local_fallback" not in issues:
+                issues.append("deployment_id_local_fallback")
+            state = "watch"
+
+        authority_posture = "authoritative_runtime"
+        next_action = "No action required."
+        if state == "missing":
+            authority_posture = "missing_manifest"
+            next_action = "Materialize the release manifest from the running deploy before trusting release claims."
+        else:
+            issue_set = set(issues)
+            if "public_origin_missing" in issue_set or "public_origin_source_missing" in issue_set or "public_origin_not_runtime_origin" in issue_set:
+                authority_posture = "missing_public_origin"
+                next_action = "Set the deployed public base URL and rematerialize the release manifest so release authority points at a runtime origin."
+            elif "deployment_id_local_fallback" in issue_set:
+                authority_posture = "local_only_deploy_id"
+                next_action = "Set an explicit deployment ID from the real deploy system and rematerialize the release manifest."
+            elif "dirty_worktree" in issue_set:
+                authority_posture = "dirty_worktree"
+                next_action = "Build from a clean committed tree before treating this runtime as release authority."
+            elif "compose_files_missing" in issue_set:
+                authority_posture = "compose_topology_missing"
+                next_action = "Materialize the release manifest through the deploy path so the compose topology is recorded."
+            elif issue_set:
+                authority_posture = "watch"
+                next_action = "Resolve release authority issues before using this runtime as the shipping source of truth."
+
+        summary = "Release authority is recorded for the current runtime."
+        if issues:
+            summary = "Release authority is present but still has gaps to resolve."
+        if state == "missing":
+            summary = "Release authority is missing for the current runtime."
+        authority_basis = " · ".join(
+            item
+            for item in (
+                f"{branch}@{tracking_branch}" if branch and tracking_branch else branch or tracking_branch,
+                commit_sha[:12] if commit_sha else "",
+                project_mode or "",
+                ", ".join(enabled_project_modes[:4]) if enabled_project_modes else "",
+                ", ".join(compose_overrides[:4]) if compose_overrides else ", ".join(compose_files[:4]),
+            )
+            if item
+        ).strip()
+        if not authority_basis:
+            authority_basis = "Release authority basis has not been recorded."
+
+        return {
+            "state": state,
+            "summary": summary,
+            "manifest_path": str(manifest_path),
+            "project_modes_path": str(project_modes_path),
+            "authority_posture": authority_posture,
+            "next_action": next_action,
+            "authority_basis": authority_basis,
+            "repository": repository,
+            "branch": branch,
+            "tracking_branch": tracking_branch,
+            "commit_sha": commit_sha,
+            "dirty_worktree": dirty_worktree,
+            "deployment_id": deployment_id,
+            "deployment_id_source": deployment_id_source,
+            "public_origin": public_origin,
+            "public_origin_source": public_origin_source,
+            "git_remote_origin": git_remote_origin,
+            "release_label": release_label,
+            "project_mode": project_mode,
+            "enabled_project_modes": enabled_project_modes,
+            "compose_files": compose_files,
+            "compose_overrides": compose_overrides,
+            "artifact_count": len(artifact_set),
+            "artifact_set_preview": artifact_set[:8],
+            "declared_project_modes": sorted(declared_modes),
+            "generated_at": str(manifest.get("generated_at") or "").strip(),
+            "issues": issues,
         }
 
     def search_workspace(
@@ -33943,6 +34150,7 @@ class ProductService:
                 for row in pending_delivery
             ],
             "recent_events": list(self.list_office_events(principal_id=principal_id, limit=20)),
+            "release_authority": self.release_authority_summary(),
             "support_assistant_grounding": self._support_assistant_grounding_pack(diagnostics=diagnostics),
         }
 

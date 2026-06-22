@@ -89,6 +89,35 @@ def _binding_from_row(row: object) -> SimpleNamespace | None:
     )
 
 
+def _should_fallback_to_latest_binding(*, binding_id: str = "", principal_id: str = "") -> bool:
+    normalized_binding_id = str(binding_id or "").strip()
+    normalized_principal_id = str(principal_id or "").strip()
+    return normalized_binding_id in {"", "ea-whatsapp-web-session"} and normalized_principal_id in {"", "principal-default"}
+
+
+def _latest_enabled_binding_from_json(value: object) -> SimpleNamespace | None:
+    if isinstance(value, dict) and isinstance(value.get("bindings"), list):
+        return _latest_enabled_binding_from_json(value["bindings"])
+    if not isinstance(value, list):
+        return None
+    candidates = [
+        item
+        for item in value
+        if isinstance(item, dict) and str(item.get("connector_name") or "").strip() == "whatsapp_web_session"
+    ]
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: (
+            0 if str(item.get("status") or "").strip() == "enabled" else 1,
+            str(item.get("updated_at") or "").strip(),
+            str(item.get("binding_id") or "").strip(),
+        ),
+        reverse=False,
+    )
+    return _binding_from_json(candidates[0])
+
+
 def _binding_from_postgres(database_url: str, *, binding_id: str = "", principal_id: str = "") -> SimpleNamespace | None:
     try:
         import psycopg
@@ -135,8 +164,35 @@ def _binding_from_postgres(database_url: str, *, binding_id: str = "", principal
                     (normalized_principal_id,),
                 )
             else:
-                return None
-            return _binding_from_row(cur.fetchone())
+                cur.execute(
+                    f"""
+                    SELECT {select_columns}
+                    FROM connector_bindings
+                    WHERE connector_name = 'whatsapp_web_session'
+                    ORDER BY
+                        CASE WHEN status = 'enabled' THEN 0 ELSE 1 END,
+                        updated_at DESC
+                    LIMIT 1
+                    """
+                )
+                return _binding_from_row(cur.fetchone())
+            binding = _binding_from_row(cur.fetchone())
+            if binding is not None:
+                return binding
+            if _should_fallback_to_latest_binding(binding_id=normalized_binding_id, principal_id=normalized_principal_id):
+                cur.execute(
+                    f"""
+                    SELECT {select_columns}
+                    FROM connector_bindings
+                    WHERE connector_name = 'whatsapp_web_session'
+                    ORDER BY
+                        CASE WHEN status = 'enabled' THEN 0 ELSE 1 END,
+                        updated_at DESC
+                    LIMIT 1
+                    """
+                )
+                return _binding_from_row(cur.fetchone())
+            return None
 
 
 def parse_args() -> argparse.Namespace:
@@ -173,6 +229,8 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
                 "principal_id": principal_id,
             }
         binding = _binding_from_json(payload, binding_id=binding_id)
+        if binding is None and _should_fallback_to_latest_binding(binding_id=binding_id, principal_id=principal_id):
+            binding = _latest_enabled_binding_from_json(payload)
     elif database_url:
         try:
             binding = _binding_from_postgres(database_url, binding_id=binding_id, principal_id=principal_id)
@@ -198,10 +256,12 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
             "binding_id": binding_id,
             "principal_id": principal_id,
         }
+    effective_binding_id = str(getattr(binding, "binding_id", "") or binding_id).strip()
+    effective_principal_id = str(getattr(binding, "principal_id", "") or principal_id).strip()
     readiness = check_whatsapp_web_session_readiness(
         tool_runtime=None,
-        principal_id=principal_id,
-        binding_id=binding_id,
+        principal_id=effective_principal_id,
+        binding_id=effective_binding_id,
         binding=binding,
         probe_session=bool(args.probe_session),
     )

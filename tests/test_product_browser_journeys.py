@@ -923,7 +923,7 @@ def test_google_settings_surface_manages_multiple_connected_inboxes(monkeypatch)
     )
     assert verified.status_code == 303
     assert "verify_status=completed" in verified.headers["location"]
-    assert "verify_sender=tibor%40girschele.com" in verified.headers["location"]
+    assert "verify_sender=primary%40example.test" in verified.headers["location"]
     assert captured_send["access_token"] == "fresh-refresh-token"
     verified_page = client.get(verified.headers["location"])
     assert verified_page.status_code == 200
@@ -1120,6 +1120,13 @@ def test_object_detail_routes_render_core_product_objects() -> None:
     assert "Get help without guessing" in trust_page.text
     assert "What the assistant recently did" in trust_page.text
     assert "Evidence, rules, and retention" in trust_page.text
+    assert "What release trust is anchored to" in trust_page.text
+    assert "Release authority" in trust_page.text
+    assert "Authority posture" in trust_page.text
+    assert "Release next action" in trust_page.text
+    assert "Release label" in trust_page.text
+    assert "Tracking branch" in trust_page.text
+    assert "Release branch" in trust_page.text
     assert plan_page.status_code == 200
     assert "Workspace plan" in plan_page.text
     assert "What this workspace includes" in plan_page.text

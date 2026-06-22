@@ -199,7 +199,7 @@ def main() -> None:
         level=getattr(logging, str(os.environ.get("EA_RESPONSES_PROXY_LOG_LEVEL") or "INFO").strip().upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    host = str(os.environ.get("EA_RESPONSES_PROXY_HOST") or "0.0.0.0").strip() or "0.0.0.0"
+    host = str(os.environ.get("EA_RESPONSES_PROXY_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port = int(str(os.environ.get("EA_RESPONSES_PROXY_PORT") or "8091").strip() or "8091")
     server = ThreadingHTTPServer((host, port), ResponsesProxyHandler)
     server.daemon_threads = True

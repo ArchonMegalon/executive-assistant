@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 try:
@@ -15,6 +17,21 @@ from app.product.projections.handoffs import handoff_action_options, handoff_act
 from app.product.service import build_product_service
 from app.services.ltd_provider_governance import build_ltd_provider_governance_receipt
 from app.services.provider_contract_status import build_provider_contract_status
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+OFFICE_LOOP_GOAL_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_office_loop_goal.generated.json"
+EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_executive_assistant_acceptance_evidence.generated.json"
+ACTIVE_MEDIA_LTD_GOAL_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "active_media_ltd_goal_bundle.generated.json"
+WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_signal_to_decision.generated.json"
+WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT = _REPO_ROOT / ".codex-studio" / "published" / "ea_whole_project_scope_gap_audit.generated.json"
+
+
+def _load_receipt(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def _row(
@@ -623,10 +640,16 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
     diagnostics_analytics = dict(diagnostics.get("analytics") or {})
     analytics_counts = dict(diagnostics_analytics.get("counts") or {})
     diagnostics_channels = list(diagnostics.get("selected_channels") or [])
+    release_authority = product.release_authority_summary()
     diagnostics_journey_gate = dict(diagnostics_product_control.get("journey_gate_health") or {})
     diagnostics_public_guide = dict(diagnostics_product_control.get("public_guide_freshness") or {})
     diagnostics_support_fallout = dict(diagnostics_product_control.get("support_fallout") or {})
     diagnostics_route_stewardship = dict(diagnostics_product_control.get("provider_route_stewardship") or {})
+    office_goal_receipt = _load_receipt(OFFICE_LOOP_GOAL_RECEIPT)
+    acceptance_receipt = _load_receipt(EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT)
+    active_media_receipt = _load_receipt(ACTIVE_MEDIA_LTD_GOAL_RECEIPT)
+    signal_receipt = _load_receipt(WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT)
+    scope_gap_receipt = _load_receipt(WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT)
     workspace_rows = [
         _row("Workspace", str(diagnostics_workspace.get("name") or "Executive Workspace"), "Workspace"),
         _row("Mode", _humanize(str(diagnostics_workspace.get("mode") or "personal")).title(), "Workspace"),
@@ -698,6 +721,26 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
         _row("Queue items", str(diagnostics_usage.get("queue_items") or 0), "Usage"),
         _row("Commitments", str(diagnostics_usage.get("commitments") or 0), "Usage"),
         _row("People", str(diagnostics_usage.get("people") or 0), "Usage"),
+        _row("Release authority", str(release_authority.get("summary") or "Release authority has not been recorded."), _humanize(str(release_authority.get("state") or "missing")).title()),
+        _row("Authority posture", str(release_authority.get("authority_posture") or "missing").replace("_", " "), "Release"),
+        _row("Release next action", str(release_authority.get("next_action") or "No release action recorded."), "Release"),
+        _row("Release label", str(release_authority.get("release_label") or "Not recorded"), "Release"),
+        _row("Deployment ID", str(release_authority.get("deployment_id") or "Not recorded"), "Release"),
+        _row("Deployment source", str(release_authority.get("deployment_id_source") or "Not recorded").replace("_", " "), "Release"),
+        _row("Release branch", str(release_authority.get("branch") or "Not recorded"), "Release"),
+        _row("Tracking branch", str(release_authority.get("tracking_branch") or "Not recorded"), "Release"),
+        _row("Release commit", str(release_authority.get("commit_sha") or "Not recorded")[:12] or "Not recorded", "Release"),
+        _row("Worktree", "dirty" if bool(release_authority.get("dirty_worktree")) else "clean", "Release"),
+        _row("Primary plane", str(release_authority.get("project_mode") or "Not recorded"), "Release"),
+        _row(
+            "Enabled planes",
+            ", ".join(str(value) for value in list(release_authority.get("enabled_project_modes") or [])[:6]) or "Not recorded",
+            "Release",
+        ),
+        _row("Artifact count", str(release_authority.get("artifact_count") or 0), "Release"),
+        _row("Public origin", str(release_authority.get("public_origin") or "Not recorded"), "Release"),
+        _row("Origin source", str(release_authority.get("public_origin_source") or "Not recorded").replace("_", " "), "Release"),
+        _row("Authority basis", str(release_authority.get("authority_basis") or "Not recorded"), "Release"),
         _row(
             "Workspace diagnostics bundle",
             "Export support-ready workspace bundle",
@@ -994,6 +1037,121 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             href="/app/settings/outcomes",
         ),
     ]
+    acceptance_keys = dict(acceptance_receipt.get("acceptance_keys") or {})
+    accepted_keys = {str(value) for value in list(acceptance_receipt.get("accepted_keys") or []) if str(value).strip()}
+    goal_local_rows = [
+        _row("Office-loop receipt", str(office_goal_receipt.get("status") or "missing"), "Local"),
+        _row("Active media/LTD bundle", str(active_media_receipt.get("status") or "missing"), "Local"),
+        _row("Signal-to-decision receipt", str(signal_receipt.get("status") or "missing"), "Local"),
+        _row("Whole-project scope-gap audit", str(scope_gap_receipt.get("status") or "missing"), "Local"),
+        _row("Acceptance evidence receipt", str(acceptance_receipt.get("status") or "missing"), "Local"),
+        _row(
+            "Audiobook, ChatLab, cinematic, and promo local checks",
+            "Local checks are present in the active media bundle, but live proof still needs to be collected.",
+            "Local",
+        ),
+        _row(
+            "Completion remains blocked",
+            "Local evidence does not create canonical product, release, support, or memory truth.",
+            "Boundary",
+        ),
+    ]
+    goal_real_use_rows = [
+        _row(
+            "Real-use outcomes",
+            "Capture real acceptance without exposing private context.",
+            "Action",
+            action_href="/admin/actions/acceptance-evidence",
+            action_label="Record a real-use outcome",
+            action_method="post",
+        ),
+        _row(
+            "Signal review and follow-through",
+            "Record the weekly operator review and the closed-loop follow-through receipt.",
+            "Action",
+            action_href="/admin/actions/signal-to-decision-evidence",
+            action_label="Record a signal-loop outcome",
+            action_method="post",
+        ),
+        _row(
+            "Weekly operator review",
+            "real weekly signal-to-decision review accepted by the operator",
+            "Signal",
+        ),
+        _row(
+            "Closed-loop follow-through",
+            "closed-loop signal-to-decision follow-through receipt accepted by the operator",
+            "Signal",
+        ),
+        _row(
+            "Open ChatLab status",
+            "ChatLab live runtime probe receipt",
+            "ChatLab",
+            href="/memorials/manfred/chatlab/status",
+        ),
+        _row(
+            "Open promo page",
+            "Review the public promo route before claiming live readiness.",
+            "Promo",
+            href="/ledger/factions/ashline-circle/promo",
+        ),
+        _row(
+            "Spoken conversation proof",
+            str(
+                dict(dict(active_media_receipt.get("external_proof_posture") or {}).get("manfred_spoken_conversation") or {}).get("next_action")
+                or "collect_real_room_audio_attestation"
+            ),
+            "Voice",
+            href="/memorials/manfred/voice-config",
+            secondary_action_href="/admin/memorials/manfred/gold",
+            secondary_action_label="Open voice gold",
+            secondary_action_method="get",
+        ),
+        _row(
+            "Manfred spoken-conversation acceptance",
+            "real Manfred spoken-conversation STT/TTS roundtrip evidence",
+            "Voice",
+        ),
+        _row("Open Today", "Check the live office loop before making broader claims.", "Loop", href="/app/today"),
+        _row("Open approvals", "Review the approval lane and audit trail.", "Loop", href="/app/channel-loop/approvals"),
+    ]
+    acceptance_rows = [
+        _row("Morning brief accepted", str(dict(acceptance_keys.get("real_daily_morning_brief_accepted") or {}).get("status") or "missing"), "Accepted" if "real_daily_morning_brief_accepted" in accepted_keys else "Missing"),
+        _row("Real decision cleared", str(dict(acceptance_keys.get("real_decision_cleared") or {}).get("status") or "missing"), "Accepted" if "real_decision_cleared" in accepted_keys else "Missing"),
+        _row("Commitment recovered or closed", str(dict(acceptance_keys.get("real_commitment_recovered_or_closed") or {}).get("status") or "missing"), "Accepted" if "real_commitment_recovered_or_closed" in accepted_keys else "Missing"),
+        _row("Approved action audited", str(dict(acceptance_keys.get("real_approved_action_audited") or {}).get("status") or "missing"), "Accepted" if "real_approved_action_audited" in accepted_keys else "Missing"),
+        _row("Provider failure recovered", str(dict(acceptance_keys.get("real_provider_failure_recovered") or {}).get("status") or "missing"), "Accepted" if "real_provider_failure_recovered" in accepted_keys else "Missing"),
+        _row(
+            "Redaction posture",
+            "private-safe signal",
+            "Privacy",
+        ),
+    ]
+    scope_goal_rows: list[dict[str, str]] = []
+    for goal in list(office_goal_receipt.get("additional_goals") or []):
+        if not isinstance(goal, dict):
+            continue
+        detail_parts = [
+            str(goal.get("status") or "").strip(),
+            str(goal.get("claim_limit") or "").strip(),
+        ]
+        for key in ("requires", "protected_scope_axes", "protected_signal_sources", "protected_pressures"):
+            values = [str(value) for value in list(goal.get(key) or []) if str(value).strip()]
+            if values:
+                detail_parts.append(", ".join(values))
+        scope_goal_rows.append(
+            _row(
+                str(goal.get("label") or goal.get("key") or "Scope goal"),
+                " · ".join(part for part in detail_parts if part) or "Local scope goal",
+                "Goal",
+            )
+        )
+    scope_goal_rows.extend(
+        [
+            _row("Whole-project scope gap audit", "Track the protected axes against current product truth.", "Scope"),
+            _row("Whole-project signal-to-decision closure", "Keep weekly review and follow-through separate from queue or release truth.", "Scope"),
+        ]
+    )
 
     mapping: dict[str, dict[str, object]] = {
         "office": {
@@ -1171,6 +1329,16 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
                 {"eyebrow": "Recent workspace events", "title": "What the office loop is actually doing", "items": recent_event_rows or [_row("No recent product events", "The product event stream is still empty.", "Empty")]},
             ],
         },
+        "goals": {
+            "title": "Goal Status",
+            "summary": "Keep local evidence, real-use proof, and boundary posture visible without overclaiming completion.",
+            "cards": [
+                {"eyebrow": "What is ready locally", "title": "What is ready locally", "items": goal_local_rows},
+                {"eyebrow": "What still needs real use", "title": "What still needs real use", "items": goal_real_use_rows},
+                {"eyebrow": "Acceptance evidence", "title": "Acceptance evidence receipt", "items": acceptance_rows},
+                {"eyebrow": "Scope goals", "title": "Scope goals and protected project axes", "items": scope_goal_rows or [_row("No scope goals", "No scope goals are currently mirrored.", "Empty")]},
+            ],
+        },
     }
     payload = mapping[section]
     stats = [
@@ -1192,6 +1360,13 @@ def build_admin_section_payload(section: str, *, container: AppContainer, princi
             {"label": "Active links", "value": str(len(active_access_sessions))},
             {"label": "Gate health", "value": _humanize(str(diagnostics_journey_gate.get("state") or "missing")).title()},
             {"label": "Fix verification", "value": _humanize(str(diagnostics_support_verification.get("state") or "not_requested")).title()},
+        ]
+    elif section == "goals":
+        stats = [
+            {"label": "Office loop", "value": str(office_goal_receipt.get("status") or "missing")},
+            {"label": "Acceptance", "value": str(acceptance_receipt.get("status") or "missing")},
+            {"label": "Signal loop", "value": str(signal_receipt.get("status") or "missing")},
+            {"label": "Scope audit", "value": str(scope_gap_receipt.get("status") or "missing")},
         ]
     return {
         "stats": stats,

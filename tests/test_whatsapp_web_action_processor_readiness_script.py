@@ -196,6 +196,30 @@ def test_build_report_reports_stale_or_unreadable_state(tmp_path: Path) -> None:
     assert "state_file_unreadable" in bad_report["reasons"]
 
 
+def test_build_report_ignores_unreadable_env_file_and_uses_defaults(tmp_path: Path, monkeypatch) -> None:
+    module = _module()
+    env_file = tmp_path / "unreadable.env"
+    env_file.write_text("EA_WHATSAPP_WEB_ACTION_PROCESSOR_ENABLED=0\n", encoding="utf-8")
+
+    original_read_text = Path.read_text
+
+    def _failing_read_text(self: Path, *args, **kwargs):
+        if self == env_file:
+            raise PermissionError("denied")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _failing_read_text)
+
+    report = module.build_report(
+        _args(tmp_path, env_file=str(env_file)),
+        request_json=lambda **_: {"ready": True, "status": "ready", "store_message_text": True},
+    )
+
+    assert report["action_processor_enabled"] is True
+    assert report["ready"] is True
+    assert report["reason"] == "ready"
+
+
 def test_build_report_checks_runtime_containers_without_leaking_secret_values(tmp_path: Path) -> None:
     module = _module()
 

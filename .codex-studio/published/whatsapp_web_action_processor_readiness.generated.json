@@ -9,7 +9,7 @@
   "contract_name": "ea.whatsapp_web_action_processor_readiness.v1",
   "effective_session_ref": "tibor-wa-web",
   "effective_session_ref_source": "state_file",
-  "generated_at": "2026-06-22T18:29:01.048097Z",
+  "generated_at": "2026-06-22T19:12:38.636297Z",
   "generated_by": "scripts/materialize_whatsapp_web_action_processor_readiness.py",
   "goal_completion_claim_allowed": false,
   "head_semantics": "source_state",
@@ -40,8 +40,8 @@
   "sidecar_ready": true,
   "sidecar_status": "ready",
   "sidecar_store_message_text": true,
-  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
-  "state_age_seconds": 1,
+  "source_git_head": "d99d6eb1dde32316942e92c4fb47ba035d56a4f7",
+  "state_age_seconds": 0,
   "state_file": "/data/whatsapp-actions/processed.json",
   "state_file_checked_in_container": true,
   "state_file_container": "ea-whatsapp-web-action-processor",
@@ -52,7 +52,7 @@
   "state_fresh": true,
   "state_session_ref": "tibor-wa-web",
   "state_stale_seconds": 600,
-  "state_updated_at": "2026-06-22T18:29:04Z",
+  "state_updated_at": "2026-06-22T19:12:42Z",
   "state_updated_at_valid": true,
   "status": "ready"
 }

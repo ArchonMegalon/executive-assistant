@@ -36,11 +36,13 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
 
     conditions = gate["release_claim"]["required_conditions"]
     assert any("EA product surface canon exists" in condition for condition in conditions)
+    assert any("release authority" in condition for condition in conditions)
     assert any("browser workflow proof" in condition for condition in conditions)
     assert any("release asset verification" in condition for condition in conditions)
     assert any("MILESTONE green" in condition or "MILESTONE" in condition for condition in conditions)
     assert not any("parity-oracle" in condition for condition in conditions)
     assert not any("noise-auditor" in condition for condition in conditions)
+    assert gate["verification_binding"]["release_authority_verifier"] == "scripts/verify_release_authority.py"
 
     expected_signals = gate["browser_workflow_proof"]["expected_browser_signals"]
     assert any("email-first workspace setup" in signal for signal in expected_signals)

@@ -79,6 +79,14 @@ def _steps() -> tuple[ReleaseMaterializerStep, ...]:
             name="memorial_operator_status",
             command=("scripts/materialize_memorial_operator_status.py",),
         ),
+        ReleaseMaterializerStep(
+            name="runtime_dependency_evidence",
+            command=("scripts/materialize_runtime_dependency_evidence.py",),
+        ),
+        ReleaseMaterializerStep(
+            name="release_manifest",
+            command=("scripts/materialize_release_manifest.py",),
+        ),
     )
 
 

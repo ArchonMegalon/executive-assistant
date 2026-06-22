@@ -82,6 +82,7 @@ def test_operator_summary_lists_ltd_release_gates() -> None:
     assert "wa audio bundle:   make verify-whatsapp-audiobook-operator-proof-bundle" in operator_summary
     assert "wa audiobook live: make verify-whatsapp-audiobook-live-delivery-receipt" in operator_summary
     assert "wa share play:     make verify-whatsapp-audiobook-public-share-playback" in operator_summary
+    assert "release auth:      make verify-release-authority" in operator_summary
     assert "goal posture:      make verify-continuous-improvement-goal-posture" in operator_summary
     assert "tg video proof:    make materialize-telegram-video-delivery-receipts" in operator_summary
     assert "tg live verify:    make verify-telegram-video-delivery-live-receipt" in operator_summary
@@ -163,6 +164,39 @@ def test_makefile_exposes_telegram_video_delivery_receipt_targets() -> None:
     assert "materialize-telegram-video-delivery-receipts:" in makefile
     assert "verify-telegram-video-delivery-live-receipt:" in makefile
     assert "--require-pass" in makefile
+
+
+def test_fastestvpn_rotation_script_avoids_runtime_rebuilds() -> None:
+    script = (ROOT / "scripts" / "rotate_fastestvpn_proxy.sh").read_text(encoding="utf-8")
+
+    assert 'up -d --no-build --force-recreate --no-deps "${service_name}"' in script
+    assert '--build --force-recreate --no-deps "${service_name}"' not in script
+
+
+def test_operator_overlays_use_docker_host_proxy_contract() -> None:
+    host_tools = (ROOT / "docker-compose.host-tools.yml").read_text(encoding="utf-8")
+    fastestvpn = (ROOT / "docker-compose.fastestvpn.yml").read_text(encoding="utf-8")
+
+    assert "tecnativa/docker-socket-proxy:0.3.0" in host_tools
+    assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in host_tools
+    assert "/var/run/docker.sock:/var/run/docker.sock:ro" in host_tools
+    assert "tecnativa/docker-socket-proxy:0.3.0" in fastestvpn
+    assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in fastestvpn
+    assert "/var/run/docker.sock:/var/run/docker.sock:ro" in fastestvpn
+
+
+def test_docs_describe_operator_socket_proxy_boundary() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "RUNBOOK.md").read_text(encoding="utf-8")
+
+    assert "ea-docker-socket-proxy" in readme
+    assert "DOCKER_HOST=tcp://ea-docker-socket-proxy:2375" in readme
+    assert "docker-compose.fastestvpn.yml" in readme
+    assert "without rebuilding the EA runtime" in readme
+
+    assert "ea-docker-socket-proxy" in runbook
+    assert "docker-compose.fastestvpn.yml" in runbook
+    assert "--no-build --force-recreate --no-deps" in runbook
 
 
 def test_local_env_rotation_slots_and_gitignore_cover_browseract_and_onemin_keys() -> None:
@@ -456,13 +490,20 @@ def test_deploy_script_waits_for_worker_topology_and_dumps_role_logs() -> None:
     assert 'FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)' in deploy
     assert 'compose logs --tail 200 "${FAILURE_LOG_SERVICES[@]}"' in deploy
     assert 'Refusing to deploy with DATABASE_URL pointed at the isolated smoke database.' in deploy
+    assert 'public_origin_line="$(grep -E \'^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' in deploy
+    assert 'Refusing to deploy without a public runtime origin.' in deploy
+    assert 'Refusing to deploy from a dirty git worktree.' in deploy
+    assert 'allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"' in deploy
+    assert 'export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"' in deploy
     assert 'database_url_line="$(grep -E \'^DATABASE_URL=' in deploy
     assert 'database_url_value="${database_url_line#DATABASE_URL=}"' in deploy
     assert 'if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then' in deploy
     assert 'sync_telegram_webhooks() {' in deploy
     assert 'grep -E \'^EA_PUBLIC_APP_BASE_URL=' in deploy
+    assert 'grep -E \'^PROPERTYQUARRY_PUBLIC_BASE_URL=' in deploy
+    assert 'webhook_public_base="${env_public_base:-${env_property_public_base}}"' in deploy
     assert '"${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_telegram_bot.py" --env-file "${APP_ROOT}/.env" --all-bots --set-webhook >/dev/null' in deploy
-    assert 'echo "Syncing Telegram webhooks to ${env_public_base}"' in deploy
+    assert 'echo "Syncing Telegram webhooks to ${webhook_public_base}"' in deploy
 
 
 def test_smoke_api_curl_wrapper_retries_transient_runtime_bounces() -> None:
@@ -2224,6 +2265,11 @@ def test_runtime_mode_docs_and_smoke_cover_prod_fail_fast_storage() -> None:
     assert "EA_RUNTIME_MODE=prod" in readme
     assert "EA_RUNTIME_MODE=prod" in runbook
     assert "EA_RUNTIME_MODE" in env_matrix
+    assert "EA_WORKSPACE_ACCESS_TOKEN_ISSUER" in env_matrix
+    assert "EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE" in env_matrix
+    assert "EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION" in env_matrix
+    assert "workspace-access token binding" in readme
+    assert "workspace-access token binding" in runbook
     assert 'set_env_value "EA_API_TOKEN" "smoke-prod-token"' in smoke_postgres
     assert (
         "EA_RUNTIME_MODE=prod requires (EA_SIGNING_SECRET|DATABASE_URL|a durable postgres runtime profile)"

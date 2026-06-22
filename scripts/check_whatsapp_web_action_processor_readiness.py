@@ -59,7 +59,11 @@ def _env_file_values(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return {}
+    for raw_line in raw_lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

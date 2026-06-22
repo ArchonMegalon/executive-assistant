@@ -1,17 +1,167 @@
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 import urllib.parse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from app.api.dependencies import RequestContext, get_container, get_request_context
+from app.api.routes.admin_view_models import (
+    ACTIVE_MEDIA_LTD_GOAL_RECEIPT as EA_ACTIVE_MEDIA_LTD_GOAL_RECEIPT,
+    EXECUTIVE_ASSISTANT_ACCEPTANCE_EVIDENCE_RECEIPT as EA_ACCEPTANCE_EVIDENCE_RECEIPT,
+    OFFICE_LOOP_GOAL_RECEIPT as EA_OFFICE_LOOP_GOAL_RECEIPT,
+    WHOLE_PROJECT_SCOPE_GAP_AUDIT_RECEIPT as EA_SCOPE_GAP_AUDIT_RECEIPT,
+    WHOLE_PROJECT_SIGNAL_TO_DECISION_RECEIPT as EA_SIGNAL_TO_DECISION_RECEIPT,
+)
 from app.api.routes.landing_browser import _form_value, _normalize_browser_return_to
 from app.api.routes.landing_shared_support import _default_operator_id_for_browser
 from app.container import AppContainer
 from app.product.service import build_product_service
 
 router = APIRouter(tags=["landing"])
+
+EA_QUALITY_READINESS_RECEIPT = Path(__file__).resolve().parents[4] / ".codex-studio" / "published" / "ea_executive_assistant_quality_readiness.generated.json"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else ""
+
+
+def _load_json(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _default_acceptance_receipt() -> dict[str, object]:
+    keys = (
+        "real_daily_morning_brief_accepted",
+        "real_decision_cleared",
+        "real_commitment_recovered_or_closed",
+        "real_approved_action_audited",
+        "real_provider_failure_recovered",
+    )
+    return {
+        "contract_name": "ea.executive_assistant_acceptance_evidence.v1",
+        "status": "blocked_missing_real_world_acceptance_evidence",
+        "goal_completion_claim_allowed": False,
+        "accepted_keys": [],
+        "blocked_keys": list(keys),
+        "acceptance_keys": {
+            key: {
+                "accepted": False,
+                "status": "missing_or_invalid",
+                "source_kind": "unknown",
+                "evidence_sha256": "",
+                "actor_sha256": "",
+                "object_ref_sha256": "",
+                "raw_evidence_exposed": False,
+                "raw_actor_exposed": False,
+                "raw_object_ref_exposed": False,
+            }
+            for key in keys
+        },
+        "privacy": {
+            "raw_private_context_exposed": False,
+            "raw_acceptance_text_exposed": False,
+            "raw_actor_identity_exposed": False,
+            "raw_object_reference_exposed": False,
+            "credential_values_exposed": False,
+        },
+        "remaining_external_proofs": [
+            "real daily morning brief acceptance",
+            "real decision cleared by the principal or operator",
+            "real commitment recovered or closed with an evidence receipt",
+            "real approved outbound action with audit trail",
+            "real provider failure recovered with operator-grade reason",
+        ],
+    }
+
+
+def _default_signal_receipt() -> dict[str, object]:
+    return {
+        "contract_name": "ea.whole_project_signal_to_decision_receipt.v1",
+        "status": "ready_local_packet_pending_operator_acceptance",
+        "goal_completion_claim_allowed": False,
+        "real_weekly_operator_review_accepted": False,
+        "closed_loop_followthrough_receipt_verified": False,
+        "remaining_external_proofs": [
+            "real weekly signal-to-decision review accepted by the operator",
+            "closed-loop signal-to-decision follow-through receipt accepted by the operator",
+        ],
+    }
+
+
+def _update_quality_receipt_from_acceptance(acceptance: dict[str, object]) -> None:
+    quality = _load_json(EA_QUALITY_READINESS_RECEIPT)
+    if not quality:
+        quality = {
+            "contract_name": "ea.executive_assistant_quality_readiness.v1",
+            "status": "blocked_real_world_acceptance",
+            "goal_completion_claim_allowed": False,
+            "external_acceptance_blockers": [
+                "real_daily_morning_brief_accepted",
+                "real_decision_cleared",
+                "real_commitment_recovered_or_closed",
+                "real_approved_action_audited",
+                "real_provider_failure_recovered",
+            ],
+            "privacy": {
+                "raw_acceptance_text_exposed": False,
+            },
+        }
+    accepted = {str(value) for value in list(acceptance.get("accepted_keys") or []) if str(value).strip()}
+    blockers = [
+        key
+        for key in (
+            "real_daily_morning_brief_accepted",
+            "real_decision_cleared",
+            "real_commitment_recovered_or_closed",
+            "real_approved_action_audited",
+            "real_provider_failure_recovered",
+        )
+        if key not in accepted
+    ]
+    quality["status"] = "ready_for_good_executive_assistant_claim_review" if not blockers else "blocked_real_world_acceptance"
+    quality["goal_completion_claim_allowed"] = False
+    quality["external_acceptance_blockers"] = blockers
+    quality["privacy"] = {"raw_acceptance_text_exposed": False}
+    _write_json(EA_QUALITY_READINESS_RECEIPT, quality)
+
+
+def _update_scope_gap_evidence() -> None:
+    signal = _load_json(EA_SIGNAL_TO_DECISION_RECEIPT)
+    if not signal:
+        signal = _default_signal_receipt()
+        _write_json(EA_SIGNAL_TO_DECISION_RECEIPT, signal)
+    scope_gap = _load_json(EA_SCOPE_GAP_AUDIT_RECEIPT)
+    if not scope_gap:
+        scope_gap = {
+            "contract_name": "ea.whole_project_scope_gap_audit.v1",
+            "status": "ready_local_audit",
+            "goal_completion_claim_allowed": False,
+        }
+    scope_gap["evidence_receipts"] = {
+        "executive_assistant_acceptance_evidence": _load_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT),
+        "signal_to_decision": signal,
+    }
+    scope_gap["goal_completion_claim_allowed"] = False
+    _write_json(EA_SCOPE_GAP_AUDIT_RECEIPT, scope_gap)
 
 
 @router.post("/app/actions/drafts/{draft_ref}")
@@ -114,6 +264,122 @@ async def app_create_commitment(
         _normalize_browser_return_to(_form_value(body, "return_to", "/app/commitments"), default="/app/commitments"),
         status_code=303,
     )
+
+
+@router.post("/admin/actions/acceptance-evidence")
+async def admin_record_acceptance_evidence(
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    proof_key = _form_value(body, "proof_key", "")
+    source_kind = _form_value(body, "source_kind", "unknown")
+    evidence = _form_value(body, "evidence", "")
+    object_ref = _form_value(body, "object_ref", "")
+    actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
+
+    receipt = _load_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT) or _default_acceptance_receipt()
+    acceptance_keys = dict(receipt.get("acceptance_keys") or {})
+    row = dict(acceptance_keys.get(proof_key) or {})
+    row.update(
+        {
+            "accepted": True,
+            "status": "accepted",
+            "source_kind": source_kind,
+            "recorded_at": _now_iso(),
+            "evidence_sha256": _sha256(evidence),
+            "actor_sha256": _sha256(actor),
+            "object_ref_sha256": _sha256(object_ref),
+            "raw_evidence_exposed": False,
+            "raw_actor_exposed": False,
+            "raw_object_ref_exposed": False,
+        }
+    )
+    acceptance_keys[proof_key] = row
+    receipt["acceptance_keys"] = acceptance_keys
+    accepted_keys = sorted(key for key, value in acceptance_keys.items() if bool(dict(value).get("accepted")))
+    receipt["accepted_keys"] = accepted_keys
+    receipt["blocked_keys"] = [key for key in acceptance_keys if key not in accepted_keys]
+    receipt["status"] = "ready_real_world_acceptance_evidence" if not receipt["blocked_keys"] else "partial_real_world_acceptance_evidence"
+    receipt["goal_completion_claim_allowed"] = False
+    receipt["privacy"] = {
+        "raw_private_context_exposed": False,
+        "raw_acceptance_text_exposed": False,
+        "raw_actor_identity_exposed": False,
+        "raw_object_reference_exposed": False,
+        "credential_values_exposed": False,
+    }
+    receipt["remaining_external_proofs"] = [
+        label
+        for key, label in (
+            ("real_daily_morning_brief_accepted", "real daily morning brief acceptance"),
+            ("real_decision_cleared", "real decision cleared by the principal or operator"),
+            ("real_commitment_recovered_or_closed", "real commitment recovered or closed with an evidence receipt"),
+            ("real_approved_action_audited", "real approved outbound action with audit trail"),
+            ("real_provider_failure_recovered", "real provider failure recovered with operator-grade reason"),
+        )
+        if key not in accepted_keys
+    ]
+    _write_json(EA_ACCEPTANCE_EVIDENCE_RECEIPT, receipt)
+    _update_quality_receipt_from_acceptance(receipt)
+    _update_scope_gap_evidence()
+    separator = "&" if "?" in return_to else "?"
+    return RedirectResponse(f"{return_to}{separator}acceptance_status=recorded", status_code=303)
+
+
+@router.post("/admin/actions/signal-to-decision-evidence")
+async def admin_record_signal_to_decision_evidence(
+    request: Request,
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    body = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(_form_value(body, "return_to", "/admin/goals"), default="/admin/goals")
+    evidence_part = _form_value(body, "evidence_part", "")
+    source_kind = _form_value(body, "source_kind", "unknown")
+    evidence = _form_value(body, "evidence", "")
+    packet_ref = _form_value(body, "packet_ref", "")
+    actor = str(context.operator_id or context.access_email or context.principal_id or "operator").strip()
+
+    receipt = _load_json(EA_SIGNAL_TO_DECISION_RECEIPT) or _default_signal_receipt()
+    if evidence_part == "review":
+        receipt["operator_review"] = {
+            "accepted": True,
+            "source_kind": source_kind,
+            "recorded_at": _now_iso(),
+            "review_sha256": _sha256(evidence),
+            "actor_sha256": _sha256(actor),
+            "packet_ref_sha256": _sha256(packet_ref),
+        }
+        receipt["real_weekly_operator_review_accepted"] = True
+    elif evidence_part == "followthrough":
+        receipt["followthrough_receipt"] = {
+            "accepted": True,
+            "source_kind": source_kind,
+            "recorded_at": _now_iso(),
+            "followthrough_sha256": _sha256(evidence),
+            "actor_sha256": _sha256(actor),
+            "packet_ref_sha256": _sha256(packet_ref),
+        }
+        receipt["closed_loop_followthrough_receipt_verified"] = True
+    receipt["status"] = (
+        "ready_real_signal_to_decision_closure"
+        if receipt.get("real_weekly_operator_review_accepted") and receipt.get("closed_loop_followthrough_receipt_verified")
+        else "partial_real_signal_to_decision_closure"
+        if receipt.get("real_weekly_operator_review_accepted") or receipt.get("closed_loop_followthrough_receipt_verified")
+        else "ready_local_packet_pending_operator_acceptance"
+    )
+    receipt["goal_completion_claim_allowed"] = False
+    remaining = []
+    if not receipt.get("real_weekly_operator_review_accepted"):
+        remaining.append("real weekly signal-to-decision review accepted by the operator")
+    if not receipt.get("closed_loop_followthrough_receipt_verified"):
+        remaining.append("closed-loop signal-to-decision follow-through receipt accepted by the operator")
+    receipt["remaining_external_proofs"] = remaining
+    _write_json(EA_SIGNAL_TO_DECISION_RECEIPT, receipt)
+    _update_scope_gap_evidence()
+    separator = "&" if "?" in return_to else "?"
+    return RedirectResponse(f"{return_to}{separator}signal_status=recorded", status_code=303)
 
 
 @router.post("/app/actions/commitments/extract")

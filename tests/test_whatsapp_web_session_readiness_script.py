@@ -233,3 +233,69 @@ def test_build_report_preserves_requested_binding_when_database_row_is_missing(m
     assert report["reason"] == "binding_not_found"
     assert report["binding_id"] == "wa-web-binding-1"
     assert report["principal_id"] == "principal-wa-web-1"
+
+
+def test_build_report_falls_back_to_latest_enabled_binding_for_default_placeholders(monkeypatch) -> None:
+    module = _module()
+
+    class FakeCursor:
+        def __init__(self):
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            self.calls += 1
+
+        def fetchone(self):
+            if self.calls == 1:
+                return None
+            return (
+                "tibor-whatsapp-web-session",
+                "exec-1",
+                "whatsapp_web_session",
+                "+4368120864006",
+                {
+                    "scopes": ["whatsapp.send"],
+                    "service_routes": {"applies_to": ["connector.dispatch"]},
+                },
+                {
+                    "session_ref": "tibor-wa-web",
+                    "session_store_ref": "vault://ea/whatsapp-web/tibor-wa-web",
+                    "session_send_url_template": "https://wa-web.test/sessions/{session_ref}/messages",
+                    "session_api_token": "session-token",
+                },
+                "enabled",
+                "2026-06-21T00:00:00Z",
+                "2026-06-22T00:00:00Z",
+            )
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    monkeypatch.setitem(sys.modules, "psycopg", SimpleNamespace(connect=lambda database_url: FakeConnection()))
+
+    report = module.build_report(
+        Namespace(
+            binding_json="",
+            database_url="postgresql://example.invalid/ea",
+            binding_id="ea-whatsapp-web-session",
+            principal_id="principal-default",
+            probe_session=False,
+        )
+    )
+
+    assert report["ready"] is True
+    assert report["binding_id"] == "tibor-whatsapp-web-session"
+    assert report["principal_id"] == "exec-1"

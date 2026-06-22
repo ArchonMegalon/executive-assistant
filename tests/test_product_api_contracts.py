@@ -200,6 +200,12 @@ def test_product_api_projects_real_runtime_objects() -> None:
     assert "workspace_summary" in trust_body
     assert "provider_posture" in trust_body
     assert "reliability" in trust_body
+    assert "release_authority" in trust_body
+    assert trust_body["release_authority"]["manifest_path"].endswith("release_manifest.generated.json")
+    assert "artifact_count" in trust_body["release_authority"]
+    assert "authority_posture" in trust_body["release_authority"]
+    assert "next_action" in trust_body["release_authority"]
+    assert "authority_basis" in trust_body["release_authority"]
     assert trust_body["public_help_grounding"]["id"] == "public_help"
     assert trust_body["public_help_grounding"]["actions"]
     assert any(item["label"] == "PUBLIC_TRUST_CONTENT.yaml" for item in trust_body["public_help_grounding"]["sources"])

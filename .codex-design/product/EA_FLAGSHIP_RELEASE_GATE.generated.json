@@ -3,22 +3,23 @@
   "surface": "flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-22T15:37:13Z",
+  "generated_at": "2026-06-22T20:38:26Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "source_git_head": "8e6c434f4b8e7f1e1c87e1c6b3fdc566915cc85c",
-  "source_tree_fingerprint": "93f5830f196cc9c6ffdca73691d639208b055e40e647c5e2619dc909577c80fa",
+  "source_git_head": "6c14adcab5825325941be4d3c74d924c8d5312a3",
+  "source_tree_fingerprint": "f3422fc4de0f8f478106f916a97bd32151b85262602d0f4165df5b8e7ee31abf",
   "head_semantics": "source_state",
-  "status": "pass",
-  "operator_summary": "EA flagship release truth is published as a machine-readable receipt and currently green.",
+  "status": "blocked",
+  "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
   "truth_plane": {
     "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "present": true,
     "legacy_history": "MILESTONE.json"
   },
   "release_claim": {
-    "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
+    "summary": "EA can only claim flagship-grade release truth when release authority, browser workflow proof, and release asset verification agree with this gate seed.",
     "required_conditions": [
       "EA product surface canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
+      "release authority binds the claim to the intended public origin, deployment ID, tracked branch, clean worktree, and declared project modes",
       "browser workflow proof renders seeded browser workspace pages with durable EA product objects",
       "browser workflow proof shows browser actions updating the live workspace without stale narration",
       "real browser E2E covers activation, approval-safe review, and the memo-to-queue loop",
@@ -132,8 +133,23 @@
     "published_receipt": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
     "published_receipt_present": true
   },
+  "release_authority": {
+    "manifest_path": ".codex-studio/published/release_manifest.generated.json",
+    "project_modes_path": ".codex-design/product/PROJECT_MODES.generated.json",
+    "manifest_present": true,
+    "project_modes_present": true,
+    "state": "blocked",
+    "issues": [
+      "public_origin_missing",
+      "public_origin_source_missing",
+      "public_origin_not_runtime_origin",
+      "deployment_id_local_fallback",
+      "dirty_worktree"
+    ]
+  },
   "verification_binding": {
     "primary_verifier": "scripts/verify_release_assets.sh",
+    "release_authority_verifier": "scripts/verify_release_authority.py",
     "supporting_test": "tests/test_flagship_truth_plane.py",
     "materializer": "scripts/materialize_ea_flagship_release_gate.py"
   },
@@ -173,11 +189,13 @@
       "present": true
     }
   ],
-  "blocking_reasons": [],
+  "blocking_reasons": [
+    "release authority: public_origin_missing, public_origin_source_missing, public_origin_not_runtime_origin, deployment_id_local_fallback, dirty_worktree"
+  ],
   "current_limitations": [],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "seed": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-    "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed."
+    "summary": "EA can only claim flagship-grade release truth when release authority, browser workflow proof, and release asset verification agree with this gate seed."
   }
 }

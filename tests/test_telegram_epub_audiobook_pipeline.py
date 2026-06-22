@@ -2329,6 +2329,56 @@ def test_telegram_playback_acceptance_callback_records_redacted_receipt(
     assert accepted_callback.split("|")[2] not in rendered
 
 
+def test_playback_acceptance_callback_searches_discovery_roots(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    local_root = tmp_path / "jobs-local"
+    host_root = tmp_path / "jobs-host"
+    local_root.mkdir()
+    host_root.mkdir()
+    job_dir = host_root / "job-playback-host"
+    job_dir.mkdir(parents=True)
+    target_path = tmp_path / "audiobookshelf" / "A. Writer" / "Test Book" / "Test Book.m4b"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_bytes(b"fake m4b")
+
+    monkeypatch.setenv("EA_AUDIOBOOK_ALLOW_NON_DURABLE_STORAGE", "1")
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(local_root))
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_HOST_ROOT", str(host_root))
+
+    job = {
+        "job_id": "job-playback-host",
+        "status": "audiobookshelf_imported",
+        "metadata": {"title": "Test Book", "author": "A. Writer", "language": "en-US"},
+        "storage": {"job_dir": str(job_dir)},
+        "merge_result": {"status": "m4b_ready", "output_file": str(target_path), "chapter_count": 2},
+        "audiobookshelf_import": {
+            "status": "imported",
+            "target_path": str(target_path),
+            "public_share": {
+                "status": "public_share_ready",
+                "absolute_url": "https://abs.example.com/share/host-test-book",
+                "whatsapp_delivery": {"status": "sent", "message_id": "wamid.share.1"},
+            },
+        },
+        "playback_acceptance": {"status": "not_recorded", "accepted": False},
+    }
+    prepared = pipeline.ensure_audiobook_playback_acceptance_callback(job)
+    (job_dir / "job.json").write_text(json.dumps(prepared, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    token = prepared["audiobookshelf_import"]["public_share"]["playback_acceptance_callback"]["token"]
+
+    updated = pipeline.record_audiobook_playback_acceptance_by_callback_token(
+        callback_token=str(token),
+        accepted=True,
+        source="whatsapp_button",
+        message_id="wamid.callback.1",
+        feedback="whatsapp_button_playback_accepted",
+    )
+
+    assert updated["playback_acceptance"]["status"] == "accepted"
+    assert updated["playback_acceptance"]["source"] == "whatsapp_button"
+
+
 def test_telegram_voice_dismiss_callback_retries_refill_before_responding(
     monkeypatch,
     tmp_path: Path,
@@ -6820,6 +6870,34 @@ def test_cleanup_finished_audiobook_jobs_prunes_stale_incoming_files(monkeypatch
     monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(tmp_path))
     monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_STAGING_RETENTION_DAYS", "1")
     incoming_dir = tmp_path / "_incoming" / "20260619"
+    incoming_dir.mkdir(parents=True)
+    stale = incoming_dir / "stale.epub"
+    stale.write_text("payload", encoding="utf-8")
+    old_ts = datetime(2026, 6, 19, 12, 0, tzinfo=UTC).timestamp()
+    os.utime(stale, (old_ts, old_ts))
+
+    result = pipeline.cleanup_finished_audiobook_jobs(
+        force=True,
+        now=datetime(2026, 6, 22, 12, 0, tzinfo=UTC),
+    )
+
+    assert result["staging"]["status"] == "cleaned"
+    assert result["staging"]["removed_files"] == 1
+    assert not stale.exists()
+
+
+def test_cleanup_finished_audiobook_jobs_prunes_staging_across_discovery_roots(monkeypatch, tmp_path: Path) -> None:
+    from app.services import audiobook_epub_pipeline as pipeline
+
+    local_root = tmp_path / "jobs-local"
+    host_root = tmp_path / "jobs-host"
+    local_root.mkdir()
+    host_root.mkdir()
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(local_root))
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_HOST_ROOT", str(host_root))
+    monkeypatch.setenv("EA_AUDIOBOOK_JOB_CLEANUP_STAGING_RETENTION_DAYS", "1")
+
+    incoming_dir = host_root / "_incoming" / "20260619"
     incoming_dir.mkdir(parents=True)
     stale = incoming_dir / "stale.epub"
     stale.write_text("payload", encoding="utf-8")

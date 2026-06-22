@@ -249,6 +249,22 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Public guide freshness" in diagnostics.text
     assert "Fix verification" in diagnostics.text
     assert "Channel receipt" in diagnostics.text
+    assert "Release authority" in diagnostics.text
+    assert "Authority posture" in diagnostics.text
+    assert "Release next action" in diagnostics.text
+    assert "Release label" in diagnostics.text
+    assert "Deployment ID" in diagnostics.text
+    assert "Deployment source" in diagnostics.text
+    assert "Release branch" in diagnostics.text
+    assert "Tracking branch" in diagnostics.text
+    assert "Release commit" in diagnostics.text
+    assert "Worktree" in diagnostics.text
+    assert "Primary plane" in diagnostics.text
+    assert "Enabled planes" in diagnostics.text
+    assert "Artifact count" in diagnostics.text
+    assert "Public origin" in diagnostics.text
+    assert "Origin source" in diagnostics.text
+    assert "Authority basis" in diagnostics.text
     assert "Blocked delivery handoffs" in diagnostics.text
     assert "Delivery handoffs closed" in diagnostics.text
     assert "Export support-ready workspace bundle" in diagnostics.text

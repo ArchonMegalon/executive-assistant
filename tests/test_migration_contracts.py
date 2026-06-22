@@ -152,6 +152,7 @@ def test_operator_summary_lists_legacy_postgres_shortcuts() -> None:
     assert "make ci-gates-postgres-legacy" in text
     assert "make ci-gates-postgres" in text
     assert "make verify-release-assets" in text
+    assert "make verify-release-authority" in text
     assert "make verify-flagship-release-readiness" in text
     assert "make verify-whole-project-gold-map" in text
     assert "make release-preflight" in text
@@ -200,17 +201,22 @@ def test_local_gate_bundles_include_flagship_readiness_and_generated_cleanliness
         assert "verify-whole-project-gold-map" in body
         assert "verify-generated-release-artifacts-clean" in body
 
+    assert "verify-release-authority" in release_preflight
+
     generated_clean = _make_target_body(makefile, "verify-generated-release-artifacts-clean")
     assert "scripts/verify_generated_release_artifacts_clean.py" in generated_clean
     assert "git diff --exit-code -- .codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json" not in generated_clean
 
     assert "flagship release-readiness verification" in readme
+    assert "make verify-release-authority" in readme
     assert "whole-project gold-map verification" in readme
     assert "generated release artifact cleanliness" in readme
     assert "flagship release readiness" in runbook
+    assert "make verify-release-authority" in runbook
     assert "make verify-whole-project-gold-map" in runbook
     assert "generated release artifact cleanliness" in runbook
     assert "- `make verify-flagship-release-readiness`" in runbook
+    assert "- `make verify-release-authority`" in runbook
     assert "- `make verify-generated-release-artifacts-clean`" in runbook
 
 
@@ -290,7 +296,11 @@ def test_deploy_ea_prod_falls_back_when_onedrive_mount_is_unavailable() -> None:
     assert 'fallback_path="$${EA_ONEDRIVE_ATTACHMENTS_FALLBACK_HOST_PATH:-.runtime/onedrive_attachments_fallback}"' in deploy_target
     assert 'if ! ls "$$primary_path" >/dev/null 2>&1; then' in deploy_target
     assert 'mkdir -p "$$fallback_path";' in deploy_target
-    assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy' in deploy_target
+    assert 'COMPOSE_PROJECT_NAME=ea \\' in deploy_target
+    assert 'PROPERTYQUARRY_USE_LEGACY_STACK=1 \\' in deploy_target
+    assert 'EA_DEPLOY_PRIMARY_MODE=EA_CORE \\' in deploy_target
+    assert 'EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" \\' in deploy_target
+    assert 'bash scripts/deploy.sh --compose-override docker-compose.whatsapp-web-session.yml' in deploy_target
 
 
 def test_endpoint_version_openapi_scripts_have_help_contracts_and_wiring() -> None:

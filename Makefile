@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-ea-prod deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-ea-prod deploy-property deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-principal smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info proactive-ooda verify-proactive-ooda verify-proactive-ooda-live-receipt operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets materialize-continuous-improvement-goal-posture verify-continuous-improvement-goal-posture materialize-teable-env-recovery-readiness verify-teable-env-recovery-readiness send-audiobook-public-share-followups materialize-office-loop-goal-receipt verify-office-loop-goal-receipt materialize-executive-assistant-acceptance-evidence verify-executive-assistant-acceptance-evidence materialize-executive-assistant-quality-readiness verify-executive-assistant-quality-readiness materialize-whole-project-signal-to-decision-receipt verify-whole-project-signal-to-decision-receipt materialize-whole-project-scope-gap-audit verify-whole-project-scope-gap-audit materialize-active-media-ltd-goal-bundle verify-active-media-ltd-goal-bundle materialize-memorial-chatlab-external-evidence materialize-manfred-realtime-conversation-readiness verify-manfred-realtime-conversation-readiness materialize-telegram-audiobook-live-readiness verify-telegram-audiobook-live-readiness verify-telegram-audiobook-deployed-runtime materialize-telegram-audiobook-live-delivery-receipt verify-telegram-audiobook-live-delivery-receipt materialize-whatsapp-audiobook-local-intake-proof verify-whatsapp-audiobook-local-intake-proof materialize-whatsapp-audiobook-operator-proof-bundle verify-whatsapp-audiobook-operator-proof-bundle materialize-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-live-delivery-receipt verify-whatsapp-audiobook-public-share-playback materialize-whatsapp-audiobook-live-voice-selection-shadow verify-whatsapp-audiobook-live-voice-selection-shadow materialize-telegram-video-delivery-operator-receipt materialize-telegram-video-delivery-live-receipt materialize-telegram-video-delivery-receipts verify-telegram-video-delivery-live-receipt materialize-memorial-public-voice-gold materialize-memorial-public-browser-gold materialize-memorial-public-browser-meaningful-gold materialize-memorial-room-audio-attestation-packet materialize-memorial-room-audio-gold materialize-memorial-room-audio-gold-clean materialize-memorial-public-gold materialize-memorial-phrase-bank materialize-memorial-operator-status materialize-memorial-stt-provider-benchmark verify-memorial-stt-provider-benchmark sync-memorial-public-sources-teable env-backup-teable env-bootstrap-teable env-check-teable env-disable-extra-teable env-drill-teable env-ensure-local-teable env-fresh-host-teable env-local-status-teable env-probe-teable env-recover-teable env-restore-teable env-restore-teable-local env-restore-teable-service verify-env-teable-recovery verify-generated-release-artifacts-clean verify-runtime-supply-chain materialize-runtime-dependency-evidence verify-runtime-dependency-evidence verify-local-quality-gates verify-release-authority ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy property-release-gates hard-exit-gates runtime-hard-exit-gates ltd-release-gates memorial-gold-gates verify-release-assets verify-flagship-release-readiness verify-project-mode-runtime verify-whole-project-gold-map verify-memorial-voice-stability verify-memorial-gold-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-ltd-provider-lanes verify-poppy-draft-workflow verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
@@ -41,7 +41,11 @@ deploy-ea-prod:
 			selected_path="$$fallback_path"; \
 			echo "OneDrive attachment mount unavailable; deploying with fallback path $$selected_path" >&2; \
 		fi; \
-		EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build ea-api ea-worker ea-scheduler ea-responses-proxy ea-proactive-ooda
+		COMPOSE_PROJECT_NAME=ea \
+		PROPERTYQUARRY_USE_LEGACY_STACK=1 \
+		EA_DEPLOY_PRIMARY_MODE=EA_CORE \
+		EA_ONEDRIVE_ATTACHMENTS_HOST_PATH="$$selected_path" \
+		bash scripts/deploy.sh --compose-override docker-compose.whatsapp-web-session.yml
 
 deploy-property:
 	docker compose -f docker-compose.property.yml up -d --build --remove-orphans
@@ -86,6 +90,7 @@ release-smoke: smoke-help smoke-api
 
 release-preflight:
 	$(MAKE) verify-release-assets
+	$(MAKE) verify-release-authority
 	$(MAKE) verify-flagship-release-readiness
 	$(MAKE) verify-telegram-audiobook-deployed-runtime
 	$(MAKE) verify-project-mode-runtime
@@ -333,6 +338,22 @@ verify-generated-release-artifacts-clean:
 	$(MAKE) materialize-release-assets
 	$(PYTHON_BIN) scripts/verify_generated_release_artifacts_clean.py
 
+verify-runtime-supply-chain:
+	$(PYTHON_BIN) scripts/verify_runtime_supply_chain.py
+
+materialize-runtime-dependency-evidence:
+	$(PYTHON_BIN) scripts/materialize_runtime_dependency_evidence.py
+
+verify-runtime-dependency-evidence:
+	$(MAKE) materialize-runtime-dependency-evidence
+	$(PYTHON_BIN) scripts/verify_runtime_dependency_evidence.py
+
+verify-local-quality-gates:
+	$(PYTHON_BIN) scripts/verify_local_quality_gates.py
+
+verify-release-authority:
+	$(PYTHON_BIN) scripts/verify_release_authority.py --pretty
+
 ci-local:
 	$(PYTHON_BIN) -m compileall -q ea/app
 	$(PYTHON_BIN) -m compileall -q tests
@@ -342,6 +363,8 @@ ci-local:
 ci-gates:
 	$(MAKE) smoke-help
 	$(MAKE) ci-local
+	$(MAKE) verify-local-quality-gates
+	$(MAKE) verify-runtime-dependency-evidence
 	$(MAKE) test-api
 	$(MAKE) ltd-release-gates
 	$(MAKE) verify-release-assets
@@ -533,6 +556,7 @@ ltd-release-gates:
 
 verify-release-assets:
 	$(MAKE) materialize-release-assets
+	$(MAKE) verify-release-authority
 	bash scripts/verify_release_assets.sh
 
 verify-flagship-release-readiness:

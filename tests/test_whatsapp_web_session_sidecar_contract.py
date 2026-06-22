@@ -127,8 +127,10 @@ def test_compose_override_declares_whatsapp_web_session_sidecar() -> None:
     assert "python /app/scripts/check_whatsapp_web_action_processor_readiness.py --probe-sidecar" in compose
     assert "ea_whatsapp_web_actions:/data/whatsapp-actions" in compose
     assert "ea_whatsapp_web_teable_sync:/data/whatsapp-teable-sync" in compose
-    assert "EA_AUDIOBOOK_JOBS_HOST_ROOT" not in compose
-    assert "EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT" not in compose
+    assert "${EA_AUDIOBOOK_JOBS_HOST_ROOT:-./data/audiobooks/jobs}:/data/audiobooks/jobs" in compose
+    assert (
+        "${EA_AUDIOBOOKSHELF_IMPORT_HOST_ROOT:-./data/audiobooks/audiobookshelf}:/data/audiobooks/audiobookshelf"
+    ) in compose
     assert "/mnt/pcloud/EA:/mnt/pcloud/EA" not in compose
     assert "/mnt/pcloud/media:/mnt/pcloud/media" not in compose
     assert "name: ea_whatsapp_web_actions" in compose
@@ -380,6 +382,7 @@ def test_inbound_auto_reply_logs_skip_reasons_and_bounds_typing_operations() -> 
     assert skip_helper < should_helper < handler < skip_reason < skip_log
     assert typing_status < typing_timeout < inbound_lookup < outbound_lookup
     assert "recipient_not_allowed" in server
+    assert "route_auto_reply_disabled" in server
     assert "reason=reply_text_empty" in server
 
 

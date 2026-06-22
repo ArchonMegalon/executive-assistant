@@ -11,6 +11,8 @@ OUTPUT = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
 TRUTH_PLANE = Path(".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md")
 BROWSER_PROOF = Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json")
+RELEASE_MANIFEST = Path(".codex-studio/published/release_manifest.generated.json")
+PROJECT_MODES = Path(".codex-design/product/PROJECT_MODES.generated.json")
 PRODUCT_CANON_DOCS = [
     Path(".codex-design/ea/README.md"),
     Path(".codex-design/ea/START_HERE.md"),
@@ -34,6 +36,7 @@ def _write_minimal_flagship_tree(
     (root / TRUTH_PLANE).parent.mkdir(parents=True, exist_ok=True)
     (root / OUTPUT).parent.mkdir(parents=True, exist_ok=True)
     (root / BROWSER_PROOF).parent.mkdir(parents=True, exist_ok=True)
+    (root / RELEASE_MANIFEST).parent.mkdir(parents=True, exist_ok=True)
     for rel in PRODUCT_CANON_DOCS:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("# canon\n", encoding="utf-8")
@@ -47,9 +50,10 @@ def _write_minimal_flagship_tree(
             "legacy_history": "MILESTONE.json",
         },
         "release_claim": {
-            "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
+            "summary": "EA can only claim flagship-grade release truth when release authority, browser workflow proof, and release asset verification agree with this gate seed.",
             "required_conditions": [
                 "EA product surface canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
+                "release authority binds the claim to the intended public origin, deployment ID, tracked branch, clean worktree, and declared project modes",
                 "browser workflow proof renders seeded browser workspace pages with durable product objects",
                 "browser workflow proof shows browser actions updating the live workspace without stale narration",
                 "real browser E2E covers activation and the memo-to-queue loop",
@@ -76,6 +80,7 @@ def _write_minimal_flagship_tree(
         },
         "verification_binding": {
             "primary_verifier": "scripts/verify_release_assets.sh",
+            "release_authority_verifier": "scripts/verify_release_authority.py",
             "supporting_test": "tests/test_flagship_truth_plane.py",
         },
     }
@@ -97,6 +102,32 @@ def _write_minimal_flagship_tree(
     for rel in ("tests/test_product_browser_journeys.py", "tests/e2e/test_product_workflows.py"):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("# browser proof source\n", encoding="utf-8")
+    (root / RELEASE_MANIFEST).write_text(
+        json.dumps(
+            {
+                "contract_name": "ea.release_manifest.v1",
+                "repository": "EA",
+                "branch": "main",
+                "tracking_branch": "origin/main",
+                "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "deployment_id": "deploy-123",
+                "deployment_id_source": "explicit",
+                "public_origin": "https://ea.example.test",
+                "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+                "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
+                "release_label": "deploy-123",
+                "project_mode": "EA_CORE",
+                "enabled_project_modes": ["EA_CORE"],
+                "compose_files": ["docker-compose.yml", "docker-compose.prod.yml"],
+                "artifact_set": [".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"],
+                "dirty_worktree": False,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (root / PROJECT_MODES).write_text(json.dumps({"modes": [{"key": "EA_CORE"}]}, indent=2) + "\n", encoding="utf-8")
     if browser_proof_status is not None:
         (root / BROWSER_PROOF).write_text(
             json.dumps({"status": browser_proof_status, "browser_workflow_proof": True}, indent=2) + "\n",
@@ -137,6 +168,7 @@ def test_materializer_writes_preview_only_receipt_without_browser_execution_rece
     assert receipt["ea_product_canon"]["scope_label"] == "EA product surface canon"
     assert receipt["ea_product_canon"]["all_required_docs_present"] is True
     assert receipt["browser_workflow_proof"]["published_receipt_present"] is False
+    assert receipt["release_authority"]["state"] == "clear"
     assert receipt["browser_workflow_proof"]["source_files_present"][0]["present"] is True
     assert receipt["browser_workflow_proof"]["source_files_present"][1]["present"] is True
     assert "no published browser execution receipt is attached yet" in receipt["current_limitations"]
@@ -172,6 +204,7 @@ def test_materializer_can_publish_pass_when_browser_execution_receipt_exists(tmp
 
     assert receipt["status"] == "pass"
     assert receipt["browser_workflow_proof"]["published_receipt_present"] is True
+    assert receipt["release_authority"]["state"] == "clear"
     assert receipt["browser_workflow_proof"]["published_receipt"] == BROWSER_PROOF.as_posix()
     assert receipt["current_limitations"] == []
     assert receipt["blocking_reasons"] == []
@@ -223,3 +256,46 @@ def test_materializer_surfaces_browser_proof_blockers_when_published_receipt_is_
     assert receipt["status"] == "blocked"
     assert "browser workflow proof: source-backed browser journey proof is not passing" in receipt["blocking_reasons"]
     assert "browser workflow proof: real browser E2E proof is not passing" in receipt["blocking_reasons"]
+
+
+def test_materializer_blocks_pass_when_release_authority_is_not_ready(tmp_path: Path) -> None:
+    _write_minimal_flagship_tree(tmp_path, browser_proof_status="pass")
+    manifest = json.loads((tmp_path / RELEASE_MANIFEST).read_text(encoding="utf-8"))
+    manifest["public_origin"] = ""
+    manifest["public_origin_source"] = "missing"
+    manifest["deployment_id"] = "local-20260622T000000Z-aaaaaaaaaaaa"
+    manifest["deployment_id_source"] = "local_fallback"
+    manifest["dirty_worktree"] = True
+    (tmp_path / RELEASE_MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--seed",
+            SEED.as_posix(),
+            "--truth-plane",
+            TRUTH_PLANE.as_posix(),
+            "--output",
+            OUTPUT.as_posix(),
+            "--browser-proof-receipt",
+            BROWSER_PROOF.as_posix(),
+            "--release-manifest",
+            RELEASE_MANIFEST.as_posix(),
+            "--project-modes",
+            PROJECT_MODES.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    receipt = json.loads((tmp_path / OUTPUT).read_text(encoding="utf-8"))
+
+    assert receipt["status"] == "blocked"
+    assert receipt["release_authority"]["state"] == "blocked"
+    assert "release authority: public_origin_missing" in " | ".join(receipt["blocking_reasons"])
+    assert receipt["verification_binding"]["release_authority_verifier"] == "scripts/verify_release_authority.py"

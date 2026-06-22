@@ -107,6 +107,7 @@ ROUTE_FIELDS: list[dict[str, object]] = [
     {"name": "inbound_number_digits", "type": "singleLineText"},
     {"name": "heyy_ai_key", "type": "singleLineText"},
     {"name": "heyy_ai_name", "type": "singleLineText"},
+    {"name": "auto_reply_enabled", "type": "checkbox"},
     {"name": "behavior_prompt", "type": "longText"},
     {"name": "memory_notes", "type": "longText"},
     {"name": "pacing_hint", "type": "longText"},
@@ -143,6 +144,7 @@ PERSONA_FIELDS: list[dict[str, object]] = [
     {"name": "memory_notes", "type": "longText"},
     {"name": "pacing_hint", "type": "longText"},
     {"name": "typing_delay_ms", "type": "number"},
+    {"name": "auto_reply_enabled", "type": "checkbox"},
     {"name": "pre_reply_delay_min_seconds", "type": "number"},
     {"name": "pre_reply_delay_max_seconds", "type": "number"},
     {"name": "quiet_hours_start_hour", "type": "number"},
@@ -179,6 +181,7 @@ HEYY_AI_PERSONAS: list[dict[str, object]] = [
         "quiet_hours_end_hour": DEFAULT_QUIET_HOURS_END_HOUR,
         "typing_delay_ms_per_character": DEFAULT_TYPING_DELAY_MS_PER_CHARACTER,
         "typing_status_enabled": True,
+        "auto_reply_enabled": True,
         "greeting_text": DEFAULT_REPLY_TEXT,
         "reply_style": (
             "Short German/Austrian messages with real umlauts and older spelling such as daß, muß, bißchen. "
@@ -233,6 +236,7 @@ HEYY_AI_PERSONAS: list[dict[str, object]] = [
         "quiet_hours_end_hour": 0,
         "typing_delay_ms_per_character": 0,
         "typing_status_enabled": True,
+        "auto_reply_enabled": False,
         "greeting_text": (
             "Hi, I am Mira from PropertyQuarry. Send me a listing or ask how a score was calculated, and I will break down "
             "the evidence, missing facts, schools, commute, trade-offs, and next viewing questions."
@@ -318,6 +322,7 @@ HEYY_AI_PERSONAS: list[dict[str, object]] = [
         "quiet_hours_end_hour": 0,
         "typing_delay_ms_per_character": 0,
         "typing_status_enabled": True,
+        "auto_reply_enabled": False,
         "greeting_text": (
             "Hi, I am Casey from Chummer.run. Tell me if you are building a character, running a session, fixing an install, "
             "or checking release status, and which Shadowrun ruleset you mean."
@@ -387,6 +392,7 @@ HEYY_AI_PERSONAS: list[dict[str, object]] = [
         "quiet_hours_end_hour": 0,
         "typing_delay_ms_per_character": 0,
         "typing_status_enabled": True,
+        "auto_reply_enabled": False,
         "greeting_text": EXECUTIVE_ASSISTANT_REPLY_TEXT,
         "reply_style": (
             "Concise, operator-focused, action-first. State what is known, what changed, and what remains. "
@@ -1145,6 +1151,7 @@ def _persona_for_ai_key(ai_key: str) -> dict[str, object]:
         "quiet_hours_end_hour": DEFAULT_QUIET_HOURS_END_HOUR if normalized == DEFAULT_HEYY_AI_KEY else 0,
         "typing_delay_ms_per_character": DEFAULT_TYPING_DELAY_MS_PER_CHARACTER if normalized == DEFAULT_HEYY_AI_KEY else 0,
         "typing_status_enabled": True,
+        "auto_reply_enabled": normalized == DEFAULT_HEYY_AI_KEY,
         "greeting_text": DEFAULT_REPLY_TEXT,
     }
 
@@ -1184,6 +1191,7 @@ def _explicit_route_row(
         "typing_delay_ms": _int_value(persona.get("typing_delay_ms"), EXECUTIVE_ASSISTANT_TYPING_DELAY_MS),
         "typing_delay_ms_per_character": _int_value(persona.get("typing_delay_ms_per_character"), 0),
         "typing_status_enabled": _bool_value(persona.get("typing_status_enabled"), True),
+        "auto_reply_enabled": _bool_value(persona.get("auto_reply_enabled"), ai_key == DEFAULT_HEYY_AI_KEY),
         "reply_text": str(persona.get("greeting_text") or DEFAULT_REPLY_TEXT).strip(),
         "enabled": True,
         "session_ref": session_ref,
@@ -1343,6 +1351,7 @@ def _route_row_for_sidecar_public_route(
         "typing_delay_ms": _int_value(route.get("typing_delay_ms"), DEFAULT_TYPING_DELAY_MS),
         "typing_delay_ms_per_character": typing_delay_ms_per_character,
         "typing_status_enabled": _bool_value(route.get("typing_status_enabled"), True),
+        "auto_reply_enabled": _bool_value(route.get("auto_reply_enabled"), ai_key == DEFAULT_HEYY_AI_KEY),
         "reply_text": str(persona.get("greeting_text") or DEFAULT_REPLY_TEXT).strip(),
         "enabled": True,
         "session_ref": session_ref,
@@ -1603,6 +1612,7 @@ def _default_route_row(session_ref: str) -> dict[str, object]:
             DEFAULT_TYPING_DELAY_MS_PER_CHARACTER,
         ),
         "typing_status_enabled": _bool_value(_env("EA_WHATSAPP_WEB_HEYY_AI_TYPING_STATUS_ENABLED", "1"), True),
+        "auto_reply_enabled": _bool_value(_env("EA_WHATSAPP_WEB_AUTOREPLY_ENABLED", "1"), True),
         "reply_text": _env("EA_WHATSAPP_WEB_AUTOREPLY_TEXT", DEFAULT_REPLY_TEXT),
         "enabled": True,
         "session_ref": session_ref,
@@ -1689,6 +1699,7 @@ def _route_rows_from_teable(*, base_url: str, api_key: str, route_table_id: str,
                     else _int_value(fields.get("typing_delay_ms_per_character"), 0)
                 ),
                 "typing_status_enabled": _bool_value(fields.get("typing_status_enabled"), True),
+                "auto_reply_enabled": _bool_value(fields.get("auto_reply_enabled"), old_lady_defaults),
                 "reply_text": reply_text,
             }
         )

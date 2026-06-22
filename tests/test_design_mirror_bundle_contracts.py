@@ -56,6 +56,8 @@ def test_release_assets_guard_wires_design_mirror_bundle_verifier() -> None:
     script = (ROOT / "scripts" / "verify_release_assets.sh").read_text(encoding="utf-8")
     assert "scripts/verify_design_mirror_bundle.py" in script
     assert "scripts/repair_design_mirror_bundle.sh" in script
+    assert "scripts/verify_release_authority.py" in script
+    assert "ok: release authority gate" in script
     assert "ok: bounded design mirror bundle parity" in script
 
 

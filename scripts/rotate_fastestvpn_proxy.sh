@@ -94,7 +94,7 @@ else
 fi
 
 if (( compose_available == 1 )); then
-  "${compose_cmd[@]}" up -d --build --force-recreate --no-deps "${service_name}"
+  "${compose_cmd[@]}" up -d --no-build --force-recreate --no-deps "${service_name}"
 elif [[ -n "${FASTESTVPN_CONFIG_FILE:-}" ]]; then
   printf '[rotate-fastestvpn-proxy] pinned config rotation requires docker compose support\n' >&2
   exit 1

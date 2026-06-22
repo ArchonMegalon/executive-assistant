@@ -373,13 +373,13 @@
     }
   ],
   "failed_codes": [],
-  "generated_at": "2026-06-22T18:29:01.048097Z",
+  "generated_at": "2026-06-22T20:17:46.805468Z",
   "generated_by": "ea/scripts/materialize_whatsapp_audiobook_live_delivery_receipt.py",
   "goal_completion_claim_allowed": false,
   "historical_evidence": {
     "historical_live_path_proven": true,
     "local_intake": {
-      "generated_at": "2026-06-22T18:29:01.390855Z",
+      "generated_at": "2026-06-22T20:17:47.035654Z",
       "local_path_proven": true,
       "receipt_present": true,
       "share_link_sent": 1,
@@ -387,19 +387,19 @@
       "voice_sample_sent": 3
     },
     "operator_bundle": {
-      "generated_at": "2026-06-22T18:28:14.929709Z",
-      "live_delivery_claim_allowed": false,
-      "live_delivery_status": "waiting_voice_choice",
-      "live_path_proven": false,
+      "generated_at": "2026-06-22T19:12:38.636297Z",
+      "live_delivery_claim_allowed": true,
+      "live_delivery_status": "pass",
+      "live_path_proven": true,
       "receipt_present": true,
-      "recommended_action": "choose_explicit_replacement_voice_or_restore_selected_provider",
-      "status": "waiting_voice_choice",
+      "recommended_action": "capture_real_user_playback_acceptance_or_close_operator_loop",
+      "status": "pass",
       "voice_selection_text_fallback_ready": true
     },
     "present": true,
     "public_share_playback": {
       "attempted": 1,
-      "generated_at": "2026-06-22T18:26:30.554086Z",
+      "generated_at": "2026-06-22T19:12:47.812102Z",
       "passed": 1,
       "passed_result_count": 1,
       "playback_path_proven": true,

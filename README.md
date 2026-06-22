@@ -47,11 +47,15 @@ make deploy-property   # PropertyQuarry isolated compose stack
 
 The plain `make deploy` target is intentionally non-operational. Use `make deploy-ea-prod` or `make deploy-property` so an EA deploy cannot accidentally start the property stack.
 
-The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or Docker socket control:
+Production startup now fails closed unless workspace-access token binding is anchored to a real public origin or explicit issuer. Set `EA_PUBLIC_APP_BASE_URL` or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`, and keep `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` plus `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION` explicit in `.env` for durable cookie/session verification.
+
+The base compose profile now keeps host-mounted Docker and `/docker` access off by default. Add the host-tools override only for workflows that need host repo access or operator Docker control:
 
 ```bash
 bash scripts/deploy.sh --compose-override docker-compose.host-tools.yml
 ```
+
+That override does not hand the raw host socket to the runtime containers. It adds `ea-docker-socket-proxy`, mounts `/var/run/docker.sock` read-only only into that sidecar, points the operator services at `DOCKER_HOST=tcp://ea-docker-socket-proxy:2375`, and keeps `/docker` mounted only on the operator image/profile.
 
 To expose the stack through Cloudflare Tunnel, layer the tunnel override explicitly and set `EA_CF_TUNNEL_TOKEN` in your local `.env` first:
 
@@ -190,10 +194,12 @@ Then open `http://localhost:8090/health`.
 - `make verify-ltd-provider-lanes` runs the governed provider-lane verifier.
 - `make ltd-release-gates` runs all LTD release verifiers together.
 - Optional FastestVPN sidecar support is available in [docker-compose.fastestvpn.yml](docker-compose.fastestvpn.yml). Put FastestVPN `*.ovpn` files under [vpn/fastestvpn/README.md](vpn/fastestvpn/README.md), or fetch them with [bootstrap_fastestvpn_configs.sh](scripts/bootstrap_fastestvpn_configs.sh), then start `ea-fastestvpn-proxy` with the main EA services so BrowserAct login traffic goes out through a local rotating HTTP proxy. If you deploy through `scripts/deploy.sh`, keep the overlay explicit with `EA_ENABLE_FASTESTVPN=1`.
+- The FastestVPN overlay also uses `ea-docker-socket-proxy` instead of a raw runtime socket mount, and the runtime services mount only `docker-compose.yml`, `docker-compose.fastestvpn.yml`, and `vpn/fastestvpn/` rather than the whole repository.
 
 ## Operator Shortcuts
 
-- `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, and bounded design-mirror bundle
+- `make verify-release-assets`: materialize and verify the EA flagship receipts, whole-project gold map, bounded design-mirror bundle, and release-authority gate
+- `make verify-release-authority`: fail closed unless the release manifest records a runtime public origin, explicit deployment id, clean worktree, and compose topology strong enough for a shipping claim
 - `make materialize-memorial-phrase-bank`: regenerate the approved Manfred memorial phrase bank artifact
 - `make materialize-memorial-operator-status`: regenerate the operator-readable memorial local/public-gold status artifact
 - `make materialize-memorial-room-audio-gold-clean`: record the manual room/device proof from a clean clone and copy the refreshed memorial gold artifacts back into the repo
@@ -225,7 +231,7 @@ Then open `http://localhost:8090/health`.
   - `GET /v1/responses/_provider_health` and `GET /v1/codex/profiles` expose account-name attribution, owner-ledger metadata matched by hash or stable slot/account identifiers, latest explicit probe result, observed `remaining_credits` / `required_credits`, per-slot `observed_consumed_credits` / `observed_success_count`, aggregate `estimated_remaining_credits_total` / `remaining_percent_of_max`, rolling `estimated_burn_credits_per_hour` / `estimated_hours_remaining_at_current_pace`, and deleted-key quarantine state without returning raw API secrets.
   - `python3 scripts/sync_onemin_owner_ledger.py --write` refreshes `config/onemin_slot_owners.json` from the current `ONEMIN_AI_API_KEY*` values plus any `ONEMIN_DIRECT_API_KEYS_JSON(_FILE)` manifest entries while preserving the existing owner roster metadata by slot/account.
   - The template-backed 1min BrowserAct login lanes can now read a generic rotating proxy from `EA_UI_BROWSER_PROXY_SERVER`, `EA_UI_BROWSER_PROXY_USERNAME`, `EA_UI_BROWSER_PROXY_PASSWORD`, and `EA_UI_BROWSER_PROXY_BYPASS`, and `ONEMIN_BROWSERACT_MAX_ACCOUNTS_PER_REFRESH` / `EA_ONEMIN_BILLING_REFRESH_MIN_INTERVAL_SECONDS` control whether one refresh cycle can sweep the full configured slot set without the old per-minute cadence gate.
-  - [rotate_fastestvpn_proxy.sh](scripts/rotate_fastestvpn_proxy.sh) recreates the FastestVPN sidecar plus EA services so BrowserAct can pick up a fresh FastestVPN exit profile before a broad 1min sweep.
+  - [rotate_fastestvpn_proxy.sh](scripts/rotate_fastestvpn_proxy.sh) recreates the FastestVPN sidecar plus EA services with `docker compose up -d --no-build --force-recreate --no-deps` so BrowserAct can pick up a fresh FastestVPN exit profile before a broad 1min sweep without rebuilding the EA runtime.
   - `GET /v1/models` includes the Gemini Vortex-backed `ea-gemini-flash` public alias, the groundwork aliases `ea-groundwork-gemini` and `ea-groundwork`, plus the concrete `gemini-2.5-flash` model id when that backend is configured.
   - the survival lane reduces the request locally first, then tries Gemini Vortex, then BrowserAct Gemini web, and only then a single-role ChatPlayground tie-break
   - UI-backed survival backends are challenge-aware: Cloudflare/Turnstile/human-verification or session-expiry responses put that backend on cooldown and survival falls through to the next backend instead of trying to automate the challenge
@@ -574,14 +580,14 @@ Combined local API+Postgres legacy-migration parity run is available via `make c
 Runtime deploy hard gate is available via `make runtime-hard-exit-gates`; `scripts/deploy.sh` runs it by default after health goes green unless `EA_RUN_RUNTIME_HARD_EXIT_GATES=0`. This live bundle uses the deploy-safe API smoke lane and Pocket archive verification; the deeper principal contract smoke stays in `make hard-exit-gates`.
 Full flagship hard exit gate is available via `make hard-exit-gates`; it runs the full pytest suite plus release preflight, Postgres contract/smoke lanes, principal API smoke, and Pocket archive verification.
 Aggregate LTD release gates are available via `make ltd-release-gates`; the bundle includes critical runtime entries, the flagship verified subset, and governed provider-lane receipts.
-Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`.
+Release asset integrity can be checked via `scripts/verify_release_assets.sh` or `make verify-release-assets`. That path now also enforces `make verify-release-authority`, so generated receipts alone cannot stand in for deploy truth.
 Whole-project gold-map integrity can be checked via `scripts/verify_whole_project_gold_map.py` or `make verify-whole-project-gold-map`; when green, it means the current EA-controlled receipt set is coherent. Owning repos remain authoritative for their own product planes. For memorial presentation readiness, also run `make verify-memorial-voice-stability` against the deployed stack.
 Docs-focused alias for the same check: `make docs-verify`.
 Docs + operator help aggregate: `make release-docs`.
-Release preflight aggregate is available via `make release-preflight`; it includes `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, or dirty regenerated receipt.
+Release preflight aggregate is available via `make release-preflight`; it includes `make verify-release-authority`, `make verify-flagship-release-readiness`, `make verify-whole-project-gold-map`, and generated release artifact cleanliness so a green receipt cannot hide a blocked weekly pulse, Fleet journey gate, overbroad gold claim, weak deploy authority, or dirty regenerated receipt.
 For real-browser gates on a fresh host, install the browser dependency first with `python -m playwright install --with-deps chromium`.
 Recommended sequencing: run `make release-docs` before `make release-preflight`.
 One-command local readiness check: `make all-local`.
-`make all-local` is a lighter local readiness pass; it still verifies release assets, flagship readiness, and generated release artifact cleanliness, but use `make release-preflight` for release-stage smoke + operator checks.
+`make all-local` is a lighter local readiness pass; it still verifies release assets, flagship readiness, and generated release artifact cleanliness, but it does not require release-claim authority. Use `make release-preflight` for release-stage smoke + operator checks.
 CI gate sequence is documented in `RUNBOOK.md` and includes the API gate bundle (`smoke-help`, `ci-local`, `test-api`, release-asset verification, flagship release-readiness verification, generated release artifact cleanliness), Postgres-backed smoke and repository-contract jobs (`scripts/smoke_postgres.sh`, `scripts/test_postgres_contracts.sh`), and a legacy migration-regression job (`bash scripts/smoke_postgres.sh --legacy-fixture`).
 Shell script lint config is tracked in `.shellcheckrc`.

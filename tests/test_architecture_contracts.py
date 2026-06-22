@@ -108,7 +108,7 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     release_materialization_service.materialize_release_assets(python_bin="/tmp/python")
 
     assert calls[0] == ("/tmp/python", "ea_browser_workflow_proof", ("scripts/materialize_ea_browser_workflow_proof.py",), None)
-    assert calls[-1] == ("/tmp/python", "memorial_operator_status", ("scripts/materialize_memorial_operator_status.py",), None)
+    assert calls[-1] == ("/tmp/python", "release_manifest", ("scripts/materialize_release_manifest.py",), None)
     assert any(
         name == "whole_project_gold_map" and command == ("scripts/materialize_whole_project_gold_map.py",) and env == {"PYTHONPATH": "ea"}
         for _, name, command, env in calls
@@ -128,6 +128,12 @@ def test_release_materialization_service_runs_expected_scripts_in_order(monkeypa
     assert any(
         name == "teable_env_recovery_readiness"
         and command == ("scripts/materialize_teable_env_recovery_readiness.py",)
+        and env is None
+        for _, name, command, env in calls
+    )
+    assert any(
+        name == "runtime_dependency_evidence"
+        and command == ("scripts/materialize_runtime_dependency_evidence.py",)
         and env is None
         for _, name, command, env in calls
     )

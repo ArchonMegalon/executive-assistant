@@ -2,7 +2,7 @@
   "attempted": 1,
   "contract_name": "ea.whatsapp_audiobook_public_share_playback_e2e.v1",
   "failed": 0,
-  "generated_at": "2026-06-22T18:26:30.554086Z",
+  "generated_at": "2026-06-22T19:12:47.812102Z",
   "generated_by": "ea/scripts/verify_whatsapp_audiobook_public_share_playback.py",
   "passed": 1,
   "privacy": {
@@ -12,7 +12,7 @@
   },
   "results": [
     {
-      "current_time_after_play_seconds": 2.962697,
+      "current_time_after_play_seconds": 2.963081,
       "duration_seconds": 14559.48,
       "job_id_sha256": "1a7a76f41c3bd81a974d309bb59ff80837451843917026aacc130b70729f0837",
       "media_error": false,

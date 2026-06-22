@@ -42,6 +42,7 @@ def test_settings_defaults() -> None:
     s = get_settings()
     assert s.core.app_name == "ea-rewrite"
     assert s.core.role == "api"
+    assert s.core.host == "127.0.0.1"
     assert s.runtime.mode == "dev"
     assert s.storage.backend == "auto"
     assert s.storage.database_url == ""
@@ -204,10 +205,11 @@ def test_readiness_service_rejects_case_variant_prod_mode_without_api_token() ->
 
 
 def test_readiness_service_rejects_prod_postgres_without_database_url() -> None:
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
         storage=SimpleNamespace(backend="postgres", database_url=""),
-        auth=SimpleNamespace(api_token="secret-token", signing_secret="signing-secret"),
+        auth=SimpleNamespace(api_token="real-api-token", signing_secret="real-signing-secret"),
     )
     ready, reason = ReadinessService(settings).check()
     assert ready is False
@@ -222,10 +224,11 @@ def test_readiness_service_rejects_missing_psycopg_dependency(monkeypatch: pytes
             raise ImportError("psycopg intentionally unavailable")
         return original_import(name, globals, locals, fromlist, level)
 
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
         storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
-        auth=SimpleNamespace(api_token="secret-token", signing_secret="signing-secret"),
+        auth=SimpleNamespace(api_token="real-api-token", signing_secret="real-signing-secret"),
     )
     try:
         monkeypatch.setattr(builtins, "__import__", _raise_for_psycopg)
@@ -244,10 +247,11 @@ def test_readiness_service_rejects_unavailable_postgres_dependency(
         def connect(*_args: object, **_kwargs: object) -> None:
             raise RuntimeError("network unreachable")
 
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     settings = SimpleNamespace(
         runtime=SimpleNamespace(mode="prod"),
         storage=SimpleNamespace(backend="postgres", database_url="postgresql://example/ea"),
-        auth=SimpleNamespace(api_token="secret-token", signing_secret="signing-secret"),
+        auth=SimpleNamespace(api_token="real-api-token", signing_secret="real-signing-secret"),
     )
     fake_psycopg = types.SimpleNamespace(connect=_BadPsycopg.connect)
     try:

@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from verify_release_authority import validate_release_authority
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PULSE = ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
@@ -14,6 +16,8 @@ DEFAULT_FLAGSHIP_RECEIPT = ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_REL
 DEFAULT_BROWSER_PROOF = ROOT / ".codex-studio" / "published" / "EA_BROWSER_WORKFLOW_PROOF.generated.json"
 DEFAULT_JOURNEY_GATES = Path(os.environ.get("EA_FLEET_JOURNEY_GATES_PATH") or ROOT / "ea" / "_completion" / "fleet" / "JOURNEY_GATES.generated.json")
 DEFAULT_IMPLEMENTATION_SCOPE = ROOT / ".codex-design" / "repo" / "IMPLEMENTATION_SCOPE.md"
+DEFAULT_RELEASE_MANIFEST = ROOT / ".codex-studio" / "published" / "release_manifest.generated.json"
+DEFAULT_PROJECT_MODES = ROOT / ".codex-design" / "product" / "PROJECT_MODES.generated.json"
 
 REQUIRED_RELEASE_CONTRACT_PATHS = (
     ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_TRUTH_PLANE.md",
@@ -88,6 +92,8 @@ def verify(
     browser_proof_path: Path,
     journey_gates_path: Path,
     implementation_scope_path: Path = DEFAULT_IMPLEMENTATION_SCOPE,
+    release_manifest_path: Path = DEFAULT_RELEASE_MANIFEST,
+    project_modes_path: Path = DEFAULT_PROJECT_MODES,
     required_contract_paths: tuple[Path, ...] = REQUIRED_RELEASE_CONTRACT_PATHS,
 ) -> list[str]:
     issues: list[str] = []
@@ -96,6 +102,8 @@ def verify(
     browser = _json(browser_proof_path)
     journey_summary = _journey_summary(journey_gates_path, pulse=pulse)
     implementation_scope = _text(implementation_scope_path)
+    release_manifest = _json(release_manifest_path)
+    project_modes = _json(project_modes_path)
 
     override_substitutions = {
         ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json": flagship_receipt_path,
@@ -118,6 +126,10 @@ def verify(
         issues.append(f"browser workflow proof missing or invalid: {browser_proof_path}")
     if not journey_summary:
         issues.append(f"journey gates summary missing or invalid: {journey_gates_path}")
+    if not release_manifest:
+        issues.append(f"release manifest missing or invalid: {release_manifest_path}")
+    if not project_modes:
+        issues.append(f"project modes manifest missing or invalid: {project_modes_path}")
 
     receipt_status = str(receipt.get("status") or "").strip().lower()
     browser_status = str(browser.get("status") or browser.get("receipt_status") or "").strip().lower()
@@ -167,6 +179,15 @@ def verify(
         issues.append("implementation scope no longer requires mirrored .codex-design/product/* canon")
     if "Guide/help/public projections must compile from mirrored design sources" not in implementation_scope:
         issues.append("implementation scope no longer requires mirrored design-source compilation")
+    if release_manifest and project_modes:
+        authority_issues = validate_release_authority(
+            release_manifest=release_manifest,
+            project_modes=project_modes,
+        )
+        if authority_issues:
+            issues.append(
+                "release authority gate is fail: " + ",".join(authority_issues)
+            )
 
     return issues
 
@@ -178,6 +199,8 @@ def main() -> int:
     parser.add_argument("--browser-proof", type=Path, default=DEFAULT_BROWSER_PROOF)
     parser.add_argument("--journey-gates", type=Path, default=DEFAULT_JOURNEY_GATES)
     parser.add_argument("--implementation-scope", type=Path, default=DEFAULT_IMPLEMENTATION_SCOPE)
+    parser.add_argument("--release-manifest", type=Path, default=DEFAULT_RELEASE_MANIFEST)
+    parser.add_argument("--project-modes", type=Path, default=DEFAULT_PROJECT_MODES)
     args = parser.parse_args()
 
     issues = verify(
@@ -186,6 +209,8 @@ def main() -> int:
         browser_proof_path=args.browser_proof,
         journey_gates_path=args.journey_gates,
         implementation_scope_path=args.implementation_scope,
+        release_manifest_path=args.release_manifest,
+        project_modes_path=args.project_modes,
     )
     if issues:
         print(json.dumps({"status": "blocked", "issues": issues}, indent=2))

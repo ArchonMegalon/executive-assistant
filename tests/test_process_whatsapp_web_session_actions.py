@@ -418,12 +418,23 @@ def test_telegram_summary_ignores_non_herta_messages(tmp_path: Path) -> None:
     assert sent == []
 
 
-def test_build_report_surfaces_freeform_inbox_messages_without_treating_them_as_actionable(tmp_path: Path) -> None:
+def test_build_report_replies_to_executive_assistant_freeform_inbox_messages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     module = _module()
+    sent: list[dict[str, object]] = []
 
-    report = module.build_report(
-        _args(tmp_path, conversation_fallback_enabled=False),
-        request_json=lambda **_: {
+    monkeypatch.setattr(
+        module,
+        "_executive_assistant_freeform_reply_text",
+        lambda **_: "Handled. I checked it.",
+    )
+
+    def _request_json(**kwargs):
+        if kwargs.get("method") == "POST":
+            sent.append(dict(kwargs.get("body") or {}))
+            return {"ok": True, "id": "wamid.reply.1"}
+        return {
             "messages": [
                 _text_message(
                     id="wamid.freeform.1",
@@ -434,7 +445,11 @@ def test_build_report_surfaces_freeform_inbox_messages_without_treating_them_as_
                 )
             ],
             "ok": True,
-        },
+        }
+
+    report = module.build_report(
+        _args(tmp_path, conversation_fallback_enabled=False),
+        request_json=_request_json,
     )
 
     assert report["status"] == "pass"
@@ -446,6 +461,47 @@ def test_build_report_surfaces_freeform_inbox_messages_without_treating_them_as_
     assert report["status_candidate_count"] == 0
     assert report["freeform_inbox_message_count"] == 1
     assert report["freeform_inbox_by_heyy_ai_key"] == {"executive_assistant": 1}
+    assert report["freeform_reply_sent"] == 1
+    assert report["reply_sent"] == 1
+    assert sent == [
+        {
+            "to": "40424366432273",
+            "text": "Handled. I checked it.",
+            "chat_ref": "chat-ref-1",
+        }
+    ]
+
+
+def test_build_report_ignores_voice_selection_text_without_pending_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _module()
+    jobs_root = tmp_path / "jobs"
+    jobs_root.mkdir()
+    monkeypatch.setenv("EA_AUDIOBOOK_JOBS_ROOT", str(jobs_root))
+    monkeypatch.setattr(module.audiobook_epub_pipeline, "audiobook_jobs_root", lambda: jobs_root)
+
+    report = module.build_report(
+        _args(tmp_path, conversation_fallback_enabled=False),
+        request_json=lambda **_: {
+            "messages": [
+                _text_message(
+                    id="wamid.voice.nojob.1",
+                    body_text="use Remy!",
+                    heyy_ai_key="executive_assistant",
+                    heyy_ai_name="Executive Assistant",
+                    sender_digits="40424366432273",
+                )
+            ],
+            "ok": True,
+        },
+    )
+
+    assert report["status"] == "pass"
+    assert report["voice_text_candidate_count"] == 0
+    assert report["voice_text_processed"] == 0
+    assert report["candidate_count"] == 0
+    assert report["freeform_inbox_message_count"] == 1
 
 
 def test_telegram_summary_ignores_empty_placeholder_messages_and_clears_stale_pending_record(tmp_path: Path) -> None:

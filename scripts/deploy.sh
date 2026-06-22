@@ -2,7 +2,10 @@
 set -euo pipefail
 
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RELEASE_MANIFEST_PATH="${RELEASE_MANIFEST_PATH:-${APP_ROOT}/.codex-studio/published/release_manifest.generated.json}"
 EXTRA_COMPOSE_OVERRIDES=()
+DEPLOY_PRIMARY_MODE="${EA_DEPLOY_PRIMARY_MODE:-${EA_DEPLOY_PROJECT_MODE:-EA_CORE}}"
+DEPLOY_ENABLED_MODES=()
 if [[ "${PROPERTYQUARRY_USE_LEGACY_STACK:-0}" == "1" ]]; then
   export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ea}"
 else
@@ -17,6 +20,7 @@ if [[ "${EA_ENABLE_FASTESTVPN:-0}" == "1" ]]; then
 fi
 enable_cloudflared="${PROPERTYQUARRY_ENABLE_CLOUDFLARED:-${EA_ENABLE_CLOUDFLARED:-auto}}"
 run_runtime_hard_exit_gates="${PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES:-${EA_RUN_RUNTIME_HARD_EXIT_GATES:-1}}"
+allow_dirty_worktree="${PROPERTYQUARRY_DEPLOY_ALLOW_DIRTY_WORKTREE:-${EA_DEPLOY_ALLOW_DIRTY_WORKTREE:-0}}"
 cf_tunnel_token_name="${PROPERTYQUARRY_CF_TUNNEL_TOKEN:-}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "${PYTHON_BIN}" ]]; then
@@ -51,6 +55,7 @@ Backward-compatible aliases:
   EA_MEMORY_ONLY, EA_BOOTSTRAP_DB, EA_ENABLE_FASTESTVPN, EA_ENABLE_CLOUDFLARED,
   EA_CF_TUNNEL_TOKEN, EA_RUN_RUNTIME_HARD_EXIT_GATES
   EA_RUN_RUNTIME_HARD_EXIT_GATES=1|0     Alias for PROPERTYQUARRY_RUN_RUNTIME_HARD_EXIT_GATES.
+  EA_DEPLOY_ALLOW_DIRTY_WORKTREE=1|0     Allow deploy from a dirty git worktree (default: 0).
 EOF
       exit 0
       ;;
@@ -96,6 +101,43 @@ if [[ ! -f "${APP_ROOT}/.env" ]]; then
   exit 1
 fi
 
+public_origin_line="$(grep -E '^(EA_PUBLIC_APP_BASE_URL|PROPERTYQUARRY_PUBLIC_BASE_URL)=' "${APP_ROOT}/.env" | tail -n1 || true)"
+public_origin_value="${public_origin_line#*=}"
+public_origin_value="${public_origin_value%/}"
+if [[ -z "${public_origin_value}" ]]; then
+  cat >&2 <<'EOF'
+Refusing to deploy without a public runtime origin.
+
+Set one of these in .env before deploy:
+  EA_PUBLIC_APP_BASE_URL=https://assistant.example.test
+  PROPERTYQUARRY_PUBLIC_BASE_URL=https://property.example.test
+
+Release authority requires the deployed runtime to declare its public origin.
+EOF
+  exit 4
+fi
+
+if [[ "${allow_dirty_worktree}" != "1" ]] && [[ -n "$(git -C "${APP_ROOT}" status --short)" ]]; then
+  cat >&2 <<'EOF'
+Refusing to deploy from a dirty git worktree.
+
+Commit or stash local changes first, or explicitly opt in with:
+  EA_DEPLOY_ALLOW_DIRTY_WORKTREE=1 bash scripts/deploy.sh
+
+Release authority requires a clean worktree for deployment claims.
+EOF
+  exit 5
+fi
+
+if [[ -z "${EA_DEPLOYMENT_ID:-${DEPLOYMENT_ID:-${RENDER_GIT_COMMIT:-}}}" ]]; then
+  deploy_commit_sha="$(git -C "${APP_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+  deploy_commit_fragment="${deploy_commit_sha:0:12}"
+  if [[ -z "${deploy_commit_fragment}" ]]; then
+    deploy_commit_fragment="unknowncommit"
+  fi
+  export EA_DEPLOYMENT_ID="deploy-$(date -u +%Y%m%dT%H%M%SZ)-${deploy_commit_fragment}"
+fi
+
 database_url_line="$(grep -E '^DATABASE_URL=' "${APP_ROOT}/.env" | tail -n1 || true)"
 database_url_value="${database_url_line#DATABASE_URL=}"
 if [[ "${database_url_value}" == *"/ea_smoke_runtime" ]]; then
@@ -139,6 +181,29 @@ for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
   COMPOSE_ARGS+=(-f "${override}")
 done
 
+sync_enabled_modes_from_overrides() {
+  DEPLOY_ENABLED_MODES=()
+  add_enabled_mode "${DEPLOY_PRIMARY_MODE}"
+  local override
+  local base
+  for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
+    base="$(basename "${override}")"
+    case "${base}" in
+      docker-compose.memorial.yml) add_enabled_mode "MEMORIAL" ;;
+      docker-compose.provider-lab.yml) add_enabled_mode "PROVIDER_LAB" ;;
+      docker-compose.property.yml) add_enabled_mode "PROPERTY" ;;
+    esac
+  done
+}
+
+whatsapp_web_session_overlay_enabled=0
+for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
+  if [[ "$(basename "${override}")" == "docker-compose.whatsapp-web-session.yml" ]]; then
+    whatsapp_web_session_overlay_enabled=1
+    break
+  fi
+done
+
 if [[ "${memory_only}" != "1" ]]; then
   should_enable_cloudflared="${enable_cloudflared}"
   cloudflared_override="docker-compose.cloudflared.yml"
@@ -152,20 +217,61 @@ compose() {
   COMPOSE_IGNORE_ORPHANS=1 "${DC[@]}" "${COMPOSE_ARGS[@]}" "$@"
 }
 
+normalize_mode() {
+  printf '%s' "${1:-}" | tr '[:lower:]-' '[:upper:]_'
+}
+
+add_enabled_mode() {
+  local mode
+  mode="$(normalize_mode "$1")"
+  [[ -n "${mode}" ]] || return 0
+  local existing
+  for existing in "${DEPLOY_ENABLED_MODES[@]:-}"; do
+    if [[ "${existing}" == "${mode}" ]]; then
+      return 0
+    fi
+  done
+  DEPLOY_ENABLED_MODES+=("${mode}")
+}
+
+sync_enabled_modes_from_overrides
+
+materialize_release_manifest() {
+  local enabled_modes_csv=""
+  local compose_files_csv=""
+  local compose_overrides_csv=""
+  if [[ "${#DEPLOY_ENABLED_MODES[@]}" -gt 0 ]]; then
+    enabled_modes_csv="$(IFS=,; printf '%s' "${DEPLOY_ENABLED_MODES[*]}")"
+  fi
+  compose_files_csv="$(printf '%s\n' "${COMPOSE_ARGS[@]}" | awk 'prev == "-f" { print; } { prev = $0 }' | paste -sd, -)"
+  if [[ "${#EXTRA_COMPOSE_OVERRIDES[@]}" -gt 0 ]]; then
+    compose_overrides_csv="$(IFS=,; printf '%s' "${EXTRA_COMPOSE_OVERRIDES[*]}")"
+  fi
+  EA_DEPLOY_PRIMARY_MODE="${DEPLOY_PRIMARY_MODE}" \
+  EA_DEPLOY_ENABLED_MODES="${enabled_modes_csv}" \
+  EA_DEPLOY_COMPOSE_FILES="${compose_files_csv}" \
+  EA_DEPLOY_COMPOSE_OVERRIDES="${compose_overrides_csv}" \
+  "${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_release_manifest.py" --output "${RELEASE_MANIFEST_PATH}" >/dev/null
+}
+
 sync_telegram_webhooks() {
   local env_public_base
+  local env_property_public_base
+  local webhook_public_base
   local env_bot_registry
   local env_bot_token
   env_public_base="$(grep -E '^EA_PUBLIC_APP_BASE_URL=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+  env_property_public_base="$(grep -E '^PROPERTYQUARRY_PUBLIC_BASE_URL=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
+  webhook_public_base="${env_public_base:-${env_property_public_base}}"
   env_bot_registry="$(grep -E '^EA_TELEGRAM_BOT_REGISTRY_JSON=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
   env_bot_token="$(grep -E '^EA_TELEGRAM_BOT_TOKEN=' "${APP_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
-  if [[ -z "${env_public_base}" ]]; then
+  if [[ -z "${env_public_base}" && -z "${env_property_public_base}" ]]; then
     return 0
   fi
   if [[ -z "${env_bot_registry}" && -z "${env_bot_token}" ]]; then
     return 0
   fi
-  echo "Syncing Telegram webhooks to ${env_public_base}"
+  echo "Syncing Telegram webhooks to ${webhook_public_base}"
   "${PYTHON_BIN}" "${APP_ROOT}/scripts/bootstrap_telegram_bot.py" --env-file "${APP_ROOT}/.env" --all-bots --set-webhook >/dev/null
 }
 
@@ -210,11 +316,17 @@ service_container_ready() {
   health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "${cid}" 2>/dev/null || true)"
 
   [[ "${running}" == "true" ]] || return 1
-  [[ "${restarting}" != "true" ]] || return 1
-  [[ -z "${health}" || "${health}" == "healthy" ]] || return 1
+  if [[ "${restarting}" == "true" ]]; then
+    return 1
+  fi
+  if [[ -n "${health}" && "${health}" != "healthy" ]]; then
+    return 1
+  fi
 }
 
 cd "${APP_ROOT}"
+"${PYTHON_BIN}" "${APP_ROOT}/scripts/materialize_project_mode_manifests.py" >/dev/null
+"${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_project_mode_manifests.py" >/dev/null
 if [[ "${memory_only}" == "1" ]]; then
   COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.memory.yml)
   TOPOLOGY_SERVICES=(ea-api)
@@ -224,6 +336,11 @@ else
   RUNTIME_BUILD_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler)
   TOPOLOGY_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db)
   FAILURE_LOG_SERVICES=(ea-teable-relay ea-api ea-responses-proxy ea-worker ea-scheduler ea-db ea-openvoice)
+  if [[ "${whatsapp_web_session_overlay_enabled}" == "1" ]]; then
+    RUNTIME_BUILD_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
+    TOPOLOGY_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
+    FAILURE_LOG_SERVICES+=(ea-whatsapp-web-session ea-whatsapp-web-activator ea-whatsapp-web-action-processor ea-whatsapp-web-teable-sync)
+  fi
   if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
     TOPOLOGY_SERVICES+=(ea-cloudflared)
     FAILURE_LOG_SERVICES+=(ea-cloudflared)
@@ -288,6 +405,20 @@ for _ in $(seq 1 60); do
     if [[ "${run_runtime_hard_exit_gates}" != "0" ]]; then
       bash "${APP_ROOT}/scripts/runtime_hard_exit_gates.sh"
     fi
+    materialize_release_manifest
+    verify_mode_args=(--mode "${DEPLOY_PRIMARY_MODE}")
+    for enabled_mode in "${DEPLOY_ENABLED_MODES[@]}"; do
+      verify_mode_args+=(--enabled-mode "${enabled_mode}")
+    done
+    for override in "${EXTRA_COMPOSE_OVERRIDES[@]}"; do
+      verify_mode_args+=(--compose-override "${override}")
+    done
+    "${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_release_manifest_runtime_mode.py" "${verify_mode_args[@]}" >/dev/null
+    verify_artifact_args=()
+    for enabled_mode in "${DEPLOY_ENABLED_MODES[@]}"; do
+      verify_artifact_args+=(--enabled-mode "${enabled_mode}")
+    done
+    "${PYTHON_BIN}" "${APP_ROOT}/scripts/verify_release_manifest_artifact_plane.py" "${verify_artifact_args[@]}" >/dev/null
     if [[ "${CLOUDFLARED_OVERLAY_ENABLED}" == "1" ]]; then
       public_smoke_base_url="${PROPERTYQUARRY_PUBLIC_BASE_URL:-${EA_PUBLIC_APP_BASE_URL:-https://example.test}}"
       public_smoke_base_url="${public_smoke_base_url%/}"
@@ -306,6 +437,7 @@ for _ in $(seq 1 60); do
       done
     fi
     echo "PropertyQuarry runtime healthy at http://localhost:${HOST_PORT} with ${TOPOLOGY_SERVICES[*]}"
+    echo "Release manifest written to ${RELEASE_MANIFEST_PATH}"
     exit 0
   fi
   sleep 1

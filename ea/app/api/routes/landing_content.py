@@ -68,6 +68,7 @@ ADMIN_NAV_GROUPS = (
             {"href": "/admin/operators", "label": "Operators", "key": "operators"},
             {"href": "/admin/community", "label": "Access", "key": "community"},
             {"href": "/admin/api", "label": "Runtime", "key": "api"},
+            {"href": "/admin/goals", "label": "Goals", "key": "goals"},
         ),
     },
 )

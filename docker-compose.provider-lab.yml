@@ -1,0 +1,27 @@
+services:
+  ea-api:
+    environment:
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+
+  ea-worker:
+    environment:
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1
+
+  ea-scheduler:
+    environment:
+      - EA_CREZLO_PROPERTY_TOUR_WORKER=/app/scripts/crezlo_property_tour_worker.py
+      - EA_MOOTION_MOVIE_WORKER=/app/scripts/mootion_movie_worker.py
+      - EA_AVOMAP_FLYOVER_WORKER=/app/scripts/avomap_flyover_worker.py
+      - EA_BOOKA_BOOK_WORKER=/app/scripts/booka_book_worker.py
+      - EA_PUBLIC_RESULT_PUBLISHER=/app/scripts/publish_browseract_ui_results.py
+      - EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360=1

@@ -190,6 +190,11 @@ def test_ea_workspace_settings_surfaces_do_not_fall_back_to_propertyquarry_label
     assert "PropertyQuarry Workspace" not in google.text
     assert "PropertyQuarry usage" not in usage.text
     assert "PropertyQuarry trust" not in trust.text
+    assert "Release authority" in trust.text
+    assert "Authority posture" in trust.text
+    assert "Release label" in trust.text
+    assert "Release next action" in trust.text
+    assert "What release trust is anchored to" in trust.text
     assert "PropertyQuarry access" not in access.text
     assert "PropertyQuarry invitations" not in invitations.text
     settings = client.get("/app/settings")

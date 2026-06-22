@@ -31,7 +31,7 @@
     "waiting_voice_selection_job_found": true
   },
   "contract_name": "ea.whatsapp_audiobook_live_voice_selection_shadow.v1",
-  "generated_at": "2026-06-22T18:29:01.048097Z",
+  "generated_at": "2026-06-22T20:17:46.805468Z",
   "live_mutation": {
     "manifest_sha256_after": "49b6e5f37344fa1e1f766cda042ad7a4eff189411fb764329e28f992c6b7a787",
     "manifest_sha256_before": "49b6e5f37344fa1e1f766cda042ad7a4eff189411fb764329e28f992c6b7a787",

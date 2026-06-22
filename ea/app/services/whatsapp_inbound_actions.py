@@ -326,8 +326,7 @@ def _recover_whatsapp_playback_acceptance_for_sender(
         raise RuntimeError("audiobook_playback_acceptance_sender_missing")
 
     candidates: list[tuple[float, object]] = []
-    root = audiobook_epub_pipeline.audiobook_jobs_root()
-    for manifest_path in sorted(root.glob("*/job.json")):
+    for manifest_path in audiobook_epub_pipeline.iter_audiobook_job_manifests(newest_first=True):
         try:
             job = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:

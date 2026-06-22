@@ -94,6 +94,7 @@ required_files=(
   "scripts/materialize_project_mode_manifests.py"
   "scripts/verify_project_mode_manifests.py"
   "scripts/verify_project_mode_runtime.py"
+  "scripts/verify_release_authority.py"
   "scripts/materialize_whole_project_gold_map.py"
   "scripts/materialize_teable_env_recovery_readiness.py"
   "scripts/materialize_whatsapp_web_action_processor_readiness.py"
@@ -170,6 +171,15 @@ else
   cat /tmp/ea_design_mirror_full_verify.out
   cat /tmp/ea_design_mirror_full_verify.err >&2
   echo "missing: full design mirror parity" >&2
+  missing=1
+fi
+
+if python3 scripts/verify_release_authority.py >/tmp/ea_release_authority_verify.out 2>/tmp/ea_release_authority_verify.err; then
+  echo "ok: release authority gate"
+else
+  cat /tmp/ea_release_authority_verify.out
+  cat /tmp/ea_release_authority_verify.err >&2
+  echo "missing: release authority gate" >&2
   missing=1
 fi
 

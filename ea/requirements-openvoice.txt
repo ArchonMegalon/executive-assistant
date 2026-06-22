@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.12.0+cpu
-numpy
-soundfile
-librosa
-wavmark
+numpy==2.4.3
+soundfile==0.14.0
+librosa==0.11.0
+wavmark==0.0.3

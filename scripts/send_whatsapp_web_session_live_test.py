@@ -37,7 +37,13 @@ def _load_binding(args: argparse.Namespace):
             payload = readiness_script._load_json_file(str(path))
         except Exception:
             return None, "binding_json_invalid"
-        return readiness_script._binding_from_json(payload, binding_id=binding_id), ""
+        binding = readiness_script._binding_from_json(payload, binding_id=binding_id)
+        if binding is None and readiness_script._should_fallback_to_latest_binding(
+            binding_id=binding_id,
+            principal_id=principal_id,
+        ):
+            binding = readiness_script._latest_enabled_binding_from_json(payload)
+        return binding, ""
     if database_url:
         try:
             return readiness_script._binding_from_postgres(
@@ -78,10 +84,12 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
     if binding is None:
         return {**base, "ready": False, "sent": False, "reason": "binding_not_found"}
 
+    effective_binding_id = str(getattr(binding, "binding_id", "") or args.binding_id).strip()
+    effective_principal_id = str(getattr(binding, "principal_id", "") or args.principal_id).strip()
     readiness = check_whatsapp_web_session_readiness(
         tool_runtime=None,
-        principal_id=str(args.principal_id or "").strip(),
-        binding_id=str(args.binding_id or "").strip(),
+        principal_id=effective_principal_id,
+        binding_id=effective_binding_id,
         binding=binding,
         probe_session=bool(args.probe_session),
     )
@@ -114,10 +122,10 @@ def build_report(args: argparse.Namespace) -> dict[str, object]:
     try:
         receipt = whatsapp_web_session_delivery.send_whatsapp_web_session_text(
             tool_runtime=None,
-            principal_id=str(args.principal_id or "").strip(),
+            principal_id=effective_principal_id,
             recipient=recipient,
             text=str(args.text or ""),
-            binding_id=str(args.binding_id or "").strip(),
+            binding_id=effective_binding_id,
             binding=binding,
             heyy_ai_key=str(getattr(args, "heyy_ai_key", "") or "").strip(),
             heyy_ai_name=str(getattr(args, "heyy_ai_name", "") or "").strip(),

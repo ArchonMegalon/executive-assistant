@@ -568,7 +568,7 @@ def settings_support_detail(
             _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness is mirrored."), "Guide"),
             _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
             _object_detail_row(
-                "Fix verification",
+                "Fix status",
                 str(support_verification.get("state") or "not_requested").replace("_", " "),
                 "Support",
                 action_href=str(support_verification.get("request_action_href") or ""),
@@ -595,7 +595,7 @@ def settings_support_detail(
         ],
         object_sections=[
             {
-                "eyebrow": "Fix verification",
+                "eyebrow": "Fix status",
                 "title": "Did the fix reach the channel and workspace link",
                 "items": [
                     _object_detail_row(
@@ -627,8 +627,8 @@ def settings_support_detail(
                 ],
             },
             {
-                "eyebrow": "Grounded packet",
-                "title": str(support_grounding.get("title") or "Grounded support packet"),
+                "eyebrow": "Support closure grounding",
+                "title": str(support_grounding.get("title") or "Support closure grounding"),
                 "items": (
                     [
                         _object_detail_row(
@@ -665,7 +665,7 @@ def settings_support_detail(
             },
             {
                 "eyebrow": "Product control",
-                "title": "Weekly pulse and journey-gate truth",
+                "title": "What needs attention",
                 "items": [
                     _object_detail_row("Active wave", str(product_control.get("active_wave") or "No active wave mirrored."), "Wave"),
                     _object_detail_row("Wave status", str(product_control.get("active_wave_status") or "unknown").replace("_", " "), "Wave"),
@@ -676,7 +676,7 @@ def settings_support_detail(
                     _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch-readiness note mirrored."), "Launch"),
                     _object_detail_row("Route default", str(route_stewardship.get("default_status") or "No route default note published."), "Route"),
                     _object_detail_row("Canary posture", str(route_stewardship.get("canary_status") or "No canary note published."), "Route"),
-                    _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
+                    _object_detail_row("Next route review", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
                     _object_detail_row("Next checkpoint", str(product_control.get("next_checkpoint_question") or "No checkpoint question mirrored."), "Checkpoint"),
                     _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No published journey-gate freshness."), "Proof"),
                     _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness is mirrored."), "Guide"),
@@ -684,7 +684,7 @@ def settings_support_detail(
             },
             {
                 "eyebrow": "Journey proof",
-                "title": "What the published release gate is saying",
+                "title": "Current journey outcomes",
                 "items": [
                     _object_detail_row(
                         str(item.get("title") or "Journey"),
@@ -880,6 +880,7 @@ def settings_outcomes_detail(
         object_sidebar_title="What a healthy loop shows",
         object_sidebar_copy="A healthy office loop reaches first value quickly, gets the memo opened, turns approvals into actions, and closes commitments at a visible rate.",
         object_sidebar_rows=[
+            _object_detail_row("Current outcome", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
             _object_detail_row("Success summary", str(outcomes.get("success_summary") or "No outcome summary yet."), "Summary"),
             _object_detail_row("Office-loop proof", str(office_loop_proof.get("summary") or "No gate summary yet."), "Gate"),
             _object_detail_row("Approval coverage rate", str(outcomes.get("approval_coverage_rate") or 0), "Review"),
@@ -979,7 +980,7 @@ def settings_outcomes_detail(
                     _object_detail_row("Journey gate", str(journey_gate.get("state") or "missing").replace("_", " "), "Gate"),
                     _object_detail_row("Support fallout", str(support_fallout.get("detail") or "No support fallout is mirrored."), "Support"),
                     _object_detail_row("Launch readiness", str(product_control.get("launch_readiness") or "No launch note mirrored."), "Launch"),
-                    _object_detail_row("Route review due", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
+                    _object_detail_row("Next route review", str(route_stewardship.get("review_due") or "No route review due published."), "Route"),
                     _object_detail_row("Journey proof freshness", str(journey_freshness.get("detail") or "No journey-gate freshness mirrored."), "Proof"),
                     _object_detail_row("Public guide freshness", str(public_guide_freshness.get("detail") or "No public-guide freshness mirrored."), "Guide"),
                     *[
@@ -1222,7 +1223,7 @@ def settings_google_detail(
                 _object_detail_row("Candidates covered by drafts", str(sync.get("covered_signal_candidates") or 0), "Queue"),
             ]),
             _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
-            _object_detail_row("Last send verification", verify_detail, "Verify"),
+            _object_detail_row("Last send test", verify_detail, "Verify"),
             _object_detail_row(
                 "Next Google action",
                 action["detail"],
@@ -1249,7 +1250,7 @@ def settings_google_detail(
                     _object_detail_row("Token status", str(sync.get("token_status") or "missing").replace("_", " "), "Auth"),
                     _object_detail_row("Last refresh", str(sync.get("last_refresh_at") or "Not recorded"), "Auth"),
                     _object_detail_row("Reauth reason", str(sync.get("reauth_required_reason") or "No reauth required"), "Auth"),
-                    _object_detail_row("Last send verification", verify_detail, "Verify"),
+                    _object_detail_row("Last send test", verify_detail, "Verify"),
                     _object_detail_row("Google link posture", email_link_detail, "Access"),
                     _object_detail_row(
                         action["label"],
@@ -1347,6 +1348,7 @@ def settings_trust_detail(
     readiness = dict(trust.get("readiness") or {})
     provider_posture = dict(trust.get("provider_posture") or {})
     reliability = dict(trust.get("reliability") or {})
+    release_authority = dict(trust.get("release_authority") or {})
     public_help_grounding = dict(trust.get("public_help_grounding") or {})
     recent_events = [dict(item) for item in (trust.get("recent_events") or [])]
     return _render_console_object_detail(
@@ -1365,6 +1367,7 @@ def settings_trust_detail(
             {"label": "Audit retention", "value": str(trust.get("audit_retention") or "standard")},
             {"label": "Evidence linked", "value": str(trust.get("evidence_count") or 0)},
             {"label": "Rules", "value": str(trust.get("rule_count") or 0)},
+            {"label": "Release label", "value": str(release_authority.get("release_label") or "Not recorded")},
         ],
         object_sidebar_title="What makes this trustworthy",
         object_sidebar_copy="Trust is the product of clear readiness, understandable provider posture, reliable delivery, visible rules, and recent evidence of what the system actually did.",
@@ -1375,6 +1378,7 @@ def settings_trust_detail(
             _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
             _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
             _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
+            _object_detail_row("Release authority", str(release_authority.get("summary") or "Release authority not recorded."), "Release"),
         ],
         object_sections=[
             {
@@ -1398,6 +1402,25 @@ def settings_trust_detail(
                     _object_detail_row("Delivery reliability", str(reliability.get("delivery") or "watch"), "Runtime"),
                     _object_detail_row("Access reliability", str(reliability.get("access") or "watch"), "Runtime"),
                     _object_detail_row("Sync reliability", str(reliability.get("sync") or "watch"), "Runtime"),
+                ],
+            },
+            {
+                "eyebrow": "Release authority",
+                "title": "What release trust is anchored to",
+                "items": [
+                    _object_detail_row("Release authority", str(release_authority.get("summary") or "Release authority not recorded."), "Release"),
+                    _object_detail_row("Authority posture", str(release_authority.get("authority_posture") or "missing").replace("_", " "), "Release"),
+                    _object_detail_row("Release next action", str(release_authority.get("next_action") or "No release action recorded."), "Release"),
+                    _object_detail_row("Release label", str(release_authority.get("release_label") or "Not recorded"), "Release"),
+                    _object_detail_row("Deployment ID", str(release_authority.get("deployment_id") or "Not recorded"), "Release"),
+                    _object_detail_row("Deployment source", str(release_authority.get("deployment_id_source") or "Not recorded").replace("_", " "), "Release"),
+                    _object_detail_row("Release branch", str(release_authority.get("branch") or "Not recorded"), "Release"),
+                    _object_detail_row("Tracking branch", str(release_authority.get("tracking_branch") or "Not recorded"), "Release"),
+                    _object_detail_row("Release commit", str(release_authority.get("commit_sha") or "Not recorded")[:12] or "Not recorded", "Release"),
+                    _object_detail_row("Worktree", "dirty" if bool(release_authority.get("dirty_worktree")) else "clean", "Release"),
+                    _object_detail_row("Public origin", str(release_authority.get("public_origin") or "Not recorded"), "Release"),
+                    _object_detail_row("Origin source", str(release_authority.get("public_origin_source") or "Not recorded").replace("_", " "), "Release"),
+                    _object_detail_row("Authority basis", str(release_authority.get("authority_basis") or "Not recorded"), "Release"),
                 ],
             },
             {

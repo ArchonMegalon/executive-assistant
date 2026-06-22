@@ -1,0 +1,15 @@
+{
+  "contract_name": "ea.runtime_dependency_audit.v1",
+  "dependency_count": 40,
+  "fix_count": 0,
+  "generated_at": "2026-06-22T19:37:55.184183Z",
+  "generated_by": "scripts/materialize_runtime_dependency_evidence.py",
+  "requirements_path": "ea/requirements.txt",
+  "requirements_sha256": "72c7ab51cdcfbf5fe15b78e68e477f9490d8caa4832c8e8792177a24990ebaa8",
+  "sbom_path": ".codex-studio/published/runtime_dependency_sbom.cdx.json",
+  "sbom_sha256": "ea1e5af1910f57053754761340e959a8d08c43213eb8215b02554b009801ad8b",
+  "source_git_head": "d99d6eb1dde32316942e92c4fb47ba035d56a4f7",
+  "status": "pass",
+  "vulnerable_dependencies": [],
+  "vulnerable_dependency_count": 0
+}

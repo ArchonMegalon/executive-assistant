@@ -179,6 +179,7 @@ def test_prod_requires_database_url() -> None:
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "real-api-token"
     os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     with pytest.raises(RuntimeError, match="DATABASE_URL"):
         validate_startup_settings(get_settings())
 
@@ -189,6 +190,53 @@ def test_prod_requires_explicit_signing_secret() -> None:
     os.environ["EA_API_TOKEN"] = "secret-token"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
     with pytest.raises(RuntimeError, match="EA_SIGNING_SECRET"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_requires_workspace_access_token_issuer_binding() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    with pytest.raises(RuntimeError, match="workspace access token binding"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_allows_workspace_access_token_binding_from_public_origin() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+
+    profile = validate_startup_settings(get_settings())
+
+    assert profile.mode == "prod"
+
+
+def test_prod_rejects_placeholder_workspace_access_token_audience() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+    os.environ["EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE"] = "example-secret"
+    with pytest.raises(RuntimeError, match="placeholder EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE"):
+        validate_startup_settings(get_settings())
+
+
+def test_prod_rejects_placeholder_workspace_access_token_key_version() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_API_TOKEN"] = "real-api-token"
+    os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
+    os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
+    os.environ["EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION"] = "replace-me"
+    with pytest.raises(RuntimeError, match="placeholder EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION"):
         validate_startup_settings(get_settings())
 
 
@@ -218,6 +266,7 @@ def test_prod_forbids_loopback_no_auth() -> None:
     os.environ["EA_API_TOKEN"] = "real-api-token"
     os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     os.environ["EA_ALLOW_LOOPBACK_NO_AUTH"] = "1"
     with pytest.raises(RuntimeError, match="EA_ALLOW_LOOPBACK_NO_AUTH"):
         validate_startup_settings(get_settings())
@@ -229,6 +278,7 @@ def test_prod_rejects_registration_sender_domains_outside_configured_allowlist()
     os.environ["EA_API_TOKEN"] = "real-api-token"
     os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
     os.environ["EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"] = "example.test"
     with pytest.raises(RuntimeError, match="registration email sender domains"):
@@ -241,6 +291,7 @@ def test_prod_allows_registration_sender_domain_from_configured_allowlist() -> N
     os.environ["EA_API_TOKEN"] = "real-api-token"
     os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
     os.environ["EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"] = "chummer.run"
     profile = validate_startup_settings(get_settings())
@@ -253,6 +304,7 @@ def test_prod_allows_registration_sender_domain_override() -> None:
     os.environ["EA_API_TOKEN"] = "real-api-token"
     os.environ["EA_SIGNING_SECRET"] = "real-signing-secret"
     os.environ["DATABASE_URL"] = "postgresql://example.invalid/ea"
+    os.environ["EA_PUBLIC_APP_BASE_URL"] = "https://assistant.example.test"
     os.environ["EA_REGISTRATION_EMAIL_FROM"] = "concierge@chummer.run"
     os.environ["EA_REGISTRATION_EMAIL_ALLOWED_DOMAINS"] = "example.test"
     os.environ["EA_ALLOW_NON_PROPERTYQUARRY_EMAIL_SENDER"] = "1"

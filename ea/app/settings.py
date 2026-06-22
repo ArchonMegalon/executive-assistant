@@ -395,6 +395,27 @@ def ensure_prod_non_placeholder_secrets(settings: Settings) -> None:
         raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_SIGNING_SECRET")
 
 
+def ensure_prod_workspace_access_token_binding_configured(settings: Settings) -> None:
+    if not is_prod_mode(settings.runtime.mode):
+        return
+    issuer = resolve_workspace_access_token_issuer(settings)
+    audience = resolve_workspace_access_token_audience(settings)
+    key_version = resolve_workspace_access_token_key_version(settings)
+    if issuer == "ea://workspace-access":
+        raise RuntimeError(
+            "EA_RUNTIME_MODE=prod requires EA_PUBLIC_APP_BASE_URL, EA_GOOGLE_OAUTH_REDIRECT_URI, "
+            "or EA_WORKSPACE_ACCESS_TOKEN_ISSUER for workspace access token binding"
+        )
+    if not str(audience or "").strip():
+        raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE")
+    if not str(key_version or "").strip():
+        raise RuntimeError("EA_RUNTIME_MODE=prod requires EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION")
+    if _placeholder_like_value(str(audience or "")):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE")
+    if _placeholder_like_value(str(key_version or "")):
+        raise RuntimeError("EA_RUNTIME_MODE=prod forbids placeholder EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION")
+
+
 def ensure_prod_loopback_no_auth_disabled(settings: Settings) -> None:
     if not is_prod_mode(settings.runtime.mode):
         return
@@ -460,6 +481,7 @@ def validate_startup_settings(settings: Settings) -> RuntimeProfile:
     ensure_prod_api_token_configured(settings)
     ensure_prod_signing_secret_configured(settings)
     ensure_prod_non_placeholder_secrets(settings)
+    ensure_prod_workspace_access_token_binding_configured(settings)
     ensure_prod_loopback_no_auth_disabled(settings)
     ensure_prod_registration_email_sender_domain(settings)
     profile = resolve_runtime_profile(settings)
@@ -475,7 +497,7 @@ def get_settings() -> Settings:
     app_name = (os.environ.get("EA_APP_NAME") or "ea-rewrite").strip() or "ea-rewrite"
     app_version = (os.environ.get("EA_APP_VERSION") or "0.3.0").strip() or "0.3.0"
     role = (os.environ.get("EA_ROLE") or "api").strip().lower() or "api"
-    host = (os.environ.get("EA_HOST") or "0.0.0.0").strip() or "0.0.0.0"
+    host = (os.environ.get("EA_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     port = max(1, min(65535, _to_int(os.environ.get("EA_PORT") or "8090", 8090)))
     log_level = (os.environ.get("EA_LOG_LEVEL") or "INFO").strip().upper() or "INFO"
     tenant_id = (os.environ.get("EA_TENANT_ID") or "default").strip() or "default"
@@ -498,7 +520,7 @@ def get_settings() -> Settings:
         )
     storage_backend = (configured_storage_backend or legacy_backend or "auto").strip().lower() or "auto"
     database_url = (os.environ.get("DATABASE_URL") or "").strip()
-    artifacts_dir = (os.environ.get("EA_ARTIFACTS_DIR") or "/tmp/ea_artifacts").strip() or "/tmp/ea_artifacts"
+    artifacts_dir = (os.environ.get("EA_ARTIFACTS_DIR") or ".runtime/ea_artifacts").strip() or ".runtime/ea_artifacts"
 
     api_token = (os.environ.get("EA_API_TOKEN") or "").strip()
     signing_secret = (os.environ.get("EA_SIGNING_SECRET") or "").strip()

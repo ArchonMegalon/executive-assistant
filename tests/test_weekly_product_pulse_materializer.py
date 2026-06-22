@@ -14,6 +14,8 @@ SCRIPT = ROOT / "scripts" / "materialize_weekly_product_pulse.py"
 PULSE_PATH = Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json")
 SCORECARD_PATH = Path(".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml")
 FLAGSHIP_RECEIPT_PATH = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json")
+RELEASE_MANIFEST_PATH = Path(".codex-studio/published/release_manifest.generated.json")
+PROJECT_MODES_PATH = Path(".codex-design/product/PROJECT_MODES.generated.json")
 JOURNEY_GATES_PATH = Path("/tmp/ea-weekly-pulse-journey-gates.generated.json")
 
 
@@ -29,6 +31,7 @@ def _load_materializer_module():
 def _seed_truth_sources(root: Path) -> None:
     (root / SCORECARD_PATH).parent.mkdir(parents=True, exist_ok=True)
     (root / FLAGSHIP_RECEIPT_PATH).parent.mkdir(parents=True, exist_ok=True)
+    (root / RELEASE_MANIFEST_PATH).parent.mkdir(parents=True, exist_ok=True)
 
     scorecard = {
         "product": "executive-assistant",
@@ -72,6 +75,26 @@ def _seed_truth_sources(root: Path) -> None:
         "current_limitations": ["no published browser execution receipt is attached yet"],
     }
     (root / FLAGSHIP_RECEIPT_PATH).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    release_manifest = {
+        "contract_name": "ea.release_manifest.v1",
+        "repository": "EA",
+        "branch": "main",
+        "tracking_branch": "origin/main",
+        "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "deployment_id": "deploy-123",
+        "deployment_id_source": "explicit",
+        "public_origin": "https://ea.example.test",
+        "public_origin_source": "EA_PUBLIC_APP_BASE_URL",
+        "git_remote_origin": "https://github.com/ArchonMegalon/executive-assistant.git",
+        "release_label": "deploy-123",
+        "project_mode": "EA_CORE",
+        "enabled_project_modes": ["EA_CORE"],
+        "compose_files": ["docker-compose.yml", "docker-compose.prod.yml"],
+        "artifact_set": [".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"],
+        "dirty_worktree": False,
+    }
+    (root / RELEASE_MANIFEST_PATH).write_text(json.dumps(release_manifest, indent=2) + "\n", encoding="utf-8")
+    (root / PROJECT_MODES_PATH).write_text(json.dumps({"modes": [{"key": "EA_CORE"}]}, indent=2) + "\n", encoding="utf-8")
 
     journey_gates = {
         "contract_name": "fleet.journey_gates",
@@ -121,9 +144,11 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     assert pulse["active_wave"] == "EA flagship receipt closeout"
     assert pulse["active_wave_status"] == "active"
     assert pulse["release_truth_source"] == FLAGSHIP_RECEIPT_PATH.as_posix()
+    assert pulse["release_authority_source"] == RELEASE_MANIFEST_PATH.as_posix()
     assert pulse["journey_gate_source"] == str(JOURNEY_GATES_PATH)
     assert pulse["release_truth_provenance"]["present"] is True
     assert pulse["release_truth_provenance"]["sha256"]
+    assert pulse["release_authority_provenance"]["present"] is True
     assert pulse["journey_gate_provenance"]["present"] is True
     assert pulse["journey_gate_provenance"]["sha256"]
     assert pulse["release_health"]["state"] == "blocked"
@@ -132,6 +157,8 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     assert pulse["journey_gate_health"]["blocked_count"] == 3
     assert pulse["supporting_signals"]["journey_gate_source"] == str(JOURNEY_GATES_PATH)
     assert pulse["supporting_signals"]["flagship_release_receipt_source"] == FLAGSHIP_RECEIPT_PATH.as_posix()
+    assert pulse["supporting_signals"]["release_authority_state"] == "clear"
+    assert pulse["supporting_signals"]["release_authority_issues"] == []
     assert pulse["supporting_signals"]["journey_gate_git_head"] == ""
     assert pulse["supporting_signals"]["flagship_release_receipt_git_head"] == ""
     assert pulse["supporting_signals"]["launch_readiness"].startswith("Hold launch expansion")
@@ -328,3 +355,58 @@ def test_weekly_product_pulse_does_not_report_100_overall_while_release_is_block
     assert pulse["release_health"]["state"] == "blocked"
     assert pulse["supporting_signals"]["registry_completion_percent"] == 100
     assert pulse["supporting_signals"]["overall_progress_percent"] == 95
+
+
+def test_weekly_product_pulse_blocks_release_health_when_release_authority_is_blocked(tmp_path: Path) -> None:
+    _seed_truth_sources(tmp_path)
+
+    receipt = json.loads((tmp_path / FLAGSHIP_RECEIPT_PATH).read_text(encoding="utf-8"))
+    receipt["status"] = "pass"
+    receipt["browser_workflow_proof"]["published_receipt_present"] = True
+    (tmp_path / FLAGSHIP_RECEIPT_PATH).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+    journey = json.loads(Path(JOURNEY_GATES_PATH).read_text(encoding="utf-8"))
+    journey["summary"]["overall_state"] = "ready"
+    journey["summary"]["ready_count"] = 6
+    journey["summary"]["blocked_count"] = 0
+    journey["summary"]["recommended_action"] = "Journey proof is steady on current published evidence."
+    Path(JOURNEY_GATES_PATH).write_text(json.dumps(journey, indent=2) + "\n", encoding="utf-8")
+    manifest = json.loads((tmp_path / RELEASE_MANIFEST_PATH).read_text(encoding="utf-8"))
+    manifest["public_origin"] = ""
+    manifest["public_origin_source"] = "missing"
+    manifest["deployment_id"] = "local-20260622T000000Z-aaaaaaaaaaaa"
+    manifest["deployment_id_source"] = "local_fallback"
+    manifest["dirty_worktree"] = True
+    (tmp_path / RELEASE_MANIFEST_PATH).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--scorecard",
+            SCORECARD_PATH.as_posix(),
+            "--journey-gates",
+            str(JOURNEY_GATES_PATH),
+            "--flagship-receipt",
+            FLAGSHIP_RECEIPT_PATH.as_posix(),
+            "--release-manifest",
+            RELEASE_MANIFEST_PATH.as_posix(),
+            "--project-modes",
+            PROJECT_MODES_PATH.as_posix(),
+            "--output",
+            PULSE_PATH.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
+
+    assert pulse["release_health"]["state"] == "blocked"
+    assert pulse["release_health"]["release_authority_state"] == "blocked"
+    assert pulse["supporting_signals"]["release_authority_state"] == "blocked"
+    assert "public_origin_missing" in pulse["supporting_signals"]["release_authority_issues"]
+    assert pulse["supporting_signals"]["launch_readiness"] == "Hold launch expansion pending release authority proof from the deployed runtime."

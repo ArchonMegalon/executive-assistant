@@ -15,6 +15,9 @@
 - `EA_DEFAULT_PRINCIPAL_ID`: fallback request principal for principal-scoped connector/memory routes when `X-EA-Principal-ID` is omitted
 - `EA_BOOTSTRAP_DB=1`: optional deploy-time migration bootstrap
 - `EA_SIGNING_SECRET`: required in `prod`; keeps workspace links, browser sessions, and signed action tokens stable across restarts
+- `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`: in `prod`, set explicitly or let it derive from `EA_PUBLIC_APP_BASE_URL`; do not rely on the generic `ea://workspace-access` fallback
+- `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE`: workspace-access session audience label; keep explicit in `prod`
+- `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION`: workspace-access signing key version label; keep explicit in `prod`
 - `EA_CF_TUNNEL_TOKEN`: optional Cloudflare Tunnel token used only when `docker-compose.cloudflared.yml` is layered onto the base compose stack
 
 ## Responses Provider Variables
@@ -81,5 +84,6 @@ Memorial shadow STT refresh-token lookup order:
 - Use `auto` only where memory fallback is acceptable.
 - Run `scripts/db_status.sh` after bootstrap to verify kernel table presence.
 - `EA_RUNTIME_MODE=prod` requires `EA_SIGNING_SECRET`; outside prod, omitting it falls back to a process-local ephemeral secret.
+- `EA_RUNTIME_MODE=prod` also requires a real workspace-access token binding source (`EA_PUBLIC_APP_BASE_URL`, `EA_GOOGLE_OAUTH_REDIRECT_URI`, or `EA_WORKSPACE_ACCESS_TOKEN_ISSUER`) plus non-placeholder `EA_WORKSPACE_ACCESS_TOKEN_AUDIENCE` and `EA_WORKSPACE_ACCESS_TOKEN_KEY_VERSION`.
 - The base `docker-compose.yml` intentionally omits `/docker` and `/var/run/docker.sock`; add `docker-compose.host-tools.yml` only for workflows that truly need host repo access or Docker control.
 - The Cloudflare tunnel is opt-in; add `docker-compose.cloudflared.yml` only when you explicitly want to expose EA through Cloudflare Tunnel.
