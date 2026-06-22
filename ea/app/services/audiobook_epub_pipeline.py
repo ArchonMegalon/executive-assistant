@@ -172,6 +172,18 @@ def _env_path(name: str, default: Path) -> Path:
     return Path(raw).expanduser() if raw else default
 
 
+def _split_configured_paths(value: str) -> tuple[Path, ...]:
+    raw = str(value or "").strip()
+    if not raw:
+        return ()
+    paths: list[Path] = []
+    for item in re.split(r"[:;,]", raw):
+        normalized = str(item or "").strip()
+        if normalized:
+            paths.append(Path(normalized).expanduser())
+    return tuple(paths)
+
+
 def _dotenv_values(env_files: tuple[Path, ...] = DEFAULT_ENV_FILES) -> dict[str, str]:
     cached = _DOTENV_CACHE.get(env_files)
     if cached is not None:
@@ -324,6 +336,53 @@ def audiobook_jobs_root() -> Path:
         DEFAULT_JOB_ROOT,
         host_fallback_name="EA_AUDIOBOOK_JOBS_HOST_ROOT",
     )
+
+
+def audiobook_job_discovery_roots() -> tuple[Path, ...]:
+    configured = [
+        *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOB_DISCOVERY_ROOTS") or "")),
+        *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOBS_ROOT") or "")),
+        *_split_configured_paths(str(os.getenv("EA_AUDIOBOOK_JOBS_HOST_ROOT") or "")),
+        audiobook_jobs_root(),
+        DEFAULT_JOB_ROOT,
+    ]
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for root in configured:
+        try:
+            key = str(root.resolve())
+        except Exception:
+            key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _storage_path_accessible(root):
+            roots.append(root)
+    return tuple(roots)
+
+
+def iter_audiobook_job_manifests(*, newest_first: bool = False) -> tuple[Path, ...]:
+    manifests: list[Path] = []
+    seen: set[str] = set()
+    for root in audiobook_job_discovery_roots():
+        for manifest_path in root.glob("*/job.json"):
+            try:
+                key = str(manifest_path.resolve())
+            except Exception:
+                key = str(manifest_path)
+            if key in seen:
+                continue
+            seen.add(key)
+            manifests.append(manifest_path)
+
+    def _sort_key(path: Path) -> tuple[float, str]:
+        try:
+            mtime = float(path.stat().st_mtime)
+        except OSError:
+            mtime = 0.0
+        return (mtime, str(path))
+
+    return tuple(sorted(manifests, key=_sort_key, reverse=bool(newest_first)))
 
 
 def audiobook_voice_feedback_path() -> Path:
@@ -2847,12 +2906,12 @@ def _find_voice_audition_job_by_token(token: str) -> tuple[Path, dict[str, objec
     normalized = str(token or "").strip()
     if not normalized:
         raise RuntimeError("voice_audition_token_missing")
-    root = audiobook_jobs_root()
-    for private_path in sorted(root.glob("*/voice_audition/private.json")):
-        private_payload = _load_voice_audition_private(private_path.parent.parent)
-        candidate = dict(dict(private_payload.get("candidates") or {}).get(normalized) or {})
-        if candidate:
-            return private_path.parent.parent, private_payload, candidate
+    for root in audiobook_job_discovery_roots():
+        for private_path in sorted(root.glob("*/voice_audition/private.json")):
+            private_payload = _load_voice_audition_private(private_path.parent.parent)
+            candidate = dict(dict(private_payload.get("candidates") or {}).get(normalized) or {})
+            if candidate:
+                return private_path.parent.parent, private_payload, candidate
     raise RuntimeError("voice_audition_token_not_found")
 
 
@@ -3029,34 +3088,40 @@ def cleanup_audiobook_job_artifacts(
 
 def _cleanup_stale_audiobook_incoming_files(*, now: datetime | None = None) -> dict[str, object]:
     observed_at = now or datetime.now(UTC)
-    incoming_root = audiobook_jobs_root() / "_incoming"
-    if not incoming_root.is_dir():
+    incoming_roots = [root / "_incoming" for root in audiobook_job_discovery_roots()]
+    accessible_roots = [root for root in incoming_roots if root.is_dir()]
+    if not accessible_roots:
         return {"status": "missing", "removed_files": 0, "removed_bytes": 0, "removed_paths": []}
     retention = timedelta(days=_audiobook_job_cleanup_prune_staging_days())
     removed_files = 0
     removed_bytes = 0
     removed_paths: list[str] = []
-    for path in sorted(incoming_root.rglob("*")):
-        if not path.is_file():
-            continue
-        try:
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
-        except Exception:
-            continue
-        if observed_at - mtime < retention:
-            continue
-        removed_bytes += int(path.stat().st_size or 0)
-        path.unlink(missing_ok=True)
-        removed_files += 1
-        removed_paths.append(str(path.relative_to(incoming_root)))
-    for path in sorted(incoming_root.rglob("*"), reverse=True):
-        if path.is_dir():
+    for incoming_root in accessible_roots:
+        for path in sorted(incoming_root.rglob("*")):
+            if not path.is_file():
+                continue
             try:
-                next(path.iterdir())
-            except StopIteration:
-                path.rmdir()
+                mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
             except Exception:
-                pass
+                continue
+            if observed_at - mtime < retention:
+                continue
+            removed_bytes += int(path.stat().st_size or 0)
+            path.unlink(missing_ok=True)
+            removed_files += 1
+            try:
+                relative = str(path.relative_to(incoming_root))
+            except Exception:
+                relative = str(path)
+            removed_paths.append(f"{incoming_root}:{relative}")
+        for path in sorted(incoming_root.rglob("*"), reverse=True):
+            if path.is_dir():
+                try:
+                    next(path.iterdir())
+                except StopIteration:
+                    path.rmdir()
+                except Exception:
+                    pass
     return {
         "status": "cleaned" if removed_files else "not_needed",
         "removed_files": removed_files,
@@ -3072,8 +3137,9 @@ def cleanup_finished_audiobook_jobs(
     now: datetime | None = None,
 ) -> dict[str, object]:
     observed_at = now or datetime.now(UTC)
-    root = audiobook_jobs_root()
-    if not root.is_dir():
+    roots = audiobook_job_discovery_roots()
+    manifests = list(iter_audiobook_job_manifests())
+    if not roots:
         return {
             "status": "missing",
             "cleaned_jobs": 0,
@@ -3082,7 +3148,6 @@ def cleanup_finished_audiobook_jobs(
             "results": [],
             "staging": {"status": "missing", "removed_files": 0, "removed_bytes": 0, "removed_paths": []},
         }
-    manifests = sorted(root.glob("*/job.json"))
     if limit is not None:
         manifests = manifests[: max(int(limit), 0)]
     results: list[dict[str, object]] = []
@@ -4769,7 +4834,12 @@ def ensure_audiobook_playback_acceptance_callback(job: dict[str, object]) -> dic
         return job
     job_dir_raw = str(dict(job.get("storage") or {}).get("job_dir") or "").strip()
     job_dir = Path(job_dir_raw) if job_dir_raw else Path()
-    current_job = _load_job(job_dir) if job_dir_raw and job_dir.is_dir() else dict(job)
+    current_job = dict(job)
+    if job_dir_raw and job_dir.is_dir():
+        try:
+            current_job = _load_job(job_dir)
+        except Exception:
+            current_job = dict(job)
     import_result = dict(current_job.get("audiobookshelf_import") or {})
     public_share = dict(import_result.get("public_share") or {})
     if str(public_share.get("status") or "").strip() != "public_share_ready":
@@ -4804,8 +4874,7 @@ def record_audiobook_playback_acceptance_by_callback_token(
     normalized = str(callback_token or "").strip()
     if not normalized:
         raise RuntimeError("audiobook_playback_acceptance_token_missing")
-    root = audiobook_jobs_root()
-    for manifest_path in sorted(root.glob("*/job.json")):
+    for manifest_path in iter_audiobook_job_manifests(newest_first=True):
         try:
             job = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
@@ -5203,8 +5272,7 @@ def _audiobook_default_voice_public_share_delivery_block(
         return {}
     current_job_id = str(job.get("job_id") or job_dir.name).strip()
     current_created_at = _parse_iso_datetime(job.get("created_at"))
-    root = audiobook_jobs_root()
-    for manifest_path in sorted(root.glob("*/job.json")):
+    for manifest_path in iter_audiobook_job_manifests(newest_first=True):
         if manifest_path.parent == job_dir:
             continue
         try:
@@ -8289,10 +8357,26 @@ def resume_due_audiobook_jobs(
     notify_telegram: bool = True,
     force_public_share_followup: bool = False,
 ) -> dict[str, object]:
-    root = audiobook_jobs_root()
     observed_at = now or datetime.now(UTC)
     max_jobs = limit if limit is not None else _env_int("EA_AUDIOBOOK_RESUME_DUE_LIMIT", 2, minimum=1, maximum=20)
-    if not _storage_path_accessible(root) or not root.is_dir():
+    roots = audiobook_job_discovery_roots()
+    effective_job_root = audiobook_jobs_root()
+    if not _storage_path_accessible(effective_job_root):
+        return {
+            "ran": True,
+            "attempted": 0,
+            "resumed": 0,
+            "pending": 0,
+            "skipped": 0,
+            "errors": 0,
+            "share_link_attempted": 0,
+            "share_links_ready": 0,
+            "share_link_pending": 0,
+            "share_link_notifications": [],
+            "reason": "job_root_missing",
+        }
+    manifests = list(iter_audiobook_job_manifests())
+    if not roots:
         return {
             "ran": True,
             "attempted": 0,
@@ -8312,7 +8396,7 @@ def resume_due_audiobook_jobs(
     share_link_pending = 0
     skipped = 0
     errors = 0
-    for manifest_path in sorted(root.glob("*/job.json")):
+    for manifest_path in manifests:
         try:
             job = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:

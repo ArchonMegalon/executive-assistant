@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib
 import json
 import mimetypes
 import os
@@ -46,6 +47,7 @@ DEFAULT_ACTION_REPLY_QUIET_HOURS_END_HOUR = 6
 DEFAULT_STALE_CALLBACK_REPLY_MAX_AGE_SECONDS = 900
 DEFAULT_CONVERSATION_FALLBACK_NOOP_COOLDOWN_SECONDS = 60
 DEFAULT_CONVERSATION_FALLBACK_NOOP_MAX_COOLDOWN_SECONDS = 300
+DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY = "I got that. I am checking it now."
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -113,14 +115,17 @@ def _audiobook_job_roots() -> list[Path]:
     roots: list[Path] = []
     seen: set[str] = set()
     configured = [
+        *_split_paths(os.getenv("EA_AUDIOBOOK_JOB_DISCOVERY_ROOTS")),
         *_split_paths(os.getenv("EA_WHATSAPP_AUDIOBOOK_JOBS_ROOTS")),
         *_split_paths(os.getenv("EA_WHATSAPP_AUDIOBOOK_JOBS_ROOT")),
         *_split_paths(os.getenv("EA_AUDIOBOOK_JOBS_ROOT")),
+        *_split_paths(os.getenv("EA_AUDIOBOOK_JOBS_HOST_ROOT")),
     ]
-    try:
-        configured.append(audiobook_epub_pipeline.audiobook_jobs_root())
-    except Exception:
-        pass
+    if not configured:
+        try:
+            configured.extend(audiobook_epub_pipeline.audiobook_job_discovery_roots())
+        except Exception:
+            pass
     for root in configured:
         try:
             normalized = str(root.resolve())
@@ -666,6 +671,98 @@ def _inbox_observability_summary(messages: list[dict[str, Any]]) -> dict[str, ob
     }
 
 
+def _freeform_state(state: dict[str, Any]) -> dict[str, Any]:
+    current = state.get("freeform")
+    if isinstance(current, dict):
+        return current
+    state["freeform"] = {}
+    return state["freeform"]
+
+
+def _executive_assistant_freeform_enabled(args: argparse.Namespace) -> bool:
+    value = getattr(args, "freeform_executive_assistant_enabled", None)
+    if value is None:
+        return _env_bool("EA_WHATSAPP_WEB_FREEFORM_EXECUTIVE_ASSISTANT_ENABLED", True)
+    return bool(value)
+
+
+def _executive_assistant_freeform_principal_id(args: argparse.Namespace) -> str:
+    explicit = str(_env("EA_DEFAULT_PRINCIPAL_ID", "") or "").strip()
+    if explicit:
+        return explicit
+    return str(getattr(args, "principal_id", "") or DEFAULT_AUDIOBOOK_PRINCIPAL_ID).strip()
+
+
+def _executive_assistant_freeform_timeout_seconds() -> float:
+    return _env_float(
+        "EA_WHATSAPP_WEB_FREEFORM_EXECUTIVE_ASSISTANT_TIMEOUT_SECONDS",
+        8.0,
+        minimum=1.0,
+        maximum=30.0,
+    )
+
+
+def _freeform_reply_args(args: argparse.Namespace, *, heyy_ai_key: str, heyy_ai_name: str) -> argparse.Namespace:
+    reply_args = argparse.Namespace(**vars(args))
+    reply_args.reply_heyy_ai_key = heyy_ai_key
+    reply_args.reply_heyy_ai_name = heyy_ai_name
+    reply_args.reply_use_sidecar_route_pacing = True
+    reply_args.reply_pre_reply_delay_min_seconds = 0
+    reply_args.reply_pre_reply_delay_max_seconds = 0
+    reply_args.reply_quiet_hours_start_hour = 0
+    reply_args.reply_quiet_hours_end_hour = 0
+    reply_args.reply_typing_delay_ms = 0
+    reply_args.reply_typing_delay_ms_per_character = 0
+    reply_args.reply_typing_status_enabled = True
+    return reply_args
+
+
+def _executive_assistant_freeform_reply_text(
+    *,
+    args: argparse.Namespace,
+    message: dict[str, Any],
+) -> str:
+    text = _message_body_text(message)
+    if not text:
+        return ""
+    try:
+        channels = importlib.import_module("app.api.routes.channels")
+        container_module = importlib.import_module("app.container")
+        container = container_module.build_container()
+        principal_id = _executive_assistant_freeform_principal_id(args)
+        general_reply = str(
+            channels._telegram_general_reply_text(
+                container=container,
+                principal_id=principal_id,
+                text=text,
+            )
+            or ""
+        ).strip()
+        if general_reply:
+            return general_reply
+        real_reply = str(
+            channels._telegram_real_ea_reply_text(
+                container=container,
+                principal_id=principal_id,
+                text=text,
+                current_message_id=str(message.get("id") or "").strip(),
+                timeout_seconds=_executive_assistant_freeform_timeout_seconds(),
+            )
+            or ""
+        ).strip()
+        if real_reply:
+            return real_reply
+    except Exception:
+        pass
+    return str(
+        _env(
+            "EA_WHATSAPP_WEB_FREEFORM_EXECUTIVE_ASSISTANT_FALLBACK_REPLY",
+            DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY,
+        )
+        or DEFAULT_FREEFORM_EXECUTIVE_ASSISTANT_REPLY
+    ).strip()
+
+
 def _mask_sender_digits(value: object) -> str:
     digits = "".join(ch for ch in str(value or "") if ch.isdigit())
     if not digits:
@@ -1141,7 +1238,9 @@ def _is_audiobook_voice_text_message(message: dict[str, Any]) -> bool:
         return False
     if bool(message.get("from_me")):
         return False
-    if not _message_sender_digits(message) and not _message_chat_ref(message):
+    sender_digits = _message_sender_digits(message)
+    chat_ref = _message_chat_ref(message)
+    if not sender_digits and not chat_ref:
         return False
     if bool(message.get("media_present")):
         return False
@@ -1149,12 +1248,17 @@ def _is_audiobook_voice_text_message(message: dict[str, Any]) -> bool:
         return False
     text = _message_body_text(message)
     if _whatsapp_voice_text_action(text):
-        return True
+        return bool(
+            _latest_waiting_whatsapp_voice_selection_job(
+                sender_digits=sender_digits,
+                chat_ref=chat_ref,
+            )
+        )
     return bool(
         _pending_whatsapp_voice_label_choice(
             text,
-            sender_digits=_message_sender_digits(message),
-            chat_ref=_message_chat_ref(message),
+            sender_digits=sender_digits,
+            chat_ref=chat_ref,
         )
     )
 
@@ -3086,6 +3190,7 @@ def build_report(
     epub_processed = 0
     voice_text_processed = 0
     status_processed = 0
+    freeform_reply_sent = 0
     skipped_processed = 0
     dry_run_candidates = 0
     reply_sent = 0
@@ -3896,6 +4001,74 @@ def build_report(
         status_counts[status] = status_counts.get(status, 0) + 1
         _save_state(state_path, state)
 
+    freeform_state = _freeform_state(state)
+    for message in messages:
+        if not _is_freeform_inbox_message(message):
+            continue
+        if _message_heyy_ai_key(message).strip() != "executive_assistant":
+            continue
+        if not _executive_assistant_freeform_enabled(args):
+            continue
+        message_id = str(message.get("id") or "").strip()
+        if not message_id:
+            continue
+        existing_freeform = freeform_state.get(message_id)
+        if isinstance(existing_freeform, dict) and bool(existing_freeform.get("reply_sent")):
+            continue
+        sender_digits = _message_sender_digits(message) or _whatsapp_sender_ref_for_chat_ref(_message_chat_ref(message))
+        if not sender_digits:
+            freeform_state[message_id] = {
+                "processed_at": now,
+                "reply_sent": False,
+                "status": "failed",
+                "reason": "sender_ref_unresolved",
+            }
+            _save_state(state_path, state)
+            continue
+        chat_ref = _message_chat_ref(message)
+        reply_text = _executive_assistant_freeform_reply_text(args=args, message=message)
+        if not reply_text:
+            freeform_state[message_id] = {
+                "processed_at": now,
+                "reply_sent": False,
+                "status": "skipped",
+                "reason": "reply_text_empty",
+            }
+            _save_state(state_path, state)
+            continue
+        try:
+            send_result = _send_reply(
+                request_json=request_json,
+                args=_freeform_reply_args(
+                    args,
+                    heyy_ai_key="executive_assistant",
+                    heyy_ai_name="Executive Assistant",
+                ),
+                recipient_digits=sender_digits,
+                text=reply_text,
+                chat_ref=chat_ref,
+            )
+            reply_sent_ok = bool(send_result.get("ok", True))
+            freeform_state[message_id] = {
+                "processed_at": now,
+                "reply_message_hash": _sha(send_result.get("message_id") or send_result.get("id") or ""),
+                "reply_sent": reply_sent_ok,
+                "reply_text_hash": _sha(reply_text),
+                "status": "replied" if reply_sent_ok else "failed",
+            }
+            if reply_sent_ok:
+                reply_sent += 1
+                freeform_reply_sent += 1
+        except Exception as exc:
+            errors += 1
+            freeform_state[message_id] = {
+                "processed_at": now,
+                "reply_sent": False,
+                "status": "failed",
+                "reason": type(exc).__name__,
+            }
+        _save_state(state_path, state)
+
     resume_summary: dict[str, object] = {"ran": False}
     if bool(getattr(args, "audiobook_resume_due", False)):
         try:
@@ -3957,6 +4130,7 @@ def build_report(
             "errors": errors,
             "freeform_inbox_by_heyy_ai_key": dict(inbox_observability.get("freeform_by_heyy_ai_key") or {}),
             "freeform_inbox_message_count": int(inbox_observability.get("freeform_message_count") or 0),
+            "freeform_reply_sent": freeform_reply_sent,
             "inbox_message_count": inbox_message_count,
             "inbound_message_count": int(inbox_observability.get("inbound_message_count") or 0),
             "message_count": len(messages),
@@ -3979,6 +4153,7 @@ def build_report(
         "inbound_message_count": int(inbox_observability.get("inbound_message_count") or 0),
         "freeform_inbox_message_count": int(inbox_observability.get("freeform_message_count") or 0),
         "freeform_inbox_by_heyy_ai_key": dict(inbox_observability.get("freeform_by_heyy_ai_key") or {}),
+        "freeform_reply_sent": freeform_reply_sent,
         "conversation_fallback": conversation_fallback,
         "candidate_count": len(candidates),
         "audiobook_source_candidate_count": len(audiobook_source_candidates),
